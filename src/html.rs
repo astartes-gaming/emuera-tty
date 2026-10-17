@@ -3,8 +3,8 @@
 //! Emuera's HTML is a small markup for one console line, not real HTML:
 //! tags are interpreted left to right straight into console segments,
 //! with a stack so `</font>` / `</b>` restore the previous style. Sizes
-//! (`<img height>`, `<shape param>`) are percentages of the font size,
-//! as in Emuera. Unknown tags are ignored.
+//! (`<img height>`, `<shape param>`) are percentages of the font size, or
+//! pixels with a `px` suffix (Emuera-EM). Unknown tags are ignored.
 
 use crate::ast::Align;
 use crate::console::{Seg, Style};
@@ -221,31 +221,32 @@ impl Vm {
                         ("button", true) | ("nonbutton", _) => button = None,
                         ("img", _) => {
                             let src = attrs.get("src").cloned().unwrap_or_default();
-                            let h = attrs.get("height").and_then(|v| v.parse::<f32>().ok());
-                            let w = attrs.get("width").and_then(|v| v.parse::<f32>().ok());
-                            let y = attrs.get("ypos").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
+                            let h = attrs.get("height").and_then(|v| mixed_num(v));
+                            let w = attrs.get("width").and_then(|v| mixed_num(v));
+                            let y = attrs.get("ypos").and_then(|v| mixed_num(v));
                             self.print_img(&src, w, h, y, button.clone());
                             first_text = false;
                         }
                         ("shape", _) => {
                             let ty = attrs.get("type").map(|s| s.to_lowercase()).unwrap_or_default();
+                            // each value in pixels (`px`) or percent of the font size
                             let params: Vec<f32> = attrs
                                 .get("param")
-                                .map(|p| p.split(',').filter_map(|x| x.trim().parse().ok()).collect())
+                                .map(|p| p.split(',').filter_map(|x| mixed_num(x)).map(|(v, px)| if px { v } else { fs * v / 100.0 }).collect())
                                 .unwrap_or_default();
                             if ty == "space" {
-                                let w = params.first().copied().unwrap_or(100.0);
-                                self.con.push_seg(Seg::Space { w: fs * w / 100.0 });
+                                let w = params.first().copied().unwrap_or(fs);
+                                self.con.push_seg(Seg::Space { w });
                             } else if ty == "rect" {
-                                let (w, h) = if params.len() >= 4 { (params[2], params[3]) } else { (params.first().copied().unwrap_or(100.0), 100.0) };
+                                let (w, h) = if params.len() >= 4 { (params[2], params[3]) } else { (params.first().copied().unwrap_or(fs), fs) };
                                 let color = attrs.get("color").and_then(|c| color_from_str(c)).unwrap_or(self.con.style.fg);
-                                self.con.push_seg(Seg::Rect { w: fs * w / 100.0, h: fs * h / 100.0, color, button: button.clone() });
+                                self.con.push_seg(Seg::Rect { w, h, color, button: button.clone() });
                             }
                             first_text = false;
                         }
                         ("space", _) => {
-                            let w = attrs.get("param").or(attrs.get("value")).and_then(|v| v.parse::<f32>().ok()).unwrap_or(100.0);
-                            self.con.push_seg(Seg::Space { w: fs * w / 100.0 });
+                            let w = attrs.get("param").or(attrs.get("value")).and_then(|v| mixed_num(v)).map_or(fs, |(v, px)| if px { v } else { fs * v / 100.0 });
+                            self.con.push_seg(Seg::Space { w });
                         }
                         _ => {}
                     }
@@ -281,5 +282,16 @@ impl Vm {
                 self.con.push_seg(Seg::Text { text: text.to_string(), style, button: None, auto: false });
             }
         }
+    }
+}
+
+/// Emuera-EM's `MixedNum`: `300px` is pixels, a bare number is percent of
+/// the font size. Returns (value, is_px).
+fn mixed_num(v: &str) -> Option<(f32, bool)> {
+    let t = v.trim();
+    let lower = t.to_ascii_lowercase();
+    match lower.strip_suffix("px") {
+        Some(n) => n.trim().parse().ok().map(|x| (x, true)),
+        None => t.parse().ok().map(|x| (x, false)),
     }
 }

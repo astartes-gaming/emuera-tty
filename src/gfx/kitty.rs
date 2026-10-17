@@ -3,7 +3,8 @@
 //! Each distinct scaled image is transmitted once (`a=t`, RGBA, base64 in
 //! 4 KiB chunks) under a numeric id; every frame then only deletes the old
 //! *placements* and re-places images by id (`a=p`), which is cheap. `C=1`
-//! keeps the text cursor still; `y`/`h` crop, `Y` offsets inside the cell.
+//! keeps the text cursor still; `y`/`h` crop, `c`/`r` give the size in
+//! cells, `Y` offsets inside the cell.
 
 use super::{Backend, Placement};
 use base64::Engine;
@@ -59,20 +60,29 @@ impl Backend for Kitty {
         // delete all placements, keep image data
         let _ = write!(out, "\x1b_Ga=d,d=a,q=2\x1b\\");
     }
-    fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], _cell: (u32, u32)) {
+    fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
+        let (cw, ch) = (cell.0.max(1), cell.1.max(1));
         for p in ps {
             if p.crop_h == 0 || p.row < 0 {
                 continue;
             }
             let id = self.transmit(out, p);
+            // `c`/`r`: the box (in cells) the layout reserved; the terminal
+            // scales the picture into it, so its size doesn't depend on our
+            // guess of the cell size in pixels (Konsole on scaled displays,
+            // terminals that report no pixel size)
+            let cols = p.img.width().div_ceil(cw).max(1);
+            let rows = p.crop_h.div_ceil(ch).max(1);
             let _ = write!(
                 out,
-                "\x1b[{};{}H\x1b_Ga=p,i={},q=2,C=1,y={},h={},Y={}\x1b\\",
+                "\x1b[{};{}H\x1b_Ga=p,i={},q=2,C=1,y={},h={},c={},r={},Y={}\x1b\\",
                 p.row + 1,
                 p.col + 1,
                 id,
                 p.crop_top,
                 p.crop_h,
+                cols,
+                rows,
                 p.y_off.max(0)
             );
         }

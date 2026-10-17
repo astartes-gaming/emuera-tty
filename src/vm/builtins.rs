@@ -529,7 +529,7 @@ impl Vm {
                     Some(Expr::Var(v)) if v.idx.is_empty() && !self.var_exists(&v.name) => v.name.to_string(),
                     _ => self.as_(a, 0, "")?,
                 };
-                self.print_img(&n, None, None, 0.0, None);
+                self.print_img(&n, None, None, None, None);
             }
             "PRINT_RECT" => {
                 let w = self.ai(a, 0, 100)? as f32;
@@ -1185,18 +1185,23 @@ impl Vm {
     /// PRINT_IMG / `<img>`: queue an image segment. Sizes are percentages
     /// of the font size (Emuera's units); a zero/omitted width keeps the
     /// sprite's aspect ratio.
-    pub fn print_img(&mut self, name: &str, w_pct: Option<f32>, h_pct: Option<f32>, ypos_pct: f32, button: Option<Value>) {
+    /// Sizes are Emuera's "mixed numbers" `(value, is_px)`: pixels with
+    /// `px`, else percent of the font size. No height (or 0) is one font
+    /// size tall; no width keeps the sprite's aspect ratio.
+    pub fn print_img(&mut self, name: &str, w: Option<(f32, bool)>, h: Option<(f32, bool)>, ypos: Option<(f32, bool)>, button: Option<Value>) {
         let fs = self.con.font_size;
+        let px = |(v, is_px): (f32, bool)| if is_px { v } else { fs * v / 100.0 };
         let (sw, sh) = self.res.sprite_size(name).unwrap_or((fs as u32, fs as u32));
-        let h = h_pct.map(|p| fs * p / 100.0).unwrap_or(fs);
-        let w = match w_pct {
-            Some(p) if p != 0.0 => fs * p / 100.0,
-            _ => h * sw as f32 / sh.max(1) as f32,
+        let h = h.filter(|(v, _)| *v != 0.0).map(px).unwrap_or(fs);
+        let w = match w.filter(|(v, _)| *v != 0.0) {
+            Some(m) => px(m),
+            None => h * sw as f32 / sh.max(1) as f32,
         };
+        let ypos_px = ypos.map(px).unwrap_or(0.0);
         if !self.res.exists(name) {
             self.warn(&format!("image resource '{}' not found", name));
         }
-        self.con.push_seg(Seg::Image { name: name.to_string(), w, h, ypos: fs * ypos_pct / 100.0, button });
+        self.con.push_seg(Seg::Image { name: name.to_string(), w, h, ypos: ypos_px, button });
     }
 
     /// Emuera-EM string maps. Mirrors MapManagementMethod / MapDataOperationMethod /
