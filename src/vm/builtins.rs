@@ -29,6 +29,7 @@ pub const COMMANDS: &[&str] = &[
     "GDRAWGWITHMASK", "GSETCOLOR", "GSETBRUSH", "GSETFONT", "GSETPEN", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE",
     "SPRITEMOVE", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
     "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_",
+    "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM",
 ];
 
 pub const FUNCTIONS: &[&str] = &[
@@ -50,6 +51,9 @@ pub const FUNCTIONS: &[&str] = &[
     "EXISTSOUND", "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH",
     "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE", "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE",
     "MAP_GETKEYS", "MAP_TOXML",
+    "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES", "DT_COLUMN_EXIST",
+    "DT_COLUMN_REMOVE", "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET",
+    "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT",
 ];
 
 pub fn is_builtin_command(c: &str) -> bool {
@@ -677,6 +681,35 @@ impl Vm {
                 }
                 self.set_result(n as i64);
             }
+            "PRINT_SHOPITEM" => self.print_shop_items(),
+            "DT_COLUMN_OPTIONS" => {
+                // DT_COLUMN_OPTIONS dt, column, DEFAULT, value {, option, value}
+                let key = self.as_(a, 0, "")?;
+                let cname = self.as_(a, 1, "")?;
+                let mut k = 2;
+                while k + 1 < a.len() {
+                    let opt = match &a[k] {
+                        Expr::Var(v) => v.name.clone(),
+                        e => self.eval(e)?.into_string().to_uppercase(),
+                    };
+                    let v = self.eval(&a[k + 1])?;
+                    let Some(dt) = self.dts.get_mut(&key) else {
+                        self.set_result(-1);
+                        break;
+                    };
+                    let Some(c) = dt.col(&cname) else {
+                        self.set_result(0);
+                        break;
+                    };
+                    if opt == "DEFAULT" {
+                        let v = dt.check_value(c, Some(v)).map_err(|_| Ctrl::Error(format!("DT_COLUMN_OPTIONS: wrong value type for {}.{}", key, cname), false))?;
+                        dt.columns[c].default = v;
+                    } else {
+                        return err(format!("DT_COLUMN_OPTIONS: unknown option {}", opt));
+                    }
+                    k += 2;
+                }
+            }
             "HTML_TAGSPLIT" => {
                 // HTML_TAGSPLIT html{, ARR{, COUNT}} : pieces are tags or text runs
                 let html = self.as_(a, 0, "")?;
@@ -1000,12 +1033,285 @@ impl Vm {
         }
     }
 
+    /// Write `vals` into the row of array variable `v` (capped at its length).
+    fn fill_array(&mut self, v: &VarRef, vals: Vec<Value>) -> VmResult<()> {
+        let (loc, base, len) = self.array_row(v)?;
+        let arr = self.arr_at(&loc).unwrap();
+        for (k, x) in vals.into_iter().take(len).enumerate() {
+            arr.set(base + k, x);
+        }
+        Ok(())
+    }
+
+    /// Emuera-EM data tables; return codes follow emuera.em
+    /// (-1: no such table, -2/-3: bad row / column, 0: nothing done).
+    fn dt_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        use super::datatable::{ColType, DataTable};
+        let i = |v: i64| Ok(Some(Value::Int(v)));
+        let s = |v: String| Ok(Some(Value::Str(v)));
+        // trailing empty arguments (`DT_ROW_ADD t, "a", 1,`) are not values
+        let n = a.iter().rposition(|e| !matches!(e, Expr::Empty)).map_or(0, |p| p + 1);
+        let a = &a[..n];
+        let key = self.as_(a, 0, "")?;
+        let present = |k: usize| a.get(k).is_some_and(|e| !matches!(e, Expr::Empty));
+        match name {
+            "DT_CREATE" => {
+                if self.dts.contains_key(&key) {
+                    return i(0);
+                }
+                self.dts.insert(key.clone(), DataTable::new(&key));
+                i(1)
+            }
+            "DT_EXIST" => i(self.dts.contains_key(&key) as i64),
+            "DT_RELEASE" => {
+                self.dts.remove(&key);
+                i(1)
+            }
+            "DT_CLEAR" | "DT_NOCASE" => {
+                let nocase = self.ai(a, 1, 0)? != 0;
+                let Some(dt) = self.dts.get_mut(&key) else { return i(-1) };
+                if name == "DT_CLEAR" {
+                    dt.rows.clear();
+                } else {
+                    dt.case_sensitive = !nocase;
+                }
+                i(1)
+            }
+            "DT_ROW_LENGTH" | "DT_COLUMN_LENGTH" => match self.dts.get(&key) {
+                Some(dt) => i(if name == "DT_ROW_LENGTH" { dt.rows.len() } else { dt.columns.len() } as i64),
+                None => i(-1),
+            },
+            "DT_COLUMN_ADD" => {
+                let cname = self.as_(a, 1, "")?;
+                let ty = match self.arg(a, 2)? {
+                    None => ColType::Str,
+                    Some(Value::Str(t)) => ColType::from_name(&t).ok_or_else(|| Ctrl::Error(format!("{}: unsupported column type '{}'", name, t), false))?,
+                    Some(Value::Int(t)) => ColType::from_int(t).ok_or_else(|| Ctrl::Error(format!("{}: unsupported column type {}", name, t), false))?,
+                };
+                let nullable = if present(3) { self.ai(a, 3, 1)? != 0 } else { true };
+                let Some(dt) = self.dts.get_mut(&key) else { return i(-1) };
+                if dt.col(&cname).is_some() {
+                    return i(0);
+                }
+                dt.add_column(&cname, ty, nullable);
+                i(1)
+            }
+            "DT_COLUMN_EXIST" | "DT_COLUMN_REMOVE" => {
+                let cname = self.as_(a, 1, "")?;
+                let Some(dt) = self.dts.get_mut(&key) else { return i(-1) };
+                let c = dt.col(&cname);
+                if name == "DT_COLUMN_EXIST" {
+                    return i(c.map_or(0, |c| dt.columns[c].ty.to_int()));
+                }
+                match c {
+                    Some(c) if c != 0 => {
+                        dt.remove_column(c);
+                        i(1)
+                    }
+                    _ => i(0),
+                }
+            }
+            "DT_COLUMN_NAMES" => {
+                let Some(names) = self.dts.get(&key).map(|dt| dt.columns.iter().map(|c| Value::Str(c.name.clone())).collect::<Vec<_>>()) else {
+                    return i(-1);
+                };
+                let target = if present(1) { self.avar(a, 1)? } else { Rc::new(VarRef { name: "RESULTS".into(), idx: vec![] }) };
+                let n = names.len() as i64;
+                self.fill_array(&target, names)?;
+                i(n)
+            }
+            "DT_ROW_ADD" | "DT_ROW_SET" => {
+                let b = if name == "DT_ROW_ADD" { 0 } else { 1 };
+                if !self.dts.contains_key(&key) {
+                    return i(-1);
+                }
+                let mut row = if b == 0 {
+                    self.dts[&key].new_row()
+                } else {
+                    let id = self.ai(a, 1, 0)?;
+                    let dt = &self.dts[&key];
+                    match dt.find_row(id) {
+                        Some(r) => dt.rows[r].clone(),
+                        None => return i(-2),
+                    }
+                };
+                // (name, value) pairs, or NAMES_ARRAY, VALUES_ARRAY, count
+                let mut sets: Vec<(String, Option<Value>)> = Vec::new();
+                if a.len() == b + 4 {
+                    let nv = self.avar(a, b + 1)?;
+                    let vv = self.avar(a, b + 2)?;
+                    let count = self.ai(a, b + 3, 0)?.max(0) as usize;
+                    let (_, _, names) = self.arr_vals(&nv, 0, None)?;
+                    let (_, _, vals) = self.arr_vals(&vv, 0, None)?;
+                    for (nm, v) in names.into_iter().zip(vals).take(count) {
+                        sets.push((nm.into_string(), Some(v)));
+                    }
+                } else {
+                    let mut pos = b + 1;
+                    while pos < a.len() {
+                        let nm = self.as_(a, pos, "")?;
+                        let v = if present(pos + 1) { Some(self.eval(&a[pos + 1])?) } else { None };
+                        sets.push((nm, v));
+                        pos += 2;
+                    }
+                }
+                let dt = &self.dts[&key];
+                let count = sets.len() as i64;
+                for (nm, v) in sets {
+                    if nm == "id" {
+                        return err(format!("{}: the id column of {} can't be edited", name, key));
+                    }
+                    let c = dt.col(&nm).ok_or_else(|| Ctrl::Error(format!("{}: {} has no column '{}'", name, key, nm), false))?;
+                    row[c] = dt.check_value(c, v).map_err(|_| Ctrl::Error(format!("{}: wrong value type for {}.{}", name, key, nm), false))?;
+                }
+                let dt = self.dts.get_mut(&key).unwrap();
+                if b == 0 {
+                    let id = row[0].as_ref().map_or(0, |v| v.as_int());
+                    dt.rows.push(row);
+                    return i(id);
+                }
+                let id = row[0].as_ref().map_or(0, |v| v.as_int());
+                let r = dt.find_row(id).unwrap();
+                dt.rows[r] = row;
+                i(count)
+            }
+            "DT_ROW_REMOVE" => {
+                let ids: Vec<i64> = if a.len() >= 3 {
+                    let v = self.avar(a, 1)?;
+                    let count = self.ai(a, 2, 0)?;
+                    if count <= 0 {
+                        return i(0);
+                    }
+                    let (_, _, vals) = self.arr_vals(&v, 0, Some(count))?;
+                    vals.iter().map(|v| v.as_int()).collect()
+                } else {
+                    vec![self.ai(a, 1, 0)?]
+                };
+                let Some(dt) = self.dts.get_mut(&key) else { return i(-1) };
+                let before = dt.rows.len();
+                dt.rows.retain(|r| !ids.contains(&r[0].as_ref().map_or(i64::MIN, |v| v.as_int())));
+                i((before - dt.rows.len()) as i64)
+            }
+            "DT_CELL_GET" | "DT_CELL_ISNULL" | "DT_CELL_GETS" | "DT_CELL_SET" => {
+                let set = name == "DT_CELL_SET";
+                let idx = self.ai(a, 1, 0)?;
+                let cname = self.as_(a, 2, "")?;
+                let as_id = if set { self.ai(a, 4, 0)? != 0 } else { self.ai(a, 3, 0)? != 0 };
+                let v = if set && present(3) { Some(self.eval(&a[3])?) } else { None };
+                let Some(dt) = self.dts.get_mut(&key) else {
+                    return match name {
+                        "DT_CELL_GETS" => s(String::new()),
+                        "DT_CELL_GET" => i(0),
+                        _ => i(-1),
+                    };
+                };
+                let r = if as_id { dt.find_row(idx) } else { usize::try_from(idx).ok().filter(|&r| r < dt.rows.len()) };
+                let c = dt.col(&cname);
+                let (Some(r), Some(c)) = (r, c) else {
+                    return match name {
+                        "DT_CELL_GETS" => s(String::new()),
+                        "DT_CELL_GET" => i(0),
+                        "DT_CELL_ISNULL" => i(-2),
+                        _ => i(if cname.eq_ignore_ascii_case("id") { 0 } else { -3 }),
+                    };
+                };
+                let cell = &dt.rows[r][c];
+                match name {
+                    "DT_CELL_GET" => i(cell.as_ref().map_or(0, |v| v.as_int())),
+                    "DT_CELL_GETS" => s(cell.as_ref().map(|v| v.as_string()).unwrap_or_default()),
+                    "DT_CELL_ISNULL" => i(cell.is_none() as i64),
+                    _ => {
+                        if c == 0 {
+                            return i(0);
+                        }
+                        match dt.check_value(c, v) {
+                            Ok(v) => {
+                                dt.rows[r][c] = v;
+                                i(1)
+                            }
+                            Err(()) => i(-2),
+                        }
+                    }
+                }
+            }
+            "DT_SELECT" => {
+                let filter = if present(1) { Some(self.as_(a, 1, "")?) } else { None };
+                let sort = if present(2) { Some(self.as_(a, 2, "")?) } else { None };
+                let Some(dt) = self.dts.get(&key) else { return i(-1) };
+                let ids = dt.select(filter.as_deref(), sort.as_deref()).map_err(|e| Ctrl::Error(format!("DT_SELECT {}: {}", key, e), false))?;
+                let n = ids.len() as i64;
+                let vals: Vec<Value> = ids.into_iter().map(Value::Int).collect();
+                if a.len() == 4 {
+                    let target = self.avar(a, 3)?;
+                    self.fill_array(&target, vals)?;
+                } else {
+                    // RESULT:0 = count, RESULT:1.. = ids
+                    let arr = self.global_arr("RESULT");
+                    arr.set(0, Value::Int(n));
+                    for (k, v) in vals.into_iter().enumerate() {
+                        arr.set(k + 1, v);
+                    }
+                }
+                i(n)
+            }
+            "DT_TOXML" => {
+                let Some(dt) = self.dts.get(&key) else { return s(String::new()) };
+                let (schema, data) = (dt.to_xml_schema(), dt.to_xml());
+                if present(1) {
+                    let v = self.avar(a, 1)?;
+                    self.set_var(&v, Value::Str(schema))?;
+                } else {
+                    self.global_arr("RESULTS").set(1, Value::Str(schema));
+                }
+                s(data)
+            }
+            "DT_FROMXML" => {
+                let schema = self.as_(a, 1, "")?;
+                let data = self.as_(a, 2, "")?;
+                match DataTable::from_xml(&key, &schema, &data) {
+                    Ok(dt) => {
+                        self.dts.insert(key, dt);
+                        i(1)
+                    }
+                    Err(_) => i(0),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// LOADTEXT / SAVETEXT target: `sav/txtNN.txt` for a number, else a
+    /// path inside the game directory with an allowed extension.
+    fn text_path(&self, target: &Value, saving: bool) -> Option<std::path::PathBuf> {
+        match target {
+            Value::Int(n) => (0..=i32::MAX as i64).contains(n).then(|| self.save_dir().join(format!("txt{:02}.txt", n))),
+            Value::Str(p) => {
+                let rel = std::path::Path::new(p);
+                if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+                    return None;
+                }
+                let ext = rel.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+                let mut path = self.game_dir.join(rel);
+                if !self.text_exts.contains(&ext) {
+                    if !saving {
+                        return None;
+                    }
+                    path.set_extension("txt");
+                }
+                Some(path)
+            }
+        }
+    }
+
     // ============================================================== functions
     pub fn builtin_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         let i = |v: i64| Ok(Some(Value::Int(v)));
         let s = |v: String| Ok(Some(Value::Str(v)));
         if name.starts_with("MAP_") {
             return self.map_fn(name, a);
+        }
+        if name.starts_with("DT_") {
+            return self.dt_fn(name, a);
         }
         match name {
             "__FORMS" => {
@@ -1554,6 +1860,21 @@ impl Vm {
                     }
                 }
                 s(out)
+            }
+            "LOADTEXT" => {
+                let target = self.arg(a, 0)?.unwrap_or(Value::Int(0));
+                let Some(path) = self.text_path(&target, false) else { return s(String::new()) };
+                // consistent line endings, as emuera.em does
+                s(crate::loader::read_text(&path).map(|t| t.replace('\r', "")).unwrap_or_default())
+            }
+            "SAVETEXT" => {
+                let text = self.as_(a, 0, "")?;
+                let target = self.arg(a, 1)?.unwrap_or(Value::Int(0));
+                let Some(path) = self.text_path(&target, true) else { return i(0) };
+                if let Some(d) = path.parent() {
+                    let _ = std::fs::create_dir_all(d);
+                }
+                i(std::fs::write(&path, text).is_ok() as i64)
             }
             "FIND_CHARADATA" => {
                 // SAVECHARA is not implemented yet, so there are no chara files to find

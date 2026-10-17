@@ -186,6 +186,19 @@ LOCAL = COUNTUP() + COUNTUP()
 CALL CHECK, "localpersist", LOCAL == 3
 LOCAL = STATICUP() + STATICUP()
 CALL CHECK, "staticdim", LOCAL == 3
+;--- Emuera-EM DT_* data tables
+CALL CHECK, "dtcreate", DT_CREATE("T") == 1 && DT_CREATE("T") == 0 && DT_COLUMN_ADD("T", "name") == 1 && DT_COLUMN_ADD("T", "cost", "int16") == 1
+DT_ROW_ADD "T", "name", "b", "cost", 1,
+LOCAL:1 = DT_ROW_ADD("T", "name", "a", "cost", 3)
+DT_ROW_ADD "T", "name", "c", "cost", 2
+CALL CHECK, "dtrows", DT_ROW_LENGTH("T") == 3 && DT_COLUMN_EXIST("T", "cost") == 2 && DT_ROW_ADD("nope", "x", 1) == -1
+CALL CHECK, "dtselect", DT_SELECT("T", "name = 'a'") == 1 && RESULT:1 == LOCAL:1
+LOCAL = DT_SELECT("T", "cost >= 2", "cost DESC", LOCALSTR)
+CALL CHECKS, "dtsort", DT_CELL_GETS("T", LOCALSTR:0, "name", 1) + DT_CELL_GETS("T", LOCALSTR:1, "name", 1), "ac"
+CALL CHECK, "dtcell", DT_CELL_SET("T", 0, "cost", 9) == 1 && DT_CELL_GET("T", 0, "cost") == 9 && DT_CELL_SET("T", 0, "cost", "x") == -2 && DT_CELL_ISNULL("T", 5, "cost") == -2
+LOCALS '= DT_TOXML("T", LOCALSTR:2)
+DT_RELEASE "T"
+CALL CHECK, "dtxml", DT_FROMXML("T", LOCALSTR:2, LOCALS) == 1 && DT_ROW_LENGTH("T") == 3 && DT_CELL_GET("T", LOCAL:1, "cost", 1) == 3
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 

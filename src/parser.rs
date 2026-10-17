@@ -418,7 +418,10 @@ impl<'a> Parser<'a> {
             b.cur_line = (file_idx, no);
             if let Err(e) = self.statement(b, &line) {
                 self.prog.errors.push(format!("{}:{}: {} :: {}", src.path, no, e, line));
-                b.emit(Instr::Nop);
+                // keep the line's place so a pending SIF guards it, as in Emuera
+                let fatal = !e.starts_with("unknown command");
+                b.emit(Instr::BadLine(format!("{} :: {}", e, line).into(), fatal));
+                Self::after_stmt(b);
             }
         }
         if let Some(b) = fb.take() {

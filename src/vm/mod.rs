@@ -3,6 +3,7 @@
 //! built-in commands/functions in `builtins.rs`.
 
 pub mod builtins;
+pub mod datatable;
 pub mod save;
 pub mod system;
 pub mod value;
@@ -70,6 +71,10 @@ pub struct Vm {
     pub user_dims: HashMap<String, DimDecl>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
     pub maps: HashMap<String, StrMap>,
+    /// Emuera-EM DT_* data tables, by (case-sensitive) name
+    pub dts: HashMap<String, datatable::DataTable>,
+    /// extensions LOADTEXT/SAVETEXT may use with a path (config), plus txt
+    pub text_exts: Vec<String>,
     /// REF bindings collected by `call_args` for the next `call_func`
     pending_refs: Vec<(String, Loc)>,
     trace: Option<String>,
@@ -112,6 +117,8 @@ impl Vm {
             frames: Vec::new(),
             user_dims: HashMap::new(),
             maps: HashMap::new(),
+            dts: HashMap::new(),
+            text_exts: vec!["txt".into()],
             pending_refs: Vec::new(),
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             rng: seed | 1,
@@ -904,6 +911,12 @@ impl Vm {
     fn step(&mut self, f: &Rc<Function>, pc: usize) -> VmResult<Option<Option<Value>>> {
         match &f.code[pc] {
             Instr::Nop => {}
+            Instr::BadLine(msg, fatal) => {
+                if *fatal || self.strict {
+                    return err(format!("line failed to parse: {}", msg));
+                }
+                self.warn(&format!("skipped unparsed line: {}", msg));
+            }
             Instr::Print(content, fl) => {
                 let s = match content {
                     PrintContent::Raw(s) => s.clone(),

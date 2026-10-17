@@ -158,6 +158,9 @@ pub enum Args {
 #[derive(Debug, Clone)]
 pub enum Instr {
     Nop,
+    /// a line that failed to parse: (message, fatal). Unknown commands are
+    /// non-fatal (warned once and skipped), like other unimplemented commands.
+    BadLine(Rc<str>, bool),
     Print(PrintContent, PrintFlags),
     /// PRINTDATA: pick one random entry; each entry may have several lines.
     PrintData(Vec<Vec<Form>>, PrintFlags),

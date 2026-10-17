@@ -160,32 +160,8 @@ impl Vm {
         }
         loop {
             self.call_opt("SHOW_SHOP")?;
-            // items for sale
-            let mut items: Vec<(i64, String, i64)> = Vec::new();
-            if let Some(t) = self.csv.tables.get("ITEM") {
-                let mut idx: Vec<i64> = t.by_index.keys().copied().collect();
-                idx.sort();
-                for i in idx {
-                    items.push((i, t.by_index[&i].clone(), 0));
-                }
-            }
-            let mut shown = 0;
-            for (i, name, _) in &items {
-                let i = *i;
-                if self.get_global_i("ITEMSALES", i.max(0) as usize) != 0 {
-                    let price = self.get_global_i("ITEMPRICE", i.max(0) as usize);
-                    let label = self.csv.gamebase.get("お金の単位").cloned().unwrap_or_else(|| "$".into());
-                    let s = crate::vm::pad(&format!("[{}] {}({}{})", i, name, price, label), self.con.printc_len, crate::ast::Align::Left);
-                    self.con.print(&s);
-                    shown += 1;
-                    if shown % 3 == 0 {
-                        self.con.newline();
-                    }
-                }
-            }
-            if !self.con.cur.is_empty() {
-                self.con.newline();
-            }
+            // like Emuera, the item list is only shown by PRINT_SHOPITEM
+            let items = self.shop_items();
             let v = self.input_int(None, None, false)?;
             let is_item = v >= 0 && items.iter().any(|(i, _, _)| *i == v) && self.get_global_i("ITEMSALES", v as usize) != 0;
             if is_item {
@@ -354,6 +330,43 @@ impl Vm {
             } else if self.peek_save(v).is_some() {
                 return self.load_slot(v);
             }
+        }
+    }
+}
+
+impl Vm {
+    /// (number, name) of every item in Item.csv.
+    fn shop_items(&self) -> Vec<(i64, String, i64)> {
+        let mut items: Vec<(i64, String, i64)> = Vec::new();
+        if let Some(t) = self.csv.tables.get("ITEM") {
+            let mut idx: Vec<i64> = t.by_index.keys().copied().collect();
+            idx.sort();
+            for i in idx {
+                items.push((i, t.by_index[&i].clone(), 0));
+            }
+        }
+        items
+    }
+
+    /// PRINT_SHOPITEM: the items whose ITEMSALES is set, three per line.
+    pub fn print_shop_items(&mut self) {
+        let items = self.shop_items();
+        let mut shown = 0;
+        for (i, name, _) in &items {
+            let i = *i;
+            if self.get_global_i("ITEMSALES", i.max(0) as usize) != 0 {
+                let price = self.get_global_i("ITEMPRICE", i.max(0) as usize);
+                let label = self.csv.gamebase.get("お金の単位").cloned().unwrap_or_else(|| "$".into());
+                let s = crate::vm::pad(&format!("[{}] {}({}{})", i, name, price, label), self.con.printc_len, crate::ast::Align::Left);
+                self.con.print(&s);
+                shown += 1;
+                if shown % 3 == 0 {
+                    self.con.newline();
+                }
+            }
+        }
+        if !self.con.cur.is_empty() {
+            self.con.newline();
         }
     }
 }
