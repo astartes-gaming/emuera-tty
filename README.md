@@ -204,7 +204,9 @@ emuera-tty [GAME_DIR] [options]
 
 Environment: `FRAMEBUFFER=/dev/fbN` picks another framebuffer,
 `EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice,
-`EMUERA_TRACE` as above.
+`EMUERA_AMBIGUOUS=wide|narrow` overrides the detected width of box-drawing
+and symbol characters (maps are padded to Emuera's two columns when the
+terminal draws them one column wide), `EMUERA_TRACE` as above.
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
 self-test; `emuera-tty sample --headless --echo` plays the sample in plain
