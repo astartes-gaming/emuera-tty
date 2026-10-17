@@ -1349,6 +1349,33 @@ impl Tty {
         let top = (self.rows.saturating_sub(h)) / 2 + 1;
         let mut out: Vec<u8> = Vec::new();
         let inner = w - 2;
+        // fixed colours where the terminal has them: palette colours vary
+        // by theme (Konsole's blue is bright, and bright cyan on it vanishes)
+        let rgb = |fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool| -> String {
+            let b = if bold { "1;" } else { "" };
+            match self.color {
+                ColorMode::True => format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2),
+                ColorMode::C256 => format!(
+                    "\x1b[0;{}38;5;{};48;5;{}m",
+                    b,
+                    rgb256(Rgb(fg.0, fg.1, fg.2)),
+                    rgb256(Rgb(bg.0, bg.1, bg.2))
+                ),
+                // 16 colours: white / yellow on black, black on white
+                ColorMode::C16 => {
+                    let f = if fg == (0, 0, 0) { 30 } else if fg.2 < 100 { 93 } else { 97 };
+                    let k = if bg == (0, 0, 0) || bg.0 < 128 { 40 } else { 47 };
+                    format!("\x1b[0;{}{};{}m", b, f, k)
+                }
+            }
+        };
+        let box_bg = (22, 32, 58);
+        let frame = rgb((150, 170, 210), box_bg, false);
+        let title = rgb((255, 255, 255), box_bg, true);
+        let normal = rgb((235, 235, 235), box_bg, false);
+        let action = rgb((140, 220, 255), box_bg, false);
+        let hilite = rgb((0, 0, 0), (230, 230, 230), false);
+        let helpc = rgb((255, 220, 90), box_bg, false);
         let line = |out: &mut Vec<u8>, row: usize, text: &str, style: &str| {
             let mut t: String = String::new();
             let mut used = 0;
@@ -1360,18 +1387,18 @@ impl Tty {
                 t.push(c);
                 used += cw;
             }
-            let _ = write!(out, "\x1b[{};{}H\x1b[0;37;44m│{}{}{}\x1b[0;37;44m│", row, left, style, t, " ".repeat(inner - used));
+            let _ = write!(out, "\x1b[{};{}H{}│{}{}{}{}│", row, left, frame, style, t, " ".repeat(inner - used), frame);
         };
-        let _ = write!(out, "\x1b[?25l\x1b[{};{}H\x1b[0;37;44m┌{}┐", top, left, "─".repeat(inner));
-        line(&mut out, top + 1, " emuera-tty settings  (F1 / Ctrl-O)", "\x1b[1;97;44m");
+        let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
+        line(&mut out, top + 1, " emuera-tty settings  (F1 / Ctrl-O)", &title);
         for (i, it) in ITEMS.iter().enumerate() {
             let later = if it.live { "" } else { "  (next start)" };
             let text = format!("  {:<18} ‹ {} ›{}", it.label, st.get(it.key), later);
-            line(&mut out, top + 2 + i, &text, if i == sel { "\x1b[0;30;47m" } else { "\x1b[0;97;44m" });
+            line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
         }
         for (k, e) in extra.iter().enumerate() {
             let i = ITEMS.len() + k;
-            line(&mut out, top + 2 + i, &format!("  {}", e), if i == sel { "\x1b[0;30;47m" } else { "\x1b[0;96;44m" });
+            line(&mut out, top + 2 + i, &format!("  {}", e), if i == sel { &hilite } else { &action });
         }
         let help = if !note.is_empty() {
             note.to_string()
@@ -1380,8 +1407,8 @@ impl Tty {
         } else {
             "↑↓ choose  ←→ / Enter change  Esc close".to_string()
         };
-        line(&mut out, top + 2 + n, &format!(" {}", help), "\x1b[0;93;44m");
-        let _ = write!(out, "\x1b[{};{}H\x1b[0;37;44m└{}┘\x1b[0m", top + 3 + n, left, "─".repeat(inner));
+        line(&mut out, top + 2 + n, &format!(" {}", help), &helpc);
+        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 3 + n, left, frame, "─".repeat(inner));
         write_all(&out);
         (top + 1,)
     }
