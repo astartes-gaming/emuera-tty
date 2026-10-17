@@ -90,8 +90,17 @@ pub struct Console {
     pub width: usize,
     /// Column width of PRINTC / PRINTLC.
     pub printc_len: usize,
-    /// Input generation: bumped at each input, to retire old buttons.
+    /// Generation stamped on new lines (Emuera's `newButtonGeneration`).
     pub gen: u64,
+    /// Buttons on lines of this generation are clickable
+    /// (`lastButtonGeneration`); see `begin_input`.
+    pub valid_gen: u64,
+    /// buttons were printed since the last input request
+    buttons_since_input: bool,
+    /// where the last input request came from (function, instruction)
+    last_input_site: Option<(usize, usize)>,
+    /// the last input request was for a number (INPUT) rather than text
+    last_input_int: bool,
     pub max_lines: usize,
     /// DRAWLINE unit (repeated across the width).
     pub drawline_str: String,
@@ -130,6 +139,10 @@ impl Console {
             width: 80,
             printc_len: 25,
             gen: 0,
+            valid_gen: 0,
+            buttons_since_input: false,
+            last_input_site: None,
+            last_input_int: true,
             max_lines: 5000,
             drawline_str: "-".into(),
             redraw: true,
@@ -224,6 +237,11 @@ impl Console {
         let segs = std::mem::take(&mut self.cur);
         let segs = auto_buttons(segs);
         let align = self.cur_align.take().unwrap_or(self.align);
+        if segs.iter().any(|s| matches!(s, Seg::Text { button: Some(_), .. } | Seg::Image { button: Some(_), .. } | Seg::Rect { button: Some(_), .. })) {
+            // new buttons are the clickable ones (UpdateGeneration)
+            self.valid_gen = self.gen;
+            self.buttons_since_input = true;
+        }
         self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1 });
         // trim the history in batches: dropping one line at a time shifts
         // all the others down for every line printed, which made long
@@ -291,10 +309,25 @@ impl Console {
         self.newline();
     }
 
-    /// Called when the program asks for input: older buttons become inactive.
-    /// Start a new input generation (older buttons stop being clickable).
-    pub fn next_gen(&mut self) {
-        self.gen += 1;
+    /// The script asks for a value (INPUT…, not WAIT) at `site`. Emuera's
+    /// `newGeneration`: the buttons on screen stay clickable while the same
+    /// input is asked again (a rejected or empty answer, a timeout) and
+    /// until another input is reached with no new buttons printed; text and
+    /// number inputs don't share buttons.
+    pub fn begin_input(&mut self, site: (usize, usize), int: bool) {
+        if !self.buttons_since_input && self.last_input_site != Some(site) {
+            self.valid_gen = self.gen;
+        } else {
+            self.buttons_since_input = false;
+        }
+        self.last_input_site = Some(site);
+        if self.valid_gen == self.gen {
+            // buttons printed from now on belong to the next input
+            self.gen += 1;
+        } else if self.last_input_int != int {
+            self.valid_gen = self.gen;
+        }
+        self.last_input_int = int;
     }
 
     pub fn reset_style(&mut self) {
@@ -328,75 +361,309 @@ pub fn repeat_to_width(unit: &str, width: usize) -> String {
     s
 }
 
-/// Emuera turns `[N] text` in normally printed text into buttons; the button
-/// spans until the next `[N]` or end of line.
-fn auto_buttons(segs: Vec<Seg>) -> Vec<Seg> {
-    if segs.iter().any(|s| matches!(s, Seg::Text { button: Some(_), .. } | Seg::Image { button: Some(_), .. })) {
+/// Emuera turns `[N]` markers in normally printed text into buttons
+/// (`PrintStringBuffer.createButtons` + `ButtonStringCreator`). Each run of
+/// plain printed text between explicit buttons (PRINTBUTTON…) is split on
+/// its own: with one marker the whole run is the button, with several the
+/// descriptions attach to their markers as Emuera decides.
+pub fn auto_buttons(segs: Vec<Seg>) -> Vec<Seg> {
+    if !segs.iter().any(|s| matches!(s, Seg::Text { auto: true, text, .. } if text.contains('['))) {
         return segs;
     }
-    let has = segs.iter().any(|s| matches!(s, Seg::Text { auto: true, text, .. } if text.contains('[')));
-    if !has {
-        return segs;
-    }
-    let mut out = Vec::new();
-    let mut current: Option<Value> = None;
+    let mut out = Vec::with_capacity(segs.len() + 4);
+    let mut run: Vec<Seg> = Vec::new();
     for seg in segs {
         match seg {
-            Seg::Text { text, style, auto: true, .. } => {
-                let mut rest = text.as_str();
-                while !rest.is_empty() {
-                    match find_button_marker(rest) {
-                        Some((start, val)) => {
-                            if start > 0 {
-                                out.push(Seg::Text { text: rest[..start].to_string(), style: style.clone(), button: current.clone(), auto: false });
-                            }
-                            current = Some(Value::Int(val));
-                            // include the marker itself in the new button
-                            let (marker_end, _) = marker_len(&rest[start..]);
-                            out.push(Seg::Text {
-                                text: rest[start..start + marker_end].to_string(),
-                                style: style.clone(),
-                                button: current.clone(),
-                                auto: false,
-                            });
-                            rest = &rest[start + marker_end..];
-                        }
-                        None => {
-                            out.push(Seg::Text { text: rest.to_string(), style: style.clone(), button: current.clone(), auto: false });
-                            rest = "";
-                        }
-                    }
-                }
+            Seg::Text { auto: true, .. } => run.push(seg),
+            other => {
+                flush_run(&mut run, &mut out);
+                out.push(other);
             }
-            other => out.push(other),
         }
     }
+    flush_run(&mut run, &mut out);
     out
 }
 
-/// Length of the `[N]` marker at the start of `s`, and N.
-fn marker_len(s: &str) -> (usize, i64) {
-    let end = s.find(']').map(|i| i + 1).unwrap_or(s.len());
-    let v = s[1..end - 1].trim().parse().unwrap_or(0);
-    (end, v)
-}
-
-/// First `[N]` (an integer in brackets) in `s`: (byte offset, N).
-fn find_button_marker(s: &str) -> Option<(usize, i64)> {
-    let mut from = 0;
-    while let Some(i) = s[from..].find('[') {
-        let start = from + i;
-        if let Some(j) = s[start..].find(']') {
-            let inner = s[start + 1..start + j].trim();
-            if !inner.is_empty() && inner.len() <= 18 {
-                if let Ok(v) = inner.parse::<i64>() {
-                    return Some((start, v));
-                }
+/// Turn one run of auto text segments into button / plain segments.
+fn flush_run(run: &mut Vec<Seg>, out: &mut Vec<Seg>) {
+    if run.is_empty() {
+        return;
+    }
+    let text: String = run.iter().map(|s| if let Seg::Text { text, .. } = s { text.as_str() } else { "" }).collect();
+    let parts = split_buttons(&text);
+    // cut the segments at the parts' byte boundaries
+    let mut bounds = Vec::with_capacity(parts.len());
+    let mut end = 0;
+    for (len, v) in &parts {
+        end += len;
+        bounds.push((end, v.map(Value::Int)));
+    }
+    let mut pos = 0; // byte offset of the current segment's start in `text`
+    let mut b = 0;
+    for seg in run.drain(..) {
+        let Seg::Text { text: t, style, .. } = seg else { continue };
+        let mut rest: &str = &t;
+        while !rest.is_empty() {
+            let (bend, ref val) = bounds[b.min(bounds.len() - 1)];
+            let take = bend.saturating_sub(pos).min(rest.len());
+            let take = if take == 0 { rest.len() } else { take };
+            out.push(Seg::Text { text: rest[..take].to_string(), style: style.clone(), button: val.clone(), auto: false });
+            rest = &rest[take..];
+            pos += take;
+            if pos >= bend && b + 1 < bounds.len() {
+                b += 1;
             }
-            from = start + 1;
-        } else {
-            return None;
         }
     }
-    None
+}
+
+fn is_ws(c: char) -> bool {
+    c == ' ' || c == '\t' || c == '\u{3000}'
+}
+
+/// `ButtonStringCreator.lex`: `[…]` groups, whitespace runs and other text;
+/// None (no buttons at all) for a nested `[` or a stray `]`.
+fn lex_buttons(s: &str) -> Option<Vec<&str>> {
+    let mut toks = Vec::new();
+    let (mut start, mut inside) = (0usize, false);
+    let mut it = s.char_indices().peekable();
+    while let Some(&(i, c)) = it.peek() {
+        if c == '[' {
+            if inside {
+                return None;
+            }
+            if i > start {
+                toks.push(&s[start..i]);
+            }
+            start = i;
+            inside = true;
+            it.next();
+        } else if c == ']' {
+            if !inside {
+                return None;
+            }
+            it.next();
+            let e = it.peek().map_or(s.len(), |&(j, _)| j);
+            toks.push(&s[start..e]);
+            start = e;
+            inside = false;
+        } else if !inside && is_ws(c) {
+            if i > start {
+                toks.push(&s[start..i]);
+            }
+            start = i;
+            while it.peek().is_some_and(|&(_, c)| is_ws(c)) {
+                it.next();
+            }
+            let e = it.peek().map_or(s.len(), |&(j, _)| j);
+            toks.push(&s[start..e]);
+            start = e;
+        } else {
+            it.next();
+        }
+    }
+    if start < s.len() {
+        toks.push(&s[start..]);
+    }
+    Some(toks)
+}
+
+/// `isButtonCore`: `[ 12 ]`, `[-3]`, `[0x1F]`, `[0b101]`, `[1e3]` → the number.
+fn button_core(t: &str) -> Option<i64> {
+    let inner = t.strip_prefix('[')?.strip_suffix(']')?.trim_matches(is_ws);
+    if inner.is_empty() {
+        return None;
+    }
+    let (neg, body) = match inner.as_bytes()[0] {
+        b'-' => (true, &inner[1..]),
+        b'+' => (false, &inner[1..]),
+        _ => (false, inner),
+    };
+    let lower = body.to_ascii_lowercase();
+    let (radix, digits) = if let Some(h) = lower.strip_prefix("0x") {
+        (16, h.to_string())
+    } else if let Some(b) = lower.strip_prefix("0b") {
+        (2, b.to_string())
+    } else {
+        (10, lower.clone())
+    };
+    // optional exponent: e (×10^n) for decimals, p (×2^n)
+    let (mant, exp) = match digits.find(|c| c == 'p' || (c == 'e' && radix == 10)) {
+        Some(k) => (&digits[..k], Some((digits.as_bytes()[k], digits[k + 1..].parse::<u32>().ok()?))),
+        None => (digits.as_str(), None),
+    };
+    if mant.is_empty() || !mant.chars().all(|c| c.is_digit(radix)) {
+        return None;
+    }
+    let mut v = i64::from_str_radix(mant, radix).ok()?;
+    if let Some((k, n)) = exp {
+        v = v.checked_mul(if k == b'p' { 2i64.checked_pow(n)? } else { 10i64.checked_pow(n)? })?;
+    }
+    Some(if neg { -v } else { v })
+}
+
+/// `ButtonStringCreator.syn`: split `s` into consecutive parts, each
+/// (byte length, Some(value) if it is a button).
+fn split_buttons(s: &str) -> Vec<(usize, Option<i64>)> {
+    let whole = |v: Option<i64>| vec![(s.len(), v)];
+    if s.is_empty() || !s.contains('[') || !s.contains(']') {
+        return whole(None);
+    }
+    let Some(toks) = lex_buttons(s) else { return whole(None) };
+    let ws = |t: &str| t.chars().next().is_some_and(is_ws);
+    let (mut before, mut after, mut count, mut last) = (false, false, 0, 0i64);
+    for t in &toks {
+        if ws(t) {
+        } else if let Some(v) = button_core(t) {
+            count += 1;
+            last = v;
+            after = false;
+        } else {
+            after = true;
+            if count == 0 {
+                before = true;
+            }
+        }
+    }
+    if count <= 1 {
+        return whole((count == 1).then_some(last));
+    }
+    let right = !before && after; // descriptions follow their markers
+    let left = before && !after; // descriptions precede them
+    let etc = !right && !left;
+    let mut out = Vec::new();
+    let (mut buf, mut sel, mut state) = (0usize, None::<i64>, 0u8);
+    let reduce = |out: &mut Vec<(usize, Option<i64>)>, buf: &mut usize, sel: &mut Option<i64>| {
+        if *buf > 0 {
+            out.push((*buf, *sel));
+        }
+        *buf = 0;
+        *sel = None;
+    };
+    for t in toks {
+        if ws(t) {
+            // a finished "[N] description" ends at a run of 2+ spaces
+            if state & 3 == 3 && etc && t.chars().count() >= 2 {
+                reduce(&mut out, &mut buf, &mut sel);
+                buf += t.len();
+                state = 0;
+            } else {
+                buf += t.len();
+            }
+            continue;
+        }
+        if let Some(v) = button_core(t) {
+            if state & 1 == 1 || right {
+                reduce(&mut out, &mut buf, &mut sel);
+                buf += t.len();
+                sel = Some(v);
+                state = 1;
+            } else if left {
+                buf += t.len();
+                sel = Some(v);
+                reduce(&mut out, &mut buf, &mut sel);
+                state = 0;
+            } else {
+                buf += t.len();
+                sel = Some(v);
+                state = 1;
+            }
+            continue;
+        }
+        buf += t.len();
+        state |= 2;
+    }
+    reduce(&mut out, &mut buf, &mut sel);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// (text, value) of each part `split_buttons` makes of `s`.
+    fn parts(s: &str) -> Vec<(&str, Option<i64>)> {
+        let mut at = 0;
+        split_buttons(s)
+            .into_iter()
+            .map(|(n, v)| {
+                let p = &s[at..at + n];
+                at += n;
+                (p, v)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn buttons_split_like_emuera() {
+        // one marker: the whole text is the button
+        assert_eq!(parts("  [1] Continue"), vec![("  [1] Continue", Some(1))]);
+        // descriptions after their markers (AnonTW's main menu)
+        assert_eq!(
+            parts("[100] - Wake Up   [102] - Home Settings"),
+            vec![("[100] - Wake Up   ", Some(100)), ("[102] - Home Settings", Some(102))]
+        );
+        // descriptions before their markers (the command list)
+        assert_eq!(parts("Rest[403]   Diary[406]"), vec![("Rest[403]", Some(403)), ("   Diary[406]", Some(406))]);
+        // text on both sides: a run of 2+ spaces ends each button
+        assert_eq!(
+            parts("Pick: [1] Yes  [2] No  now"),
+            vec![("Pick: [1] Yes", Some(1)), ("  [2] No", Some(2)), ("  now", None)]
+        );
+        assert_eq!(parts("[0x10] hex"), vec![("[0x10] hex", Some(16))]);
+        // not numbers / unbalanced brackets: no buttons
+        assert_eq!(parts("[Status] [x]"), vec![("[Status] [x]", None)]);
+        assert_eq!(parts("a] [1] b"), vec![("a] [1] b", None)]);
+    }
+
+    #[test]
+    fn buttons_stay_clickable_like_emuera() {
+        let mut c = Console::new();
+        c.print("[1] Go  [2] Stay");
+        c.newline();
+        let menu = c.lines[0].gen;
+        c.begin_input((7, 3), true);
+        assert_eq!(c.valid_gen, menu, "the menu is clickable at its INPUT");
+        // a rejected / empty answer asks the same INPUT again: still valid
+        c.begin_input((7, 3), true);
+        assert_eq!(c.valid_gen, menu);
+        // another input with no new buttons printed: the old ones retire
+        c.begin_input((9, 1), true);
+        assert_ne!(c.valid_gen, menu);
+        // new buttons become the valid ones
+        c.print("[3] Next");
+        c.newline();
+        let next = c.lines[1].gen;
+        c.begin_input((9, 1), true);
+        assert_eq!(c.valid_gen, next);
+        // a text input doesn't take number buttons
+        c.begin_input((11, 0), false);
+        assert_ne!(c.valid_gen, next);
+    }
+
+    #[test]
+    fn auto_buttons_around_explicit_ones() {
+        let mut c = Console::new();
+        c.print("[1] Yes  ");
+        c.print_button("[Raise it]", Value::Int(7));
+        c.print("  [2] No");
+        c.newline();
+        let got: Vec<(String, Option<Value>)> = c.lines[0]
+            .segs
+            .iter()
+            .filter_map(|s| match s {
+                Seg::Text { text, button, .. } => Some((text.clone(), button.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("[1] Yes  ".to_string(), Some(Value::Int(1))),
+                ("[Raise it]".to_string(), Some(Value::Int(7))),
+                ("  [2] No".to_string(), Some(Value::Int(2))),
+            ]
+        );
+    }
 }

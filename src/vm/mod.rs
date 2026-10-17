@@ -1407,8 +1407,11 @@ impl Vm {
         if !self.con.cur.is_empty() {
             self.con.newline();
         }
+        if req.kind != InputKind::Wait {
+            let site = self.frames.last().map_or((0, 0), |f| (Rc::as_ptr(&f.func) as usize, f.pc));
+            self.con.begin_input(site, req.kind == InputKind::Int);
+        }
         let r = self.fe.input(&mut self.con, &mut self.res, req);
-        self.con.next_gen();
         match r {
             InputResult::Text(s) => {
                 self.last_input = s.clone();

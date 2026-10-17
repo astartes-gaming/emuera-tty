@@ -2360,15 +2360,54 @@ impl Vm {
             }
             "HTML_POPPRINTINGSTR" => {
                 // the pending (not yet newlined) line, as HTML, removed from the console
-                let segs = std::mem::take(&mut self.con.cur);
+                // (Emuera's DisplayLine2Html: buttons, colours and font
+                // styles survive the trip through HTML_PRINT)
+                let segs = crate::console::auto_buttons(std::mem::take(&mut self.con.cur));
+                let def_fg = self.con.default_fg;
                 let mut out = String::new();
+                let mut open: Option<Value> = None;
                 for seg in &segs {
+                    let btn = match seg {
+                        Seg::Text { button, .. } | Seg::Image { button, .. } | Seg::Rect { button, .. } => button.clone(),
+                        Seg::Space { .. } => None,
+                    };
+                    if btn != open {
+                        if open.is_some() {
+                            out.push_str("</button>");
+                        }
+                        if let Some(v) = &btn {
+                            out.push_str(&format!("<button value='{}'>", crate::xml::escape(&v.as_string())));
+                        }
+                        open = btn;
+                    }
                     match seg {
-                        Seg::Text { text, .. } => out.push_str(&crate::xml::escape(text)),
+                        Seg::Text { text, style, .. } => {
+                            let font = style.fg != def_fg;
+                            if font {
+                                out.push_str(&format!("<font color='#{:02X}{:02X}{:02X}'>", style.fg.0, style.fg.1, style.fg.2));
+                            }
+                            for (on, tag) in [(style.strike, "s"), (style.underline, "u"), (style.italic, "i"), (style.bold, "b")] {
+                                if on {
+                                    out.push_str(&format!("<{}>", tag));
+                                }
+                            }
+                            out.push_str(&crate::xml::escape(text));
+                            for (on, tag) in [(style.bold, "b"), (style.italic, "i"), (style.underline, "u"), (style.strike, "s")] {
+                                if on {
+                                    out.push_str(&format!("</{}>", tag));
+                                }
+                            }
+                            if font {
+                                out.push_str("</font>");
+                            }
+                        }
                         Seg::Image { name, .. } => out.push_str(&format!("<img src='{}'>", crate::xml::escape(name))),
                         Seg::Space { w } => out.push_str(&format!("<space value='{}'>", (*w).round() as i64)),
                         Seg::Rect { .. } => {}
                     }
+                }
+                if open.is_some() {
+                    out.push_str("</button>");
                 }
                 s(out)
             }

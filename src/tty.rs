@@ -767,7 +767,7 @@ impl Tty {
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
         let mut count = 0;
         if let Some(l) = &cur_line {
-            let r = self.layout_line(l, con.gen, scale);
+            let r = self.layout_line(l, con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
         }
@@ -775,7 +775,7 @@ impl Tty {
             if count >= need {
                 break;
             }
-            let r = self.layout_line(l, con.gen, scale);
+            let r = self.layout_line(l, con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
         }
