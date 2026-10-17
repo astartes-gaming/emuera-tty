@@ -177,6 +177,15 @@ MAP_RELEASE "M"
 CALL CHECK, "maprelease", MAP_EXIST("M") == 0
 ;--- VariableSize.csv applies to character variables
 CALL CHECK, "varsizechara", VARSIZE("TALENT") == 1200
+;--- REF parameters, function-owned LOCAL / static #DIM
+LOCALSTR:1 = b
+CALL REFFILL, LOCALSTR, SQUARE(2)
+CALL CHECK, "refparam", LOCALSTR:0 == "x4" && LOCALSTR:1 == "by"
+CALL CHECKS, "refdynamic", REFDYN(), "x0"
+LOCAL = COUNTUP() + COUNTUP()
+CALL CHECK, "localpersist", LOCAL == 3
+LOCAL = STATICUP() + STATICUP()
+CALL CHECK, "staticdim", LOCAL == 3
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 
@@ -215,3 +224,26 @@ RETURNF GREETING + "、" + WHO
 
 @ADDTWO, ARG, ARG:1
 RETURN ARG + ARG:1
+
+@REFFILL, R, N
+#DIMS REF R, 0
+#DIM DYNAMIC N
+R:0 = x{N}
+R:1 += "y"
+
+@REFDYN
+#FUNCTIONS
+#DIMS DYNAMIC D, 2
+CALL REFFILL, D, 0
+RETURNF D:0
+
+@COUNTUP
+#FUNCTION
+LOCAL += 1
+RETURNF LOCAL
+
+@STATICUP
+#FUNCTION
+#DIM K
+K += 1
+RETURNF K

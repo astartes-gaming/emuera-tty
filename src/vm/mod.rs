@@ -33,6 +33,8 @@ pub struct Frame {
     pub pc: usize,
     pub vars: HashMap<String, Arr>,
     pub slots: Vec<Slot>,
+    /// `#DIM REF` parameters: name -> the caller's variable
+    pub refs: HashMap<String, Loc>,
 }
 
 #[derive(Default, Clone)]
@@ -43,6 +45,8 @@ pub struct Chara {
 pub enum Loc {
     Global(String),
     Frame(String),
+    /// a variable in a specific (caller's) frame, for REF parameters
+    FrameAt(usize, String),
     Static(String),
     Chara(usize, String),
     Ro(Value),
@@ -66,6 +70,9 @@ pub struct Vm {
     pub user_dims: HashMap<String, DimDecl>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
     pub maps: HashMap<String, StrMap>,
+    /// REF bindings collected by `call_args` for the next `call_func`
+    pending_refs: Vec<(String, Loc)>,
+    trace: Option<String>,
     rng: u64,
     warned: HashSet<String>,
     pub game_dir: PathBuf,
@@ -105,6 +112,8 @@ impl Vm {
             frames: Vec::new(),
             user_dims: HashMap::new(),
             maps: HashMap::new(),
+            pending_refs: Vec::new(),
+            trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             rng: seed | 1,
             warned: HashSet::new(),
             game_dir,
@@ -130,25 +139,35 @@ impl Vm {
             .collect();
         self.globals.clear();
         self.charas.clear();
+        // function-owned LOCAL/ARG and static #DIMs go back to defaults too
+        self.statics.clear();
         for (k, v) in keep {
             self.globals.insert(k, v);
         }
         // user globals from ERH
         let dims = self.prog.global_dims.clone();
-        for d in dims {
-            if self.globals.contains_key(&d.name) {
-                self.user_dims.insert(d.name.clone(), d);
-                continue;
-            }
-            if !d.is_chara {
-                match self.make_dim(&d) {
+        for d in &dims {
+            self.user_dims.insert(d.name.clone(), d.clone());
+        }
+        // sizes may name CONSTs declared in later files: allocate in passes
+        let mut todo: Vec<&DimDecl> = dims.iter().filter(|d| !d.is_chara && !self.globals.contains_key(&d.name)).collect();
+        loop {
+            let mut failed = Vec::new();
+            for d in &todo {
+                match self.make_dim(d) {
                     Ok(a) => {
                         self.globals.insert(d.name.clone(), a);
                     }
-                    Err(e) => self.warn(&format!("#DIM {}: {:?}", d.name, e)),
+                    Err(e) => failed.push((*d, e)),
                 }
             }
-            self.user_dims.insert(d.name.clone(), d);
+            if failed.is_empty() || failed.len() == todo.len() {
+                for (d, e) in &failed {
+                    self.warn(&format!("#DIM {}: {:?}", d.name, e));
+                }
+                break;
+            }
+            todo = failed.into_iter().map(|(d, _)| d).collect();
         }
         // CSV initial values
         let strs = self.csv.str_init.clone();
@@ -325,11 +344,20 @@ impl Vm {
                 table_owned.as_deref()
             }
         };
+        // 0. REF parameter aliases
+        if let Some(loc) = self.frames.last().and_then(|f| f.refs.get(name)).map(clone_loc) {
+            let idx = self.eval_indices(v, 0, table)?;
+            let a = self.arr_at(&loc).ok_or_else(|| Ctrl::Error(format!("{}: referenced variable is gone", name), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            return Ok(Place { loc, flat });
+        }
         // 1. frame-local
         let (is_private, is_static) = match self.frames.last() {
             Some(f) => match f.func.dims.iter().find(|d| d.name == name) {
                 Some(d) => (true, d.is_static),
-                None => (false, false),
+                // Emuera's LOCAL/ARG family is per-function storage that
+                // persists across calls (reset by RESETDATA / load)
+                None => (false, matches!(name, "LOCAL" | "LOCALS" | "ARG" | "ARGS")),
             },
             None => (false, false),
         };
@@ -337,8 +365,11 @@ impl Vm {
             let fname = self.frames.last().unwrap().func.name.clone();
             let key = format!("{}::{}", fname, name);
             if !self.statics.contains_key(&key) {
-                let d = self.frame_private(name).cloned().unwrap();
-                let a = self.make_dim(&d)?;
+                let a = match self.frame_private(name).cloned() {
+                    Some(d) => self.make_dim(&d)?,
+                    None if matches!(name, "LOCAL" | "ARG") => Arr::new(false, &[1000]),
+                    None => Arr::new(true, &[100]),
+                };
                 self.statics.insert(key.clone(), a);
             }
             let idx = self.eval_indices(v, 0, table)?;
@@ -368,6 +399,31 @@ impl Vm {
             let a = self.globals.get(name).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
             return Ok(Place { loc: Loc::Global(name.to_string()), flat });
+        }
+        // 3a. CSV name tables (ABLNAME, BASENAME, …) as real string arrays,
+        // so FINDELEMENT / VARSIZE / array builtins can take them
+        if name.ends_with("NAME") && name != "NAME" {
+            if let Some(t) = table_for_var(name) {
+                if !self.globals.contains_key(name) {
+                    let tbl = self.csv.tables.get(t);
+                    let max = tbl.and_then(|t| t.by_index.keys().max().copied()).unwrap_or(-1) + 1;
+                    let size = match system_var(t) {
+                        Some(def) => self.var_def_dims(t, def).last().copied().unwrap_or(0),
+                        None => 0,
+                    }
+                    .max(max.max(1) as usize);
+                    let mut a = Arr::new(true, &[size]);
+                    if let Some(tbl) = tbl {
+                        for (i, s) in &tbl.by_index {
+                            a.set((*i).max(0) as usize, Value::Str(s.clone()));
+                        }
+                    }
+                    self.globals.insert(name.to_string(), a);
+                }
+                let idx = self.eval_indices(v, 0, table)?;
+                let flat = self.globals[name].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+                return Ok(Place { loc: Loc::Global(name.to_string()), flat });
+            }
         }
         // 3. pseudo variables
         if pseudo_var(name) {
@@ -404,6 +460,7 @@ impl Vm {
         match loc {
             Loc::Global(n) => Some(self.global_arr(n)),
             Loc::Frame(n) => self.frames.last_mut().and_then(|f| f.vars.get_mut(n)),
+            Loc::FrameAt(d, n) => self.frames.get_mut(*d).and_then(|f| f.vars.get_mut(n)),
             Loc::Static(k) => self.statics.get_mut(k),
             Loc::Chara(c, n) => Some(self.chara_arr(*c, n)),
             Loc::Ro(_) => None,
@@ -480,7 +537,11 @@ impl Vm {
             "__INT_MAX__" => Value::Int(i64::MAX),
             "__INT_MIN__" => Value::Int(i64::MIN),
             "WINDOW_TITLE" => Value::Str(self.con.title.clone()),
-            "DRAWLINESTR" => Value::Str(self.con.drawline_str.clone()),
+            // the full rule line DRAWLINE prints, not just its unit
+            "DRAWLINESTR" => {
+                let unit = if self.con.drawline_str.is_empty() { "-" } else { &self.con.drawline_str };
+                Value::Str(crate::console::repeat_to_width(unit, self.con.width))
+            }
             "MONEYLABEL" => Value::Str(self.csv.gamebase.get("お金の単位").cloned().unwrap_or_else(|| "$".into())),
             "SAVEDATA_TEXT" => self.globals.get("SAVEDATA_TEXT").map(|a| a.get(0)).unwrap_or(Value::Str(String::new())),
             "LASTLOAD_TEXT" | "LASTLOAD_NO" | "LASTLOAD_VERSION" => {
@@ -661,13 +722,8 @@ impl Vm {
     fn call_expr(&mut self, name: &str, args: &[Expr]) -> VmResult<Value> {
         if let Some(fs) = self.prog.funcs.get(name) {
             let f = fs[0].clone();
-            let mut vals = Vec::with_capacity(args.len());
-            for a in args {
-                vals.push(match a {
-                    Expr::Empty => None,
-                    e => Some(self.eval(e)?),
-                });
-            }
+            let (vals, refs) = self.call_args(&f, args)?;
+            self.pending_refs = refs;
             let r = self.call_func(f.clone(), vals)?;
             return Ok(r.unwrap_or(if f.returns_str { Value::Str(String::new()) } else { Value::Int(0) }));
         }
@@ -705,7 +761,41 @@ impl Vm {
         Ok(true)
     }
 
+    /// Evaluate call arguments; `#DIM REF` parameters instead resolve the
+    /// caller's variable. Store the refs in `pending_refs` right before the
+    /// call (not earlier: argument expressions may make calls of their own).
+    fn call_args(&mut self, f: &Function, args: &[Expr]) -> VmResult<(Vec<Option<Value>>, Vec<(String, Loc)>)> {
+        let mut vals = Vec::with_capacity(args.len());
+        let mut refs = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            let p = f.params.get(i).map(|p| p.target.name.clone());
+            let is_ref = p.as_ref().is_some_and(|n| f.dims.iter().any(|d| d.is_ref && &d.name == n));
+            if let (true, Expr::Var(v)) = (is_ref, a) {
+                let top = self.frames.len().saturating_sub(1);
+                let loc = match self.locate(&VarRef { name: v.name.clone(), idx: vec![] })?.loc {
+                    Loc::Frame(n) => Loc::FrameAt(top, n),
+                    l => l,
+                };
+                refs.push((p.unwrap(), loc));
+                vals.push(None);
+                continue;
+            }
+            vals.push(match a {
+                Expr::Empty => None,
+                e => Some(self.eval(e)?),
+            });
+        }
+        Ok((vals, refs))
+    }
+
     pub fn call_func(&mut self, f: Rc<Function>, args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
+        let refs: HashMap<String, Loc> = std::mem::take(&mut self.pending_refs).into_iter().collect();
+        // debugging aid: EMUERA_TRACE=<substring of function name>
+        if let Some(t) = &self.trace {
+            if f.name.contains(t.as_str()) {
+                eprintln!("trace: {}@{} args={:?} CHARANUM={}", "  ".repeat(self.frames.len()), f.name, args, self.charas.len());
+            }
+        }
         if self.frames.len() >= MAX_DEPTH {
             return err("call stack overflow");
         }
@@ -717,7 +807,7 @@ impl Vm {
                 vars.insert(d.name.clone(), a);
             }
         }
-        self.frames.push(Frame { func: f.clone(), pc: 0, vars, slots: vec![Slot::None; f.n_slots] });
+        self.frames.push(Frame { func: f.clone(), pc: 0, vars, slots: vec![Slot::None; f.n_slots], refs });
         // bind parameters
         for (i, p) in f.params.iter().enumerate() {
             let v = match args.get(i).cloned().flatten() {
@@ -730,7 +820,24 @@ impl Vm {
                             return Err(e);
                         }
                     },
-                    None => None,
+                    // no declared default: ARG/ARGS/private params get 0 / ""
+                    // (Emuera's implicit default), never the previous call's value
+                    None => {
+                        let n = p.target.name.as_str();
+                        let is_param_var = matches!(n, "ARG" | "ARGS") || f.dims.iter().any(|d| d.name == n && !d.is_ref);
+                        if is_param_var {
+                            match self.var_is_str(&p.target) {
+                                Ok(true) => Some(Value::Str(String::new())),
+                                Ok(false) => Some(Value::Int(0)),
+                                Err(e) => {
+                                    self.frames.pop();
+                                    return Err(e);
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    }
                 },
             };
             if let Some(v) = v {
@@ -745,6 +852,11 @@ impl Vm {
         }
         let r = self.exec();
         self.frames.pop();
+        if let (Some(t), Ok(v)) = (&self.trace, &r) {
+            if f.name.contains(t.as_str()) {
+                eprintln!("trace: {}<- @{} = {:?}", "  ".repeat(self.frames.len()), f.name, v);
+            }
+        }
         r
     }
 
@@ -905,13 +1017,10 @@ impl Vm {
             }
             Instr::Call { target, args, kind, try_, catch } => {
                 let name = self.resolve_target(target)?;
-                let mut vals = Vec::with_capacity(args.len());
-                for a in args {
-                    vals.push(match a {
-                        Expr::Empty => None,
-                        e => Some(self.eval(e)?),
-                    });
-                }
+                let (vals, refs) = match self.prog.funcs.get(&name).map(|fs| fs[0].clone()) {
+                    Some(f) => self.call_args(&f, args)?,
+                    None => (Vec::new(), Vec::new()),
+                };
                 if !self.has_func(&name) {
                     if *try_ {
                         if let Some(c) = catch {
@@ -921,6 +1030,7 @@ impl Vm {
                     }
                     return err(format!("function @{} not found", name));
                 }
+                self.pending_refs = refs;
                 self.call_name(&name, vals)?;
                 if *kind == CallKind::Jump {
                     return Ok(Some(None));
@@ -1224,6 +1334,7 @@ fn clone_loc(l: &Loc) -> Loc {
     match l {
         Loc::Global(s) => Loc::Global(s.clone()),
         Loc::Frame(s) => Loc::Frame(s.clone()),
+        Loc::FrameAt(d, s) => Loc::FrameAt(*d, s.clone()),
         Loc::Static(s) => Loc::Static(s.clone()),
         Loc::Chara(c, s) => Loc::Chara(*c, s.clone()),
         Loc::Ro(v) => Loc::Ro(v.clone()),

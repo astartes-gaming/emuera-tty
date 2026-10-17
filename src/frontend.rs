@@ -33,6 +33,8 @@ pub trait Frontend {
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult;
     /// Console width in half-width columns.
     fn cols(&self) -> usize;
+    /// Override the width, for frontends with no real terminal size.
+    fn set_cols(&mut self, _cols: usize) {}
     fn shutdown(&mut self) {}
 }
 
@@ -40,6 +42,7 @@ pub trait Frontend {
 pub struct Headless {
     printed: usize,
     gen_seen: usize,
+    dropped_seen: usize,
     pub echo_input: bool,
     lines_in: Box<dyn BufRead>,
     width: usize,
@@ -50,6 +53,7 @@ impl Headless {
         Headless {
             printed: 0,
             gen_seen: 0,
+            dropped_seen: 0,
             echo_input,
             lines_in: Box::new(std::io::BufReader::new(std::io::stdin())),
             width: 80,
@@ -63,10 +67,12 @@ impl Headless {
 
 impl Frontend for Headless {
     fn flush(&mut self, con: &mut Console, _res: &mut Resources) {
-        // Lines can be removed (CLEARLINE); clamp.
-        if self.printed > con.lines.len() {
-            self.printed = con.lines.len();
-        }
+        // Lines can be removed (CLEARLINE, REUSELASTLINE, history limit)
+        // and new ones added since the last flush: rewind past removals.
+        self.printed = self.printed.saturating_sub(con.dropped_front - self.dropped_seen);
+        self.dropped_seen = con.dropped_front;
+        self.printed = self.printed.min(con.low_water).min(con.lines.len());
+        con.low_water = usize::MAX;
         let mut out = std::io::stdout().lock();
         for l in &con.lines[self.printed..] {
             let _ = writeln!(out, "{}", Self::line_out(l));
@@ -107,5 +113,9 @@ impl Frontend for Headless {
 
     fn cols(&self) -> usize {
         self.width
+    }
+
+    fn set_cols(&mut self, cols: usize) {
+        self.width = cols;
     }
 }

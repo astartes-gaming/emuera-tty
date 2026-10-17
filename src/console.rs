@@ -70,6 +70,10 @@ pub struct Console {
     pub font_name: String,
     pub title: String,
     pub last_temp: bool,
+    /// lowest line count since the frontend last looked (tail removals)
+    pub low_water: usize,
+    /// lines dropped from the front so far (history limit)
+    pub dropped_front: usize,
 }
 
 impl Console {
@@ -98,6 +102,8 @@ impl Console {
             font_name: String::new(),
             title: String::new(),
             last_temp: false,
+            low_water: usize::MAX,
+            dropped_front: 0,
         }
     }
 
@@ -106,6 +112,7 @@ impl Console {
             self.last_temp = false;
             if self.lines.last().map(|l| l.temporary).unwrap_or(false) {
                 self.lines.pop();
+                self.low_water = self.low_water.min(self.lines.len());
             }
         }
     }
@@ -183,6 +190,7 @@ impl Console {
         if self.lines.len() > self.max_lines {
             let n = self.lines.len() - self.max_lines;
             self.lines.drain(0..n);
+            self.dropped_front += n;
         }
         self.dirty = true;
     }
@@ -211,6 +219,7 @@ impl Console {
         let n = n.min(self.lines.len());
         let len = self.lines.len();
         self.lines.truncate(len - n);
+        self.low_water = self.low_water.min(self.lines.len());
         self.dirty = true;
     }
 

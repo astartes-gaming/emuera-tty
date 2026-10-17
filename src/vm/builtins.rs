@@ -677,6 +677,27 @@ impl Vm {
                 }
                 self.set_result(n as i64);
             }
+            "HTML_TAGSPLIT" => {
+                // HTML_TAGSPLIT html{, ARR{, COUNT}} : pieces are tags or text runs
+                let html = self.as_(a, 0, "")?;
+                let target = if a.len() >= 2 { self.avar(a, 1)? } else { Rc::new(VarRef { name: "RESULTS".into(), idx: vec![] }) };
+                let pieces = html_tag_split(&html);
+                let n = pieces.as_ref().map_or(-1, |p| p.len() as i64);
+                if let Some(pieces) = pieces {
+                    let (loc, base, len) = self.array_row(&target)?;
+                    let arr = self.arr_at(&loc).unwrap();
+                    for (k, p) in pieces.into_iter().take(len).enumerate() {
+                        arr.set(base + k, Value::Str(p));
+                    }
+                }
+                match a.get(2) {
+                    Some(Expr::Var(cv)) => {
+                        let cv = cv.clone();
+                        self.set_var(&cv, Value::Int(n))?;
+                    }
+                    _ => self.set_result(n),
+                }
+            }
             "RANDOMIZE" | "INITRAND" => {
                 let s = self.ai(a, 0, 0)?;
                 self.seed(s);
@@ -1520,6 +1541,30 @@ impl Vm {
                 let x = self.as_(a, 0, "")?;
                 s(crate::html::to_plain(&x))
             }
+            "HTML_POPPRINTINGSTR" => {
+                // the pending (not yet newlined) line, as HTML, removed from the console
+                let segs = std::mem::take(&mut self.con.cur);
+                let mut out = String::new();
+                for seg in &segs {
+                    match seg {
+                        Seg::Text { text, .. } => out.push_str(&html_escape(text)),
+                        Seg::Image { name, .. } => out.push_str(&format!("<img src='{}'>", html_escape(name))),
+                        Seg::Space { w } => out.push_str(&format!("<space value='{}'>", (*w).round() as i64)),
+                        Seg::Rect { .. } => {}
+                    }
+                }
+                s(out)
+            }
+            "FIND_CHARADATA" => {
+                // SAVECHARA is not implemented yet, so there are no chara files to find
+                self.set_results(String::new());
+                i(0)
+            }
+            "CHKCHARADATA" => {
+                // 1 = file not found (Emuera's CHKDATA convention)
+                self.set_results(String::new());
+                i(1)
+            }
             "HTML_GETPRINTEDSTR" => {
                 let n = self.ai(a, 0, 0)?;
                 let l = self.con.lines.len() as i64 - 1 - n;
@@ -1660,3 +1705,27 @@ fn m_here(p: &[char], t: &[char]) -> bool {
 
 #[allow(dead_code)]
 fn unused(_: Place) {}
+
+/// Emuera's HtmlManager.HtmlTagSplit: alternating text runs and `<...>` tags;
+/// None if a tag is unterminated.
+fn html_tag_split(s: &str) -> Option<Vec<String>> {
+    let mut out = Vec::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        let Some(lt) = rest.find('<') else {
+            out.push(rest.to_string());
+            break;
+        };
+        if lt > 0 {
+            out.push(rest[..lt].to_string());
+        }
+        let gt = rest[lt..].find('>')? + lt;
+        out.push(rest[lt..=gt].to_string());
+        rest = &rest[gt + 1..];
+    }
+    Some(out)
+}
+
+fn html_escape(x: &str) -> String {
+    x.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+}

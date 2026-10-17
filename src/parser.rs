@@ -366,6 +366,11 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+        // Emuera: a function's private #DIM keeps its value across calls
+        // unless DYNAMIC (or REF); only consulted for function-private dims
+        if !d.is_dynamic && !d.is_ref {
+            d.is_static = true;
+        }
         if p.eat(",") {
             loop {
                 p.skip_ws();
@@ -386,6 +391,9 @@ impl<'a> Parser<'a> {
         if !p.at_end() {
             return Err(format!("bad #DIM: {}", line));
         }
+        // identifiers are case-insensitive: `#DIMS X, PNMax` names PNMAX
+        d.dims = d.dims.into_iter().map(upper_expr).collect();
+        d.init = d.init.into_iter().map(upper_expr).collect();
         Ok(d)
     }
 

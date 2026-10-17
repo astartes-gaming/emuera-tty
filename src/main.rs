@@ -63,14 +63,17 @@ fn parse_args() -> Opts {
     o
 }
 
-/// Read a few keys from emuera.config (key:value lines).
-fn load_config(game: &std::path::Path, con: &mut console::Console) {
-    let mut paths = vec![game.join("emuera.config")];
+/// Read a few keys from the config files (key:value lines), in Emuera's
+/// order: CSV/_default.config, emuera.config, CSV/_fixed.config (wins).
+/// Returns the configured window width in pixels, if any.
+fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut console::Console) -> Option<f32> {
+    let mut paths = vec![loader::find_file_ci(csv_dir, "_default.config"), loader::find_file_ci(game, "emuera.config")];
     if let Some(d) = loader::find_dir_ci(game, "config") {
-        paths.push(d.join("emuera.config"));
+        paths.push(loader::find_file_ci(&d, "emuera.config"));
     }
-    for p in paths {
-        let Some(p) = p.parent().and_then(|d| loader::find_file_ci(d, "emuera.config")) else { continue };
+    paths.push(loader::find_file_ci(csv_dir, "_fixed.config"));
+    let mut window_px = None;
+    for p in paths.into_iter().flatten() {
         let Ok(text) = loader::read_text(&p) else { continue };
         for line in text.lines() {
             let Some((k, v)) = line.split_once(':') else { continue };
@@ -80,6 +83,7 @@ fn load_config(game: &std::path::Path, con: &mut console::Console) {
                 if n.len() == 3 { Some(console::Rgb(n[0], n[1], n[2])) } else { None }
             };
             match k.trim() {
+                "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
                 "フォントサイズ" => con.font_size = v.parse().unwrap_or(con.font_size),
                 "一行の高さ" => con.line_height = v.parse().unwrap_or(con.line_height),
                 "文字色" => {
@@ -109,6 +113,7 @@ fn load_config(game: &std::path::Path, con: &mut console::Console) {
             }
         }
     }
+    window_px
 }
 
 fn run(o: Opts) -> i32 {
@@ -178,7 +183,13 @@ fn run(o: Opts) -> i32 {
         }
     };
     let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone());
-    load_config(&game, &mut vm.con);
+    if let Some(px) = load_config(&game, &csv_dir, &mut vm.con) {
+        // no real terminal to fit: use Emuera's width (half-width cells are font_size/2 px)
+        if o.headless {
+            vm.fe.set_cols((px / (vm.con.font_size / 2.0).max(1.0)) as usize);
+            vm.con.width = vm.fe.cols().saturating_sub(1).max(20);
+        }
+    }
     vm.strict = o.strict;
     let r = vm.run();
     vm.fe.shutdown();
