@@ -196,6 +196,11 @@ pub struct Tty {
     /// the `--gfx` preference and $TERM, to set the image backend up again
     gfx_pref: String,
     term: String,
+    /// fingerprint of the last frame sent (an identical one is skipped)
+    last_frame: u64,
+    force_frame: bool,
+    /// CBG pictures scaled to the terminal, by (fingerprint, size)
+    cbg_scaled: std::collections::HashMap<(u64, u32, u32), std::rc::Rc<image::RgbaImage>>,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -351,6 +356,9 @@ impl Tty {
             auto_color: detected,
             gfx_pref: gfx_pref.to_string(),
             term: term.clone(),
+            last_frame: 0,
+            force_frame: false,
+            cbg_scaled: std::collections::HashMap::new(),
         };
         if xp > 0 && yp > 0 {
             t.cell = (xp / cols as u32, yp / rows as u32);
@@ -985,12 +993,20 @@ impl Tty {
                 }
             }
         }
+        // a picture menu (CBG layers) may draw anywhere on the screen:
+        // give it rows to draw text into below short content
+        if !res.cbg.is_empty() && self.scroll == 0 {
+            while all.len() < view_h {
+                all.push(DRow::default());
+            }
+        }
         let max_scroll = all.len().saturating_sub(view_h);
         if self.scroll > max_scroll {
             self.scroll = max_scroll;
         }
         let end = all.len() - self.scroll.min(all.len());
         let start = end.saturating_sub(view_h);
+        let cbg_places = if res.cbg.is_empty() { Vec::new() } else { self.cbg_layers(con, res, &mut all[start..end]) };
         let visible = &all[start..end];
 
         let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
@@ -1001,7 +1017,7 @@ impl Tty {
         self.hover = hover;
         self.btn_map = vec![Vec::new(); self.rows];
         self.frame = vec![Vec::new(); self.rows];
-        let mut placements = Vec::new();
+        let mut placements = cbg_places;
         // the console mouse (gpm or the raw device) has no pointer of its
         // own on screen: draw one
         let pointer = if self.mice.is_some() { self.mouse } else { None };
@@ -1136,6 +1152,27 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H\x1b[?25h", self.rows, 3 + w);
             self.frame_cursor = Some((self.rows, 3 + w));
         }
+        // a frame exactly like the last one (a script redrawing a picture
+        // menu every few milliseconds) isn't sent again
+        let fp = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            out.hash(&mut h);
+            for p in &placements {
+                p.key.hash(&mut h);
+            }
+            h.finish()
+        };
+        if fp == self.last_frame && !self.force_frame {
+            self.frame_imgs = placements;
+            con.dirty = false;
+            return;
+        }
+        if std::env::var_os("EMUERA_DEBUG_FRAMES").is_some() {
+            eprintln!("frame {:x} len {} keys {:?}", fp, out.len(), placements.iter().map(|p| p.key.clone()).collect::<Vec<_>>());
+        }
+        self.last_frame = fp;
+        self.force_frame = false;
         write_all(&out);
         unsafe {
             libc::tcdrain(1);
@@ -1143,6 +1180,125 @@ impl Tty {
         self.gfx.after_flush(&placements, self.cell);
         self.frame_imgs = placements;
         con.dirty = false;
+    }
+
+    /// The client background layers (CBG*): as images where the terminal
+    /// shows them, else the text drawn into them (GDRAWTEXT) painted into
+    /// the screen `rows`, so a menu drawn as a picture still works.
+    /// Returns their image placements, back to front.
+    fn cbg_layers(&mut self, con: &Console, res: &mut Resources, rows: &mut [DRow]) -> Vec<Placement> {
+        use crate::resources::CbgSrc;
+        let cw = (con.font_size / 2.0).max(1.0);
+        let lh = con.line_height.max(1.0);
+        let client_h = self.rows as f32 * lh;
+        // the button under the mouse (button map colour)
+        let hovered = self.mouse.and_then(|(c, r)| {
+            let x = (c as f32 * cw + cw / 2.0) as i64;
+            let y = (r as f32 * lh + lh / 2.0 - client_h) as i64;
+            res.cbg_button_at(x, y)
+        });
+        let images = self.gfx.name() != "none" && !self.no_images;
+        let (sx, sy) = (self.cell.0 as f32 / cw, self.cell.1 as f32 / lh);
+        let screen_px = (self.rows as u32 * self.cell.1.max(1)) as i32;
+        let mut out = Vec::new();
+        for l in res.cbg.clone() {
+            let src = match &l.button {
+                Some((v, hover)) if hovered == Some(*v) => match hover {
+                    Some(h) => h.clone(),
+                    None => continue,
+                },
+                _ => l.src.clone(),
+            };
+            if let CbgSrc::Sprite(n) = &src {
+                if n.is_empty() {
+                    continue;
+                }
+            }
+            if !images {
+                // (only the size is needed: no pixel fingerprint)
+                let CbgSrc::G(gid) = src else { continue };
+                let Some(g) = res.graphics.get(&gid) else { continue };
+                let top_e = client_h + l.y as f32 - g.img.height() as f32;
+                // text fallback: what GDRAWTEXT wrote into the buffer
+                for t in &g.texts {
+                    // text drawn larger than the console font takes more
+                    // pixels per character than a cell: keep its middle
+                    // where it was (menus are centred), not its left edge
+                    let text = t.text.trim();
+                    let lead = t.text.len() - t.text.trim_start().len();
+                    let half = t.size as f32 / 2.0; // px per half-width char
+                    let w_px = crate::loader::sjis_len(text) as f32 * half;
+                    let mid = l.x as f32 + t.x as f32 + lead as f32 * half + w_px / 2.0;
+                    let st = Style { fg: Rgb(t.color[0], t.color[1], t.color[2]), bg: None, bold: t.size as f32 > con.font_size, italic: false, underline: false, strike: false };
+                    let cells = self.text_cells(text, &st);
+                    let width: usize = cells.iter().map(|c| c.w as usize).sum();
+                    let col = (mid / cw - width as f32 / 2.0).round().max(0.0);
+                    let row = ((top_e + t.y as f32 + t.size as f32 / 2.0) / lh).floor();
+                    if row < 0.0 || row as usize >= rows.len() || text.is_empty() {
+                        continue;
+                    }
+                    paint_cells(&mut rows[row as usize], col as usize, cells);
+                }
+                continue;
+            }
+            let Some((img, fp)) = res.cbg_pixels(&src) else { continue };
+            let (w, h) = (img.width() as f32, img.height() as f32);
+            let top_e = client_h + l.y as f32 - h;
+            let (pw, ph) = ((w * sx).round().max(1.0) as u32, (h * sy).round().max(1.0) as u32);
+            let (left, top) = ((l.x as f32 * sx).round() as i32, (top_e * sy).round() as i32);
+            if left < 0 || top + ph as i32 <= 0 || top >= screen_px {
+                continue;
+            }
+            let crop_top = (-top).max(0) as u32;
+            let top_c = top.max(0);
+            let crop_h = (ph - crop_top.min(ph)).min((screen_px - top_c) as u32);
+            if crop_h == 0 {
+                continue;
+            }
+            let key = (fp, pw, ph);
+            let scaled = match self.cbg_scaled.get(&key) {
+                Some(i) => i.clone(),
+                None => {
+                    if self.cbg_scaled.len() > 8 {
+                        self.cbg_scaled.clear();
+                    }
+                    let i = if (pw, ph) == img.dimensions() {
+                        img.clone()
+                    } else {
+                        std::rc::Rc::new(image::imageops::resize(&*img, pw, ph, image::imageops::FilterType::Triangle))
+                    };
+                    self.cbg_scaled.insert(key, i.clone());
+                    i
+                }
+            };
+            let ch = self.cell.1.max(1) as i32;
+            out.push(Placement {
+                key: format!("cbg{:x}@{}x{}", fp, pw, ph),
+                img: scaled,
+                col: left / self.cell.0.max(1) as i32,
+                row: top_c / ch,
+                y_off: top_c % ch,
+                crop_top,
+                crop_h,
+            });
+        }
+        out
+    }
+
+    /// Cells for a run of text in one style (for text painted over rows).
+    fn text_cells(&self, text: &str, st: &Style) -> Vec<Cell> {
+        let mut v = Vec::new();
+        for ch in text.chars() {
+            let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied());
+            if tw == 0 {
+                continue;
+            }
+            v.push(Cell { ch, w: tw as u8, style: st.clone(), button: None });
+            for _ in 0..extra {
+                v.push(Cell { ch: fill, w: 1, style: st.clone(), button: None });
+            }
+        }
+        v
     }
 
     /// After a mouse move, repaint only what changed from the last frame:
@@ -1537,6 +1693,10 @@ impl Frontend for Tty {
         }
     }
 
+    fn refresh(&mut self, con: &mut Console, res: &mut Resources) {
+        self.render(con, res, None);
+    }
+
     /// Show the console and wait for input: typed text + Enter, a button
     /// click, any key/click for WAIT, or a timeout. Scrolling keys and the
     /// wheel move through the log meanwhile.
@@ -1586,7 +1746,10 @@ impl Frontend for Tty {
             let mut redraw = false;
             match k {
                 Key::CtrlC => return InputResult::Quit,
-                Key::CtrlL => redraw = true,
+                Key::CtrlL => {
+                    self.force_frame = true;
+                    redraw = true;
+                }
                 Key::Settings => match self.settings_overlay(con, res, req) {
                     OverlayExit::Close => redraw = true,
                     OverlayExit::Quit => return InputResult::Quit,
@@ -1679,6 +1842,98 @@ impl Frontend for Tty {
                 _ => {}
             }
             owed |= redraw;
+        }
+    }
+
+    fn mouse_cell(&self) -> Option<(usize, usize)> {
+        self.mouse
+    }
+
+    /// INPUTMOUSEKEY: the next click, wheel step or key (mouse moves only
+    /// update the pointer, which MOUSEX / MOUSEY read), or the timeout.
+    fn input_raw(&mut self, con: &mut Console, res: &mut Resources, timeout_ms: Option<u64>) -> crate::frontend::RawInput {
+        use crate::frontend::{char_keycode, RawInput};
+        self.scroll = 0;
+        self.buf.clear();
+        self.render(con, res, None);
+        let deadline = timeout_ms.map(|t| Instant::now() + Duration::from_millis(t));
+        let mut moved = false;
+        let cbg_buttons = res.cbg.iter().any(|l| l.button.is_some());
+        loop {
+            if self.hangup {
+                return RawInput::Quit;
+            }
+            if moved && self.queued.is_empty() && self.pending.is_empty() && !self.input_waiting() {
+                // a picture button may light up under the pointer
+                if cbg_buttons {
+                    self.render(con, res, None);
+                } else {
+                    self.repaint_hover(con.focus_fg);
+                }
+                moved = false;
+            }
+            let wait = match deadline {
+                Some(d) => {
+                    let now = Instant::now();
+                    if now >= d {
+                        return RawInput::Timeout;
+                    }
+                    ((d - now).as_millis() as i32).clamp(1, 200)
+                }
+                None => 200,
+            };
+            let Some(k) = self.next_key(wait) else { continue };
+            let key = |code: i64| RawInput::Key { code, data: code };
+            match k {
+                Key::CtrlC => return RawInput::Quit,
+                Key::Settings => {
+                    match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true }) {
+                        OverlayExit::Quit => return RawInput::Quit,
+                        _ => {
+                            self.force_frame = true;
+                            self.render(con, res, None);
+                        }
+                    }
+                }
+                Key::CtrlL => {
+                    self.force_frame = true;
+                    self.render(con, res, None);
+                }
+                Key::Mouse { btn, x, y, press } => {
+                    let cell = (x.saturating_sub(1) as usize, y.saturating_sub(1) as usize);
+                    match btn & !(4 | 8 | 16) {
+                        64 => return RawInput::Wheel { up: true, cell },
+                        65 => return RawInput::Wheel { up: false, cell },
+                        b if b & 32 != 0 => {
+                            self.mouse = Some(cell);
+                            moved = true;
+                        }
+                        b @ 0..=2 if press => {
+                            self.mouse = Some(cell);
+                            let button = self.button_at(cell.0, cell.1).map(|i| self.buttons[i].clone());
+                            return RawInput::Click { btn: b as u8, cell, button };
+                        }
+                        _ => {}
+                    }
+                }
+                // Windows key codes (System.Windows.Forms.Keys)
+                Key::Enter => return key(13),
+                Key::Backspace => return key(8),
+                Key::Esc => return key(27),
+                Key::PageUp => return key(33),
+                Key::PageDown => return key(34),
+                Key::End => return key(35),
+                Key::Home => return key(36),
+                Key::Left => return key(37),
+                Key::Up => return key(38),
+                Key::Right => return key(39),
+                Key::Down => return key(40),
+                Key::Char(c) => {
+                    let (code, data) = char_keycode(c);
+                    return RawInput::Key { code, data };
+                }
+                Key::Other => {}
+            }
         }
     }
 

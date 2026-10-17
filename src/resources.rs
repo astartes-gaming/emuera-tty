@@ -33,6 +33,61 @@ pub struct Resources {
     /// bumped whenever a buffer or SPRITECREATE sprite changes, so cached
     /// renderings of them (scaled copies, images sent to the terminal) renew
     pub gen: u64,
+    /// client background layers (CBGSETG / CBGSETSPRITE /
+    /// CBGSETBUTTONSPRITE), back to front
+    pub cbg: Vec<CbgLayer>,
+    /// CBGSETBMAPG: the buffer whose pixel colours are button values
+    pub cbg_bmap: Option<i64>,
+    /// when each buffer last changed (`gen` values)
+    g_gen: HashMap<i64, u64>,
+    /// prepared (cut, scaled) parts of draws, by source, its version, the
+    /// rectangle and size: a picture redrawn every frame is scaled once
+    parts: HashMap<(String, u64, (i32, i32, i32, i32), i32, i32), Rc<RgbaImage>>,
+    /// last fingerprint and copy of each buffer shown as a CBG layer
+    cbg_cache: HashMap<i64, (u64, Rc<RgbaImage>)>,
+}
+
+/// A fast hash of an image's pixels and size.
+fn fingerprint(img: &RgbaImage) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325 ^ ((img.width() as u64) << 32 | img.height() as u64);
+    for c in img.as_raw().chunks(8) {
+        let mut b = [0u8; 8];
+        b[..c.len()].copy_from_slice(c);
+        h = (h.rotate_left(5) ^ u64::from_le_bytes(b)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    h
+}
+
+/// What a client background layer shows.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CbgSrc {
+    /// a graphics buffer, live: later drawing into it shows
+    G(i64),
+    Sprite(String),
+}
+
+/// A CBG layer: anchored by its bottom-left corner at (`x`, `y`) from the
+/// window's bottom-left (Emuera pixels, `y` down), `z` > 0 behind the
+/// text, < 0 in front. A button layer shows `hover` while the button map
+/// colour under the mouse is `button`.
+#[derive(Clone, Debug)]
+pub struct CbgLayer {
+    pub src: CbgSrc,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub button: Option<(i64, Option<CbgSrc>)>,
+}
+
+/// Text drawn into a buffer (GDRAWTEXT), kept so terminals without
+/// images can still show a menu drawn as a picture.
+#[derive(Clone, Debug)]
+pub struct GText {
+    pub x: i32,
+    pub y: i32,
+    pub size: i32,
+    pub color: [u8; 4],
+    pub text: String,
 }
 
 /// A graphics buffer and its drawing state.
@@ -43,15 +98,18 @@ pub struct Graphic {
     pub brush_set: bool,
     /// GSETPEN (lines, text outline): colour, width
     pub pen: ([u8; 4], i64),
+    pub pen_set: bool,
     /// GSETFONT: name, size in px, style bits (1 bold 2 italic 4 strike 8 underline)
     pub font: (String, i64, i64),
     /// GDASHSTYLE: (style, cap)
     pub dash: (i64, i64),
+    /// GDRAWTEXT calls since the last clear
+    pub texts: Vec<GText>,
 }
 
 impl Graphic {
     pub fn new(img: RgbaImage) -> Graphic {
-        Graphic { img, brush: [0, 0, 0, 255], brush_set: false, pen: ([0, 0, 0, 255], 1), font: (String::new(), 100, 0), dash: (0, 0) }
+        Graphic { img, brush: [0, 0, 0, 255], brush_set: false, pen: ([0, 0, 0, 255], 1), pen_set: false, font: (String::new(), 100, 0), dash: (0, 0), texts: Vec::new() }
     }
 }
 
@@ -160,6 +218,15 @@ fn em_scale(font: &impl ab_glyph::Font, size: f32) -> ab_glyph::PxScale {
 }
 
 /// GDRAWTEXT: `text` with its top-left at (x, y), filled with `c`.
+/// A rasterised glyph: offset from its pen position, size, coverage.
+type GlyphMask = std::rc::Rc<(i32, i32, u32, u32, Vec<u8>)>;
+
+thread_local! {
+    /// Glyphs already rasterised, by font, size, glyph and sub-pixel
+    /// position (quarters): scripts redraw the same text every frame.
+    static GLYPHS: std::cell::RefCell<HashMap<(String, u32, u16, u8, u8), GlyphMask>> = std::cell::RefCell::new(HashMap::new());
+}
+
 pub fn draw_text(img: &mut RgbaImage, text: &str, (x, y): (i32, i32), name: &str, size: f32, c: [u8; 4]) {
     use ab_glyph::{Font, ScaleFont};
     let Some(font) = font_for(name) else { return };
@@ -167,20 +234,49 @@ pub fn draw_text(img: &mut RgbaImage, text: &str, (x, y): (i32, i32), name: &str
     let sf = font.as_scaled(scale);
     let mut pen_x = x as f32;
     let base = y as f32 + sf.ascent();
+    let (by, bq) = (base.floor(), ((base - base.floor()) * 4.0).round().min(3.0));
     for ch in text.chars() {
         let id = font.glyph_id(ch);
-        let g = id.with_scale_and_position(scale, ab_glyph::point(pen_x, base));
+        let (px0, xq) = (pen_x.floor(), ((pen_x - pen_x.floor()) * 4.0).round().min(3.0));
         pen_x += sf.h_advance(id);
-        let Some(o) = font.outline_glyph(g) else { continue };
-        let b = o.px_bounds();
-        o.draw(|gx, gy, cov| {
-            let (px, py) = (b.min.x as i32 + gx as i32, b.min.y as i32 + gy as i32);
-            if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
-                let mut col = c;
-                col[3] = (c[3] as f32 * cov.min(1.0)) as u8;
-                over(&mut img.get_pixel_mut(px as u32, py as u32).0, col);
-            }
+        let key = (name.to_string(), size.to_bits(), id.0, xq as u8, bq as u8);
+        let mask = GLYPHS.with(|g| g.borrow().get(&key).cloned()).or_else(|| {
+            let g = id.with_scale_and_position(scale, ab_glyph::point(xq / 4.0, bq / 4.0));
+            let o = font.outline_glyph(g)?;
+            let b = o.px_bounds();
+            let (w, h) = (b.width().max(0.0) as u32, b.height().max(0.0) as u32);
+            let mut cov = vec![0u8; (w * h) as usize];
+            o.draw(|gx, gy, v| {
+                if gx < w && gy < h {
+                    cov[(gy * w + gx) as usize] = (v.min(1.0) * 255.0) as u8;
+                }
+            });
+            let m: GlyphMask = std::rc::Rc::new((b.min.x as i32, b.min.y as i32, w, h, cov));
+            GLYPHS.with(|g| {
+                let mut g = g.borrow_mut();
+                if g.len() > 8192 {
+                    g.clear();
+                }
+                g.insert(key, m.clone());
+            });
+            Some(m)
         });
+        let Some(m) = mask else { continue };
+        let (ox, oy, w, h, cov) = (&m.0, &m.1, m.2, m.3, &m.4);
+        for gy in 0..h {
+            for gx in 0..w {
+                let a = cov[(gy * w + gx) as usize];
+                if a == 0 {
+                    continue;
+                }
+                let (px, py) = (px0 as i32 + ox + gx as i32, by as i32 + oy + gy as i32);
+                if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
+                    let mut col = c;
+                    col[3] = ((c[3] as u32 * a as u32) / 255) as u8;
+                    over(&mut img.get_pixel_mut(px as u32, py as u32).0, col);
+                }
+            }
+        }
     }
 }
 
@@ -224,38 +320,54 @@ fn color_matrix(p: [u8; 4], m: &[[f32; 5]; 5]) -> [u8; 4] {
 /// scaled to `dw × dh` (negative sizes mirror, as GDI+ does), blended over
 /// what is there, optionally through a colour matrix.
 #[allow(clippy::too_many_arguments)]
-pub fn draw_image(dst: &mut RgbaImage, src: &RgbaImage, (dx, dy, dw, dh): (i32, i32, i32, i32), (sx, sy, sw, sh): (i32, i32, i32, i32), cm: Option<&[[f32; 5]; 5]>) {
-    if dw == 0 || dh == 0 || sw <= 0 || sh <= 0 {
-        return;
+pub fn draw_image(dst: &mut RgbaImage, src: &RgbaImage, dest: (i32, i32, i32, i32), srect: (i32, i32, i32, i32), cm: Option<&[[f32; 5]; 5]>) {
+    if let Some(part) = prepare_part(src, srect, dest.2, dest.3) {
+        blit_part(dst, &part, dest, cm);
     }
-    // the source rectangle, clipped to the image
+}
+
+/// The source rectangle of `src`, clipped, scaled to |dw| × |dh| and
+/// mirrored for negative sizes (the slow part of a draw, worth caching).
+pub fn prepare_part(src: &RgbaImage, (sx, sy, sw, sh): (i32, i32, i32, i32), dw: i32, dh: i32) -> Option<RgbaImage> {
+    if dw == 0 || dh == 0 || sw <= 0 || sh <= 0 {
+        return None;
+    }
     let x0 = sx.clamp(0, src.width() as i32) as u32;
     let y0 = sy.clamp(0, src.height() as i32) as u32;
     let x1 = (sx + sw).clamp(0, src.width() as i32) as u32;
     let y1 = (sy + sh).clamp(0, src.height() as i32) as u32;
     if x1 <= x0 || y1 <= y0 {
-        return;
+        return None;
     }
-    let part = image::imageops::crop_imm(src, x0, y0, x1 - x0, y1 - y0).to_image();
     let (w, h) = (dw.unsigned_abs(), dh.unsigned_abs());
-    let mut scaled = if (w, h) == part.dimensions() { part } else { image::imageops::resize(&part, w, h, image::imageops::FilterType::Triangle) };
+    let view = image::imageops::crop_imm(src, x0, y0, x1 - x0, y1 - y0);
+    let mut scaled = if (w, h) == (x1 - x0, y1 - y0) { view.to_image() } else { image::imageops::resize(&*view, w, h, image::imageops::FilterType::Triangle) };
     if dw < 0 {
         image::imageops::flip_horizontal_in_place(&mut scaled);
     }
     if dh < 0 {
         image::imageops::flip_vertical_in_place(&mut scaled);
     }
+    Some(scaled)
+}
+
+/// Blend a prepared part over `dst` at the destination rectangle.
+pub fn blit_part(dst: &mut RgbaImage, part: &RgbaImage, (dx, dy, dw, dh): (i32, i32, i32, i32), cm: Option<&[[f32; 5]; 5]>) {
     let ox = if dw < 0 { dx + dw } else { dx };
     let oy = if dh < 0 { dy + dh } else { dy };
-    for (x, y, p) in scaled.enumerate_pixels() {
+    let (dwid, dhei) = (dst.width() as i32, dst.height() as i32);
+    for (x, y, p) in part.enumerate_pixels() {
         let (tx, ty) = (ox + x as i32, oy + y as i32);
-        if tx < 0 || ty < 0 || tx >= dst.width() as i32 || ty >= dst.height() as i32 {
+        if tx < 0 || ty < 0 || tx >= dwid || ty >= dhei {
             continue;
         }
         let px = match cm {
             Some(m) => color_matrix(p.0, m),
             None => p.0,
         };
+        if px[3] == 0 {
+            continue;
+        }
         over(&mut dst.get_pixel_mut(tx as u32, ty as u32).0, px);
     }
 }
@@ -289,6 +401,52 @@ impl Resources {
         r
     }
 
+    /// Add a CBG layer (kept sorted back to front).
+    pub fn cbg_add(&mut self, l: CbgLayer) {
+        self.cbg.push(l);
+        // stable: equal depths keep their order
+        self.cbg.sort_by(|a, b| b.z.cmp(&a.z));
+    }
+
+    /// The pixels a CBG source shows now, and a fingerprint of them (so an
+    /// unchanged picture isn't sent to the terminal again).
+    pub fn cbg_pixels(&mut self, src: &CbgSrc) -> Option<(Rc<RgbaImage>, u64)> {
+        match src {
+            CbgSrc::G(gid) => {
+                let g = self.graphics.get(gid)?;
+                let h = fingerprint(&g.img);
+                if let Some((k, img)) = &self.cbg_cache.get(gid) {
+                    if *k == h {
+                        return Some((img.clone(), h));
+                    }
+                }
+                let img = Rc::new(g.img.clone());
+                self.cbg_cache.insert(*gid, (h, img.clone()));
+                Some((img, h))
+            }
+            CbgSrc::Sprite(n) => {
+                if !self.exists(n) {
+                    return None;
+                }
+                let v = self.version(n);
+                self.sprite(n).map(|i| (i, v ^ 0x5bd1e995))
+            }
+        }
+    }
+
+    /// The button map's value at a point from the window's bottom-left
+    /// (Emuera pixels, `y` <= 0): the pixel's 0xRRGGBB if fully opaque.
+    pub fn cbg_button_at(&self, x: i64, y: i64) -> Option<i64> {
+        let g = self.graphics.get(&self.cbg_bmap?)?;
+        let (w, h) = (g.img.width() as i64, g.img.height() as i64);
+        let my = y + h;
+        if x < 0 || my < 0 || x >= w || my >= h {
+            return None;
+        }
+        let p = g.img.get_pixel(x as u32, my as u32).0;
+        (p[3] == 255).then_some(((p[0] as i64) << 16) | ((p[1] as i64) << 8) | p[2] as i64)
+    }
+
     /// A sprite cut from a graphics buffer exists only while the buffer
     /// does (Emuera's SpriteG.IsCreated); it comes back if the buffer is
     /// created again under the same id.
@@ -297,21 +455,65 @@ impl Resources {
         self.sprites.contains_key(&k) || self.g_sprites.get(&k).is_some_and(|s| self.graphics.contains_key(&s.0))
     }
 
-    /// A buffer or SPRITECREATE sprite changed: drop cached renderings.
+    /// The SPRITECREATE sprites changed (made / dropped): drop every cached
+    /// rendering of one.
     pub fn changed(&mut self) {
         self.gen = self.gen.wrapping_add(1);
-        self.scaled.clear();
-        self.cropped.retain(|k, _| !self.g_sprites.contains_key(k));
+        let gs = &self.g_sprites;
+        self.scaled.retain(|k, _| !gs.contains_key(&k.0));
+        self.cropped.retain(|k, _| !gs.contains_key(k));
+    }
+
+    /// Buffer `gid`'s pixels changed: only the sprites cut from it need
+    /// renewing (drawing into one buffer used to throw away every cached
+    /// sprite, and big source images were copied again on every draw).
+    pub fn changed_g(&mut self, gid: i64) {
+        self.gen = self.gen.wrapping_add(1);
+        self.g_gen.insert(gid, self.gen);
+        let gs = &self.g_sprites;
+        let from_g = |k: &String| gs.get(k).is_some_and(|s| s.0 == gid);
+        self.scaled.retain(|k, _| !from_g(&k.0));
+        self.cropped.retain(|k, _| !from_g(k));
     }
 
     /// Cache version of `name`'s pixels: 0 for image files (they never
-    /// change), the buffer generation for SPRITECREATE sprites.
+    /// change), its buffer's last change for SPRITECREATE sprites.
     pub fn version(&self, name: &str) -> u64 {
-        if self.g_sprites.contains_key(&name.to_uppercase()) {
-            self.gen
-        } else {
-            0
+        match self.g_sprites.get(&name.to_uppercase()) {
+            Some(s) => self.g_gen.get(&s.0).copied().unwrap_or(0) ^ (s.0 as u64).rotate_left(32),
+            None => 0,
         }
+    }
+
+    /// Draw `src` (an image, known by `key` + `version`) into buffer
+    /// `dst`, reusing the scaled cut-out from an earlier identical draw.
+    pub fn draw_cached(&mut self, dst: i64, key: &str, version: u64, src: &RgbaImage, dest: (i32, i32, i32, i32), srect: (i32, i32, i32, i32), cm: Option<&[[f32; 5]; 5]>) {
+        let k = (key.to_string(), version, srect, dest.2, dest.3);
+        let part = match self.parts.get(&k) {
+            Some(p) => p.clone(),
+            None => {
+                let Some(p) = prepare_part(src, srect, dest.2, dest.3) else { return };
+                if self.parts.len() > 64 {
+                    self.parts.clear();
+                }
+                let p = Rc::new(p);
+                self.parts.insert(k, p.clone());
+                p
+            }
+        };
+        if let Some(g) = self.graphics.get_mut(&dst) {
+            blit_part(&mut g.img, &part, dest, cm);
+        }
+    }
+
+    /// The version of buffer `gid`'s pixels.
+    pub fn g_version(&self, gid: i64) -> u64 {
+        self.g_gen.get(&gid).copied().unwrap_or(0)
+    }
+
+    /// A SPRITECREATE sprite's source: (buffer id, x, y, w, h).
+    pub fn g_sprite(&self, name: &str) -> Option<(i64, i32, i32, i32, i32)> {
+        self.g_sprites.get(&name.to_uppercase()).copied().filter(|s| self.graphics.contains_key(&s.0))
     }
 
     /// SPRITECREATE name, buffer, rectangle. False if the name is taken

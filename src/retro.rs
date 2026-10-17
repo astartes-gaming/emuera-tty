@@ -1142,6 +1142,14 @@ impl Frontend for Retro {
         }
     }
 
+    fn refresh(&mut self, con: &mut Console, _res: &mut Resources) {
+        if self.line_mode {
+            self.print_new(con);
+        } else {
+            self.render(con, None);
+        }
+    }
+
     fn input(&mut self, con: &mut Console, _res: &mut Resources, req: &InputReq) -> InputResult {
         if self.line_mode {
             return self.line_input(con, req);

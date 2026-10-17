@@ -752,9 +752,7 @@ impl Vm {
             // box's position, background images and layers
             "HTML_PRINT_ISLAND_CLEAR" | "MOVETEXTBOX" | "RESUMETEXTBOX" | "SETBGIMAGE" | "REMOVEBGIMAGE" | "CLEARBGIMAGE"
             | "SETTEXTBOX" | "TOOLTIP_SETCOLOR" | "TOOLTIP_SETDELAY" | "TOOLTIP_SETDURATION" | "TOOLTIP_SETFONT"
-            | "TOOLTIP_SETFONTSIZE" | "TOOLTIP_CUSTOM" | "TOOLTIP_SETFORMAT" | "TOOLTIP_FORMAT" | "TOOLTIP_IMG" | "CBGSETG"
-            | "CBGSETSPRITE" | "CBGCLEAR" | "CBGCLEARBUTTON" | "CBGSETBUTTONSPRITE" | "CBGREMOVERANGE" | "CBGREMOVEBMAP"
-            | "CBGSETBMAPG" => self.set_result(1),
+            | "TOOLTIP_SETFONTSIZE" | "TOOLTIP_CUSTOM" | "TOOLTIP_SETFORMAT" | "TOOLTIP_FORMAT" | "TOOLTIP_IMG" => self.set_result(1),
             "FORCE_QUIT" => return Err(Ctrl::Quit),
             "QUIT_AND_RESTART" | "FORCE_QUIT_AND_RESTART" => {
                 // start the game again from scratch: run this program anew
@@ -775,7 +773,8 @@ impl Vm {
                 if !(0..=10000).contains(&ms) {
                     return err(format!("AWAIT: {} ms is out of range (0 to 10000)", ms));
                 }
-                self.fe.flush(&mut self.con, &mut self.res);
+                // repaints even with REDRAW off (Emuera's RefreshStrings(true))
+                self.fe.refresh(&mut self.con, &mut self.res);
                 if self.fe.is_fullscreen() && ms > 0 {
                     std::thread::sleep(std::time::Duration::from_millis(ms as u64));
                 }
@@ -833,20 +832,49 @@ impl Vm {
                     mouse: false,
                 })?;
             }
+            // RESULT:0 = 1 click (1: button 0x100000 left / 0x200000 right /
+            // 0x400000 middle, 2-3: x, y from the window's bottom-left, 4:
+            // button map colour or -1, 5: printed button value), 2 wheel
+            // (1: ±120, 2-3: x, y), 3 key (1: KeyCode, 2: KeyData), 4 timeout
             "INPUTMOUSEKEY" => {
-                // RESULT:0 = 1 click / 3 key ; RESULT:1.. details. We map to button input.
-                let to = self.arg(a, 0)?.map(|v| v.as_int().max(0) as u64);
-                let s = self.input_str(None, to, false)?;
-                match s.trim().parse::<i64>() {
-                    Ok(v) => {
-                        self.set_global_i("RESULT", 0, 1);
-                        self.set_global_i("RESULT", 1, 0);
-                        self.set_global_i("RESULT", 2, 0);
-                        self.set_global_i("RESULT", 5, v);
-                    }
-                    Err(_) => {
+                use crate::frontend::RawInput;
+                let to = self.arg(a, 0)?.map(|v| v.as_int()).filter(|&t| t > 0).map(|t| t as u64);
+                self.fe.flush(&mut self.con, &mut self.res);
+                let r = {
+                    let _wait = super::prof::Waiting::new();
+                    self.fe.input_raw(&mut self.con, &mut self.res, to)
+                };
+                for k in 0..6 {
+                    self.set_global_i("RESULT", k, 0);
+                }
+                match r {
+                    RawInput::Quit => return Err(Ctrl::Quit),
+                    RawInput::Timeout => self.set_global_i("RESULT", 0, 4),
+                    RawInput::Key { code, data } => {
                         self.set_global_i("RESULT", 0, 3);
-                        self.set_global_i("RESULT", 1, s.chars().next().map(|c| c as i64).unwrap_or(13));
+                        self.set_global_i("RESULT", 1, code);
+                        self.set_global_i("RESULT", 2, data);
+                    }
+                    RawInput::Wheel { up, cell } => {
+                        let (x, y) = self.cell_px(cell);
+                        self.set_global_i("RESULT", 0, 2);
+                        self.set_global_i("RESULT", 1, if up { 120 } else { -120 });
+                        self.set_global_i("RESULT", 2, x);
+                        self.set_global_i("RESULT", 3, y);
+                    }
+                    RawInput::Click { btn, cell, button } => {
+                        let (x, y) = self.cell_px(cell);
+                        self.set_global_i("RESULT", 0, 1);
+                        self.set_global_i("RESULT", 1, [0x100000, 0x400000, 0x200000][btn.min(2) as usize]);
+                        self.set_global_i("RESULT", 2, x);
+                        self.set_global_i("RESULT", 3, y);
+                        let map = self.res.cbg_button_at(x, y).unwrap_or(-1);
+                        self.set_global_i("RESULT", 4, map);
+                        match button {
+                            Some(Value::Int(v)) => self.set_global_i("RESULT", 5, v),
+                            Some(Value::Str(v)) => self.set_results(v),
+                            None => {}
+                        }
                     }
                 }
             }
@@ -1638,6 +1666,86 @@ impl Vm {
     /// and shown through sprites, so composed portraits work. Return values
     /// as in Emuera: 1 done, 0 not (missing buffer / sprite, already
     /// exists…).
+    /// The middle of a screen cell in Emuera pixels, from the window's
+    /// bottom-left (the units CLIENTWIDTH / CLIENTHEIGHT count in).
+    pub(crate) fn cell_px(&self, (col, row): (usize, usize)) -> (i64, i64) {
+        let cw = (self.con.font_size / 2.0).max(1.0);
+        let lh = self.con.line_height.max(1.0);
+        let h = self.fe.rows() as f32 * lh;
+        ((col as f32 * cw + cw / 2.0) as i64, (row as f32 * lh + lh / 2.0 - h) as i64)
+    }
+
+    /// Client background layers: pictures behind (or in front of) the text,
+    /// anchored at the window's bottom-left, and a button map whose pixel
+    /// colours are button values (Emuera's CBG* functions).
+    fn cbg_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        use crate::resources::{CbgLayer, CbgSrc};
+        let i = |v: i64| Ok(Some(Value::Int(v)));
+        let z_of = |z: i64| -> VmResult<i32> {
+            if z == 0 || z < i32::MIN as i64 || z > i32::MAX as i64 {
+                return err(format!("{}: the depth must be a non-zero int, got {}", name, z));
+            }
+            Ok(z as i32)
+        };
+        self.con.dirty = true;
+        match name {
+            "CBGSETG" => {
+                let gid = self.ai(a, 0, 0)?;
+                let (x, y, z) = (self.ai(a, 1, 0)? as i32, self.ai(a, 2, 0)? as i32, z_of(self.ai(a, 3, 0)?)?);
+                if !self.res.graphics.contains_key(&gid) {
+                    return i(0);
+                }
+                self.res.cbg_add(CbgLayer { src: CbgSrc::G(gid), x, y, z, button: None });
+                i(1)
+            }
+            "CBGSETSPRITE" => {
+                let n = self.as_(a, 0, "")?;
+                let (x, y, z) = (self.ai(a, 1, 0)? as i32, self.ai(a, 2, 0)? as i32, z_of(self.ai(a, 3, 0)?)?);
+                if !self.res.exists(&n) {
+                    return i(0);
+                }
+                self.res.cbg_add(CbgLayer { src: CbgSrc::Sprite(n), x, y, z, button: None });
+                i(1)
+            }
+            "CBGSETBUTTONSPRITE" => {
+                let v = self.ai(a, 0, 0)?;
+                let (n, nb) = (self.as_(a, 1, "")?, self.as_(a, 2, "")?);
+                let (x, y, z) = (self.ai(a, 3, 0)? as i32, self.ai(a, 4, 0)? as i32, z_of(self.ai(a, 5, 0)?)?);
+                let hover = (!nb.is_empty()).then(|| CbgSrc::Sprite(nb));
+                self.res.cbg_add(CbgLayer { src: CbgSrc::Sprite(n), x, y, z, button: Some((v, hover)) });
+                i(1)
+            }
+            "CBGCLEAR" => {
+                self.res.cbg.clear();
+                self.res.cbg_bmap = None;
+                i(1)
+            }
+            "CBGREMOVERANGE" => {
+                let (lo, hi) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0)?);
+                self.res.cbg.retain(|l| (l.z as i64) < lo || (l.z as i64) > hi);
+                i(1)
+            }
+            "CBGCLEARBUTTON" => {
+                self.res.cbg.retain(|l| l.button.is_none());
+                self.res.cbg_bmap = None;
+                i(1)
+            }
+            "CBGSETBMAPG" => {
+                let gid = self.ai(a, 0, 0)?;
+                if !self.res.graphics.contains_key(&gid) || self.res.cbg_bmap == Some(gid) {
+                    return i(0);
+                }
+                self.res.cbg_bmap = Some(gid);
+                i(1)
+            }
+            _ => {
+                // CBGREMOVEBMAP
+                self.res.cbg_bmap = None;
+                i(1)
+            }
+        }
+    }
+
     fn graphics_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         use crate::resources::{argb, draw_image, Graphic};
         use image::RgbaImage;
@@ -1750,6 +1858,7 @@ impl Vm {
                                 g.img.put_pixel(x as u32, y as u32, image::Rgba(c));
                             }
                         }
+                        g.texts.retain(|t| !(t.x >= x0 && t.x < x1 && t.y >= y0 && t.y < y1));
                         1
                     }
                     "GFILLRECTANGLE" => {
@@ -1776,8 +1885,18 @@ impl Vm {
                     "GDRAWSPRITE" => {
                         // GDRAWSPRITE id, sprite[, x, y[, w, h[, colour matrix]]]
                         let sname = self.as_(a, 1, "")?;
-                        let Some(img) = self.res.sprite(&sname) else { return i(0) };
-                        let (sw, sh) = (img.width() as i32, img.height() as i32);
+                        // a sprite cut from another buffer is drawn straight
+                        // from it (no copy of the cut-out)
+                        let from_g = self.res.g_sprite(&sname).filter(|s| s.0 != gid);
+                        let (img, src_rect) = match from_g {
+                            Some((sg, x, y, w, h)) => (None, (sg, x, y, w.abs(), h.abs())),
+                            None => {
+                                let Some(img) = self.res.sprite(&sname) else { return i(0) };
+                                let (w, h) = (img.width() as i32, img.height() as i32);
+                                (Some(img), (0, 0, 0, w, h))
+                            }
+                        };
+                        let (sw, sh) = (src_rect.3, src_rect.4);
                         let dest = match a.len() {
                             0..=2 => (0, 0, sw, sh),
                             3 | 4 => {
@@ -1790,8 +1909,21 @@ impl Vm {
                             }
                         };
                         let cm = if a.len() >= 7 { Some(self.color_matrix_arg(&a[6])?) } else { None };
-                        let g = self.res.graphics.get_mut(&gid).unwrap();
-                        draw_image(&mut g.img, &img, dest, (0, 0, sw, sh), cm.as_ref());
+                        match img {
+                            Some(img) => {
+                                // an image file sprite: its pixels never change
+                                let key = format!("S:{}", sname.to_uppercase());
+                                self.res.draw_cached(gid, &key, 0, &img, dest, (0, 0, sw, sh), cm.as_ref());
+                            }
+                            None => {
+                                // take the source out for the draw (two buffers)
+                                let (sg, sx, sy, _, _) = src_rect;
+                                let ver = self.res.g_version(sg);
+                                let src = self.res.graphics.remove(&sg).unwrap();
+                                self.res.draw_cached(gid, &format!("G:{}", sg), ver, &src.img, dest, (sx, sy, sw, sh), cm.as_ref());
+                                self.res.graphics.insert(sg, src);
+                            }
+                        }
                         1
                     }
                     "GDRAWG" => {
@@ -1799,15 +1931,45 @@ impl Vm {
                         let src = self.ai(a, 1, 0)?;
                         let r = ints(self, 2, 8)?;
                         let cm = if a.len() >= 11 { Some(self.color_matrix_arg(&a[10])?) } else { None };
-                        let Some(s) = self.res.graphics.get(&src).map(|g| g.img.clone()) else { return i(0) };
+                        if !self.res.graphics.contains_key(&src) {
+                            return i(0);
+                        }
+                        let ver = self.res.g_version(src);
+                        let sg = if src == gid { None } else { self.res.graphics.remove(&src) };
+                        let texts = match &sg {
+                            Some(g) => {
+                                self.res.draw_cached(gid, &format!("G:{}", src), ver, &g.img, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
+                                g.texts.clone()
+                            }
+                            None => {
+                                // drawing a buffer onto itself: from a copy
+                                let g = &self.res.graphics[&gid];
+                                let (img, t) = (g.img.clone(), g.texts.clone());
+                                let g = self.res.graphics.get_mut(&gid).unwrap();
+                                draw_image(&mut g.img, &img, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
+                                t
+                            }
+                        };
+                        if let Some(g) = sg {
+                            self.res.graphics.insert(src, g);
+                        }
                         let g = self.res.graphics.get_mut(&gid).unwrap();
-                        draw_image(&mut g.img, &s, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
+                        // the text in the copied rectangle comes along
+                        for mut t in texts {
+                            if t.x >= r[4] && t.x < r[4] + r[6] && t.y >= r[5] && t.y < r[5] + r[7] {
+                                t.x = r[0] + (t.x - r[4]) * r[2] / r[6].max(1);
+                                t.y = r[1] + (t.y - r[5]) * r[3] / r[7].max(1);
+                                g.texts.push(t);
+                            }
+                        }
                         1
                     }
                     "GSETPEN" => {
                         let c = color(self.ai(a, 1, 0)?)?;
                         let w = self.ai(a, 2, 1)?;
-                        self.res.graphics.get_mut(&gid).unwrap().pen = (c, w);
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        g.pen = (c, w);
+                        g.pen_set = true;
                         1
                     }
                     "GSETFONT" => {
@@ -1838,7 +2000,20 @@ impl Vm {
                         let g = self.res.graphics.get_mut(&gid).unwrap();
                         let c = if g.brush_set { g.brush } else { [fg.0, fg.1, fg.2, 255] };
                         let (f, sz) = (g.font.0.clone(), g.font.1.max(1) as f32);
+                        // Emuera fills the glyphs, then strokes them with
+                        // the pen: a set pen is an outline around the text
+                        if g.pen_set && g.pen.1 >= 2 {
+                            let r = g.pen.1 as f32 / 2.0;
+                            for k in 0..8 {
+                                let ang = k as f32 * std::f32::consts::PI / 4.0;
+                                let o = ((ang.cos() * r).round() as i32, (ang.sin() * r).round() as i32);
+                                crate::resources::draw_text(&mut g.img, &t, (p[0] + o.0, p[1] + o.1), &f, sz, g.pen.0);
+                            }
+                        }
                         crate::resources::draw_text(&mut g.img, &t, (p[0], p[1]), &f, sz, c);
+                        // as text: the colour that shows most
+                        let shown = if g.pen_set && g.pen.1 >= 3 { [g.pen.0[0], g.pen.0[1], g.pen.0[2], 255] } else { c };
+                        g.texts.push(crate::resources::GText { x: p[0], y: p[1], size: sz as i32, color: shown, text: t.clone() });
                         let (w, h) = crate::resources::text_size(&t, &f, sz);
                         self.global_arr("RESULT").set_i(1, w);
                         self.global_arr("RESULT").set_i(2, h);
@@ -1884,7 +2059,7 @@ impl Vm {
             }
         };
         if r != 0 && !matches!(name, "GSAVE" | "GSETBRUSH" | "GSETPEN" | "GSETFONT" | "GDASHSTYLE") {
-            self.res.changed();
+            self.res.changed_g(gid);
         }
         i(r)
     }
@@ -2542,6 +2717,16 @@ impl Vm {
                 let dims = match super::vars::system_var(&n) {
                     // character variables have a size even when no character exists
                     Some(def) if def.chara => super::sized_dims(&self.csv.varsize, &n, def),
+                    // user CHARADATA arrays too: the declared size, no
+                    // character needed
+                    _ if self.user_dims.get(&n).is_some_and(|d| d.is_chara) => {
+                        let exprs = self.user_dims[&n].dims.clone();
+                        let mut v = Vec::with_capacity(exprs.len());
+                        for e in &exprs {
+                            v.push(self.eval(e)?.as_int().max(0) as usize);
+                        }
+                        v
+                    }
                     _ => {
                         let vr = VarRef { name: n.into(), idx: vec![] };
                         let p = self.locate(&vr)?;
@@ -2817,7 +3002,12 @@ impl Vm {
             "CURRENTREDRAW" => i(self.con.redraw as i64),
             "CHKFONT" => i(1),
             "MESSKIP" => i(self.mes_skip as i64),
-            "ISSKIP" | "MOUSESKIP" | "GETKEY" | "GETKEYTRIGGERED" | "MOUSEX" | "MOUSEY" | "MOUSEB" => i(0),
+            // pixels from the window's bottom-left (y is negative)
+            "MOUSEX" | "MOUSEY" => {
+                let (x, y) = self.fe.mouse_cell().map(|c| self.cell_px(c)).unwrap_or((0, 0));
+                i(if name == "MOUSEX" { x } else { y })
+            }
+            "ISSKIP" | "MOUSESKIP" | "GETKEY" | "GETKEYTRIGGERED" | "MOUSEB" => i(0),
             "ISACTIVE" => i(1),
             "PRINTCPERLINE" => i(3),
             "PRINTCLENGTH" => i(self.con.printc_len as i64),
@@ -3070,6 +3260,8 @@ impl Vm {
             "GCREATE" | "GCREATEFROMFILE" | "GDISPOSE" | "GCLEAR" | "GFILLRECTANGLE" | "GDRAWSPRITE" | "GDRAWG" | "GDRAWGWITHMASK"
             | "GSETCOLOR" | "GSETBRUSH" | "GSAVE" | "GLOAD" | "SPRITECREATE" | "SPRITEDISPOSE" | "GDRAWLINE" | "GDRAWTEXT"
             | "GDASHSTYLE" | "GDRAWGWITHROTATE" | "GSETPEN" | "GSETFONT" => self.graphics_fn(name, a),
+            "CBGSETG" | "CBGSETSPRITE" | "CBGCLEAR" | "CBGCLEARBUTTON" | "CBGSETBUTTONSPRITE" | "CBGREMOVERANGE" | "CBGREMOVEBMAP"
+            | "CBGSETBMAPG" => self.cbg_fn(name, a),
             "GGETBRUSH" | "GGETPEN" | "GGETPENWIDTH" | "GGETFONTSIZE" | "GGETFONTSTYLE" => {
                 let id = self.ai(a, 0, 0)?;
                 let Some(g) = self.res.graphics.get(&id) else { return i(-1) };

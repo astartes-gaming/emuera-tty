@@ -428,6 +428,14 @@ checked.
   `<clearbutton>`, newlines in the text break the line like `<br>`.
 - Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
   `SPRITECREATE`, `SPRITE*`), shown through the image backends.
+- Client background layers (`CBGSETG`, `CBGSETSPRITE`, `CBGSETBUTTONSPRITE`,
+  button maps) and the mouse in pixels (`MOUSEX` / `MOUSEY`,
+  `INPUTMOUSEKEY` clicks, wheel, keys, timeouts), so menus drawn as
+  pictures work, like pops-tw's title. Terminals without images get the
+  text that was drawn into the picture, at its place on the screen.
+- `REPLACE` / `REGEXPMATCH` / `FINDELEMENT` use .NET-style regular
+  expressions as in Emuera (groups, `$1`, lookaround).
+- EMEE `.als` name aliases.
 - `DAY.csv` / `TIME.csv` / `MONEY.csv` names (`DAYNAME`, `TIMENAME`).
 - SAVEGAME/LOADGAME menus, SAVEDATA/LOADDATA, SAVEGLOBAL/LOADGLOBAL, @SAVEINFO.
 - Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
@@ -438,18 +446,23 @@ checked.
   `HTML_TAGSPLIT`, `HTML_POPPRINTINGSTR`.
 
 Debugging: `EMUERA_TRACE=<part of a function name>` logs matching calls and
-their return values to stderr.
+their return values to stderr, with timestamps. `EMUERA_PROFILE=<file>`
+samples which ERB function is running every millisecond (time spent waiting
+for the player not counted) and keeps `<file>` updated with the top 60.
 
 ## Roadmap
 
 1. Play deeper into AnonTW. Its 5 remaining parse errors are mistakes in
    the game's own scripts (Emuera reports them too).
-2. `CBG*` client-background layers and tooltips are accepted but not
-   drawn; `<div>` borders, padding and background colours are ignored.
-3. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.
-4. `LOCAL@FUNC`, `#LOCALSIZE`.
-5. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
+2. Tooltips are accepted but not shown; `<div>` borders, padding and
+   background colours are ignored; CBG layers behind the text are drawn
+   over it by kitty.
+3. Speed of script-heavy games: pops-tw's new game takes about a minute
+   (mostly its own object system, thousands of dynamic calls).
+4. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.
+5. `LOCAL@FUNC`, `#LOCALSIZE`.
+6. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
    the shop item table layout.
-6. Emuera's older text save format (binary `.sav` files already work).
-7. fbterm 256-colour escapes; damage-tracked redraw for everything, not
+7. Emuera's older text save format (binary `.sav` files already work).
+8. fbterm 256-colour escapes; damage-tracked redraw for everything, not
    just pointer moves, to reduce flicker on fb.

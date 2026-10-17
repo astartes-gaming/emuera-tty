@@ -171,6 +171,9 @@ pub(crate) fn sized_dims(varsize: &HashMap<String, Vec<usize>>, name: &str, def:
 
 impl Vm {
     pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf) -> Vm {
+        if let Ok(p) = std::env::var("EMUERA_PROFILE") {
+            prof::start(p);
+        }
         // EMUERA_SEED=N makes runs repeatable (tests, bug reports)
         let seed = std::env::var("EMUERA_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or_else(|| {
             std::time::SystemTime::now()
@@ -915,10 +918,13 @@ impl Vm {
     /// RETURNF value, if any.
     pub fn call_func(&mut self, f: Rc<Function>, args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
         let refs: HashMap<String, Loc> = std::mem::take(&mut self.pending_refs).into_iter().collect();
+        if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
+            prof::enter(&f);
+        }
         // debugging aid: EMUERA_TRACE=<substring of function name>
         if let Some(t) = &self.trace {
             if f.name.contains(t.as_str()) {
-                eprintln!("trace: {}@{} args={:?} CHARANUM={}", "  ".repeat(self.frames.len()), f.name, args, self.charas.len());
+                eprintln!("trace {:8.3}s: {}@{} args={:?} CHARANUM={}", trace_clock(), "  ".repeat(self.frames.len()), f.name, args, self.charas.len());
             }
         }
         if self.frames.len() >= MAX_DEPTH {
@@ -977,9 +983,15 @@ impl Vm {
         }
         let r = self.exec();
         self.frames.pop();
+        if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
+            match self.frames.last() {
+                Some(fr) => prof::enter(&fr.func),
+                None => prof::CUR.store(0, std::sync::atomic::Ordering::Relaxed),
+            }
+        }
         if let (Some(t), Ok(v)) = (&self.trace, &r) {
             if f.name.contains(t.as_str()) {
-                eprintln!("trace: {}<- @{} = {:?}", "  ".repeat(self.frames.len()), f.name, v);
+                eprintln!("trace {:8.3}s: {}<- @{} = {:?}", trace_clock(), "  ".repeat(self.frames.len()), f.name, v);
             }
         }
         r
@@ -1412,6 +1424,7 @@ impl Vm {
     /// Ask the frontend for input; None means a timeout. Quitting the
     /// frontend becomes `Ctrl::Quit`.
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
+        let _wait = prof::Waiting::new();
         self.con.width = self.fe.cols().saturating_sub(1).max(20);
         // Emuera flushes an unfinished line when the script stops for input
         // (RunEmueraProgram → PrintFlush), so later output starts afresh.
@@ -1537,5 +1550,79 @@ pub fn pad(s: &str, w: usize, a: Align) -> String {
     match a {
         Align::Left => format!("{}{}", s, sp),
         _ => format!("{}{}", sp, s),
+    }
+}
+
+/// Seconds since the first trace line (EMUERA_TRACE timing).
+fn trace_clock() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
+}
+
+/// `EMUERA_PROFILE=<file>`: which ERB functions the time goes to. A thread
+/// samples the running function every millisecond and rewrites `<file>`
+/// with the counts every two seconds (so it survives the game being
+/// killed). Off, it costs one relaxed load per call.
+pub mod prof {
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    pub static ON: AtomicBool = AtomicBool::new(false);
+    /// the running function, as the address of its `Function`
+    pub static CUR: AtomicUsize = AtomicUsize::new(0);
+    static NAMES: Mutex<Option<HashMap<usize, String>>> = Mutex::new(None);
+
+    /// waiting for the player: not counted
+    pub static WAIT: AtomicBool = AtomicBool::new(false);
+
+    /// Marks the time until it is dropped as waiting for input.
+    pub struct Waiting;
+    impl Waiting {
+        pub fn new() -> Waiting {
+            WAIT.store(true, Ordering::Relaxed);
+            Waiting
+        }
+    }
+    impl Drop for Waiting {
+        fn drop(&mut self) {
+            WAIT.store(false, Ordering::Relaxed);
+        }
+    }
+
+    pub fn enter(f: &std::sync::Arc<crate::ast::Function>) {
+        let id = std::sync::Arc::as_ptr(f) as usize;
+        if CUR.swap(id, Ordering::Relaxed) != id {
+            let mut n = NAMES.lock().unwrap();
+            n.get_or_insert_with(HashMap::new).entry(id).or_insert_with(|| f.name.to_string());
+        }
+    }
+
+    pub fn start(path: String) {
+        ON.store(true, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let mut counts: HashMap<usize, u64> = HashMap::new();
+            let mut total = 0u64;
+            let mut last = std::time::Instant::now();
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                let c = CUR.load(Ordering::Relaxed);
+                if c != 0 && !WAIT.load(Ordering::Relaxed) {
+                    *counts.entry(c).or_default() += 1;
+                    total += 1;
+                }
+                if last.elapsed().as_secs() >= 2 {
+                    last = std::time::Instant::now();
+                    let names = NAMES.lock().unwrap().clone().unwrap_or_default();
+                    let mut v: Vec<(&usize, &u64)> = counts.iter().collect();
+                    v.sort_by(|a, b| b.1.cmp(a.1));
+                    let mut out = format!("{} samples (1 ms each), time spent in each function itself:\n", total);
+                    for (id, n) in v.into_iter().take(60) {
+                        out += &format!("{:6.1}% {:8} {}\n", *n as f64 * 100.0 / total.max(1) as f64, n, names.get(id).map(String::as_str).unwrap_or("?"));
+                    }
+                    let _ = std::fs::write(&path, out);
+                }
+            }
+        });
     }
 }
