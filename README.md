@@ -216,7 +216,10 @@ tries kitty's text-sizing protocol instead, which some may prefer).
 At startup emuera-tty also measures how wide the terminal really draws
 those characters (terminals' width tables differ), which keeps maps
 aligned in Konsole, kitty and others; `EMUERA_MEASURE=0` skips that,
-`EMUERA_TRACE` as above.
+`EMUERA_TRACE` as above. Game scripts are read and parsed on every CPU
+core (AnonTW loads in about a second instead of five);
+`EMUERA_THREADS=N` caps the thread count, and `EMUERA_TIMING=1` prints
+how long each loading phase took.
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
 self-test; `emuera-tty sample --headless --echo` plays the sample in plain

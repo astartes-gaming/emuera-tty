@@ -251,9 +251,11 @@ pub static SYSTEM_VARS: &[VarDef] = &[
     v!("CSTR", true, true, &[100]),
 ];
 
-/// Look up a built-in variable by (upper-case) name.
+/// Look up a built-in variable by (upper-case) name. Called on nearly every
+/// variable access, so it's a hash lookup rather than a scan of the table.
 pub fn system_var(name: &str) -> Option<&'static VarDef> {
-    SYSTEM_VARS.iter().find(|d| d.name == name)
+    static MAP: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static VarDef>> = std::sync::OnceLock::new();
+    MAP.get_or_init(|| SYSTEM_VARS.iter().map(|d| (d.name, d)).collect()).get(name).copied()
 }
 
 /// Variables that are not saved with SAVEDATA (temporary).

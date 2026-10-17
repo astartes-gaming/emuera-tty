@@ -23,7 +23,8 @@ use crate::ast::*;
 use crate::console::{Rgb, Seg};
 use crate::expr::parse_form;
 use crate::loader::sjis_len;
-use std::rc::Rc;
+// Arc (aliased as Rc): parsed programs are built on several threads
+use std::sync::Arc as Rc;
 
 /// Statement-only commands (functions callable as statements are separate).
 pub const COMMANDS: &[&str] = &[
@@ -73,13 +74,16 @@ pub const FUNCTIONS: &[&str] = &[
     "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT",
 ];
 
-/// Is `c` (upper-case) a statement-only built-in?
+/// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
+/// every statement while parsing)
 pub fn is_builtin_command(c: &str) -> bool {
-    COMMANDS.contains(&c)
+    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    SET.get_or_init(|| COMMANDS.iter().copied().collect()).contains(c)
 }
 /// Is `c` (upper-case) a built-in function (also usable as a statement)?
 pub fn is_builtin_function(c: &str) -> bool {
-    FUNCTIONS.contains(&c)
+    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    SET.get_or_init(|| FUNCTIONS.iter().copied().collect()).contains(c)
 }
 
 fn now() -> chrono_like::DateTime {

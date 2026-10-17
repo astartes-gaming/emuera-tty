@@ -15,7 +15,8 @@
 
 use crate::ast::*;
 use std::collections::HashMap;
-use std::rc::Rc;
+// Arc (aliased as Rc): parsed programs are built on several threads
+use std::sync::Arc as Rc;
 
 pub type PResult<T> = Result<T, String>;
 

@@ -23,7 +23,8 @@
 use crate::ast::*;
 use crate::expr::{parse_expr, parse_expr_list, parse_form, split_top, ExprParser};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+// Arc (aliased as Rc): parsed programs are built on several threads
+use std::sync::Arc as Rc;
 
 /// One loaded .ERB/.ERH file (path relative to the game, decoded text).
 pub struct SourceFile {
@@ -258,7 +259,16 @@ impl<'a> Parser<'a> {
         let mut join: Option<(u32, String)> = None;
         for (no, raw) in text.lines().enumerate() {
             let no = no as u32 + 1;
-            let mut line = raw.trim().to_string();
+            let trimmed = raw.trim();
+            // most lines are plain code: skip blanks / comments before
+            // allocating anything (the `{ }` join and `[...]` checks below
+            // still see every other line)
+            if trimmed.is_empty() || (trimmed.starts_with(';') && !trimmed.starts_with(";!;") && !trimmed.starts_with(";#;")) {
+                if join.is_none() {
+                    continue;
+                }
+            }
+            let mut line = trimmed.to_string();
             if line.starts_with(";!;") {
                 line = line[3..].trim().to_string();
             } else if line.starts_with(";#;") {
@@ -273,7 +283,8 @@ impl<'a> Parser<'a> {
                     line = line.replace(&format!("[[{}]]", k), v);
                 }
             }
-            let up = line.to_uppercase();
+            // preprocessor lines all start with '['; only they need upper-casing
+            let up = if line.starts_with('[') { line.to_uppercase() } else { String::new() };
             if up.starts_with("[SKIPSTART]") {
                 skip_depth += 1;
                 continue;
@@ -344,6 +355,28 @@ impl<'a> Parser<'a> {
             out.push((no, line));
         }
         out
+    }
+
+    /// A parser for ERB files on another thread: same `#DEFINE`s and global
+    /// string-variable names, empty output. Merge back with [`absorb`].
+    ///
+    /// [`absorb`]: Parser::absorb
+    pub fn fork(&self) -> Parser<'a> {
+        Parser {
+            prog: Program { defines: self.prog.defines.clone(), ..Program::default() },
+            rename: self.rename,
+            global_str: self.global_str.clone(),
+            debug: self.debug,
+        }
+    }
+
+    /// Take the functions and errors a forked parser produced. Absorbing
+    /// forks in file order keeps event handlers in file order.
+    pub fn absorb(&mut self, other: Program) {
+        for (name, fs) in other.funcs {
+            self.prog.funcs.entry(name).or_default().extend(fs);
+        }
+        self.prog.errors.extend(other.errors);
     }
 
     /// Header file: `#DEFINE`s and global `#DIM`s only. All headers are

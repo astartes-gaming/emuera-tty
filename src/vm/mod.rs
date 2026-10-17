@@ -43,7 +43,8 @@ use crate::parser::Program;
 use crate::resources::Resources;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::rc::Rc;
+// Arc (aliased as Rc): parsed programs are built on several threads
+use std::sync::Arc as Rc;
 use value::*;
 use vars::*;
 

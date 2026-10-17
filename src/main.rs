@@ -185,22 +185,36 @@ fn run(o: Opts) -> i32 {
     };
     let erb_dir = loader::find_dir_ci(&game, "ERB");
     let t0 = std::time::Instant::now();
+    // EMUERA_TIMING=1: report how long each startup phase takes
+    let timing = std::env::var_os("EMUERA_TIMING").is_some();
+    let mut lap = std::time::Instant::now();
+    let mut phase = |name: &str| {
+        if timing {
+            eprintln!("timing: {:<12} {:>8.2?}", name, lap.elapsed());
+        }
+        lap = std::time::Instant::now();
+    };
     let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref());
+    phase("csv");
     for w in &csv.warnings {
         eprintln!("csv: {}", w);
     }
     let mut p = parser::Parser::new(&csv.rename, o.debug);
+    // EMUERA_THREADS=n limits the worker threads (default: all cores)
+    let cores = std::env::var("EMUERA_THREADS").ok().and_then(|n| n.parse().ok()).filter(|&n: &usize| n > 0).unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     let mut files = Vec::new();
     if let Some(erb) = &erb_dir {
-        let erh = loader::walk(erb, &["erh"]);
-        let erbs = loader::walk(erb, &["erb"]);
-        for f in erh.iter().chain(erbs.iter()) {
-            match loader::read_text(f) {
+        let paths: Vec<std::path::PathBuf> = loader::walk(erb, &["erh"]).into_iter().chain(loader::walk(erb, &["erb"])).collect();
+        // read + decode (Shift_JIS detection) in parallel, keeping order
+        let read: Vec<Result<String, String>> = parallel_map(&paths, cores, |f| loader::read_text(f).map_err(|e| format!("{}: {}", f.display(), e)));
+        for (f, r) in paths.iter().zip(read) {
+            match r {
                 Ok(text) => files.push(parser::SourceFile { path: f.strip_prefix(&game).unwrap_or(f).display().to_string(), text }),
-                Err(e) => eprintln!("{}: {}", f.display(), e),
+                Err(e) => eprintln!("{}", e),
             }
         }
     }
+    phase("read files");
     let n_erh = files.iter().filter(|f| f.path.to_lowercase().ends_with(".erh")).count();
     for (i, f) in files.iter().enumerate() {
         p.prog.files.push(f.path.clone());
@@ -208,9 +222,21 @@ fn run(o: Opts) -> i32 {
             p.parse_erh(i as u32, f);
         }
     }
-    for (i, f) in files.iter().enumerate().skip(n_erh) {
-        p.parse_erb(i as u32, f);
+    phase("parse erh");
+    // ERB files are independent once the headers are known: parse them on
+    // all cores in contiguous chunks, then merge in file order
+    let erbs: Vec<(usize, &parser::SourceFile)> = files.iter().enumerate().skip(n_erh).collect();
+    let forks: Vec<parser::Program> = parallel_chunks(&erbs, cores, |(_, f)| f.text.len(), |chunk| {
+        let mut q = p.fork();
+        for (i, f) in chunk {
+            q.parse_erb(*i as u32, f);
+        }
+        q.prog
+    });
+    for prog in forks {
+        p.absorb(prog);
     }
+    phase("parse erb");
     let prog = p.prog;
     let n_funcs: usize = prog.funcs.values().map(|v| v.len()).sum();
     eprintln!(
@@ -244,6 +270,9 @@ fn run(o: Opts) -> i32 {
         }
     };
     let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone());
+    if timing {
+        eprintln!("timing: {:<12} {:>8.2?} (resources, terminal, data init)", "vm ready", lap.elapsed());
+    }
     if let Some(px) = load_config(&game, &csv_dir, &mut vm.con, &mut vm.text_exts) {
         // no real terminal to fit: use Emuera's width (half-width cells are font_size/2 px)
         if o.headless {
@@ -269,6 +298,56 @@ fn run(o: Opts) -> i32 {
             1
         }
     }
+}
+
+/// Run `f` over contiguous chunks of `items` on up to `threads` threads and
+/// return the results in chunk order. Chunks are cut so each holds about
+/// the same `weight` (e.g. bytes of source), several per thread, and idle
+/// threads take the next chunk from a shared counter, so one huge file
+/// doesn't leave the other cores waiting. Threads get a big stack
+/// (parsing recurses).
+fn parallel_chunks<T: Sync, R: Send>(items: &[T], threads: usize, weight: impl Fn(&T) -> usize, f: impl Fn(&[T]) -> R + Sync) -> Vec<R> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let threads = threads.max(1);
+    // cut into ~4 chunks per thread of similar total weight
+    let total: usize = items.iter().map(&weight).sum::<usize>().max(1);
+    let target = total.div_ceil(threads * 4).max(1);
+    let mut bounds = vec![0];
+    let mut acc = 0;
+    for (i, it) in items.iter().enumerate() {
+        acc += weight(it);
+        if acc >= target && i + 1 < items.len() {
+            bounds.push(i + 1);
+            acc = 0;
+        }
+    }
+    bounds.push(items.len());
+    let chunks: Vec<&[T]> = bounds.windows(2).map(|w| &items[w[0]..w[1]]).collect();
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<R>>> = Mutex::new((0..chunks.len()).map(|_| None).collect());
+    std::thread::scope(|s| {
+        for _ in 0..threads.min(chunks.len()) {
+            std::thread::Builder::new()
+                .stack_size(64 << 20)
+                .spawn_scoped(s, || loop {
+                    let k = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(c) = chunks.get(k) else { break };
+                    let r = f(c);
+                    results.lock().unwrap()[k] = Some(r);
+                })
+                .expect("spawn");
+        }
+    });
+    results.into_inner().unwrap().into_iter().map(|r| r.expect("chunk not processed")).collect()
+}
+
+/// `f` applied to every item, using up to `threads` threads; order kept.
+fn parallel_map<T: Sync, R: Send>(items: &[T], threads: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    parallel_chunks(items, threads, |_| 1, |c| c.iter().map(&f).collect::<Vec<R>>()).into_iter().flatten().collect()
 }
 
 /// Decide which game folder to run (see `usage`). None: the user cancelled

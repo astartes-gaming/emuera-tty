@@ -14,7 +14,8 @@
 //!
 //! All identifiers are stored upper-cased (Emuera is case-insensitive).
 
-use std::rc::Rc;
+// Arc (aliased as Rc): parsed programs are built on several threads
+use std::sync::Arc as Rc;
 
 #[derive(Debug, Clone)]
 pub enum Expr {
