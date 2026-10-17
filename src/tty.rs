@@ -92,9 +92,9 @@ pub struct Tty {
     /// pointer on the Linux console via /dev/input/mice (no terminal reports)
     mice: Option<crate::mice::Mice>,
     mouse: Option<(usize, usize)>,
-    /// The terminal draws East Asian ambiguous characters two cells wide
-    /// (detected at startup), so they need no filler (see `char_cells`).
-    ambi_wide: bool,
+    /// How characters Emuera draws two columns wide but the terminal draws
+    /// one column wide are handled (detected at startup, see `char_cells`).
+    ambi: Ambi,
     /// per screen row: (col_start, col_end, button id)
     btn_map: Vec<Vec<(usize, usize, usize)>>,
     buttons: Vec<Value>,
@@ -132,9 +132,10 @@ fn x10_mouse(cb: u16, x: u16, y: u16) -> Key {
 /// "East Asian ambiguous" characters one column wide, which skews ASCII
 /// maps. The missing column is filled: line and block characters continue
 /// themselves (`━━`, `┏━`, `■■`) so walls stay solid; others get a space.
-/// `ambi_wide`: the terminal already draws ambiguous characters wide.
-fn char_cells(ch: char, ambi_wide: bool) -> (usize, usize, char) {
-    let tw = if ambi_wide { UnicodeWidthChar::width_cjk(ch) } else { UnicodeWidthChar::width(ch) }.unwrap_or(0);
+/// With [`Ambi::Osc66`] such a character is instead drawn as one 2-cell
+/// glyph (no filler); with [`Ambi::Wide`] the terminal already draws it wide.
+fn char_cells(ch: char, ambi: Ambi) -> (usize, usize, char) {
+    let tw = if ambi == Ambi::Wide { UnicodeWidthChar::width_cjk(ch) } else { UnicodeWidthChar::width(ch) }.unwrap_or(0);
     if tw == 0 || ch.is_ascii() {
         return (tw, 0, ' ');
     }
@@ -148,7 +149,23 @@ fn char_cells(ch: char, ambi_wide: bool) -> (usize, usize, char) {
         '┄' | '┅' | '┈' | '┉' | '╌' | '╍' | '■' | '█' | '▓' | '▒' | '░' | '―' | '‐' | '〓' | '≡' | 'Ⅱ' | 'Ⅲ' => ch,
         _ => ' ',
     };
-    (tw, emuera.saturating_sub(tw), fill)
+    let extra = emuera.saturating_sub(tw);
+    if ambi == Ambi::Osc66 && extra > 0 {
+        return (tw + extra, 0, ' ');
+    }
+    (tw, extra, fill)
+}
+
+/// Strategy for East Asian "ambiguous width" characters (`━ ■ ※ …`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Ambi {
+    /// draw one cell, then a filler cell (works everywhere)
+    Pad,
+    /// the terminal already draws them two cells wide
+    Wide,
+    /// kitty's text sizing protocol: `OSC 66 ; w=2 ; ch` draws the glyph
+    /// across two cells, centred / stretched like Emuera's font
+    Osc66,
 }
 
 /// Write to the terminal and flush.
@@ -200,7 +217,7 @@ impl Tty {
             queued: std::collections::VecDeque::new(),
             mice: None,
             mouse: None,
-            ambi_wide: false,
+            ambi: Ambi::Pad,
             btn_map: Vec::new(),
             buttons: Vec::new(),
             hover: None,
@@ -211,7 +228,7 @@ impl Tty {
             t.cell = (xp / cols as u32, yp / rows as u32);
         }
         t.setup_gfx(gfx_pref, &term);
-        t.ambi_wide = t.detect_ambiguous_wide();
+        t.ambi = t.detect_ambiguous();
         let is_vt = term == "linux" || term.starts_with("fbterm");
         if crate::mice::Mice::wanted(is_vt) {
             match crate::mice::Mice::open() {
@@ -271,20 +288,30 @@ impl Tty {
         std::mem::take(&mut self.pending)
     }
 
-    /// Print an ambiguous-width character and ask where the cursor went
-    /// (CSI 6n): column 3 means the terminal drew it two cells wide.
-    /// `EMUERA_AMBIGUOUS=wide|narrow` overrides the check.
-    fn detect_ambiguous_wide(&mut self) -> bool {
+    /// Pick the [`Ambi`] strategy: print `■` and ask where the cursor went
+    /// (CSI 6n). Column 3 means the terminal already draws it wide; else try
+    /// it as `OSC 66 ; w=2` (kitty ≥ 0.40), which terminals without the
+    /// protocol ignore. `EMUERA_AMBIGUOUS=wide|narrow|osc66` overrides.
+    fn detect_ambiguous(&mut self) -> Ambi {
         match std::env::var("EMUERA_AMBIGUOUS").as_deref() {
-            Ok("wide") => return true,
-            Ok("narrow") => return false,
+            Ok("wide") => return Ambi::Wide,
+            Ok("narrow") => return Ambi::Pad,
+            Ok("osc66") => return Ambi::Osc66,
             _ => {}
         }
-        let r = self.query("\r\x1b[K■\x1b[6n".as_bytes(), |b| b.contains(&b'R'), 300);
-        write_all(b"\r\x1b[K");
-        let s = String::from_utf8_lossy(&r).to_string();
-        let col = s.rfind("\x1b[").and_then(|i| s[i + 2..].trim_end_matches('R').split(';').nth(1).and_then(|c| c.parse::<u32>().ok()));
-        col == Some(3)
+        let cursor_col = |t: &mut Tty, probe: &str| -> Option<u32> {
+            let r = t.query(format!("\r\x1b[K{}\x1b[6n", probe).as_bytes(), |b| b.contains(&b'R'), 300);
+            write_all(b"\r\x1b[K");
+            let s = String::from_utf8_lossy(&r).to_string();
+            s.rfind("\x1b[").and_then(|i| s[i + 2..].trim_end_matches('R').split(';').nth(1).and_then(|c| c.parse::<u32>().ok()))
+        };
+        if cursor_col(self, "■") == Some(3) {
+            Ambi::Wide
+        } else if cursor_col(self, "\x1b]66;w=2;■\x1b\\") == Some(3) {
+            Ambi::Osc66
+        } else {
+            Ambi::Pad
+        }
     }
 
     /// Choose the image backend: framebuffer on a VT, otherwise probe for
@@ -501,7 +528,7 @@ impl Tty {
                 Seg::Text { text, style, button, .. } => {
                     let bid = push_btn(button, &mut self.buttons);
                     for ch in text.chars() {
-                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi_wide) };
+                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi) };
                         let w = tw + extra;
                         if tw == 0 {
                             continue;
@@ -725,7 +752,12 @@ impl Tty {
                     out.extend_from_slice(b"\x1b[7m");
                     pointer_drawn = true;
                 }
-                out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
+                if self.ambi == Ambi::Osc66 && cell.w == 2 && UnicodeWidthChar::width(cell.ch) == Some(1) {
+                    // a one-column glyph drawn across two cells (see char_cells)
+                    let _ = write!(out, "\x1b]66;w=2;{}\x1b\\", cell.ch);
+                } else {
+                    out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
+                }
                 if at_pointer {
                     out.extend_from_slice(b"\x1b[27m");
                 }
@@ -984,24 +1016,31 @@ impl Drop for Tty {
 
 #[cfg(test)]
 mod tests {
-    use super::char_cells;
+    use super::{char_cells, Ambi};
+
+    #[test]
+    fn osc66_draws_one_two_cell_glyph() {
+        assert_eq!(char_cells('━', Ambi::Osc66), (2, 0, ' '));
+        assert_eq!(char_cells('林', Ambi::Osc66), (2, 0, ' '));
+        assert_eq!(char_cells('a', Ambi::Osc66), (1, 0, ' '));
+    }
 
     #[test]
     fn emuera_widths_on_a_narrow_terminal() {
-        assert_eq!(char_cells('a', false), (1, 0, ' '));
-        assert_eq!(char_cells('林', false), (2, 0, ' ')); // already wide
-        assert_eq!(char_cells('━', false), (1, 1, '━')); // line continues
-        assert_eq!(char_cells('┏', false), (1, 1, '━'));
-        assert_eq!(char_cells('┃', false), (1, 1, ' ')); // no rightward stroke
-        assert_eq!(char_cells('■', false), (1, 1, '■'));
-        assert_eq!(char_cells('※', false), (1, 1, ' '));
-        assert_eq!(char_cells('―', false), (1, 1, '―')); // horizontal bar continues
-        assert_eq!(char_cells('ｱ', false), (1, 0, ' ')); // half-width kana: 1 in Emuera too
+        assert_eq!(char_cells('a', Ambi::Pad), (1, 0, ' '));
+        assert_eq!(char_cells('林', Ambi::Pad), (2, 0, ' ')); // already wide
+        assert_eq!(char_cells('━', Ambi::Pad), (1, 1, '━')); // line continues
+        assert_eq!(char_cells('┏', Ambi::Pad), (1, 1, '━'));
+        assert_eq!(char_cells('┃', Ambi::Pad), (1, 1, ' ')); // no rightward stroke
+        assert_eq!(char_cells('■', Ambi::Pad), (1, 1, '■'));
+        assert_eq!(char_cells('※', Ambi::Pad), (1, 1, ' '));
+        assert_eq!(char_cells('―', Ambi::Pad), (1, 1, '―')); // horizontal bar continues
+        assert_eq!(char_cells('ｱ', Ambi::Pad), (1, 0, ' ')); // half-width kana: 1 in Emuera too
     }
 
     #[test]
     fn no_filler_when_terminal_draws_ambiguous_wide() {
-        assert_eq!(char_cells('━', true), (2, 0, '━'));
-        assert_eq!(char_cells('■', true), (2, 0, '■'));
+        assert_eq!(char_cells('━', Ambi::Wide), (2, 0, '━'));
+        assert_eq!(char_cells('■', Ambi::Wide), (2, 0, '■'));
     }
 }

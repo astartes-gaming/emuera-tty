@@ -137,6 +137,11 @@ terminal:
 
 - Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
   names and symbols show up.
+- **Maps** (box drawing, `■`, `※`…) are two columns per symbol in Emuera.
+  kitty 0.40+ draws them that way automatically; in GNOME Terminal set
+  *Preferences → profile → Compatibility → Ambiguous-width characters:
+  Wide* (WezTerm: `treat_east_asian_ambiguous_width_as_wide = true`).
+  Other terminals get padding, which keeps maps aligned but less solid.
 - Make the window **wide**: many games lay out menus for ~150 columns.
   If a game warns that the window is too narrow, shrink the font or
   widen the window.
@@ -204,9 +209,11 @@ emuera-tty [GAME_DIR] [options]
 
 Environment: `FRAMEBUFFER=/dev/fbN` picks another framebuffer,
 `EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice,
-`EMUERA_AMBIGUOUS=wide|narrow` overrides the detected width of box-drawing
-and symbol characters (maps are padded to Emuera's two columns when the
-terminal draws them one column wide), `EMUERA_TRACE` as above.
+`EMUERA_AMBIGUOUS=wide|osc66|narrow` overrides how box-drawing and symbol
+characters are fitted to Emuera's two columns (detected at startup:
+terminals that draw them wide need nothing, kitty ≥ 0.40 gets its
+text-sizing protocol so glyphs span both cells, others are padded),
+`EMUERA_TRACE` as above.
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
 self-test; `emuera-tty sample --headless --echo` plays the sample in plain
