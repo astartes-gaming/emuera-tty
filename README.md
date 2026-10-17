@@ -148,6 +148,7 @@ terminal:
 | GNOME Terminal, Alacritty, others | `░` placeholders | fine for playing |
 | Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
 | bare Linux console (no fbterm) | yes (framebuffer) | can't show Japanese/Chinese text |
+| real VT100 / VT220 / VT52 / ADM-3A / Wyse…, local or on a **serial line** | no | ASCII, see below |
 
 - Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
   names and symbols show up.
@@ -179,6 +180,42 @@ terminal:
 - The console has 16 colours. Dim colours keep their hue (dark teal
   walls stay cyan, brown floors brown) and greys step through black, dark
   grey, light grey and white, so coloured maps stay readable.
+
+**On a retro or dumb terminal** (real hardware, or an emulator like
+cool-retro-term or `xterm -ti vt52`):
+
+- emuera-tty drives the terminal from its **terminfo** entry (cursor
+  addressing, clearing, bold / underline, colours if any, the line-drawing
+  set, its keys), so anything the system describes works: `infocmp NAME`
+  shows whether yours is there (the `ncurses-term` package has most old
+  ones). Terminals whose cursor control isn't ANSI (`vt52`, `adm3a`,
+  `wy50`…) and `dumb` are picked up from `$TERM` by themselves; for an ANSI
+  one that can't show UTF-8 or colour (a real VT100 / VT220) add
+  `--retro`.
+- Output is plain ASCII. Box drawing uses the terminal's line-drawing
+  characters when it has them (`+`, `-`, `|` otherwise), kana are written
+  in romaji, kanji as `??`, and full-width letters as a letter and a space,
+  so menus and maps keep their columns. Images are left out.
+- Only what changed since the last screen is sent: a typical menu is a
+  few hundred bytes (under a second at 9600 baud), a full map screen about
+  4 KB (4 seconds at 9600; slower lines work, but maps take a while).
+- No cursor control at all (`dumb`, a Teletype, `--retro=line`): the game
+  is printed line by line as it scrolls, and you type answers after `>`.
+- Keys: Return, Backspace / Delete, Ctrl-U clears the line, the cursor
+  keys or Ctrl-P / Ctrl-N scroll a line, Page Up / Down or Ctrl-B / Ctrl-F a
+  page, Ctrl-L repaints the screen (after line noise), Ctrl-C quits.
+
+**On a serial line**, from the computer the terminal is wired to:
+
+```sh
+emuera-tty /path/to/game --serial /dev/ttyUSB0 --term vt220 --baud 9600
+```
+
+`--serial-format 7E1` (default `8N1`) and `--flow rts` or `none`
+(default XON/XOFF) match the terminal's setup; `--size 132x24` if it isn't
+the terminfo size. The serial port needs the `dialout` group
+(`sudo usermod -aG dialout $USER`). Messages and warnings stay on the
+computer's own screen; the game quits when the line hangs up.
 
 ## 6. Updating and removing
 
@@ -228,6 +265,10 @@ emuera-tty [GAME_DIR] [options]
 | `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input |
 | `--strict` | unimplemented commands are errors instead of warnings |
 | `--debug` | enable `[IF_DEBUG]` blocks and `;#;` lines |
+| `--retro[=line]` | terminfo-driven ASCII frontend for retro terminals (auto for non-ANSI `$TERM`) |
+| `--term NAME` | terminfo name of the terminal (default `$TERM`, `vt100` with `--serial`) |
+| `--serial DEV` | play on a serial terminal; `--baud N`, `--serial-format 8N1`, `--flow xon\|rts\|none` |
+| `--size COLSxROWS` | screen size when the terminal can't report it |
 | `--install` / `--upgrade` / `--uninstall` / `--reset-data` | see the guide |
 
 Environment: `FRAMEBUFFER=/dev/fbN` picks another framebuffer,
@@ -303,6 +344,8 @@ src/
   console.rs     Emuera console model: styled segments, buttons, auto `[N]` buttons
   html.rs        HTML_PRINT: font/b/i/u/s, p, br, button/nonbutton, clearbutton, img, shape, space, div
   tty.rs         raw-mode TUI, layout/wrapping/alignment, mouse, colour downgrade (24-bit/256/16)
+  retro.rs       retro / dumb / serial terminals: terminfo-driven, ASCII, changed-cells-only redraw
+  terminfo.rs    compiled terminfo reader, tparm, delay padding
   gfx/{kitty,sixel,fb}.rs
 sample/          small test game; ERB/TEST.ERB is a language self-test
 ```

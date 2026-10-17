@@ -1179,7 +1179,7 @@ fn rgb256(c: Rgb) -> u8 {
 /// the bright one. Hues are kept even when dark (Emuera games draw dim
 /// teal walls or brown floors on black, which nearest-distance would turn
 /// into black); greys step through black, dark grey, light grey, white.
-fn rgb16(c: Rgb) -> (u8, bool) {
+pub(crate) fn rgb16(c: Rgb) -> (u8, bool) {
     let (r, g, b) = (c.0 as u32, c.1 as u32, c.2 as u32);
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);

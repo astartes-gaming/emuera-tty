@@ -20,6 +20,8 @@ mod mice;
 mod parser;
 mod picker;
 mod resources;
+mod retro;
+mod terminfo;
 mod tty;
 mod xml;
 mod vm;
@@ -38,6 +40,18 @@ struct Opts {
     check: bool,
     debug: bool,
     echo: bool,
+    /// --retro / --retro=line: the retro-terminal frontend (otherwise used
+    /// only when $TERM isn't ANSI)
+    retro: Option<String>,
+    /// --term: the terminfo name for the retro / serial terminal
+    term: Option<String>,
+    /// --serial DEVICE, with --baud / --serial-format / --flow
+    serial: Option<String>,
+    baud: u32,
+    serial_format: String,
+    flow: String,
+    /// --size COLSxROWS
+    size: Option<(usize, usize)>,
 }
 
 /// Print help; exit 0 when asked for (--help), 2 on bad options.
@@ -59,6 +73,17 @@ fn usage_exit(code: i32) -> ! {
          \x20 --strict                         unknown commands are errors\n\
          \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
          \n\
+         retro and serial terminals:\n\
+         \x20 --retro[=line]                   drive the terminal from its terminfo entry, ASCII only\n\
+         \x20                                  (automatic when $TERM isn't ANSI: vt52, adm3a, dumb…);\n\
+         \x20                                  =line prints line by line, for terminals with no cursor control\n\
+         \x20 --term NAME                      terminfo name of the terminal (default $TERM; vt100 on --serial)\n\
+         \x20 --serial DEVICE                  play on a terminal on a serial line (/dev/ttyS0, /dev/ttyUSB0…)\n\
+         \x20 --baud N                         line speed (default 9600)\n\
+         \x20 --serial-format 8N1|7E1|…        data bits, parity, stop bits (default 8N1)\n\
+         \x20 --flow xon|rts|none              flow control (default xon: XON/XOFF)\n\
+         \x20 --size COLSxROWS                 screen size if the terminal can't report it (default: terminfo)\n\
+         \n\
          setup:\n\
          \x20 --install                        copy this program to a folder on your PATH (~/.local/bin…)\n\
          \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
@@ -74,7 +99,23 @@ fn usage() -> ! {
 
 /// Parse `std::env::args` (exits with usage on unknown options).
 fn parse_args() -> Opts {
-    let mut o = Opts { game: None, choose: false, headless: false, gfx: "auto".into(), strict: false, check: false, debug: false, echo: false };
+    let mut o = Opts {
+        game: None,
+        choose: false,
+        headless: false,
+        gfx: "auto".into(),
+        strict: false,
+        check: false,
+        debug: false,
+        echo: false,
+        retro: None,
+        term: None,
+        serial: None,
+        baud: 9600,
+        serial_format: "8N1".into(),
+        flow: "xon".into(),
+        size: None,
+    };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -103,6 +144,20 @@ fn parse_args() -> Opts {
                 }
             }
             "--gfx" => o.gfx = it.next().unwrap_or_else(|| usage()),
+            "--retro" => o.retro = Some("screen".into()),
+            s if s.starts_with("--retro=") => o.retro = Some(s[8..].to_string()),
+            "--term" => o.term = Some(it.next().unwrap_or_else(|| usage())),
+            "--serial" => o.serial = Some(it.next().unwrap_or_else(|| usage())),
+            "--baud" => o.baud = it.next().and_then(|v| v.parse().ok()).unwrap_or_else(|| usage()),
+            "--serial-format" => o.serial_format = it.next().unwrap_or_else(|| usage()),
+            "--flow" => o.flow = it.next().unwrap_or_else(|| usage()),
+            "--size" => {
+                let v = it.next().unwrap_or_else(|| usage());
+                o.size = v.split_once(['x', 'X']).and_then(|(c, r)| Some((c.parse().ok()?, r.parse().ok()?)));
+                if o.size.is_none() {
+                    usage();
+                }
+            }
             "-h" | "--help" => usage_exit(0),
             s if s.starts_with("--gfx=") => o.gfx = s[6..].to_string(),
             s if s.starts_with('-') => usage(),
@@ -278,8 +333,29 @@ fn run(o: Opts) -> i32 {
         libc::malloc_trim(0);
     }
     let res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
+    let term_env = std::env::var("TERM").unwrap_or_default();
+    let use_retro = !o.headless && (o.serial.is_some() || o.retro.is_some() || retro::wanted_for(&term_env));
     let fe: Box<dyn frontend::Frontend> = if o.headless {
         Box::new(frontend::Headless::new(o.echo))
+    } else if use_retro {
+        let port = match &o.serial {
+            Some(dev) => retro::Port::serial(dev, &retro::SerialOpts { baud: o.baud, format: o.serial_format.clone(), flow: o.flow.clone() }),
+            None => retro::Port::local(),
+        };
+        let term = o.term.clone().unwrap_or_else(|| if o.serial.is_some() || term_env.is_empty() { "vt100".into() } else { term_env.clone() });
+        let r = port.and_then(|p| retro::Retro::new(p, &term, o.size, o.retro.as_deref() == Some("line")));
+        match r {
+            Ok(r) => {
+                if let Some(dev) = &o.serial {
+                    eprintln!("emuera-tty: playing on {} ({}, {} baud, {} mode)", dev, r.term_name(), o.baud, r.mode_name());
+                }
+                Box::new(r)
+            }
+            Err(e) => {
+                eprintln!("emuera-tty: {}", e);
+                return 1;
+            }
+        }
     } else {
         match tty::Tty::new(&o.gfx) {
             Ok(t) => Box::new(t),
