@@ -111,6 +111,8 @@ pub struct Tty {
     /// the terminal went away (hangup / end of input): quit instead of
     /// waiting forever on a dead stdin
     hangup: bool,
+    /// a setup problem the user should see (e.g. no console mouse)
+    notice: Option<String>,
     fb_cell_fixed: bool,
 }
 
@@ -152,6 +154,9 @@ fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>) -> (usize, usize, char
         Some(w) => w as usize,
         None => if ambi == Ambi::Wide { UnicodeWidthChar::width_cjk(ch) } else { UnicodeWidthChar::width(ch) }.unwrap_or(0),
     };
+    // a terminal with no double-width cells (the Linux console before
+    // 6.15) draws every character in one cell
+    let tw = if ambi == Ambi::Narrow { tw.min(1) } else { tw };
     if tw == 0 || ch.is_ascii() {
         return (tw, 0, ' ');
     }
@@ -179,6 +184,9 @@ enum Ambi {
     Pad,
     /// the terminal already draws them two cells wide
     Wide,
+    /// the terminal draws even CJK in one cell (Linux console): every wide
+    /// character is padded to its Emuera width
+    Narrow,
     /// kitty's text sizing protocol: `OSC 66 ; w=2 ; ch` draws the glyph
     /// across two cells (opt-in: kitty's rendering of it doesn't match
     /// Emuera's font well)
@@ -241,6 +249,7 @@ impl Tty {
             hover: None,
             active: true,
             hangup: false,
+            notice: None,
             fb_cell_fixed: false,
         };
         if xp > 0 && yp > 0 {
@@ -248,12 +257,19 @@ impl Tty {
         }
         t.setup_gfx(gfx_pref, &term);
         t.ambi = t.detect_ambiguous();
-        t.widths = t.measure_widths();
+        // (every width is 1 there: nothing to measure)
+        if t.ambi != Ambi::Narrow {
+            t.widths = t.measure_widths();
+        }
         let is_vt = term == "linux" || term.starts_with("fbterm");
         if crate::mice::Mice::wanted(is_vt) {
             match crate::mice::Mice::open() {
                 Ok(m) => t.mice = Some(m),
-                Err(e) => eprintln!("console mouse unavailable ({}); add yourself to the input group or run gpm", e),
+                Err(e) => {
+                    // shown on the input line (and again on exit): the
+                    // startup text is gone once the screen is drawn
+                    t.notice = Some(format!("no mouse ({}): install gpm, or add yourself to the input group", e));
+                }
             }
         }
         // alt screen, hide cursor; mouse reports: buttons, drag, any motion,
@@ -387,6 +403,7 @@ impl Tty {
             Ok("wide") => return Ambi::Wide,
             Ok("narrow") => return Ambi::Pad,
             Ok("osc66") => return Ambi::Osc66,
+            Ok("single") => return Ambi::Narrow,
             _ => {}
         }
         let cursor_col = |t: &mut Tty, probe: &str| -> Option<u32> {
@@ -395,6 +412,10 @@ impl Tty {
             let s = String::from_utf8_lossy(&r).to_string();
             s.rfind("\x1b[").and_then(|i| s[i + 2..].trim_end_matches('R').split(';').nth(1).and_then(|c| c.parse::<u32>().ok()))
         };
+        // a kanji that moves the cursor one cell: no double-width at all
+        if cursor_col(self, "漢") == Some(2) {
+            return Ambi::Narrow;
+        }
         if cursor_col(self, "■") == Some(3) {
             Ambi::Wide
         } else {
@@ -904,6 +925,7 @@ impl Tty {
         let _ = write!(out, "\x1b[{};1H\x1b[0m\x1b[K", self.rows);
         let prompt = match req {
             Some(r) if r.kind == InputKind::Wait => "\x1b[2m▼ (Enter)\x1b[0m".to_string(),
+            Some(_) if self.buf.is_empty() && self.notice.is_some() => format!("\x1b[1m>\x1b[0m \x1b[2m({})\x1b[0m", self.notice.as_deref().unwrap_or("")),
             Some(_) => format!("\x1b[1m>\x1b[0m {}", self.buf),
             None => String::new(),
         };
@@ -1124,6 +1146,9 @@ impl Frontend for Tty {
         self.gfx.shutdown(&mut out);
         out.extend_from_slice(b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
         write_all(&out);
+        if let Some(n) = &self.notice {
+            eprintln!("emuera-tty: {}", n);
+        }
         unsafe {
             libc::tcsetattr(0, libc::TCSANOW, &self.orig);
         }
@@ -1166,6 +1191,16 @@ mod tests {
         assert_eq!(char_cells('━', Ambi::Pad, Some(2)), (2, 0, '━'));
         // one that draws ￤ narrow (tables say 2) gets a filler instead
         assert_eq!(char_cells('￤', Ambi::Pad, Some(1)), (1, 1, ' '));
+    }
+
+    #[test]
+    fn linux_console_draws_everything_in_one_cell() {
+        // kanji, full-width space and letters: one cell plus a filler
+        assert_eq!(char_cells('漢', Ambi::Narrow, None), (1, 1, ' '));
+        assert_eq!(char_cells('　', Ambi::Narrow, None), (1, 1, ' '));
+        assert_eq!(char_cells('Ａ', Ambi::Narrow, None), (1, 1, ' '));
+        assert_eq!(char_cells('━', Ambi::Narrow, None), (1, 1, '━'));
+        assert_eq!(char_cells('a', Ambi::Narrow, None), (1, 0, ' '));
     }
 
     #[test]

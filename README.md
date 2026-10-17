@@ -170,6 +170,11 @@ terminal:
 - The mouse needs either **gpm** (`sudo apt install gpm`) or read access
   to `/dev/input/mice` (the `input` group). Be aware the `input` group can
   read every input device, keyboards included; gpm is the safer choice.
+  Without either, the input line says so (and so does the terminal after
+  quitting).
+- The console has no double-width characters, so emuera-tty notices that
+  at startup and pads kanji, kana and full-width symbols itself, which
+  keeps menus and maps lined up (`EMUERA_AMBIGUOUS=single` forces this).
 
 ## 6. Updating and removing
 
