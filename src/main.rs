@@ -6,6 +6,7 @@
 //! the VM's system loop on a thread with a large stack (ERB code can
 //! recurse deeply, and each ERB call is a Rust call).
 
+mod archive;
 mod ast;
 mod console;
 mod csvdata;
@@ -43,6 +44,8 @@ fn usage_exit(code: i32) -> ! {
     eprintln!(
         "usage: emuera-tty [GAME_DIR] [options]\n\
          \n\
+         GAME_DIR may be a game folder or an archive of one (.zip, .tar.gz, .7z…;\n\
+         extracted once to ~/.local/share/emuera-tty/games).\n\
          Without GAME_DIR: the current folder if it is a game, else the game\n\
          chosen last time, else a folder picker opens.\n\
          \n\
@@ -56,9 +59,9 @@ fn usage_exit(code: i32) -> ! {
          \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
          \n\
          setup:\n\
-         \x20 --install                        copy this program to ~/.local/bin\n\
+         \x20 --install                        copy this program to ~/.local/bin (or $XDG_BIN_HOME)\n\
          \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
-         \x20 --uninstall                      remove ~/.local/bin/emuera-tty\n\
+         \x20 --uninstall                      remove the installed copy\n\
          \x20 --reset-data                     forget settings (remembered game folder); saves are kept"
     );
     std::process::exit(code)
@@ -274,6 +277,24 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
     let interactive = !o.headless && !o.check && unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 };
     // an explicit folder is used as-is; only picker choices are remembered
     if let Some(g) = &o.game {
+        if archive::is_archive(g) {
+            if let Some(dir) = archive::already_extracted(g) {
+                return Some(dir);
+            }
+            eprint!("Extracting {}…", g.display());
+            let r = archive::extract_game(g, &mut |n| eprint!("\rExtracting {}… {} files", g.display(), n));
+            eprintln!();
+            return match r {
+                Ok(dir) => {
+                    eprintln!("Game folder: {}", dir.display());
+                    Some(dir)
+                }
+                Err(e) => {
+                    eprintln!("emuera-tty: {}", e);
+                    None
+                }
+            };
+        }
         return Some(g.clone());
     }
     if !o.choose {

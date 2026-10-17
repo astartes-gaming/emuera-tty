@@ -1,5 +1,6 @@
 //! First-run game picker: a small full-screen directory browser for
-//! choosing an Emuera game folder (one with `CSV/` and `ERB/` inside).
+//! choosing an Emuera game folder (one with `CSV/` and `ERB/` inside), or a
+//! downloaded archive of one (extracted on choice, see `crate::archive`).
 //!
 //! Keys: ↑/↓ (or k/j), PgUp/PgDn, Home/End move; Enter plays a marked game
 //! or opens a folder; → opens a folder; ← / Backspace goes up; `~` jumps
@@ -37,6 +38,8 @@ enum Kind {
     PlayHere,
     Up,
     Dir { path: PathBuf, game: bool },
+    /// a .zip / .tar.gz / … that may hold a game
+    Archive { path: PathBuf },
 }
 
 /// What a key or click asks for.
@@ -139,6 +142,17 @@ impl Picker {
             };
             self.entries.push(Entry { label, kind: Kind::Dir { path: d, game } });
         }
+        let mut archives: Vec<PathBuf> = std::fs::read_dir(&self.dir)
+            .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| crate::archive::is_archive(p)).collect())
+            .unwrap_or_default();
+        archives.retain(|a| self.hidden || !a.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')));
+        archives.sort_by_key(|a| a.file_name().map(|n| n.to_string_lossy().to_lowercase()));
+        for a in archives {
+            let name = a.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let bytes = std::fs::metadata(&a).map(|m| m.len()).unwrap_or(0);
+            let size = if bytes >= 1 << 20 { format!("{:.0} MB", bytes as f64 / 1048576.0) } else { format!("{} KB", bytes.div_ceil(1024)) };
+            self.entries.push(Entry { label: format!("▣ {}   [archive, {}]", name, size), kind: Kind::Archive { path: a } });
+        }
         // start on "Play" or the first folder rather than on ../
         self.sel = self.entries.iter().position(|e| e.kind != Kind::Up).unwrap_or(0);
         self.top = 0;
@@ -168,12 +182,13 @@ impl Picker {
             self.top = self.sel + 1 - rows;
         }
         let mut s = String::from("\x1b[H\x1b[0m\x1b[2J");
-        s += &format!("\x1b[1mChoose an Emuera game folder\x1b[0m  (★ = game)\r\n\x1b[2m{}\x1b[0m\r\n", fit(&self.dir.display().to_string(), cols));
+        s += &format!("\x1b[1mChoose an Emuera game folder or archive\x1b[0m  (★ = game, ▣ = archive)\r\n\x1b[2m{}\x1b[0m\r\n", fit(&self.dir.display().to_string(), cols));
         for (i, e) in self.entries.iter().enumerate().skip(self.top).take(rows) {
             let line = fit(&e.label, cols.saturating_sub(1));
             let pad = cols.saturating_sub(line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 1);
             let color = match e.kind {
                 Kind::PlayHere | Kind::Dir { game: true, .. } => "\x1b[33m",
+                Kind::Archive { .. } => "\x1b[36m",
                 _ => "",
             };
             if i == self.sel {
@@ -219,6 +234,11 @@ impl Picker {
                         return Some(p);
                     }
                 }
+                Act::Open if matches!(self.entries.get(self.sel), Some(Entry { kind: Kind::Archive { .. }, .. })) => {
+                    if let Some(p) = self.activate() {
+                        return Some(p);
+                    }
+                }
                 Act::Open => {
                     if let Some(Entry { kind: Kind::Dir { path, .. }, .. }) = self.entries.get(self.sel) {
                         let p = path.clone();
@@ -256,14 +276,28 @@ impl Picker {
             Kind::PlayHere => return Some(self.dir.clone()),
             Kind::Up => self.go_up(),
             Kind::Dir { path, game: true } => return Some(path),
+            Kind::Archive { path } => match self.extract(&path) {
+                Ok(g) => return Some(g),
+                Err(e) => self.note = format!("\x1b[31m{}\x1b[0m", e),
+            },
             Kind::Dir { path, game: false } => {
                 self.cd(path);
-                if self.entries.iter().all(|e| !matches!(e.kind, Kind::PlayHere | Kind::Dir { .. })) {
-                    self.note = "No folders here.".into();
+                if self.entries.iter().all(|e| e.kind == Kind::Up) {
+                    self.note = "Nothing here: no folders or archives.".into();
                 }
             }
         }
         None
+    }
+
+    /// Extract an archive, showing progress on the status line.
+    fn extract(&mut self, archive: &Path) -> Result<PathBuf, String> {
+        let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let (cols, rows) = term_size();
+        let line = rows.saturating_sub(1);
+        out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", line, fit(&format!("Extracting {}…", name), cols)).as_bytes());
+        let mut show = |n: usize| out(format!("\x1b[{};1H\x1b[2K{}", line, fit(&format!("Extracting {}… {} files", name, n), cols)).as_bytes());
+        crate::archive::extract_game(archive, &mut show)
     }
 
     /// Wait for input and turn it into an action.
@@ -415,16 +449,25 @@ pub fn remember(game: &Path) {
 
 // ------------------------------------------------------------- installing
 
-/// `--install`: copy this binary to `~/.local/bin/emuera-tty`.
+/// `--install`: copy this binary to the user binary folder.
 pub fn install() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| format!("can't find this program: {}", e))?;
     install_from(&exe)
 }
 
-/// Copy the binary `exe` to `~/.local/bin/emuera-tty`.
-fn install_from(exe: &Path) -> Result<String, String> {
+/// The per-user (non-root) binary folder: `$XDG_BIN_HOME` if set, else
+/// `~/.local/bin` (the XDG / systemd file-hierarchy default).
+pub fn bin_dir() -> Result<PathBuf, String> {
+    if let Some(d) = std::env::var_os("XDG_BIN_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return Ok(d);
+    }
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    let dir = PathBuf::from(home).join(".local").join("bin");
+    Ok(PathBuf::from(home).join(".local").join("bin"))
+}
+
+/// Copy the binary `exe` to the user binary folder ([`bin_dir`]).
+fn install_from(exe: &Path) -> Result<String, String> {
+    let dir = bin_dir()?;
     let dest = dir.join("emuera-tty");
     if dest.canonicalize().ok() == exe.canonicalize().ok() {
         return Ok(format!("{} is already installed.", dest.display()));
@@ -439,15 +482,14 @@ fn install_from(exe: &Path) -> Result<String, String> {
     let on_path = std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d == dir));
     let mut msg = format!("Installed {}.", dest.display());
     if !on_path {
-        msg += &format!("\n{} is not on your PATH; add this to ~/.bashrc or ~/.profile:\n  export PATH=\"$HOME/.local/bin:$PATH\"", dir.display());
+        msg += &format!("\n{} is not on your PATH; add this to ~/.bashrc or ~/.profile:\n  export PATH=\"{}:$PATH\"", dir.display(), dir.display());
     }
     Ok(msg)
 }
 
-/// `--uninstall`: remove `~/.local/bin/emuera-tty`.
+/// `--uninstall`: remove the installed copy.
 pub fn uninstall() -> Result<String, String> {
-    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    let dest = PathBuf::from(home).join(".local").join("bin").join("emuera-tty");
+    let dest = bin_dir()?.join("emuera-tty");
     match std::fs::remove_file(&dest) {
         Ok(()) => Ok(format!("Removed {}.", dest.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!("{} is not installed.", dest.display())),
@@ -490,7 +532,7 @@ fn run_cmd(cmd: &mut std::process::Command) -> Result<(), String> {
 }
 
 /// `--upgrade`: fetch the latest source (git clone / pull), build it with
-/// cargo and install the result to `~/.local/bin`. Needs git and cargo.
+/// cargo and install the result to the user binary folder. Needs git and cargo.
 pub fn upgrade() -> Result<String, String> {
     use std::process::Command;
     let src = source_dir().ok_or("HOME is not set")?;

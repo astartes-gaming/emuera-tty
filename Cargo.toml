@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 base64 = "0.23.1"
 encoding_rs = "0.8.42"
+flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "bmp", "jpeg", "webp"] }
 libc = "0.2.191"
+tar = "0.4"
 unicode-width = "0.2.2"
+zip = { version = "2", default-features = false, features = ["deflate"] }

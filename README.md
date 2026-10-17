@@ -41,9 +41,10 @@ untested. Large parts of the Emuera command set are still missing (see
   (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`), then
   open a new terminal so `cargo` is on your `PATH`.
 - **git**, to download the source and for `--upgrade`.
-- **An Emuera game**, downloaded from the game's own project page. What
-  emuera-tty needs is the game folder: the one containing `CSV/` and
-  `ERB/` (the `Emuera.exe` next to them isn't used). Unpack it anywhere.
+- **An Emuera game**, downloaded from the game's own project page. Either
+  keep the downloaded archive (`.zip`, `.tar.gz`, `.7z`, …) as it is, or
+  unpack it anywhere: what emuera-tty plays is the folder containing
+  `CSV/` and `ERB/` (the `Emuera.exe` next to them isn't used).
 
 ## 2. Install
 
@@ -54,8 +55,9 @@ cargo build --release
 ./target/release/emuera-tty --install
 ```
 
-`--install` copies the program to `~/.local/bin/emuera-tty`. If it says
-that folder isn't on your `PATH`, add this line to `~/.bashrc` (or
+`--install` copies the program to your personal program folder,
+`~/.local/bin` (or `$XDG_BIN_HOME` if you set one); no root needed. If it
+says that folder isn't on your `PATH`, add this line to `~/.bashrc` (or
 `~/.profile`) and open a new terminal:
 
 ```sh
@@ -69,12 +71,12 @@ emuera-tty
 ```
 
 The first time, a **folder picker** opens in your home folder. Game folders
-are marked with **★** and their title.
+are marked with **★** and their title, archives with **▣** and their size.
 
 | Key | Action |
 |---|---|
 | ↑ / ↓ (or `k` / `j`), PgUp / PgDn, Home / End | move |
-| Enter | play the ★ game under the cursor, or open a folder |
+| Enter | play the ★ game under the cursor, extract and play a ▣ archive, or open a folder |
 | → / ← (or Backspace) | open a folder / go up |
 | `~` | jump to your home folder |
 | `.` | show hidden folders |
@@ -90,7 +92,17 @@ straight away. Other ways to start:
 emuera-tty --choose                 # open the picker again (switch games)
 emuera-tty ~/games/eratohoTW        # play a specific folder
 cd ~/games/eratohoTW && emuera-tty  # a game in the current folder wins
+emuera-tty ~/Downloads/eratohoTW.zip # play straight from the archive
 ```
+
+**Archives** are extracted once into `~/.local/share/emuera-tty/games/`
+(named after the archive) and reused after that. Download a newer version
+under the same file name and it is re-extracted automatically, **keeping
+your saves**. Zip, tar and tar.gz work out of the box; tar.xz / tar.bz2 /
+tar.zst, 7z and rar need `bsdtar`, `tar` or `7z` installed
+(`sudo apt install libarchive-tools p7zip-full`). Japanese file names in
+zips made on Windows are handled. Delete a game's folder there to remove
+it.
 
 ## 4. Playing
 
@@ -145,13 +157,15 @@ terminal:
 ```sh
 emuera-tty --upgrade      # download the latest version, rebuild, reinstall
 emuera-tty --reset-data   # forget the remembered game (saves are kept)
-emuera-tty --uninstall    # remove ~/.local/bin/emuera-tty
+emuera-tty --uninstall    # remove the installed program
 ```
 
 `--upgrade` keeps its own copy of the source in
 `~/.local/share/emuera-tty/src` and needs `git` and `cargo`. Settings live
 in `~/.config/emuera-tty/`; delete that folder (or use `--reset-data`) to
-start fresh.
+start fresh. Games extracted from archives (and their saves) are in
+`~/.local/share/emuera-tty/games/`; neither `--reset-data` nor
+`--uninstall` touches them.
 
 ## 7. When something goes wrong
 
