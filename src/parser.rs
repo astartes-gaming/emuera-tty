@@ -1021,9 +1021,10 @@ impl<'a> Parser<'a> {
         let is_str = self.is_str_var(b, &v.name);
         // only plain `STR = ...` takes FORM text; `+=` takes a string expression
         if is_str && op == AsgOp::Set {
+            // Emuera skips/trims only half-width spaces and tabs here; a
+            // leading full-width space is content (map rows start with them)
             let raw = strip_comment_form(&rest);
-            let raw = raw.strip_prefix(' ').unwrap_or(raw);
-            let raw = raw.trim_start();
+            let raw = raw.trim_matches([' ', '\t']);
             b.emit(Instr::AssignForm(v, op, upper_form(parse_form(raw, &self.prog.defines)?)));
             return Ok(());
         }

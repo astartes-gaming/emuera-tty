@@ -2125,8 +2125,26 @@ pub fn format_number(v: i64, fmt: &str) -> String {
     if fmt.is_empty() {
         return v.to_string();
     }
-    if fmt.eq_ignore_ascii_case("x") {
-        return if fmt == "X" { format!("{:X}", v) } else { format!("{:x}", v) };
+    // .NET standard formats: a letter plus an optional digit count
+    let mut ch = fmt.chars();
+    let (letter, prec) = (ch.next().unwrap(), ch.as_str());
+    if prec.is_empty() || prec.bytes().all(|b| b.is_ascii_digit()) {
+        let n: usize = prec.parse().unwrap_or(0);
+        match letter {
+            // hex of the two's-complement value, like C#
+            'X' => return format!("{:0n$X}", v, n = n),
+            'x' => return format!("{:0n$x}", v, n = n),
+            'D' | 'd' => {
+                let d = format!("{:0n$}", v.unsigned_abs(), n = n);
+                return if v < 0 { format!("-{}", d) } else { d };
+            }
+            'N' | 'n' => {
+                let g = format_number(v, "#,0");
+                return if n > 0 { format!("{}.{}", g, "0".repeat(n)) } else { g };
+            }
+            'F' | 'f' => return if n > 0 { format!("{}.{}", v, "0".repeat(n)) } else { v.to_string() },
+            _ => {}
+        }
     }
     let comma = fmt.contains(',');
     let zeros = fmt.chars().filter(|c| *c == '0').count();
@@ -2152,8 +2170,6 @@ pub fn format_number(v: i64, fmt: &str) -> String {
     }
 }
 
-/// Minimal pattern matcher: supports literal text, '.', '*', '+', '?', '^', '$'
-/// and character classes [abc]. Enough for typical FINDELEMENT/REGEXPMATCH use.
 /// A small backtracking regex matcher (literals, `.`, `[...]`, `* + ?`,
 /// `^ $`, `\d \s \w` and their negations, escapes) for REGEXPMATCH /
 /// FINDELEMENT, avoiding a regex crate. No groups or `|` alternation.
@@ -2269,6 +2285,19 @@ fn html_tag_split(s: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::regex_lite_match as m;
+
+    #[test]
+    fn dotnet_number_formats() {
+        use super::format_number as f;
+        assert_eq!(f(0x007878, "X6"), "007878");
+        assert_eq!(f(255, "x"), "ff");
+        assert_eq!(f(42, "D3"), "042");
+        assert_eq!(f(-7, "D2"), "-07");
+        assert_eq!(f(1234567, "N0"), "1,234,567");
+        assert_eq!(f(5, "F2"), "5.00");
+        assert_eq!(f(42, "0000"), "0042");
+        assert_eq!(f(1234567, "#,0"), "1,234,567");
+    }
 
     #[test]
     fn regex_lite_basics() {

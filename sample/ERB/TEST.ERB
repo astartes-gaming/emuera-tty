@@ -11,6 +11,9 @@ CALL CHECK, "ternary", (3 > 2 ? 10 # 20) == 10
 LOCALS = abc
 LOCALS += "def"
 CALL CHECKS, "strasg", LOCALS, "abcdef"
+LOCALS = 　x  
+CALL CHECKS, "strasgfullspace", LOCALS, "　x"
+CALL CHECKS, "tostrhex", TOSTR(0x007878, "X6") + TOSTR(42, "D3"), "007878042"
 LOCALS '= "x" + "y" * 3
 CALL CHECKS, "strexpr", LOCALS, "xyyy"
 CALL CHECK, "strlens", STRLENS("あいu") == 5 && STRLENSU("あいu") == 3
