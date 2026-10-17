@@ -193,7 +193,6 @@ pub enum Args {
 /// constructs don't clash.
 #[derive(Debug, Clone)]
 pub enum Instr {
-    Nop,
     /// a line that failed to parse: (message, fatal). Unknown commands are
     /// non-fatal (warned once and skipped), like other unimplemented commands.
     BadLine(Rc<str>, bool),
@@ -215,7 +214,7 @@ pub enum Instr {
     /// and jump to `exit` if the loop runs zero times.
     ForBegin { var: Rc<VarRef>, start: Expr, end: Expr, step: Option<Expr>, slot: usize, exit: usize },
     /// NEXT/REND: `var += step`; jump back to `body` while still in range.
-    ForNext { var: Rc<VarRef>, slot: usize, body: usize, exit: usize },
+    ForNext { var: Rc<VarRef>, slot: usize, body: usize },
     /// SELECTCASE: evaluate once into `slot`.
     SelectEval(Expr, usize),
     /// CASE: test the value in `slot` against the conditions; on a miss

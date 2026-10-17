@@ -60,6 +60,7 @@ pub fn walk(dir: &Path, exts: &[&str]) -> Vec<PathBuf> {
     out
 }
 
+/// Recursive part of [`walk`].
 fn walk_inner(dir: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.flatten() {

@@ -1,4 +1,9 @@
 //! resources/*.csv sprite definitions and image loading/scaling cache.
+//!
+//! A game's `resources/` folder holds images plus CSVs naming sprites:
+//! `NAME,file.png[,x,y,w,h]` (the rectangle cuts the sprite out of a sheet).
+//! Images are decoded on first use and cached three ways: whole files,
+//! cropped sprites, and sprites scaled to the size they are shown at.
 
 use crate::loader::{csv_fields, read_text, walk};
 use image::RgbaImage;
@@ -6,6 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+/// A named image: a file, optionally a rectangle of it.
 #[derive(Clone, Debug)]
 pub struct Sprite {
     pub file: PathBuf,
@@ -22,6 +28,7 @@ pub struct Resources {
 }
 
 impl Resources {
+    /// Read every sprite CSV under `dir` (images are not decoded yet).
     pub fn load(dir: Option<&Path>) -> Resources {
         let mut r = Resources::default();
         let Some(dir) = dir else { return r };
@@ -53,6 +60,7 @@ impl Resources {
         self.sprites.contains_key(&name.to_uppercase())
     }
 
+    /// Decode an image file once; failures are remembered as None.
     fn file(&mut self, p: &Path) -> Option<Rc<RgbaImage>> {
         if let Some(v) = self.files.get(p) {
             return v.clone();
@@ -114,6 +122,8 @@ impl Resources {
     }
 }
 
+/// `base/rel` matching each path component case-insensitively and
+/// accepting `\` separators, since games are made on Windows.
 fn find_ci(base: &Path, rel: &str) -> PathBuf {
     let direct = base.join(rel);
     if direct.exists() {

@@ -66,6 +66,7 @@ impl Arr {
         Ok(f)
     }
 
+    /// Element `f`; past the end reads as 0 / "" (1-D arrays grow on write).
     pub fn get(&self, f: usize) -> Value {
         match &self.data {
             Data::I(v) => Value::Int(v.get(f).copied().unwrap_or(0)),
@@ -73,6 +74,8 @@ impl Arr {
         }
     }
 
+    /// Make room for element `f` (capped at 50M elements to survive
+    /// runaway indices).
     fn grow(&mut self, f: usize) {
         if f >= self.len() {
             if f > 50_000_000 {
@@ -88,6 +91,7 @@ impl Arr {
         }
     }
 
+    /// Store `val`, converting to the array's type.
     pub fn set(&mut self, f: usize, val: Value) {
         self.grow(f);
         match &mut self.data {
@@ -115,6 +119,7 @@ impl Arr {
         self.set(f, Value::Int(x));
     }
 
+    /// Reset every element to 0 / "".
     pub fn clear(&mut self) {
         match &mut self.data {
             Data::I(v) => v.iter_mut().for_each(|x| *x = 0),

@@ -1,4 +1,9 @@
 //! kitty graphics protocol backend (also works in WezTerm, Ghostty, Konsole).
+//!
+//! Each distinct scaled image is transmitted once (`a=t`, RGBA, base64 in
+//! 4 KiB chunks) under a numeric id; every frame then only deletes the old
+//! *placements* and re-places images by id (`a=p`), which is cheap. `C=1`
+//! keeps the text cursor still; `y`/`h` crop, `Y` offsets inside the cell.
 
 use super::{Backend, Placement};
 use base64::Engine;
@@ -6,6 +11,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 pub struct Kitty {
+    /// placement key (sprite + size) → image id already in the terminal
     ids: HashMap<String, u32>,
     next_id: u32,
 }
@@ -15,6 +21,8 @@ impl Kitty {
         Kitty { ids: HashMap::new(), next_id: 1 }
     }
 
+    /// Id of the image for `p`, sending it first if the terminal doesn't
+    /// have it. Past 256 images everything is freed and resent on demand.
     fn transmit(&mut self, out: &mut Vec<u8>, p: &Placement) -> u32 {
         if let Some(&id) = self.ids.get(&p.key) {
             return id;

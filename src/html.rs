@@ -1,12 +1,19 @@
 //! HTML_PRINT subset: p, font, b, i, u, s, button, nonbutton, img, shape, br.
+//!
+//! Emuera's HTML is a small markup for one console line, not real HTML:
+//! tags are interpreted left to right straight into console segments,
+//! with a stack so `</font>` / `</b>` restore the previous style. Sizes
+//! (`<img height>`, `<shape param>`) are percentages of the font size,
+//! as in Emuera. Unknown tags are ignored.
 
 use crate::ast::Align;
-use crate::console::{Rgb, Seg, Style};
+use crate::console::{Seg, Style};
 use crate::vm::builtins::color_from_str;
 use crate::vm::value::Value;
 use crate::vm::Vm;
 use std::collections::HashMap;
 
+/// Replace `&lt;` `&amp;` `&nbsp;` `&#…;` etc. Unknown entities stay as-is.
 fn decode_entities(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
@@ -51,6 +58,7 @@ fn decode_entities(s: &str) -> String {
     out
 }
 
+/// `key='v' key="v" key=v flag` → map with lower-cased keys.
 fn parse_attrs(s: &str) -> HashMap<String, String> {
     let mut m = HashMap::new();
     let c: Vec<char> = s.chars().collect();
@@ -99,6 +107,7 @@ fn parse_attrs(s: &str) -> HashMap<String, String> {
     m
 }
 
+/// HTML_TOPLAINTEXT: drop tags (`<br>` becomes a newline), decode entities.
 pub fn to_plain(s: &str) -> String {
     let mut out = String::new();
     let mut in_tag = false;
@@ -124,6 +133,8 @@ pub fn to_plain(s: &str) -> String {
 }
 
 impl Vm {
+    /// HTML_PRINT: render `src` as its own line(s). Style and alignment
+    /// changes don't leak out: both are restored afterwards.
     pub fn html_print(&mut self, src: &str) {
         if !self.con.cur.is_empty() {
             self.con.newline();
@@ -167,6 +178,7 @@ impl Vm {
                     };
                     match (name.as_str(), closing) {
                         ("p", false) => {
+                            // alignment applies to the line, so only before any content
                             if first_text {
                                 self.con.align = match attrs.get("align").map(|s| s.to_lowercase()).as_deref() {
                                     Some("center") => Align::Center,
@@ -256,6 +268,8 @@ impl Vm {
         self.con.align = saved_align;
     }
 
+    /// Text between tags: a button segment inside `<button>`, else plain
+    /// styled text (no `[N]` auto-buttons in HTML).
     fn html_text(&mut self, text: &str, button: &Option<Value>) {
         if text.is_empty() {
             return;
@@ -269,6 +283,3 @@ impl Vm {
         }
     }
 }
-
-#[allow(dead_code)]
-fn _unused(_: Rgb) {}

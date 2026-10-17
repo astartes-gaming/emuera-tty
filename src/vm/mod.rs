@@ -77,6 +77,7 @@ pub struct Chara {
 }
 
 /// Which array a [`Place`] is in.
+#[derive(Clone)]
 pub enum Loc {
     Global(String),
     /// `#DIM DYNAMIC` in the current frame
@@ -129,7 +130,6 @@ pub struct Vm {
     pub strict: bool,
     /// ISTIMEOUT: did the last timed input expire?
     pub is_timeout: bool,
-    pub call_depth: usize,
     pub last_input: String,
     /// Current system phase (TITLE, SHOP, TRAIN…), see `system.rs`.
     pub state: String,
@@ -174,7 +174,6 @@ impl Vm {
             game_dir,
             strict: false,
             is_timeout: false,
-            call_depth: 0,
             last_input: String::new(),
             state: "TITLE".into(),
             log: Vec::new(),
@@ -279,6 +278,7 @@ impl Vm {
         self.rng = x;
         ((x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 1) % (n as u64)) as i64
     }
+    /// RANDOMIZE / INITRAND: reseed.
     pub fn seed(&mut self, s: i64) {
         self.rng = (s as u64) ^ 0x9E37_79B9_7F4A_7C15 | 1;
     }
@@ -387,6 +387,7 @@ impl Vm {
         Ok(out)
     }
 
+    /// TARGET: the default character for character variables.
     pub fn target(&mut self) -> i64 {
         self.get_global_i("TARGET", 0)
     }
@@ -413,7 +414,7 @@ impl Vm {
             }
         };
         // 0. REF parameter aliases
-        if let Some(loc) = self.frames.last().and_then(|f| f.refs.get(name)).map(clone_loc) {
+        if let Some(loc) = self.frames.last().and_then(|f| f.refs.get(name)).cloned() {
             let idx = self.eval_indices(v, 0, table)?;
             let a = self.arr_at(&loc).ok_or_else(|| Ctrl::Error(format!("{}: referenced variable is gone", name), false))?;
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
@@ -577,6 +578,7 @@ impl Vm {
         self.set_place(&p, val)
     }
 
+    /// Whether the variable holds strings (decides parameter defaults etc.).
     pub fn var_is_str(&mut self, v: &VarRef) -> VmResult<bool> {
         let p = self.locate(v)?;
         Ok(match &p.loc {
@@ -984,7 +986,6 @@ impl Vm {
     /// Execute one instruction. Ok(Some(x)) means the function returns x.
     fn step(&mut self, f: &Rc<Function>, pc: usize) -> VmResult<Option<Option<Value>>> {
         match &f.code[pc] {
-            Instr::Nop => {}
             Instr::BadLine(msg, fatal) => {
                 if *fatal || self.strict {
                     return err(format!("line failed to parse: {}", msg));
@@ -1070,7 +1071,7 @@ impl Vm {
                     self.set_pc(*exit);
                 }
             }
-            Instr::ForNext { var, slot, body, .. } => {
+            Instr::ForNext { var, slot, body } => {
                 let (e, st) = match self.frames.last().unwrap().slots[*slot] {
                     Slot::For(e, st) => (e, st),
                     _ => (0, 1),
@@ -1202,6 +1203,8 @@ impl Vm {
         Ok(None)
     }
 
+    /// Does the SELECTCASE value match one CASE condition? Strings compare
+    /// as text, everything else as integers.
     fn case_match(&mut self, v: &Value, c: &CaseCond) -> VmResult<bool> {
         Ok(match c {
             CaseCond::Eq(e) => {
@@ -1247,6 +1250,8 @@ impl Vm {
         })
     }
 
+    /// `v op rhs`. Several values (`A = 1, 2, 3`) fill consecutive
+    /// elements starting at `v`'s index; compound operators take one.
     fn assign(&mut self, v: &VarRef, op: AsgOp, rhs: &[Expr]) -> VmResult<()> {
         let p = self.locate(v)?;
         if rhs.len() > 1 {
@@ -1255,7 +1260,7 @@ impl Vm {
             }
             for (k, e) in rhs.iter().enumerate() {
                 let val = self.eval(e)?;
-                let q = Place { loc: clone_loc(&p.loc), flat: p.flat + k };
+                let q = Place { loc: p.loc.clone(), flat: p.flat + k };
                 self.set_place(&q, val)?;
             }
             return Ok(());
@@ -1312,6 +1317,8 @@ impl Vm {
     }
 
     // ---------------------------------------------------------------- output
+    /// Output text for a PRINT-family command: colours (D ignores
+    /// SETCOLOR), PRINTC column padding, then newline / WAIT per the flags.
     pub fn do_print(&mut self, s: &str, fl: PrintFlags) -> VmResult<()> {
         let saved = if fl.default_color { Some(self.con.style.clone()) } else { None };
         if fl.default_color {
@@ -1349,6 +1356,8 @@ impl Vm {
     }
 
     // ----------------------------------------------------------------- input
+    /// Ask the frontend for input; None means a timeout. Quitting the
+    /// frontend becomes `Ctrl::Quit`.
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
         self.con.width = self.fe.cols().saturating_sub(1).max(20);
         let r = self.fe.input(&mut self.con, &mut self.res, req);
@@ -1363,6 +1372,7 @@ impl Vm {
         }
     }
 
+    /// WAIT: show everything, continue on any key / click.
     pub fn wait(&mut self) -> VmResult<()> {
         if !self.con.cur.is_empty() {
             self.con.newline();
@@ -1371,7 +1381,8 @@ impl Vm {
         Ok(())
     }
 
-    /// INPUT: loop until a valid integer (or default on empty).
+    /// INPUT-style integer input: re-asks on non-numbers, empty input gives
+    /// the default; full-width digits are accepted. Callers store RESULT.
     pub fn input_int(&mut self, default: Option<i64>, timeout: Option<u64>, one: bool) -> VmResult<i64> {
         loop {
             let r = self.raw_input(&InputReq { kind: InputKind::Int, one, timeout_ms: timeout, mouse: false })?;
@@ -1401,6 +1412,8 @@ impl Vm {
         }
     }
 
+    /// INPUTS-style string input; empty input gives the default. Callers
+    /// store RESULTS.
     pub fn input_str(&mut self, default: Option<String>, timeout: Option<u64>, one: bool) -> VmResult<String> {
         let r = self.raw_input(&InputReq { kind: InputKind::Str, one, timeout_ms: timeout, mouse: false })?;
         self.is_timeout = r.is_none();
@@ -1411,27 +1424,21 @@ impl Vm {
         })
     }
 
+    /// Push pending output to the frontend without waiting.
     pub fn flush(&mut self) {
         self.con.width = self.fe.cols().saturating_sub(1).max(20);
         self.fe.flush(&mut self.con, &mut self.res);
     }
 }
 
-fn clone_loc(l: &Loc) -> Loc {
-    match l {
-        Loc::Global(s) => Loc::Global(s.clone()),
-        Loc::Frame(s) => Loc::Frame(s.clone()),
-        Loc::FrameAt(d, s) => Loc::FrameAt(*d, s.clone()),
-        Loc::Static(s) => Loc::Static(s.clone()),
-        Loc::Chara(c, s) => Loc::Chara(*c, s.clone()),
-        Loc::Ro(v) => Loc::Ro(v.clone()),
-    }
-}
 
+/// Is a FOR loop at `v` still running? (counts down for negative steps)
 fn for_cond(v: i64, end: i64, step: i64) -> bool {
     if step >= 0 { v < end } else { v > end }
 }
 
+/// Variables computed on read (CHARANUM, RAND, GAMEBASE_*, *NAME…) that
+/// have no storage of their own.
 pub fn pseudo_var(name: &str) -> bool {
     matches!(
         name,

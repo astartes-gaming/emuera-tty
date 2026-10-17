@@ -1,4 +1,9 @@
 //! DEC sixel backend with a median-cut quantizer.
+//!
+//! Sixel images are palette images drawn six pixel rows at a time, so each
+//! RGBA image is reduced to at most 255 colours (median cut over a sample of
+//! its opaque pixels), with index 255 left transparent. Encoded images are
+//! cached per (sprite, size, crop) because encoding is the slow part.
 
 use super::{crop_rows, Backend, Placement};
 use image::RgbaImage;
@@ -38,11 +43,13 @@ impl Backend for Sixel {
     }
 }
 
+/// A box of colours in RGB space for median cut.
 struct Box3 {
     px: Vec<[u8; 3]>,
 }
 
 impl Box3 {
+    /// The widest channel (0 R, 1 G, 2 B) and its extent.
     fn range(&self) -> (usize, u8) {
         let mut best = (0, 0u8);
         for c in 0..3 {
@@ -58,6 +65,7 @@ impl Box3 {
         }
         best
     }
+    /// Average colour of the box: one palette entry.
     fn mean(&self) -> [u8; 3] {
         let mut s = [0u64; 3];
         for p in &self.px {
@@ -70,6 +78,8 @@ impl Box3 {
     }
 }
 
+/// Split the colour box with the widest channel at its median until there
+/// are `max_colors` boxes; their means are the palette.
 fn median_cut(samples: Vec<[u8; 3]>, max_colors: usize) -> Vec<[u8; 3]> {
     if samples.is_empty() {
         return vec![[0, 0, 0]];
@@ -91,6 +101,8 @@ fn median_cut(samples: Vec<[u8; 3]>, max_colors: usize) -> Vec<[u8; 3]> {
     boxes.iter().filter(|b| !b.px.is_empty()).map(|b| b.mean()).collect()
 }
 
+/// Encode an image as a sixel DCS string (pixels with alpha < 128 are
+/// transparent; nearest-colour lookups are memoised on 15-bit colour).
 pub fn encode(img: &RgbaImage) -> Vec<u8> {
     let (w, h) = (img.width() as usize, img.height() as usize);
     let raw = img.as_raw();

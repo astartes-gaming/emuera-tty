@@ -1,6 +1,18 @@
 //! Full-screen terminal frontend: raw-mode input with mouse support, a
 //! redraw-per-frame renderer for the Emuera console, and inline images via
 //! the kitty / sixel / framebuffer backends.
+//!
+//! Each frame is rebuilt from the [`Console`]: lines are laid out bottom-up
+//! into screen rows (`layout_line`, which wraps and aligns), the visible
+//! window is chosen from the scroll offset, and the whole screen is written
+//! in one go. While drawing, the positions of buttons are recorded
+//! (`btn_map`) so mouse clicks and hover can be mapped back to values.
+//!
+//! Input is read raw from stdin and decoded into [`Key`]s: UTF-8 text,
+//! cursor/paging keys, and mouse reports in SGR, urxvt or X10 encoding.
+//! On the Linux console the mouse comes from `/dev/input/mice` instead
+//! (`crate::mice`). Colours are downgraded to 256 or 16 when the terminal
+//! can't do 24-bit.
 
 use crate::ast::Align;
 use crate::console::{Console, Line, Rgb, Seg, Style};
@@ -12,6 +24,7 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
+/// How many colours the terminal can show (picked from TERM / COLORTERM).
 #[derive(Clone, Copy, PartialEq)]
 enum ColorMode {
     True,
@@ -19,6 +32,7 @@ enum ColorMode {
     C16,
 }
 
+/// One screen cell after layout; `w` is 2 for wide (CJK) characters.
 #[derive(Clone)]
 struct Cell {
     ch: char,
@@ -27,6 +41,7 @@ struct Cell {
     button: Option<usize>,
 }
 
+/// An image anchored at a column of a screen row.
 struct ImgAt {
     name: String,
     col: usize,
@@ -35,12 +50,15 @@ struct ImgAt {
     ypos: f32,
 }
 
+/// One laid-out screen row.
 #[derive(Default)]
 struct DRow {
     cells: Vec<Cell>,
     imgs: Vec<ImgAt>,
 }
 
+/// A decoded input event. Mouse `btn` uses xterm codes: 0/1/2 buttons,
+/// +32 motion, 64/65 wheel; `x`/`y` are 1-based cells.
 #[derive(Debug)]
 enum Key {
     Char(char),
@@ -82,6 +100,8 @@ pub struct Tty {
     fb_cell_fixed: bool,
 }
 
+/// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
+/// when the terminal doesn't report them.
 fn winsize() -> (usize, usize, u32, u32) {
     unsafe {
         let mut ws: libc::winsize = std::mem::zeroed();
@@ -100,6 +120,7 @@ fn x10_mouse(cb: u16, x: u16, y: u16) -> Key {
     Key::Mouse { btn: if release { cb & !3 } else { cb }, x, y, press: !release }
 }
 
+/// Write to the terminal and flush.
 fn write_all(b: &[u8]) {
     let mut out = std::io::stdout().lock();
     let _ = out.write_all(b);
@@ -107,6 +128,8 @@ fn write_all(b: &[u8]) {
 }
 
 impl Tty {
+    /// Enter raw mode and the alternate screen, pick colour and graphics
+    /// support, open the console mouse if needed, and enable mouse reports.
     pub fn new(gfx_pref: &str) -> Result<Tty, String> {
         unsafe {
             if libc::isatty(0) == 0 || libc::isatty(1) == 0 {
@@ -169,6 +192,8 @@ impl Tty {
         Ok(t)
     }
 
+    /// Wait up to `timeout_ms` for input on stdin (and the console mouse);
+    /// returns whether anything arrived.
     fn read_bytes(&mut self, timeout_ms: i32) -> bool {
         let mut pfd = [
             libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 },
@@ -213,6 +238,9 @@ impl Tty {
         std::mem::take(&mut self.pending)
     }
 
+    /// Choose the image backend: framebuffer on a VT, otherwise probe for
+    /// kitty graphics, then sixel (DA1 attribute 4); also learn the cell
+    /// size in pixels so images can be scaled.
     fn setup_gfx(&mut self, pref: &str, term: &str) {
         let is_vt = term == "linux" || term.starts_with("fbterm");
         let try_fb = |t: &mut Tty| -> bool {
@@ -279,6 +307,8 @@ impl Tty {
         eprintln!("graphics backend: {} (cell {}x{} px)", self.gfx.name(), self.cell.0, self.cell.1);
     }
 
+    /// Decode the next key or mouse event, waiting up to `timeout_ms`.
+    /// Incomplete escape sequences wait briefly for their remaining bytes.
     fn next_key(&mut self, timeout_ms: i32) -> Option<Key> {
         if let Some(k) = self.queued.pop_front() {
             return Some(k);
@@ -398,13 +428,16 @@ impl Tty {
     }
 
     // ------------------------------------------------------------ layout
+    /// Wrap one console line into screen rows at the terminal width and
+    /// apply its alignment. Buttons get ids (indices into `self.buttons`)
+    /// only if the line belongs to the current input generation.
     fn layout_line(&mut self, line: &Line, cur_gen: u64, scale: f32) -> Vec<DRow> {
         let width = self.cols.max(1);
         let mut rows = vec![DRow::default()];
         let cw = self.cell.0.max(1) as f32;
         let mut col = 0usize;
         let active = line.gen == cur_gen;
-        let mut push_btn = |v: &Option<Value>, buttons: &mut Vec<Value>| -> Option<usize> {
+        let push_btn = |v: &Option<Value>, buttons: &mut Vec<Value>| -> Option<usize> {
             match v {
                 Some(v) if active => {
                     buttons.push(v.clone());
@@ -500,6 +533,7 @@ impl Tty {
         rows
     }
 
+    /// Emit the SGR sequence for a style in the terminal's colour mode.
     fn sgr(&self, out: &mut Vec<u8>, st: &Style, fg_override: Option<Rgb>) {
         let fg = fg_override.unwrap_or(st.fg);
         out.extend_from_slice(b"\x1b[0");
@@ -531,7 +565,8 @@ impl Tty {
             ColorMode::C16 => {
                 let (c, bright) = rgb16(fg);
                 let _ = write!(out, ";{}", if bright { 90 + c } else { 30 + c });
-                if bright && self.color == ColorMode::C16 {
+                // the Linux console and fbterm brighten via bold, not 90-97
+                if bright {
                     out.extend_from_slice(b";1");
                 }
                 if let Some(b) = st.bg {
@@ -543,6 +578,7 @@ impl Tty {
         out.push(b'm');
     }
 
+    /// Draw a full frame: text rows, images, the prompt / status line.
     fn render(&mut self, con: &mut Console, res: &mut Resources, req: Option<&InputReq>) {
         let (cols, rows, xp, yp) = winsize();
         self.cols = cols;
@@ -698,17 +734,20 @@ impl Tty {
         con.dirty = false;
     }
 
+    /// The button id at a 0-based screen cell, from the last frame.
     fn button_at(&self, x: usize, y: usize) -> Option<usize> {
         let row = self.btn_map.get(y)?;
         row.iter().find(|(s, e, _)| x >= *s && x < *e).map(|(_, _, b)| *b)
     }
 }
 
+/// Nearest colour in the xterm 6×6×6 cube.
 fn rgb256(c: Rgb) -> u8 {
     let q = |v: u8| -> u8 { if v < 48 { 0 } else if v < 115 { 1 } else { (v - 35) / 40 } };
     16 + 36 * q(c.0) + 6 * q(c.1) + q(c.2)
 }
 
+/// Nearest of the 8 ANSI colours, and whether it should be the bright one.
 fn rgb16(c: Rgb) -> (u8, bool) {
     let (r, g, b) = (c.0 as u32, c.1 as u32, c.2 as u32);
     let max = r.max(g).max(b);
@@ -734,6 +773,9 @@ impl Frontend for Tty {
         }
     }
 
+    /// Show the console and wait for input: typed text + Enter, a button
+    /// click, any key/click for WAIT, or a timeout. Scrolling keys and the
+    /// wheel move through the log meanwhile.
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
         self.buf.clear();
         self.scroll = 0;
@@ -855,6 +897,7 @@ impl Frontend for Tty {
         self.rows
     }
 
+    /// Restore the terminal (mouse off, main screen, cooked mode).
     fn shutdown(&mut self) {
         if !self.active {
             return;

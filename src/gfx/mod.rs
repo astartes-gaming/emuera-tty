@@ -1,5 +1,9 @@
 //! Inline image backends: kitty graphics protocol, DEC sixel, and direct
 //! Linux framebuffer blitting (for the fbcon VT / fbterm).
+//!
+//! The renderer works out *where* images go (cell, pixel offset, visible
+//! rows) and hands each frame's [`Placement`]s to the chosen [`Backend`],
+//! which only knows *how* to put pixels on that kind of terminal.
 
 pub mod fb;
 pub mod kitty;
@@ -22,7 +26,9 @@ pub struct Placement {
     pub crop_h: u32,
 }
 
+/// One way of showing images. All hooks default to doing nothing.
 pub trait Backend {
+    /// "kitty", "sixel", "fb" or "none" (for the startup message).
     fn name(&self) -> &'static str;
     /// Called before text is written for a frame (e.g. delete old placements).
     fn begin(&mut self, _out: &mut Vec<u8>) {}
@@ -34,6 +40,7 @@ pub trait Backend {
     fn shutdown(&mut self, _out: &mut Vec<u8>) {}
 }
 
+/// No image support: images appear as `░` placeholders of the right size.
 pub struct NoGfx;
 impl Backend for NoGfx {
     fn name(&self) -> &'static str {
@@ -42,6 +49,7 @@ impl Backend for NoGfx {
 }
 
 /// Crop helper shared by sixel and fb backends.
+/// The pixel rows `top..top+h` of `img` (for images cut off at the screen edge).
 pub fn crop_rows(img: &RgbaImage, top: u32, h: u32) -> RgbaImage {
     let top = top.min(img.height());
     let h = h.min(img.height() - top);

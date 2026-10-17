@@ -81,6 +81,7 @@ fn dump_arr(out: &mut String, tag: &str, name: &str, a: &Arr) {
 }
 
 impl Vm {
+    /// `<game>/sav`.
     pub fn save_dir(&self) -> PathBuf {
         self.game_dir.join("sav")
     }
@@ -96,6 +97,8 @@ impl Vm {
         !is_temp_var(name) && name != "SAVEDATA_TEXT" && name != "LASTLOAD_TEXT"
     }
 
+    /// SAVEDATA / the save menu: write all non-temporary data to slot `n`
+    /// with comment `text`.
     pub fn save_slot(&mut self, n: i64, text: &str) -> VmResult<()> {
         let mut out = String::from("EMUERA-RS-SAVE 1\n");
         out.push_str(&format!("TEXT {}\n", esc(text)));
@@ -181,6 +184,8 @@ impl Vm {
         }
     }
 
+    /// LOADDATA / the load menu: reset data, then read slot `n`. Returns
+    /// false if the slot is missing or not ours.
     pub fn load_slot(&mut self, n: i64) -> VmResult<bool> {
         let Ok(s) = fs::read_to_string(self.save_path(n)) else { return Ok(false) };
         if !s.starts_with("EMUERA-RS-SAVE 1") {
@@ -195,6 +200,7 @@ impl Vm {
         Ok(true)
     }
 
+    /// SAVEGLOBAL: GLOBAL/GLOBALS and `#DIM GLOBAL` variables.
     pub fn save_global(&mut self) -> VmResult<()> {
         let mut out = String::from("EMUERA-RS-SAVE 1\nTEXT global\n");
         let mut names: Vec<String> = self.globals.keys().cloned().collect();
@@ -209,6 +215,7 @@ impl Vm {
         fs::write(self.save_dir().join("global.rsav"), out).map_err(|e| Ctrl::Error(format!("save failed: {}", e), false))
     }
 
+    /// LOADGLOBAL.
     pub fn load_global(&mut self) -> VmResult<bool> {
         let Ok(s) = fs::read_to_string(self.save_dir().join("global.rsav")) else { return Ok(false) };
         self.apply_lines(&s, true);

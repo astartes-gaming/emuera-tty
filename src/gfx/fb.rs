@@ -1,5 +1,10 @@
 //! Direct /dev/fb0 blitting for the Linux framebuffer console (fbcon) and
 //! fbterm. Images are alpha-blended over whatever the console drew.
+//!
+//! The framebuffer is mmapped; its pixel format (bits per pixel and the
+//! bit offset/length of R, G, B) comes from FBIOGET_VSCREENINFO, so 16, 24
+//! and 32 bpp all work. Since the console keeps drawing text into the same
+//! memory, images are painted *after* each frame's text has been flushed.
 
 use super::{Backend, Placement};
 use std::fs::OpenOptions;
@@ -10,20 +15,26 @@ const FBIOGET_FSCREENINFO: libc::c_ulong = 0x4602;
 
 pub struct Fb {
     _file: std::fs::File,
+    /// mmapped framebuffer memory
     mem: *mut u8,
     len: usize,
     pub xres: u32,
     pub yres: u32,
+    /// visible area offset inside the (virtual) framebuffer
     xoff: u32,
     yoff: u32,
     bpp: u32,
+    /// bytes per scanline
     line: usize,
+    /// (bit offset, bit length) of each channel
     r: (u32, u32),
     g: (u32, u32),
     b: (u32, u32),
 }
 
 impl Fb {
+    /// Open and map `$FRAMEBUFFER` (default /dev/fb0); needs write access
+    /// (usually the `video` group).
     pub fn open() -> Result<Fb, String> {
         let path = std::env::var("FRAMEBUFFER").unwrap_or_else(|_| "/dev/fb0".into());
         let file = OpenOptions::new().read(true).write(true).open(&path).map_err(|e| format!("{}: {}", path, e))?;
@@ -68,6 +79,7 @@ impl Fb {
     }
 
     #[inline]
+    /// Native pixel → RGB.
     fn unpack(&self, px: u32) -> [u8; 3] {
         let ch = |(off, len): (u32, u32)| -> u8 {
             if len == 0 {
@@ -80,6 +92,7 @@ impl Fb {
     }
 
     #[inline]
+    /// RGB → native pixel.
     fn pack(&self, c: [u8; 3]) -> u32 {
         let ch = |v: u8, (off, len): (u32, u32)| -> u32 {
             if len == 0 {
@@ -90,6 +103,8 @@ impl Fb {
         ch(c[0], self.r) | ch(c[1], self.g) | ch(c[2], self.b)
     }
 
+    /// Alpha-blend rows `crop_top..+crop_h` of `img` at pixel (x0, y0),
+    /// clipped to the screen.
     fn blit(&mut self, img: &image::RgbaImage, x0: i32, y0: i32, crop_top: u32, crop_h: u32) {
         let bytes = (self.bpp / 8) as usize;
         let w = img.width() as i32;

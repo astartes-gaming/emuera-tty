@@ -41,8 +41,6 @@ pub struct CharaTemplate {
     /// (VARIABLE, index, value)
     pub ints: Vec<(String, i64, i64)>,
     pub strs: Vec<(String, i64, String)>,
-    /// SP character (eramaker's ADDSPCHARA)
-    pub is_sp: bool,
 }
 
 /// All CSV-side data of a game.

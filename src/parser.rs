@@ -76,7 +76,6 @@ enum Ctl {
     /// ENDDATA; DATALIST…ENDLIST groups several lines into one entry.
     Data { var: Option<Rc<VarRef>>, flags: Option<PrintFlags>, entries: Vec<Vec<Form>>, list: Option<Vec<Form>> },
     CallList { kind: CallKind, goto: bool, entries: Vec<(CallTarget, Vec<Expr>)> },
-    NoSkip,
 }
 
 /// The function being compiled.
@@ -545,7 +544,6 @@ impl<'a> Parser<'a> {
                     Ctl::TryC { .. } => "TRYC*",
                     Ctl::Data { .. } => "PRINTDATA/STRDATA",
                     Ctl::CallList { .. } => "TRY*LIST",
-                    Ctl::NoSkip => "NOSKIP",
                 })
                 .collect();
             self.prog.errors.push(format!("{}: @{}: unclosed block(s): {}", path, b.f.name, kinds.join(", ")));
@@ -801,7 +799,7 @@ impl<'a> Parser<'a> {
                 for c in conts {
                     b.patch(c, next_pc);
                 }
-                b.emit(Instr::ForNext { var, slot, body: begin + 1, exit: next_pc + 1 });
+                b.emit(Instr::ForNext { var, slot, body: begin + 1 });
                 let exit = b.pc();
                 b.patch(begin, exit);
                 for x in breaks {

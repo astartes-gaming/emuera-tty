@@ -79,11 +79,6 @@ impl Mice {
         self.fd
     }
 
-    /// Current pointer cell (1-based), for drawing the cursor.
-    pub fn cell(&self) -> (u16, u16) {
-        self.last_cell
-    }
-
     /// Read pending packets and convert them for a `cols`×`rows` screen of
     /// `cell`-pixel cells.
     pub fn read(&mut self, cell: (u32, u32), cols: usize, rows: usize) -> Vec<Event> {

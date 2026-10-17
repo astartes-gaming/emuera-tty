@@ -1,12 +1,20 @@
 //! Frontend abstraction: rendering the console and collecting input.
+//!
+//! The VM never talks to the terminal directly: when it needs input it
+//! calls [`Frontend::input`], which shows the console and returns what was
+//! typed or clicked. [`Headless`] is the plain stdin/stdout frontend used by
+//! `--headless`, tests and scripts; the full-screen one is `tty::Tty`.
 
 use crate::console::{Console, Line};
 use crate::resources::Resources;
 use std::io::{BufRead, Write};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+/// What the script is waiting for.
 pub enum InputKind {
+    /// INPUT / TINPUT / ONEINPUT
     Int,
+    /// INPUTS and string variants
     Str,
     /// WAIT / WAITANYKEY: any key or click continues
     Wait,
@@ -15,9 +23,13 @@ pub enum InputKind {
 #[derive(Debug, Clone)]
 pub struct InputReq {
     pub kind: InputKind,
+    /// ONEINPUT: a single key is enough
     pub one: bool,
+    /// TINPUT / TWAIT: give up after this long
     pub timeout_ms: Option<u64>,
-    /// INPUTMOUSEKEY: report clicks/keys
+    /// INPUTMOUSEKEY: report clicks/keys. Set by the VM; frontends treat
+    /// it like an ordinary input for now.
+    #[allow(dead_code)]
     pub mouse: bool,
 }
 
@@ -29,7 +41,9 @@ pub enum InputResult {
 }
 
 pub trait Frontend {
+    /// Show whatever is new in the console without waiting for input.
     fn flush(&mut self, con: &mut Console, res: &mut Resources);
+    /// Show the console and block until the user answers `req`.
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult;
     /// Console width in half-width columns.
     fn cols(&self) -> usize;
@@ -43,6 +57,8 @@ pub trait Frontend {
 }
 
 /// Line-oriented frontend for tests / pipes: prints plain text, reads stdin.
+/// Line-oriented frontend: prints finished lines to stdout, reads answers
+/// line by line from stdin; WAITs continue immediately. End of input quits.
 pub struct Headless {
     printed: usize,
     gen_seen: usize,

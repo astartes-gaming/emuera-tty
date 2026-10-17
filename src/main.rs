@@ -1,3 +1,11 @@
+//! emuera-tty: run Emuera (ERB) games in a terminal.
+//!
+//! Startup: parse options, read CSVs (`csvdata`), parse every .ERH then
+//! .ERB file (`parser`), load image resources, pick a frontend (full-screen
+//! `tty` or `--headless`), read the game's config files, and hand over to
+//! the VM's system loop on a thread with a large stack (ERB code can
+//! recurse deeply, and each ERB call is a Rust call).
+
 mod ast;
 mod console;
 mod csvdata;
@@ -15,6 +23,7 @@ mod vm;
 
 use std::path::PathBuf;
 
+/// Command-line options.
 struct Opts {
     game: PathBuf,
     headless: bool,
@@ -40,6 +49,7 @@ fn usage() -> ! {
     std::process::exit(2)
 }
 
+/// Parse `std::env::args` (exits with usage on unknown options).
 fn parse_args() -> Opts {
     let mut o = Opts { game: PathBuf::from("."), headless: false, gfx: "auto".into(), strict: false, check: false, debug: false, echo: false };
     let mut it = std::env::args().skip(1);
@@ -125,6 +135,7 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
     window_px
 }
 
+/// Load the game and run it; returns the process exit code.
 fn run(o: Opts) -> i32 {
     let game = o.game.clone();
     let Some(csv_dir) = loader::find_dir_ci(&game, "CSV") else {

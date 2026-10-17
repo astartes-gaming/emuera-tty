@@ -9,6 +9,7 @@ pub enum Value {
 }
 
 impl Value {
+    /// Integer view; strings parse as a number or count as 0.
     pub fn as_int(&self) -> i64 {
         match self {
             Value::Int(i) => *i,
@@ -30,6 +31,7 @@ impl Value {
     pub fn is_str(&self) -> bool {
         matches!(self, Value::Str(_))
     }
+    /// Condition value: non-zero, or a non-empty string.
     pub fn truthy(&self) -> bool {
         match self {
             Value::Int(i) => *i != 0,

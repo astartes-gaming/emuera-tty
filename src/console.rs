@@ -1,10 +1,17 @@
 //! Emuera console model: a scrollback of display lines made of styled
 //! segments (text, buttons, images, spaces). Frontends lay it out.
+//!
+//! The VM only ever appends: PRINT adds segments to `cur` (the line being
+//! built), a newline moves `cur` into `lines`. Wrapping to the screen width
+//! is the frontend's job, so one [`Line`] may cover several screen rows.
+//! Buttons carry the value that clicking them "types"; they are only live
+//! for lines printed since the last input (`gen`), like in Emuera.
 
 use crate::ast::Align;
 use crate::loader::sjis_len;
 use crate::vm::value::Value;
 
+/// A 24-bit colour; Emuera stores colours as 0xRRGGBB integers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
@@ -27,48 +34,73 @@ pub struct Style {
     pub strike: bool,
 }
 
+/// One piece of a line.
 #[derive(Clone, Debug)]
 pub enum Seg {
+    /// `auto`: plain printed text that may still contain `[N]` markers to
+    /// turn into buttons when the line ends (see `auto_buttons`).
     Text { text: String, style: Style, button: Option<Value>, auto: bool },
     /// Image: sizes in Emuera pixels (font-size based).
     Image { name: String, w: f32, h: f32, ypos: f32, button: Option<Value> },
     Space { w: f32 },
-    Rect { w: f32, h: f32, color: Rgb, button: Option<Value> },
+    /// PRINT_RECT / `<shape type='rect'>`. The terminal UI draws one cell
+    /// row, so `h` is kept for frontends that can do better.
+    Rect {
+        w: f32,
+        #[allow(dead_code)]
+        h: f32,
+        color: Rgb,
+        button: Option<Value>,
+    },
 }
 
+/// A finished logical line.
 #[derive(Clone, Debug)]
 pub struct Line {
     pub segs: Vec<Seg>,
     pub align: Align,
     /// input generation this line was printed in (buttons active only for current)
     pub gen: u64,
-    /// number of display sub-lines forced by <br> (counted as 1 logical line)
+    /// REUSELASTLINE line: replaced by whatever is printed next
     pub temporary: bool,
 }
 
 pub struct Console {
+    /// Finished lines (scrollback, capped at `max_lines`).
     pub lines: Vec<Line>,
+    /// The line being printed (no newline yet).
     pub cur: Vec<Seg>,
+    /// Alignment captured for `cur` when its first segment was printed.
     pub cur_align: Option<Align>,
     pub style: Style,
     pub default_fg: Rgb,
     pub default_bg: Rgb,
+    /// Colour of a hovered / selected button.
     pub focus_fg: Rgb,
     pub log_fg: Rgb,
+    /// ALIGNMENT setting for new lines.
     pub align: Align,
     pub font_size: f32,
     pub line_height: f32,
     /// console width in half-width characters (for DRAWLINE, alignment)
     pub width: usize,
+    /// Column width of PRINTC / PRINTLC.
     pub printc_len: usize,
+    /// Input generation: bumped at each input, to retire old buttons.
     pub gen: u64,
     pub max_lines: usize,
+    /// DRAWLINE unit (repeated across the width).
     pub drawline_str: String,
+    /// REDRAW setting (whether the frontend may draw between inputs).
     pub redraw: bool,
+    /// Something changed since the frontend last drew.
     pub dirty: bool,
+    /// SKIPDISP: output is discarded.
     pub skip_disp: bool,
     pub font_name: String,
+    /// WINDOW_TITLE
     pub title: String,
+    /// The last line is a REUSELASTLINE line.
     pub last_temp: bool,
     /// lowest line count since the frontend last looked (tail removals)
     pub low_water: usize,
@@ -107,6 +139,7 @@ impl Console {
         }
     }
 
+    /// Remove a pending REUSELASTLINE line before new output replaces it.
     fn drop_temp(&mut self) {
         if self.last_temp {
             self.last_temp = false;
@@ -117,6 +150,7 @@ impl Console {
         }
     }
 
+    /// Print text with `[N]` auto-buttons enabled.
     pub fn print(&mut self, text: &str) {
         self.print_ex(text, true);
     }
@@ -154,6 +188,7 @@ impl Console {
         self.dirty = true;
     }
 
+    /// PRINTBUTTON: text that inputs `value` when clicked.
     pub fn print_button(&mut self, text: &str, value: Value) {
         if self.skip_disp {
             return;
@@ -162,6 +197,7 @@ impl Console {
         self.push_text(text, Some(value), false);
     }
 
+    /// Append a non-text segment (image, space, rectangle).
     pub fn push_seg(&mut self, seg: Seg) {
         if self.skip_disp {
             return;
@@ -174,10 +210,8 @@ impl Console {
         self.dirty = true;
     }
 
-    pub fn current_style(&self) -> Style {
-        self.style.clone()
-    }
-
+    /// End the current line: resolve auto-buttons, move it to `lines`,
+    /// trim the scrollback.
     pub fn newline(&mut self) {
         if self.skip_disp {
             return;
@@ -215,6 +249,7 @@ impl Console {
         self.cur.is_empty()
     }
 
+    /// CLEARLINE n: drop the last `n` finished lines.
     pub fn clear_lines(&mut self, n: usize) {
         let n = n.min(self.lines.len());
         let len = self.lines.len();
@@ -227,17 +262,7 @@ impl Console {
         self.lines.len()
     }
 
-    /// Current line's text width in half-width units.
-    pub fn cur_width(&self) -> usize {
-        self.cur
-            .iter()
-            .map(|s| match s {
-                Seg::Text { text, .. } => sjis_len(text),
-                Seg::Space { w } | Seg::Image { w, .. } | Seg::Rect { w, .. } => (*w / (self.font_size / 2.0)).ceil() as usize,
-            })
-            .sum()
-    }
-
+    /// DRAWLINE: a full-width rule on a line of its own.
     pub fn drawline(&mut self) {
         let unit = if self.drawline_str.is_empty() { "-".to_string() } else { self.drawline_str.clone() };
         let s = repeat_to_width(&unit, self.width);
@@ -248,6 +273,7 @@ impl Console {
         self.newline();
     }
 
+    /// CUSTOMDRAWLINE / DRAWLINEFORM: a rule made of `unit`.
     pub fn custom_drawline(&mut self, unit: &str) {
         let s = repeat_to_width(if unit.is_empty() { "-" } else { unit }, self.width);
         if !self.cur.is_empty() {
@@ -258,6 +284,7 @@ impl Console {
     }
 
     /// Called when the program asks for input: older buttons become inactive.
+    /// Start a new input generation (older buttons stop being clickable).
     pub fn next_gen(&mut self) {
         self.gen += 1;
     }
@@ -281,6 +308,7 @@ impl Console {
     }
 }
 
+/// `unit` repeated as many times as fits in `width` half-width cells.
 pub fn repeat_to_width(unit: &str, width: usize) -> String {
     let uw = sjis_len(unit).max(1);
     let mut s = String::new();
@@ -338,12 +366,14 @@ fn auto_buttons(segs: Vec<Seg>) -> Vec<Seg> {
     out
 }
 
+/// Length of the `[N]` marker at the start of `s`, and N.
 fn marker_len(s: &str) -> (usize, i64) {
     let end = s.find(']').map(|i| i + 1).unwrap_or(s.len());
     let v = s[1..end - 1].trim().parse().unwrap_or(0);
     (end, v)
 }
 
+/// First `[N]` (an integer in brackets) in `s`: (byte offset, N).
 fn find_button_marker(s: &str) -> Option<(usize, i64)> {
     let mut from = 0;
     while let Some(i) = s[from..].find('[') {
