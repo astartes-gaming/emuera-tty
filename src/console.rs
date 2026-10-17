@@ -63,6 +63,10 @@ pub struct Line {
     pub gen: u64,
     /// REUSELASTLINE line: replaced by whatever is printed next
     pub temporary: bool,
+    /// Screen width (cells) when the line was printed. Like Emuera, a line
+    /// is wrapped at this width for good, so resizing the window later
+    /// clips it instead of re-wrapping (which would break up ASCII maps).
+    pub cols: usize,
 }
 
 pub struct Console {
@@ -220,7 +224,7 @@ impl Console {
         let segs = std::mem::take(&mut self.cur);
         let segs = auto_buttons(segs);
         let align = self.cur_align.take().unwrap_or(self.align);
-        self.lines.push(Line { segs, align, gen: self.gen, temporary: false });
+        self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1 });
         if self.lines.len() > self.max_lines {
             let n = self.lines.len() - self.max_lines;
             self.lines.drain(0..n);
@@ -240,6 +244,7 @@ impl Console {
             align: self.align,
             gen: self.gen,
             temporary: true,
+            cols: self.width + 1,
         });
         self.last_temp = true;
         self.dirty = true;

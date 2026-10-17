@@ -428,11 +428,12 @@ impl Tty {
     }
 
     // ------------------------------------------------------------ layout
-    /// Wrap one console line into screen rows at the terminal width and
-    /// apply its alignment. Buttons get ids (indices into `self.buttons`)
-    /// only if the line belongs to the current input generation.
+    /// Wrap one console line into screen rows at the width it was printed
+    /// with (`Line::cols`) and apply its alignment. Rows wider than the
+    /// current screen are clipped by `render`. Buttons get ids (indices into
+    /// `self.buttons`) only if the line belongs to the current input generation.
     fn layout_line(&mut self, line: &Line, cur_gen: u64, scale: f32) -> Vec<DRow> {
-        let width = self.cols.max(1);
+        let width = if line.cols > 0 { line.cols } else { self.cols.max(1) };
         let mut rows = vec![DRow::default()];
         let cw = self.cell.0.max(1) as f32;
         let mut col = 0usize;
@@ -511,13 +512,14 @@ impl Tty {
                 }
             }
         }
-        // alignment
+        // alignment, within the screen as it is now
         if line.align != Align::Left {
+            let screen = self.cols.max(1);
             for r in rows.iter_mut() {
                 let used: usize = r.cells.iter().map(|c| c.w as usize).sum();
                 let pad = match line.align {
-                    Align::Center => (width.saturating_sub(used)) / 2,
-                    _ => width.saturating_sub(used),
+                    Align::Center => (screen.saturating_sub(used)) / 2,
+                    _ => screen.saturating_sub(used),
                 };
                 if pad > 0 {
                     let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
@@ -596,7 +598,7 @@ impl Tty {
         let cur_line = if con.cur.is_empty() {
             None
         } else {
-            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false })
+            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols })
         };
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
         let mut count = 0;
@@ -640,6 +642,10 @@ impl Tty {
             let mut last_style: Option<(Style, Option<Rgb>)> = None;
             let mut btn_start: Option<(usize, usize)> = None;
             for cell in &row.cells {
+                // clip rows printed when the screen was wider
+                if col + cell.w as usize > cols {
+                    break;
+                }
                 if let Some((s, b)) = btn_start {
                     if cell.button != Some(b) {
                         self.btn_map[sr].push((s, col, b));
@@ -676,8 +682,8 @@ impl Tty {
                 self.btn_map[sr].push((s, col, b));
             }
             out.extend_from_slice(b"\x1b[0m\x1b[K");
-            // images on this row
-            for im in &row.imgs {
+            // images on this row (skipping any that start past the edge)
+            for im in row.imgs.iter().filter(|im| im.col < cols) {
                 let pw = (im.w * scale).round().max(1.0) as u32;
                 let ph = (im.h * scale).round().max(1.0) as u32;
                 let yoff = (im.ypos * scale).round() as i32;
