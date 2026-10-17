@@ -145,7 +145,7 @@ fn char_cells(ch: char, ambi_wide: bool) -> (usize, usize, char) {
         '━' | '┏' | '┗' | '┣' | '┳' | '┻' | '╋' | '┯' | '┷' | '┿' | '┝' | '┍' | '┕' => '━',
         '─' | '┌' | '└' | '├' | '┬' | '┴' | '┼' | '┠' | '┰' | '┸' | '╂' | '┎' | '┖' => '─',
         '═' | '╔' | '╚' | '╠' | '╦' | '╩' | '╬' => '═',
-        '┄' | '┅' | '┈' | '┉' | '╌' | '╍' | '■' | '█' | '▓' | '▒' | '░' => ch,
+        '┄' | '┅' | '┈' | '┉' | '╌' | '╍' | '■' | '█' | '▓' | '▒' | '░' | '―' | '‐' | '〓' => ch,
         _ => ' ',
     };
     (tw, emuera.saturating_sub(tw), fill)
@@ -995,6 +995,7 @@ mod tests {
         assert_eq!(char_cells('┃', false), (1, 1, ' ')); // no rightward stroke
         assert_eq!(char_cells('■', false), (1, 1, '■'));
         assert_eq!(char_cells('※', false), (1, 1, ' '));
+        assert_eq!(char_cells('―', false), (1, 1, '―')); // horizontal bar continues
         assert_eq!(char_cells('ｱ', false), (1, 0, ' ')); // half-width kana: 1 in Emuera too
     }
 
