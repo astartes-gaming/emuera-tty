@@ -13,6 +13,7 @@ use image::RgbaImage;
 use std::rc::Rc;
 
 /// An image to show on screen, already scaled to its pixel size.
+#[derive(Clone)]
 pub struct Placement {
     pub key: String,
     pub img: Rc<RgbaImage>,

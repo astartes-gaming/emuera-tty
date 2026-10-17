@@ -114,6 +114,13 @@ pub struct Tty {
     /// a setup problem the user should see (e.g. no console mouse)
     notice: Option<String>,
     fb_cell_fixed: bool,
+    /// the last frame, for moving the console pointer without a full
+    /// redraw (which makes images flicker): per screen row (col, cell,
+    /// hover colour), the images, the pointer cell and the input cursor
+    frame: Vec<Vec<(usize, Cell, Option<Rgb>)>>,
+    frame_imgs: Vec<Placement>,
+    drawn_pointer: Option<(usize, usize)>,
+    frame_cursor: Option<(usize, usize)>,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -251,6 +258,10 @@ impl Tty {
             hangup: false,
             notice: None,
             fb_cell_fixed: false,
+            frame: Vec::new(),
+            frame_imgs: Vec::new(),
+            drawn_pointer: None,
+            frame_cursor: None,
         };
         if xp > 0 && yp > 0 {
             t.cell = (xp / cols as u32, yp / rows as u32);
@@ -825,6 +836,7 @@ impl Tty {
         let hover = self.mouse.and_then(|(x, y)| self.button_at(x, y));
         self.hover = hover;
         self.btn_map = vec![Vec::new(); self.rows];
+        self.frame = vec![Vec::new(); self.rows];
         let mut placements = Vec::new();
         // the console mouse (gpm or the raw device) has no pointer of its
         // own on screen: draw one
@@ -860,6 +872,7 @@ impl Tty {
                     self.sgr(&mut out, &cell.style, ov);
                     last_style = Some(key);
                 }
+                self.frame[sr].push((col, cell.clone(), ov));
                 let mut tmp = [0u8; 4];
                 let at_pointer = pointer.is_some_and(|(px, py)| py == sr && px >= col && px < col + cell.w.max(1) as usize);
                 if at_pointer {
@@ -939,17 +952,106 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
         }
         self.gfx.draw(&mut out, &placements, self.cell);
+        self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
+        self.frame_cursor = None;
         // cursor at end of input
         if req.map(|r| r.kind != InputKind::Wait).unwrap_or(false) {
             let w: usize = self.buf.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
             let _ = write!(out, "\x1b[{};{}H\x1b[?25h", self.rows, 3 + w);
+            self.frame_cursor = Some((self.rows, 3 + w));
         }
         write_all(&out);
         unsafe {
             libc::tcdrain(1);
         }
         self.gfx.after_flush(&placements, self.cell);
+        self.frame_imgs = placements;
         con.dirty = false;
+    }
+
+    /// After a mouse move, repaint only what changed from the last frame:
+    /// the old and new console pointer cells and the cells of the button
+    /// that lost or gained the hover highlight (re-blitting framebuffer
+    /// images under them). A full redraw makes the images flicker.
+    fn repaint_hover(&mut self, focus: Rgb) {
+        let new_ptr = if self.mice.is_some() { self.mouse.filter(|p| p.1 < self.rows.saturating_sub(1)) } else { None };
+        let new_hover = self.mouse.and_then(|(x, y)| self.button_at(x, y));
+        let old_hover = self.hover;
+        if new_ptr == self.drawn_pointer && new_hover == old_hover {
+            return;
+        }
+        let hits = |pos: Option<(usize, usize)>, r: usize, c: usize, w: usize| pos.is_some_and(|(px, py)| py == r && px >= c && px < c + w);
+        let mut out: Vec<u8> = Vec::with_capacity(1024);
+        out.extend_from_slice(b"\x1b[?25l");
+        let mut touched = Vec::new();
+        let mut covered = [false, false];
+        for r in 0..self.frame.len() {
+            for i in 0..self.frame[r].len() {
+                let (c, ref cell, _) = self.frame[r][i];
+                let w = cell.w.max(1) as usize;
+                let on_old = hits(self.drawn_pointer, r, c, w);
+                let on_new = hits(new_ptr, r, c, w);
+                covered[0] |= on_old;
+                covered[1] |= on_new;
+                let btn_changed = new_hover != old_hover && cell.button.is_some() && (cell.button == old_hover || cell.button == new_hover);
+                if !(on_old || on_new || btn_changed) {
+                    continue;
+                }
+                let ov = match (cell.button, new_hover) {
+                    (Some(b), Some(h)) if b == h => Some(focus),
+                    _ => None,
+                };
+                let _ = write!(out, "\x1b[{};{}H\x1b[0m", r + 1, c + 1);
+                self.sgr(&mut out, &cell.style, ov);
+                if on_new {
+                    out.extend_from_slice(b"\x1b[7m");
+                }
+                let mut tmp = [0u8; 4];
+                if self.ambi == Ambi::Osc66 && cell.w == 2 && UnicodeWidthChar::width(cell.ch) == Some(1) {
+                    let _ = write!(out, "\x1b]66;w=2;{}\x1b\\", cell.ch);
+                } else {
+                    out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
+                }
+                out.extend_from_slice(b"\x1b[0m");
+                touched.push((c, r, w));
+                self.frame[r][i].2 = ov;
+            }
+        }
+        // pointer over blank space past the end of a row
+        for (k, (pos, inverse)) in [(self.drawn_pointer, false), (new_ptr, true)].into_iter().enumerate() {
+            if let (Some((px, py)), false) = (pos, covered[k]) {
+                let _ = write!(out, "\x1b[{};{}H\x1b[0m{}", py + 1, px + 1, if inverse { "\x1b[7m \x1b[0m" } else { " " });
+                touched.push((px, py, 1));
+            }
+        }
+        if let Some((r, c)) = self.frame_cursor {
+            let _ = write!(out, "\x1b[{};{}H\x1b[?25h", r, c);
+        }
+        write_all(&out);
+        unsafe {
+            libc::tcdrain(1);
+        }
+        self.drawn_pointer = new_ptr;
+        self.hover = new_hover;
+        // images the repainted cells cut into (only the framebuffer draws
+        // over text: terminal images sit above it)
+        let (cw, ch) = (self.cell.0.max(1) as i32, self.cell.1.max(1) as i32);
+        let hit: Vec<Placement> = self
+            .frame_imgs
+            .iter()
+            .filter(|p| {
+                let (x0, y0) = (p.col * cw, p.row * ch + p.y_off);
+                let (x1, y1) = (x0 + p.img.width() as i32, y0 + p.crop_h as i32);
+                touched.iter().any(|&(c, r, w)| {
+                    let (cx0, cy0) = (c as i32 * cw, r as i32 * ch);
+                    cx0 < x1 && cx0 + w as i32 * cw > x0 && cy0 < y1 && cy0 + ch > y0
+                })
+            })
+            .cloned()
+            .collect();
+        if !hit.is_empty() {
+            self.gfx.after_flush(&hit, self.cell);
+        }
     }
 
     /// The button id at a 0-based screen cell, from the last frame.
@@ -959,29 +1061,77 @@ impl Tty {
     }
 }
 
-/// Nearest colour in the xterm 6×6×6 cube.
+/// Nearest xterm-256 colour: the 6×6×6 cube or, for greys, the 24-step
+/// grey ramp (the cube has only black below 95, so dark map tiles and
+/// shading would all turn black).
 fn rgb256(c: Rgb) -> u8 {
     let q = |v: u8| -> u8 { if v < 48 { 0 } else if v < 115 { 1 } else { (v - 35) / 40 } };
-    16 + 36 * q(c.0) + 6 * q(c.1) + q(c.2)
+    let lv = |k: u8| -> i32 { if k == 0 { 0 } else { 55 + 40 * k as i32 } };
+    let (r, g, b) = (c.0 as i32, c.1 as i32, c.2 as i32);
+    let cube = (q(c.0), q(c.1), q(c.2));
+    let d_cube = (lv(cube.0) - r).pow(2) + (lv(cube.1) - g).pow(2) + (lv(cube.2) - b).pow(2);
+    // grey ramp 232..=255 is 8, 18, ..., 238
+    let avg = (r + g + b) / 3;
+    let gi = ((avg - 3) / 10).clamp(0, 23);
+    let gv = 8 + 10 * gi;
+    let d_grey = (gv - r).pow(2) + (gv - g).pow(2) + (gv - b).pow(2);
+    if d_grey < d_cube && avg >= 4 {
+        232 + gi as u8
+    } else {
+        16 + 36 * cube.0 + 6 * cube.1 + cube.2
+    }
 }
 
-/// Nearest of the 8 ANSI colours, and whether it should be the bright one.
+/// One of the 8 ANSI colours for an RGB colour, and whether it should be
+/// the bright one. Hues are kept even when dark (Emuera games draw dim
+/// teal walls or brown floors on black, which nearest-distance would turn
+/// into black); greys step through black, dark grey, light grey, white.
 fn rgb16(c: Rgb) -> (u8, bool) {
     let (r, g, b) = (c.0 as u32, c.1 as u32, c.2 as u32);
     let max = r.max(g).max(b);
-    if max < 60 {
+    let min = r.min(g).min(b);
+    if max < 24 {
         return (0, false);
     }
-    let t = max / 2;
+    // greyish: little colour compared with the brightness
+    if (max - min) * 4 < max {
+        return match max {
+            0..=39 => (0, false),
+            40..=127 => (0, true),
+            128..=210 => (7, false),
+            _ => (7, true),
+        };
+    }
+    // which channels stand out within the colour's own range
+    let t = min + (max - min) / 3;
     let code = ((r > t) as u8) | ((g > t) as u8) << 1 | ((b > t) as u8) << 2;
-    let bright = max > 200;
-    if code == 7 && max <= 200 {
-        return (7, false);
+    (code, max > 200)
+}
+
+#[cfg(test)]
+mod colour_tests {
+    use super::*;
+
+    #[test]
+    fn dark_tints_stay_visible() {
+        // dim teal / brown map tiles keep their hue
+        assert_eq!(rgb16(Rgb(0x01, 0x3d, 0x3d)), (6, false));
+        assert_eq!(rgb16(Rgb(0x47, 0x29, 0x1f)), (1, false));
+        assert_eq!(rgb16(Rgb(0xc9, 0xa1, 0x79)), (3, true));
+        assert_eq!(rgb16(Rgb(0xff, 0x66, 0xcc)), (5, true));
+        assert_eq!(rgb16(Rgb(0x50, 0xa0, 0xf0)), (6, true));
+        // the grey vignette fades out through dark grey to black
+        assert_eq!(rgb16(Rgb(0x79, 0x79, 0x79)), (0, true));
+        assert_eq!(rgb16(Rgb(0x29, 0x29, 0x29)), (0, true));
+        assert_eq!(rgb16(Rgb(0x0b, 0x0b, 0x0b)), (0, false));
+        assert_eq!(rgb16(Rgb(0xc0, 0xc0, 0xc0)), (7, false));
+        assert_eq!(rgb16(Rgb(0xff, 0xff, 0xff)), (7, true));
+        assert_eq!(rgb16(Rgb(0xff, 0xff, 0x00)), (3, true));
+        // 256 colours: dark greys use the grey ramp, not cube black
+        assert_eq!(rgb256(Rgb(0x15, 0x15, 0x15)), 233);
+        assert_eq!(rgb256(Rgb(0xff, 0x00, 0x00)), 196);
+        assert_eq!(rgb256(Rgb(0, 0, 0)), 16);
     }
-    if code == 7 && max > 200 {
-        return (7, true);
-    }
-    (code, bright)
 }
 
 impl Frontend for Tty {
@@ -1003,13 +1153,20 @@ impl Frontend for Tty {
         // a redraw owed for input already handled: done once the burst of
         // input (mouse motion, a held key) has been read, not per event
         let mut owed = false;
+        // only the console pointer moved: repaint just its cells
+        let mut pointer_owed = false;
         loop {
             if self.hangup {
                 return InputResult::Quit;
             }
-            if owed && self.queued.is_empty() && self.pending.is_empty() && !self.input_waiting() {
-                self.render(con, res, Some(req));
+            if (owed || pointer_owed) && self.queued.is_empty() && self.pending.is_empty() && !self.input_waiting() {
+                if owed {
+                    self.render(con, res, Some(req));
+                } else {
+                    self.repaint_hover(con.focus_fg);
+                }
                 owed = false;
+                pointer_owed = false;
             }
             let wait = match deadline {
                 Some(d) => {
@@ -1067,9 +1224,8 @@ impl Frontend for Tty {
                             self.mouse = Some((x, y));
                             // the console pointer is drawn by us: move it, but
                             // only once a burst of motion has been read
-                            let more = self.queued.iter().any(|k| matches!(k, Key::Mouse { .. }));
-                            if (self.mice.is_some() && !more) || self.button_at(x, y) != self.hover {
-                                redraw = true;
+                            if self.mice.is_some() || self.button_at(x, y) != self.hover {
+                                pointer_owed = true;
                             }
                         }
                         0 if press => {
