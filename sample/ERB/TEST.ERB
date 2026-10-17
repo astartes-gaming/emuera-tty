@@ -1,8 +1,8 @@
 ;=== language self test: prints OK/NG lines ===
 @SELFTEST
-#DIM LOCALCOUNT
 #DIMS LOCALSTR, 3
 LOCAL:1 = 0
+CHECKCOUNT = 0
 ;--- arithmetic & precedence
 CALL CHECK, "arith", 1 + 2 * 3 == 7 && (1 + 2) * 3 == 9 && 7 / 2 == 3 && 7 % 3 == 1 && -3 + 5 == 2
 CALL CHECK, "bits", (5 & 3) == 1 && (5 | 3) == 7 && (5 ^ 3) == 6 && (1 << 4) == 16 && GETBIT(5, 2) == 1
@@ -133,10 +133,11 @@ ENDDATA
 LOCAL = 5
 LOCAL:1 = LOCAL++ + ++LOCAL
 CALL CHECK, "incdec", LOCAL == 7 && LOCAL:1 == 12
-PRINTFORML selftest: {LOCALCOUNT} checks done
+PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 
 @CHECK, ARGS, ARG
+CHECKCOUNT += 1
 SIF ARG
 	PRINTFORML OK  %ARGS%
 SIF !ARG
@@ -144,6 +145,7 @@ SIF !ARG
 RETURN 0
 
 @CHECKS, ARGS, ARGS:1, ARGS:2
+CHECKCOUNT += 1
 IF ARGS:1 == ARGS:2
 	PRINTFORML OK  %ARGS%
 ELSE

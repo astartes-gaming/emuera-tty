@@ -19,6 +19,10 @@ fn sample_selftest_passes() {
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("OK  arith"), "{}", text);
     assert!(!text.contains("NG "), "{}", text);
+    // every CHECK/CHECKS call must have run and printed OK
+    let oks = text.lines().filter(|l| l.starts_with("OK  ")).count();
+    assert!(text.contains(&format!("selftest: {} checks done", oks)), "{}", text);
+    assert!(oks >= 44, "only {} checks ran\n{}", oks, text);
     assert!(text.contains("1日目"), "{}", text);
     assert!(!text.contains("script error"), "{}", text);
 }
