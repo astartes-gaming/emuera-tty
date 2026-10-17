@@ -37,6 +37,9 @@ pub trait Backend {
     fn draw(&mut self, _out: &mut Vec<u8>, _p: &[Placement], _cell: (u32, u32)) {}
     /// Called after the frame has been written and drained to the tty.
     fn after_flush(&mut self, _p: &[Placement], _cell: (u32, u32)) {}
+    /// The screen was cleared or may be out of step (Ctrl-L): place
+    /// everything again on the next frame.
+    fn reset(&mut self, _out: &mut Vec<u8>) {}
     /// Leaving: clean up anything on screen.
     fn shutdown(&mut self, _out: &mut Vec<u8>) {}
 }

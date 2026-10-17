@@ -1143,6 +1143,9 @@ impl Tty {
             let tag = format!(" [scroll -{}] ", self.scroll);
             let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
         }
+        if self.force_frame {
+            self.gfx.reset(&mut out);
+        }
         self.gfx.draw(&mut out, &placements, self.cell);
         self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
         self.frame_cursor = None;
