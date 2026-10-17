@@ -87,6 +87,9 @@ pub fn table_for_var(var: &str) -> Option<&'static str> {
         "CSTR" | "CSTRNAME" => "CSTR",
         "STAIN" | "STAINNAME" => "STAIN",
         "MONEY" | "MONEYNAME" => "MONEY",
+        // EMEE: DAY.csv / TIME.csv name DAY and TIME like other variables
+        "DAY" | "DAYNAME" => "DAY",
+        "TIME" | "TIMENAME" => "TIME",
         "STR" | "STRNAME" => "STRNAME",
         "TSTR" | "TSTRNAME" => "TSTR",
         "SAVESTR" | "SAVESTRNAME" => "SAVESTR",
@@ -116,6 +119,8 @@ const TABLE_FILES: &[(&str, &str)] = &[
     ("CSTR.CSV", "CSTR"),
     ("STAIN.CSV", "STAIN"),
     ("MONEY.CSV", "MONEY"),
+    ("DAY.CSV", "DAY"),
+    ("TIME.CSV", "TIME"),
     ("CDFLAG1.CSV", "CDFLAG1"),
     ("CDFLAG2.CSV", "CDFLAG2"),
     ("STRNAME.CSV", "STRNAME"),

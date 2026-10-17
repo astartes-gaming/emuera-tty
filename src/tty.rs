@@ -59,6 +59,57 @@ struct ImgAt {
 struct DRow {
     cells: Vec<Cell>,
     imgs: Vec<ImgAt>,
+    /// `<div>` content anchored on this row, painted over the rows at its
+    /// offset once the screen is laid out
+    divs: Vec<DivAt>,
+}
+
+/// A laid-out `<div>`: its rows, drawn from column `col`, `dy` rows below
+/// (negative: above) the row it is anchored on.
+struct DivAt {
+    col: usize,
+    dy: i32,
+    rows: Vec<DRow>,
+}
+
+/// Paint `cells` over `row` from screen column `col`: covered cells (and
+/// wide characters cut in half) give way, the row is padded if short.
+fn paint_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
+    if cells.is_empty() {
+        return;
+    }
+    let width: usize = cells.iter().map(|c| c.w.max(1) as usize).sum();
+    let end = col + width;
+    let blank = |st: &Style| Cell { ch: ' ', w: 1, style: st.clone(), button: None };
+    let plain = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    let mut c = 0usize;
+    for cell in std::mem::take(&mut row.cells) {
+        let w = cell.w.max(1) as usize;
+        if c + w <= col {
+            before.push(cell);
+        } else if c >= end {
+            after.push(cell);
+        } else {
+            // partly covered: keep the uncovered columns blank
+            for k in c..c + w {
+                if k < col {
+                    before.push(blank(&cell.style));
+                } else if k >= end {
+                    after.push(blank(&cell.style));
+                }
+            }
+        }
+        c += w;
+    }
+    while c < col {
+        before.push(blank(&plain));
+        c += 1;
+    }
+    before.extend(cells);
+    before.extend(after);
+    row.cells = before;
 }
 
 /// A decoded input event. Mouse `btn` uses xterm codes: 0/1/2 buttons,
@@ -631,6 +682,13 @@ impl Tty {
     /// current screen are clipped by `render`. Buttons get ids (indices into
     /// `self.buttons`) only if the line belongs to the current input generation.
     fn layout_line(&mut self, line: &Line, cur_gen: u64, scale: f32) -> Vec<DRow> {
+        let screen = self.cols.max(1);
+        self.layout_line_in(line, cur_gen, scale, screen)
+    }
+
+    /// Lay out a line; `align_w` is the width center / right alignment
+    /// works in (the screen, or a `<div>`).
+    fn layout_line_in(&mut self, line: &Line, cur_gen: u64, scale: f32, align_w: usize) -> Vec<DRow> {
         let width = if line.cols > 0 { line.cols } else { self.cols.max(1) };
         let mut rows = vec![DRow::default()];
         let cw = self.cell.0.max(1) as f32;
@@ -712,11 +770,22 @@ impl Tty {
                     }
                     col += cells.min(width);
                 }
+                Seg::Div { dx, dy, cols, rows: max_rows, lines, .. } => {
+                    let mut inner = Vec::new();
+                    for l in lines {
+                        inner.extend(self.layout_line_in(l, cur_gen, scale, *cols));
+                    }
+                    if let Some(m) = max_rows {
+                        inner.truncate(*m);
+                    }
+                    let at = (col as i64 + *dx as i64).max(0) as usize;
+                    rows.last_mut().unwrap().divs.push(DivAt { col: at, dy: *dy, rows: inner });
+                }
             }
         }
-        // alignment, within the screen as it is now
+        // alignment, within the screen (or div) as it is now
         if line.align != Align::Left {
-            let screen = self.cols.max(1);
+            let screen = align_w.max(1);
             for r in rows.iter_mut() {
                 let used: usize = r.cells.iter().map(|c| c.w as usize).sum();
                 let pad = match line.align {
@@ -730,6 +799,9 @@ impl Tty {
                     r.cells = nc;
                     for im in r.imgs.iter_mut() {
                         im.col += pad;
+                    }
+                    for d in r.divs.iter_mut() {
+                        d.col += pad;
                     }
                 }
             }
@@ -820,6 +892,27 @@ impl Tty {
         }
         for c in chunks.into_iter().rev() {
             all.extend(c);
+        }
+        // <div> content: painted over the rows it reaches (Emuera draws a
+        // div on top of whatever lines are there)
+        for idx in 0..all.len() {
+            if all[idx].divs.is_empty() {
+                continue;
+            }
+            for d in std::mem::take(&mut all[idx].divs) {
+                for (k, r) in d.rows.into_iter().enumerate() {
+                    let t = idx as i64 + d.dy as i64 + k as i64;
+                    if t < 0 || t as usize >= all.len() {
+                        continue;
+                    }
+                    let t = t as usize;
+                    for mut im in r.imgs {
+                        im.col += d.col;
+                        all[t].imgs.push(im);
+                    }
+                    paint_cells(&mut all[t], d.col, r.cells);
+                }
+            }
         }
         let max_scroll = all.len().saturating_sub(view_h);
         if self.scroll > max_scroll {
@@ -1111,6 +1204,30 @@ fn rgb16(c: Rgb) -> (u8, bool) {
 #[cfg(test)]
 mod colour_tests {
     use super::*;
+
+    fn row(text: &str) -> DRow {
+        let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
+        DRow { cells: text.chars().map(|ch| Cell { ch, w: if ch.is_ascii() { 1 } else { 2 }, style: st.clone(), button: None }).collect(), ..Default::default() }
+    }
+
+    fn text(r: &DRow) -> String {
+        r.cells.iter().map(|c| c.ch).collect()
+    }
+
+    #[test]
+    fn div_cells_paint_over_rows() {
+        let mut r = row("abcdef");
+        paint_cells(&mut r, 2, row("XY").cells);
+        assert_eq!(text(&r), "abXYef");
+        // past the end: padded
+        let mut r = row("ab");
+        paint_cells(&mut r, 4, row("Z").cells);
+        assert_eq!(text(&r), "ab  Z");
+        // a wide character cut in half leaves a blank
+        let mut r = row("a漢b");
+        paint_cells(&mut r, 2, row("Q").cells);
+        assert_eq!(text(&r), "a Qb");
+    }
 
     #[test]
     fn dark_tints_stay_visible() {

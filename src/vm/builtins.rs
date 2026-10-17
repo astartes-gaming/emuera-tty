@@ -3173,7 +3173,7 @@ impl Vm {
                 for seg in &segs {
                     let btn = match seg {
                         Seg::Text { button, .. } | Seg::Image { button, .. } | Seg::Rect { button, .. } => button.clone(),
-                        Seg::Space { .. } => None,
+                        Seg::Space { .. } | Seg::Div { .. } => None,
                     };
                     if btn != open {
                         if open.is_some() {
@@ -3208,6 +3208,7 @@ impl Vm {
                         Seg::Image { name, .. } => out.push_str(&format!("<img src='{}'>", crate::xml::escape(name))),
                         Seg::Space { w } => out.push_str(&format!("<space value='{}'>", (*w).round() as i64)),
                         Seg::Rect { .. } => {}
+                        Seg::Div { html, .. } => out.push_str(html),
                     }
                 }
                 if open.is_some() {

@@ -143,6 +143,8 @@ impl Vm {
         let saved_align = self.con.align;
         let mut style_stack: Vec<Style> = Vec::new();
         let mut button: Option<Value> = None;
+        // inside <clearbutton>: buttons are shown but not clickable
+        let mut clear = false;
         let fs = self.con.font_size;
         let mut rest = src;
         let mut first_text = true;
@@ -219,12 +221,25 @@ impl Vm {
                             });
                         }
                         ("button", true) | ("nonbutton", _) => button = None,
+                        ("clearbutton", c) => clear = !c,
+                        ("div", false) => {
+                            // the content up to </div> (divs don't nest)
+                            let lower = rest.to_ascii_lowercase();
+                            let end = lower.find("</div").unwrap_or(rest.len());
+                            let inner = rest[..end].to_string();
+                            rest = match rest[end..].find('>') {
+                                Some(j) => &rest[end + j + 1..],
+                                None => "",
+                            };
+                            self.html_div(&attrs, tag, &inner);
+                            first_text = false;
+                        }
                         ("img", _) => {
                             let src = attrs.get("src").cloned().unwrap_or_default();
                             let h = attrs.get("height").and_then(|v| mixed_num(v));
                             let w = attrs.get("width").and_then(|v| mixed_num(v));
                             let y = attrs.get("ypos").and_then(|v| mixed_num(v));
-                            self.print_img(&src, w, h, y, button.clone());
+                            self.print_img(&src, w, h, y, if clear { None } else { button.clone() });
                             first_text = false;
                         }
                         ("shape", _) => {
@@ -240,7 +255,7 @@ impl Vm {
                             } else if ty == "rect" {
                                 let (w, h) = if params.len() >= 4 { (params[2], params[3]) } else { (params.first().copied().unwrap_or(fs), fs) };
                                 let color = attrs.get("color").and_then(|c| color_from_str(c)).unwrap_or(self.con.style.fg);
-                                self.con.push_seg(Seg::Rect { w, h, color, button: button.clone() });
+                                self.con.push_seg(Seg::Rect { w, h, color, button: if clear { None } else { button.clone() } });
                             }
                             first_text = false;
                         }
@@ -253,13 +268,13 @@ impl Vm {
                 }
                 Some(i) => {
                     let text = decode_entities(&rest[..i]);
-                    self.html_text(&text, &button);
+                    self.html_lines(&text, if clear { &None } else { &button });
                     first_text = false;
                     rest = &rest[i..];
                 }
                 None => {
                     let text = decode_entities(rest);
-                    self.html_text(&text, &button);
+                    self.html_lines(&text, if clear { &None } else { &button });
                     rest = "";
                 }
             }
@@ -267,6 +282,65 @@ impl Vm {
         self.con.newline();
         self.con.style = saved_style;
         self.con.align = saved_align;
+    }
+
+    /// `<div>`: print `inner` as lines of its own, wrapped at the div's
+    /// width, and put them in a zero-width segment drawn at its offset.
+    fn html_div(&mut self, attrs: &HashMap<String, String>, tag: &str, inner: &str) {
+        let fs = self.con.font_size;
+        let px = |v: &str| mixed_num(v.trim()).map(|(v, is_px)| if is_px { v } else { fs * v / 100.0 });
+        let get = |k: &str| attrs.get(k).and_then(|v| px(v));
+        let (mut x, mut y, mut w, mut h) = (get("xpos").unwrap_or(0.0), get("ypos").unwrap_or(0.0), get("width"), get("height"));
+        if let Some(sz) = attrs.get("size") {
+            let v: Vec<Option<f32>> = sz.split(',').map(px).collect();
+            w = v.first().copied().flatten().or(w);
+            h = v.get(1).copied().flatten().or(h);
+        }
+        if let Some(r) = attrs.get("rect") {
+            let v: Vec<Option<f32>> = r.split(',').map(px).collect();
+            x = v.first().copied().flatten().unwrap_or(x);
+            y = v.get(1).copied().flatten().unwrap_or(y);
+            w = v.get(2).copied().flatten().or(w);
+            h = v.get(3).copied().flatten().or(h);
+        }
+        let cell_px = (fs / 2.0).max(1.0);
+        let w = w.unwrap_or(self.con.width as f32 * cell_px).max(cell_px);
+        // lay the content out as lines of its own
+        let saved_cur = std::mem::take(&mut self.con.cur);
+        let saved_cur_align = self.con.cur_align.take();
+        let saved_width = self.con.width;
+        let (n0, dropped0) = (self.con.lines.len(), self.con.dropped_front);
+        self.con.width = ((w / cell_px).floor() as usize).saturating_sub(1).max(1);
+        self.html_print(inner);
+        let start = n0.saturating_sub(self.con.dropped_front - dropped0).min(self.con.lines.len());
+        let lines = self.con.lines.split_off(start);
+        self.con.low_water = self.con.low_water.min(start);
+        self.con.width = saved_width;
+        self.con.cur = saved_cur;
+        self.con.cur_align = saved_cur_align;
+        let html = format!("<{}>{}</div>", tag, inner);
+        let lh = self.con.line_height.max(1.0);
+        self.con.push_seg(Seg::Div {
+            dx: (x / cell_px).round() as i32,
+            dy: (y / lh).round() as i32,
+            cols: (w / cell_px).floor().max(1.0) as usize,
+            rows: h.map(|h| (h / lh).round().max(1.0) as usize),
+            lines,
+            html,
+        });
+    }
+
+    /// Text between tags; a newline in it breaks the line like `<br>`
+    /// (Emuera's HTML_PRINT does the same).
+    fn html_lines(&mut self, text: &str, button: &Option<Value>) {
+        let mut parts = text.split('\n');
+        if let Some(first) = parts.next() {
+            self.html_text(first.trim_end_matches('\r'), button);
+        }
+        for p in parts {
+            self.con.newline();
+            self.html_text(p.trim_end_matches('\r'), button);
+        }
     }
 
     /// Text between tags: a button segment inside `<button>`, else plain

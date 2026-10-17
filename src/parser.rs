@@ -57,7 +57,7 @@ pub fn is_system_str_var(n: &str) -> bool {
             | "ABLNAME" | "TALENTNAME" | "EXPNAME" | "MARKNAME" | "PALAMNAME" | "TRAINNAME" | "BASENAME"
             | "SOURCENAME" | "EXNAME" | "ITEMNAME" | "EQUIPNAME" | "TEQUIPNAME" | "FLAGNAME" | "TFLAGNAME"
             | "CFLAGNAME" | "TCVARNAME" | "CSTRNAME" | "STAINNAME" | "STRNAME" | "TSTRNAME" | "SAVESTRNAME"
-            | "GLOBALNAME" | "GLOBALSNAME" | "CDFLAGNAME1" | "CDFLAGNAME2" | "TSTRNAME_" | "STR_"
+            | "GLOBALNAME" | "GLOBALSNAME" | "DAYNAME" | "TIMENAME" | "MONEYNAME" | "CDFLAGNAME1" | "CDFLAGNAME2" | "TSTRNAME_" | "STR_"
     )
 }
 
@@ -280,7 +280,7 @@ impl<'a> Parser<'a> {
             // most lines are plain code: skip blanks / comments before
             // allocating anything (the `{ }` join and `[...]` checks below
             // still see every other line)
-            if trimmed.is_empty() || (trimmed.starts_with(';') && !trimmed.starts_with(";!;") && !trimmed.starts_with(";#;")) {
+            if trimmed.is_empty() || (trimmed.starts_with(';') && !trimmed.starts_with(";!;") && !trimmed.starts_with(";^;") && !trimmed.starts_with(";#;")) {
                 if join.is_none() {
                     continue;
                 }
@@ -292,7 +292,8 @@ impl<'a> Parser<'a> {
             if raw.len() != trimmed.len() && keeps_line_end(trimmed) {
                 line = raw.trim_start().to_string();
             }
-            if line.starts_with(";!;") {
+            // `;!;` and `;^;` (EMEE): comments elsewhere, code here
+            if line.starts_with(";!;") || line.starts_with(";^;") {
                 line = line[3..].trim().to_string();
             } else if line.starts_with(";#;") {
                 if !self.debug {

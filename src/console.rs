@@ -52,6 +52,12 @@ pub enum Seg {
         color: Rgb,
         button: Option<Value>,
     },
+    /// HTML_PRINT `<div>`: its own lines, wrapped at `cols` and drawn
+    /// `dx` cells right and `dy` rows down from where it sits (the same
+    /// cell and row sizes CLIENTWIDTH / CLIENTHEIGHT count in), at most
+    /// `rows` rows. Takes no width in the line. `html` is its source, for
+    /// HTML_GETPRINTEDSTR.
+    Div { dx: i32, dy: i32, cols: usize, rows: Option<usize>, lines: Vec<Line>, html: String },
 }
 
 /// A finished logical line.
@@ -326,15 +332,27 @@ impl Console {
             if l.gen != self.gen && l.gen != self.valid_gen {
                 break;
             }
-            for s in &l.segs {
-                if let Seg::Text { button: Some(v), .. } | Seg::Image { button: Some(v), .. } | Seg::Rect { button: Some(v), .. } = s {
+            Self::collect_buttons(&l.segs, &mut out);
+        }
+        out
+    }
+
+    fn collect_buttons(segs: &[Seg], out: &mut Vec<Value>) {
+        for s in segs {
+            match s {
+                Seg::Text { button: Some(v), .. } | Seg::Image { button: Some(v), .. } | Seg::Rect { button: Some(v), .. } => {
                     if !out.contains(v) {
                         out.push(v.clone());
                     }
                 }
+                Seg::Div { lines, .. } => {
+                    for l in lines {
+                        Self::collect_buttons(&l.segs, out);
+                    }
+                }
+                _ => {}
             }
         }
-        out
     }
 
     /// The script asks for a value (INPUT…, not WAIT) at `site`. Emuera's
@@ -371,6 +389,13 @@ impl Console {
                 Seg::Image { name, .. } => s.push_str(&format!("[img:{}]", name)),
                 Seg::Space { w } => s.push_str(&" ".repeat((*w / 9.0).round().max(0.0) as usize)),
                 Seg::Rect { .. } => s.push('■'),
+                Seg::Div { lines, .. } => {
+                    let inner: Vec<String> = lines.iter().map(Self::line_text).filter(|t| !t.trim().is_empty()).collect();
+                    if !s.is_empty() && !s.ends_with(' ') && !inner.is_empty() {
+                        s.push(' ');
+                    }
+                    s.push_str(&inner.join(" "));
+                }
             }
         }
         s
