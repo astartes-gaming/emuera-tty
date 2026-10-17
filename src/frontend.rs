@@ -33,6 +33,10 @@ pub trait Frontend {
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult;
     /// Console width in half-width columns.
     fn cols(&self) -> usize;
+    /// Console height in lines (CLIENTHEIGHT); headless has no real height.
+    fn rows(&self) -> usize {
+        40
+    }
     /// Override the width, for frontends with no real terminal size.
     fn set_cols(&mut self, _cols: usize) {}
     fn shutdown(&mut self) {}

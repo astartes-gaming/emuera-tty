@@ -726,7 +726,7 @@ impl Vm {
         Ok(out)
     }
 
-    fn call_expr(&mut self, name: &str, args: &[Expr]) -> VmResult<Value> {
+    pub(crate) fn call_expr(&mut self, name: &str, args: &[Expr]) -> VmResult<Value> {
         if let Some(fs) = self.prog.funcs.get(name) {
             let f = fs[0].clone();
             let (vals, refs) = self.call_args(&f, args)?;

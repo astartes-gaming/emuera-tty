@@ -50,7 +50,8 @@ pub const FUNCTIONS: &[&str] = &[
     "GCREATED", "GWIDTH", "GHEIGHT", "GETCHARA_", "__FORMS", "ARRAYMSORTEX", "GETMEMORYUSAGE", "CLEARMEMORY", "TRIM",
     "EXISTSOUND", "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH",
     "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE", "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE",
-    "MAP_GETKEYS", "MAP_TOXML",
+    "MAP_GETKEYS", "MAP_TOXML", "COLOR_FROMNAME", "COLOR_FROMRGB", "HTML_STRINGLEN", "GETMETH", "GETMETHS",
+    "GETDOINGFUNCTION", "CLIENTWIDTH", "CLIENTHEIGHT", "EXISTFILE", "SPRITEPOSX", "SPRITEPOSY", "GGETCOLOR", "GETTEXTBOX",
     "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES", "DT_COLUMN_EXIST",
     "DT_COLUMN_REMOVE", "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET",
     "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT",
@@ -136,68 +137,169 @@ fn substring_sjis(s: &str, start: i64, len: i64) -> String {
     out
 }
 
+/// .NET KnownColor / CSS named colours (what Color.FromName accepts).
+const NAMED_COLORS: &[(&str, i64)] = &[
+    ("aliceblue", 0xf0f8ff),
+    ("antiquewhite", 0xfaebd7),
+    ("aqua", 0x00ffff),
+    ("aquamarine", 0x7fffd4),
+    ("azure", 0xf0ffff),
+    ("beige", 0xf5f5dc),
+    ("bisque", 0xffe4c4),
+    ("black", 0x000000),
+    ("blanchedalmond", 0xffebcd),
+    ("blue", 0x0000ff),
+    ("blueviolet", 0x8a2be2),
+    ("brown", 0xa52a2a),
+    ("burlywood", 0xdeb887),
+    ("cadetblue", 0x5f9ea0),
+    ("chartreuse", 0x7fff00),
+    ("chocolate", 0xd2691e),
+    ("coral", 0xff7f50),
+    ("cornflowerblue", 0x6495ed),
+    ("cornsilk", 0xfff8dc),
+    ("crimson", 0xdc143c),
+    ("cyan", 0x00ffff),
+    ("darkblue", 0x00008b),
+    ("darkcyan", 0x008b8b),
+    ("darkgoldenrod", 0xb8860b),
+    ("darkgray", 0xa9a9a9),
+    ("darkgrey", 0xa9a9a9),
+    ("darkgreen", 0x006400),
+    ("darkkhaki", 0xbdb76b),
+    ("darkmagenta", 0x8b008b),
+    ("darkolivegreen", 0x556b2f),
+    ("darkorange", 0xff8c00),
+    ("darkorchid", 0x9932cc),
+    ("darkred", 0x8b0000),
+    ("darksalmon", 0xe9967a),
+    ("darkseagreen", 0x8fbc8f),
+    ("darkslateblue", 0x483d8b),
+    ("darkslategray", 0x2f4f4f),
+    ("darkslategrey", 0x2f4f4f),
+    ("darkturquoise", 0x00ced1),
+    ("darkviolet", 0x9400d3),
+    ("deeppink", 0xff1493),
+    ("deepskyblue", 0x00bfff),
+    ("dimgray", 0x696969),
+    ("dimgrey", 0x696969),
+    ("dodgerblue", 0x1e90ff),
+    ("firebrick", 0xb22222),
+    ("floralwhite", 0xfffaf0),
+    ("forestgreen", 0x228b22),
+    ("fuchsia", 0xff00ff),
+    ("gainsboro", 0xdcdcdc),
+    ("ghostwhite", 0xf8f8ff),
+    ("gold", 0xffd700),
+    ("goldenrod", 0xdaa520),
+    ("gray", 0x808080),
+    ("grey", 0x808080),
+    ("green", 0x008000),
+    ("greenyellow", 0xadff2f),
+    ("honeydew", 0xf0fff0),
+    ("hotpink", 0xff69b4),
+    ("indianred", 0xcd5c5c),
+    ("indigo", 0x4b0082),
+    ("ivory", 0xfffff0),
+    ("khaki", 0xf0e68c),
+    ("lavender", 0xe6e6fa),
+    ("lavenderblush", 0xfff0f5),
+    ("lawngreen", 0x7cfc00),
+    ("lemonchiffon", 0xfffacd),
+    ("lightblue", 0xadd8e6),
+    ("lightcoral", 0xf08080),
+    ("lightcyan", 0xe0ffff),
+    ("lightgoldenrodyellow", 0xfafad2),
+    ("lightgray", 0xd3d3d3),
+    ("lightgrey", 0xd3d3d3),
+    ("lightgreen", 0x90ee90),
+    ("lightpink", 0xffb6c1),
+    ("lightsalmon", 0xffa07a),
+    ("lightseagreen", 0x20b2aa),
+    ("lightskyblue", 0x87cefa),
+    ("lightslategray", 0x778899),
+    ("lightslategrey", 0x778899),
+    ("lightsteelblue", 0xb0c4de),
+    ("lightyellow", 0xffffe0),
+    ("lime", 0x00ff00),
+    ("limegreen", 0x32cd32),
+    ("linen", 0xfaf0e6),
+    ("magenta", 0xff00ff),
+    ("maroon", 0x800000),
+    ("mediumaquamarine", 0x66cdaa),
+    ("mediumblue", 0x0000cd),
+    ("mediumorchid", 0xba55d3),
+    ("mediumpurple", 0x9370db),
+    ("mediumseagreen", 0x3cb371),
+    ("mediumslateblue", 0x7b68ee),
+    ("mediumspringgreen", 0x00fa9a),
+    ("mediumturquoise", 0x48d1cc),
+    ("mediumvioletred", 0xc71585),
+    ("midnightblue", 0x191970),
+    ("mintcream", 0xf5fffa),
+    ("mistyrose", 0xffe4e1),
+    ("moccasin", 0xffe4b5),
+    ("navajowhite", 0xffdead),
+    ("navy", 0x000080),
+    ("oldlace", 0xfdf5e6),
+    ("olive", 0x808000),
+    ("olivedrab", 0x6b8e23),
+    ("orange", 0xffa500),
+    ("orangered", 0xff4500),
+    ("orchid", 0xda70d6),
+    ("palegoldenrod", 0xeee8aa),
+    ("palegreen", 0x98fb98),
+    ("paleturquoise", 0xafeeee),
+    ("palevioletred", 0xdb7093),
+    ("papayawhip", 0xffefd5),
+    ("peachpuff", 0xffdab9),
+    ("peru", 0xcd853f),
+    ("pink", 0xffc0cb),
+    ("plum", 0xdda0dd),
+    ("powderblue", 0xb0e0e6),
+    ("purple", 0x800080),
+    ("rebeccapurple", 0x663399),
+    ("red", 0xff0000),
+    ("rosybrown", 0xbc8f8f),
+    ("royalblue", 0x4169e1),
+    ("saddlebrown", 0x8b4513),
+    ("salmon", 0xfa8072),
+    ("sandybrown", 0xf4a460),
+    ("seagreen", 0x2e8b57),
+    ("seashell", 0xfff5ee),
+    ("sienna", 0xa0522d),
+    ("silver", 0xc0c0c0),
+    ("skyblue", 0x87ceeb),
+    ("slateblue", 0x6a5acd),
+    ("slategray", 0x708090),
+    ("slategrey", 0x708090),
+    ("snow", 0xfffafa),
+    ("springgreen", 0x00ff7f),
+    ("steelblue", 0x4682b4),
+    ("tan", 0xd2b48c),
+    ("teal", 0x008080),
+    ("thistle", 0xd8bfd8),
+    ("tomato", 0xff6347),
+    ("turquoise", 0x40e0d0),
+    ("violet", 0xee82ee),
+    ("wheat", 0xf5deb3),
+    ("white", 0xffffff),
+    ("whitesmoke", 0xf5f5f5),
+    ("yellow", 0xffff00),
+    ("yellowgreen", 0x9acd32),
+];
+
 fn parse_color_name(n: &str) -> Option<Rgb> {
     let n = n.trim().to_lowercase();
-    Some(match n.as_str() {
-        "black" => Rgb(0, 0, 0),
-        "white" => Rgb(255, 255, 255),
-        "red" => Rgb(255, 0, 0),
-        "lime" => Rgb(0, 255, 0),
-        "green" => Rgb(0, 128, 0),
-        "blue" => Rgb(0, 0, 255),
-        "yellow" => Rgb(255, 255, 0),
-        "cyan" | "aqua" => Rgb(0, 255, 255),
-        "magenta" | "fuchsia" => Rgb(255, 0, 255),
-        "gray" | "grey" => Rgb(128, 128, 128),
-        "silver" => Rgb(192, 192, 192),
-        "orange" => Rgb(255, 165, 0),
-        "pink" => Rgb(255, 192, 203),
-        "hotpink" => Rgb(255, 105, 180),
-        "purple" => Rgb(128, 0, 128),
-        "brown" => Rgb(165, 42, 42),
-        "gold" => Rgb(255, 215, 0),
-        "navy" => Rgb(0, 0, 128),
-        "maroon" => Rgb(128, 0, 0),
-        "olive" => Rgb(128, 128, 0),
-        "teal" => Rgb(0, 128, 128),
-        "violet" => Rgb(238, 130, 238),
-        "skyblue" => Rgb(135, 206, 235),
-        "lightblue" => Rgb(173, 216, 230),
-        "lightgreen" => Rgb(144, 238, 144),
-        "lightpink" => Rgb(255, 182, 193),
-        "darkgray" | "darkgrey" => Rgb(169, 169, 169),
-        "lightgray" | "lightgrey" => Rgb(211, 211, 211),
-        "darkred" => Rgb(139, 0, 0),
-        "darkgreen" => Rgb(0, 100, 0),
-        "darkblue" => Rgb(0, 0, 139),
-        "darkorange" => Rgb(255, 140, 0),
-        "crimson" => Rgb(220, 20, 60),
-        "coral" => Rgb(255, 127, 80),
-        "salmon" => Rgb(250, 128, 114),
-        "tomato" => Rgb(255, 99, 71),
-        "khaki" => Rgb(240, 230, 140),
-        "plum" => Rgb(221, 160, 221),
-        "orchid" => Rgb(218, 112, 214),
-        "indigo" => Rgb(75, 0, 130),
-        "turquoise" => Rgb(64, 224, 208),
-        "deepskyblue" => Rgb(0, 191, 255),
-        "dodgerblue" => Rgb(30, 144, 255),
-        "royalblue" => Rgb(65, 105, 225),
-        "chocolate" => Rgb(210, 105, 30),
-        "tan" => Rgb(210, 180, 140),
-        "beige" => Rgb(245, 245, 220),
-        "ivory" => Rgb(255, 255, 240),
-        "lavender" => Rgb(230, 230, 250),
-        _ => {
-            let h = n.trim_start_matches('#');
-            if h.len() == 6 {
-                let v = i64::from_str_radix(h, 16).ok()?;
-                Rgb::from_i64(v)
-            } else {
-                return None;
-            }
-        }
-    })
+    if let Some((_, v)) = NAMED_COLORS.iter().find(|(name, _)| *name == n) {
+        return Some(Rgb::from_i64(*v));
+    }
+    let h = n.trim_start_matches('#');
+    if h.len() == 6 {
+        let v = i64::from_str_radix(h, 16).ok()?;
+        return Some(Rgb::from_i64(v));
+    }
+    None
 }
 
 pub fn color_from_str(s: &str) -> Option<Rgb> {
@@ -871,9 +973,14 @@ impl Vm {
             "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG"
             | "UPDATECHECK" | "SETANIMETIMER" | "CLEARTEXTBOX" | "BITMAP_CACHE_ENABLE" | "FORCEKANA" | "CLEARBUTTON" => {}
             n if n.starts_with("TOOLTIP_") => {}
-            n if n.starts_with('G') || n.starts_with("SPRITE") || n.starts_with("CBG") || n == "SETTEXTBOX" => {
-                self.warn(&format!("graphics command {} not implemented (ignored)", n));
-                self.set_result(0);
+            "GETTIME" => {
+                // as a statement: RESULT = number, RESULTS = text
+                if let Some(Value::Int(t)) = self.builtin_fn("GETTIME", a)? {
+                    self.set_result(t);
+                }
+                if let Some(Value::Str(t)) = self.builtin_fn("GETTIMES", a)? {
+                    self.set_results(t);
+                }
             }
             _ => {
                 // functions used as statements: result into RESULT / RESULTS
@@ -884,7 +991,11 @@ impl Vm {
                         if self.strict {
                             return err(format!("command {} not implemented", name));
                         }
-                        self.warn(&format!("command {} not implemented (ignored)", name));
+                        let graphics = name.starts_with('G') || name.starts_with("SPRITE") || name.starts_with("CBG") || name == "SETTEXTBOX";
+                        self.warn(&format!("{}command {} not implemented (ignored)", if graphics { "graphics " } else { "" }, name));
+                        if graphics {
+                            self.set_result(0);
+                        }
                     }
                 }
             }
@@ -1843,6 +1954,61 @@ impl Vm {
                 let x = self.as_(a, 0, "")?;
                 s(x.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;"))
             }
+            "COLOR_FROMNAME" => {
+                let n = self.as_(a, 0, "")?;
+                if n.trim().eq_ignore_ascii_case("transparent") {
+                    return err("COLOR_FROMNAME: transparent is not supported");
+                }
+                i(parse_color_name(&n).map_or(-1, |c| c.to_i64()))
+            }
+            "COLOR_FROMRGB" => {
+                let mut v = 0;
+                for k in 0..3 {
+                    let c = self.ai(a, k, 0)?;
+                    if !(0..=255).contains(&c) {
+                        return err(format!("COLOR_FROMRGB: argument {} ({}) is outside 0..255", k + 1, c));
+                    }
+                    v = (v << 8) | c;
+                }
+                i(v)
+            }
+            "HTML_STRINGLEN" => {
+                // displayed width: half-width cells, or pixels with a non-zero 2nd arg
+                let x = self.as_(a, 0, "")?;
+                let cells = crate::html::to_plain(&x).lines().map(sjis_len).max().unwrap_or(0) as i64;
+                let px = cells * (self.con.font_size / 2.0).round().max(1.0) as i64;
+                i(if self.ai(a, 1, 0)? != 0 { px } else { cells })
+            }
+            "GETMETH" | "GETMETHS" => {
+                // call a function by name, or return the default if there is none
+                let fname = self.as_(a, 0, "")?.to_uppercase();
+                let exists = self.has_func(&fname) || is_builtin_function(&fname);
+                if !exists {
+                    return match a.get(1).filter(|e| !matches!(e, Expr::Empty)) {
+                        Some(e) => Ok(Some(self.eval(e)?)),
+                        None => err(format!("{}: function {} is not defined", name, fname)),
+                    };
+                }
+                let v = self.call_expr(&fname, a.get(2..).unwrap_or(&[]))?;
+                match (name, &v) {
+                    ("GETMETH", Value::Str(_)) => err(format!("GETMETH: {} does not return an integer", fname)),
+                    ("GETMETHS", Value::Int(_)) => err(format!("GETMETHS: {} does not return a string", fname)),
+                    _ => Ok(Some(v)),
+                }
+            }
+            "GETDOINGFUNCTION" => s(self.frames.last().map(|f| f.func.name.clone()).unwrap_or_default()),
+            "CLIENTWIDTH" => i(((self.con.width + 1) as f32 * self.con.font_size / 2.0) as i64),
+            "CLIENTHEIGHT" => i((self.fe.rows() as f32 * self.con.line_height) as i64),
+            "EXISTFILE" => {
+                let p = self.as_(a, 0, "")?;
+                let rel = std::path::Path::new(&p);
+                let ok = !rel.is_absolute() && !rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) && self.game_dir.join(rel).is_file();
+                i(ok as i64)
+            }
+            // no graphics surfaces / sprite positions / text box in this frontend
+            "SPRITEPOSX" | "SPRITEPOSY" => i(0),
+            "GGETCOLOR" => i(-1),
+            "GETTEXTBOX" => s(String::new()),
             "HTML_TOPLAINTEXT" => {
                 let x = self.as_(a, 0, "")?;
                 s(crate::html::to_plain(&x))

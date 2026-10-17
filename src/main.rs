@@ -6,6 +6,7 @@ mod frontend;
 mod gfx;
 mod html;
 mod loader;
+mod mice;
 mod parser;
 mod resources;
 mod tty;

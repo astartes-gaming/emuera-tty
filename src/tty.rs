@@ -69,6 +69,10 @@ pub struct Tty {
     scroll: usize,
     buf: String,
     pending: Vec<u8>,
+    /// keys decoded but not yet handed out (console mouse events)
+    queued: std::collections::VecDeque<Key>,
+    /// pointer on the Linux console via /dev/input/mice (no terminal reports)
+    mice: Option<crate::mice::Mice>,
     mouse: Option<(usize, usize)>,
     /// per screen row: (col_start, col_end, button id)
     btn_map: Vec<Vec<(usize, usize, usize)>>,
@@ -87,6 +91,13 @@ fn winsize() -> (usize, usize, u32, u32) {
             (80, 24, 0, 0)
         }
     }
+}
+
+/// Decode an X10 / urxvt button byte (already minus 32). Releases come as
+/// button 3 without saying which button: report them as a left release.
+fn x10_mouse(cb: u16, x: u16, y: u16) -> Key {
+    let release = cb & 3 == 3 && cb & (32 | 64) == 0;
+    Key::Mouse { btn: if release { cb & !3 } else { cb }, x, y, press: !release }
 }
 
 fn write_all(b: &[u8]) {
@@ -132,6 +143,8 @@ impl Tty {
             scroll: 0,
             buf: String::new(),
             pending: Vec::new(),
+            queued: std::collections::VecDeque::new(),
+            mice: None,
             mouse: None,
             btn_map: Vec::new(),
             buttons: Vec::new(),
@@ -143,16 +156,38 @@ impl Tty {
             t.cell = (xp / cols as u32, yp / rows as u32);
         }
         t.setup_gfx(gfx_pref, &term);
-        // alt screen, hide cursor, mouse (SGR, any-motion)
-        write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1003h\x1b[?1006h\x1b[2J");
+        let is_vt = term == "linux" || term.starts_with("fbterm");
+        if crate::mice::Mice::wanted(is_vt) {
+            match crate::mice::Mice::open() {
+                Ok(m) => t.mice = Some(m),
+                Err(e) => eprintln!("console mouse unavailable ({}); add yourself to the input group or run gpm", e),
+            }
+        }
+        // alt screen, hide cursor; mouse reports: buttons, drag, any motion,
+        // in SGR (1006) or urxvt (1015) form where supported, else X10
+        write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h\x1b[2J");
         Ok(t)
     }
 
     fn read_bytes(&mut self, timeout_ms: i32) -> bool {
-        let mut pfd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
-        let r = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
+        let mut pfd = [
+            libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: self.mice.as_ref().map_or(-1, |m| m.fd()), events: libc::POLLIN, revents: 0 },
+        ];
+        let r = unsafe { libc::poll(pfd.as_mut_ptr(), 2, timeout_ms) };
         if r <= 0 {
             return false;
+        }
+        if pfd[1].revents & libc::POLLIN != 0 {
+            let (cell, cols, rows) = (self.cell, self.cols, self.rows);
+            if let Some(m) = &mut self.mice {
+                for (btn, x, y, press) in m.read(cell, cols, rows) {
+                    self.queued.push_back(Key::Mouse { btn, x, y, press });
+                }
+            }
+        }
+        if pfd[0].revents & libc::POLLIN == 0 {
+            return !self.queued.is_empty();
         }
         let mut b = [0u8; 4096];
         let n = unsafe { libc::read(0, b.as_mut_ptr() as *mut libc::c_void, b.len()) };
@@ -245,7 +280,16 @@ impl Tty {
     }
 
     fn next_key(&mut self, timeout_ms: i32) -> Option<Key> {
+        if let Some(k) = self.queued.pop_front() {
+            return Some(k);
+        }
         if self.pending.is_empty() && !self.read_bytes(timeout_ms) {
+            return None;
+        }
+        if let Some(k) = self.queued.pop_front() {
+            return Some(k);
+        }
+        if self.pending.is_empty() {
             return None;
         }
         let b = &self.pending;
@@ -261,7 +305,19 @@ impl Tty {
                 }
                 let b = self.pending.clone();
                 if b[1] == b'[' {
-                    if b.get(2) == Some(&b'<') {
+                    if b.get(2) == Some(&b'M') {
+                        // X10 / normal mouse: ESC [ M Cb Cx Cy, each value + 32
+                        if b.len() < 6 {
+                            self.read_bytes(30);
+                            if self.pending.len() < 6 {
+                                self.pending.clear();
+                                return Some(Key::Other);
+                            }
+                            return self.next_key(0);
+                        }
+                        let (cb, cx, cy) = (b[3].wrapping_sub(32) as u16, b[4].wrapping_sub(32) as u16, b[5].wrapping_sub(32) as u16);
+                        (x10_mouse(cb, cx, cy), 6)
+                    } else if b.get(2) == Some(&b'<') {
                         // SGR mouse: ESC [ < b ; x ; y (M|m)
                         match b.iter().position(|&c| c == b'M' || c == b'm') {
                             Some(end) => {
@@ -280,6 +336,15 @@ impl Tty {
                         match end {
                             Some(e) => {
                                 let k = match (&b[2..e], b[e]) {
+                                    // urxvt 1015 mouse: ESC [ Cb ; x ; y M  (Cb + 32, decimal)
+                                    (p, b'M') if p.iter().filter(|&&c| c == b';').count() == 2 => {
+                                        let v: Vec<u16> = String::from_utf8_lossy(p).split(';').filter_map(|x| x.parse().ok()).collect();
+                                        if v.len() == 3 {
+                                            x10_mouse(v[0].saturating_sub(32), v[1], v[2])
+                                        } else {
+                                            Key::Other
+                                        }
+                                    }
                                     (_, b'A') => Key::Up,
                                     (_, b'B') => Key::Down,
                                     (_, b'H') => Key::Home,
@@ -531,6 +596,8 @@ impl Tty {
         self.hover = hover;
         self.btn_map = vec![Vec::new(); self.rows];
         let mut placements = Vec::new();
+        let pointer = if self.mice.is_some() { self.mouse } else { None };
+        let mut pointer_drawn = false;
         for (sr, row) in visible.iter().enumerate() {
             let _ = write!(out, "\x1b[{};1H", sr + 1);
             let mut col = 0usize;
@@ -558,7 +625,15 @@ impl Tty {
                     last_style = Some(key);
                 }
                 let mut tmp = [0u8; 4];
+                let at_pointer = pointer.is_some_and(|(px, py)| py == sr && px >= col && px < col + cell.w.max(1) as usize);
+                if at_pointer {
+                    out.extend_from_slice(b"\x1b[7m");
+                    pointer_drawn = true;
+                }
                 out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
+                if at_pointer {
+                    out.extend_from_slice(b"\x1b[27m");
+                }
                 col += cell.w as usize;
             }
             if let Some((s, b)) = btn_start {
@@ -590,6 +665,12 @@ impl Tty {
         }
         for sr in visible.len()..view_h {
             let _ = write!(out, "\x1b[{};1H\x1b[0m\x1b[K", sr + 1);
+        }
+        if let (Some((px, py)), false) = (pointer, pointer_drawn) {
+            // pointer over blank space
+            if py < view_h {
+                let _ = write!(out, "\x1b[{};{}H\x1b[0;7m \x1b[0m", py + 1, px + 1);
+            }
         }
         // status / input line
         let _ = write!(out, "\x1b[{};1H\x1b[0m\x1b[K", self.rows);
@@ -701,7 +782,8 @@ impl Frontend for Tty {
                 }
                 Key::Mouse { btn, x, y, press } => {
                     let (x, y) = (x.saturating_sub(1) as usize, y.saturating_sub(1) as usize);
-                    match btn {
+                    // ignore Shift / Alt / Ctrl so modified clicks still work
+                    match btn & !(4 | 8 | 16) {
                         64 => {
                             self.scroll += 3;
                             redraw = true;
@@ -713,7 +795,10 @@ impl Frontend for Tty {
                         b if b & 32 != 0 => {
                             // motion: update hover highlight
                             self.mouse = Some((x, y));
-                            if self.button_at(x, y) != self.hover {
+                            // the console pointer is drawn by us: move it, but
+                            // only once a burst of motion has been read
+                            let more = self.queued.iter().any(|k| matches!(k, Key::Mouse { .. }));
+                            if (self.mice.is_some() && !more) || self.button_at(x, y) != self.hover {
                                 redraw = true;
                             }
                         }
@@ -766,6 +851,10 @@ impl Frontend for Tty {
         self.cols
     }
 
+    fn rows(&self) -> usize {
+        self.rows
+    }
+
     fn shutdown(&mut self) {
         if !self.active {
             return;
@@ -773,7 +862,7 @@ impl Frontend for Tty {
         self.active = false;
         let mut out = Vec::new();
         self.gfx.shutdown(&mut out);
-        out.extend_from_slice(b"\x1b[?1006l\x1b[?1003l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
+        out.extend_from_slice(b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
         write_all(&out);
         unsafe {
             libc::tcsetattr(0, libc::TCSANOW, &self.orig);

@@ -49,6 +49,21 @@ Type a number + Enter, or **click** any `[N]` / HTML button (mouse hover
 highlights it). Enter / any key / click continues a WAIT. PgUp/PgDn, ↑/↓,
 Home/End and the mouse wheel scroll the log. Ctrl-L redraws, Ctrl-C quits.
 
+### Mouse
+
+| Where | How |
+|---|---|
+| xterm, kitty, WezTerm, foot, Ghostty, Alacritty, GNOME/KDE terminals, tmux | SGR (1006) mouse reports |
+| urxvt and other 1015 terminals | urxvt (1015) reports |
+| older terminals; Linux console with **gpm** running | legacy X10 reports |
+| Linux console / fbterm **without** gpm | reads `/dev/input/mice` directly (wheel included) and draws its own pointer |
+
+Modifier keys held during a click are ignored. The console-mouse path needs
+read access to `/dev/input/mice`: either run gpm (`apt install gpm`), or add
+yourself to the `input` group — note that the `input` group can read *all*
+input devices, keyboards included. `EMUERA_MOUSE=mice` forces the console
+mouse anywhere, `EMUERA_MOUSE=off` (or `term`) disables it.
+
 ## Graphics backends
 
 `--gfx auto` picks, in order:

@@ -142,6 +142,7 @@ macro_rules! v {
 pub static SYSTEM_VARS: &[VarDef] = &[
     v!("DAY", false, false, &[1]),
     v!("MONEY", false, false, &[1]),
+    v!("NOITEM", false, false, &[1]),
     v!("TIME", false, false, &[1]),
     v!("ITEM", false, false, &[1000]),
     v!("ITEMSALES", false, false, &[1000]),
