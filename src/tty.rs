@@ -24,6 +24,10 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
+/// How many rows above / below the view are searched for images that
+/// reach into it (portraits are about 15 rows tall).
+const IMG_REACH: usize = 40;
+
 /// How many colours the terminal can show (picked from TERM / COLORTERM).
 #[derive(Clone, Copy, PartialEq)]
 enum ColorMode {
@@ -758,7 +762,8 @@ impl Tty {
         self.buttons.clear();
         // layout from the bottom up
         let mut all: Vec<DRow> = Vec::new();
-        let need = view_h + self.scroll;
+        // (plus some rows above the view: images there can reach into it)
+        let need = view_h + self.scroll + IMG_REACH;
         let cur_line = if con.cur.is_empty() {
             None
         } else {
@@ -852,12 +857,24 @@ impl Tty {
             }
             out.extend_from_slice(b"\x1b[0m\x1b[K");
             // images on this row (skipping any that start past the edge)
-            for im in row.imgs.iter().filter(|im| im.col < cols) {
+        }
+        // images: placed by pixel, so a picture can start rows above or
+        // below its own line (negative `ypos` stacks portrait layers, each
+        // printed on the next line, back onto the first one) and is cropped
+        // to the view
+        let (ch, view_px) = (self.cell.1.max(1) as i32, (view_h as u32 * self.cell.1.max(1)) as i32);
+        for idx in start.saturating_sub(IMG_REACH)..all.len().min(end + IMG_REACH) {
+            let sr = idx as i32 - start as i32;
+            for im in all[idx].imgs.iter().filter(|im| im.col < cols) {
                 let pw = (im.w * scale).round().max(1.0) as u32;
                 let ph = (im.h * scale).round().max(1.0) as u32;
-                let yoff = (im.ypos * scale).round() as i32;
-                let avail_px = ((view_h - sr) as i32 * self.cell.1 as i32 - yoff.max(0)).max(0) as u32;
-                let crop_h = ph.min(avail_px);
+                let top = sr * ch + (im.ypos * scale).round() as i32;
+                if top + ph as i32 <= 0 || top >= view_px {
+                    continue;
+                }
+                let crop_top = (-top).max(0) as u32;
+                let top = top.max(0);
+                let crop_h = (ph - crop_top).min((view_px - top) as u32);
                 if crop_h == 0 {
                     continue;
                 }
@@ -866,9 +883,9 @@ impl Tty {
                         key: format!("{}@{}x{}#{}", im.name, pw, ph, res.version(&im.name)),
                         img,
                         col: im.col as i32,
-                        row: sr as i32,
-                        y_off: yoff.max(0),
-                        crop_top: 0,
+                        row: top / ch,
+                        y_off: top % ch,
+                        crop_top,
                         crop_h,
                     });
                 }
