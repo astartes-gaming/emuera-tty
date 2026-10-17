@@ -11,7 +11,7 @@ use crate::console::{Seg, Style};
 use crate::vm::builtins::color_from_str;
 use crate::vm::value::Value;
 use crate::vm::Vm;
-use std::collections::HashMap;
+use crate::fxhash::HashMap;
 
 /// Replace `&lt;` `&amp;` `&nbsp;` `&#…;` etc. Unknown entities stay as-is.
 fn decode_entities(s: &str) -> String {
@@ -60,7 +60,7 @@ fn decode_entities(s: &str) -> String {
 
 /// `key='v' key="v" key=v flag` → map with lower-cased keys.
 fn parse_attrs(s: &str) -> HashMap<String, String> {
-    let mut m = HashMap::new();
+    let mut m = HashMap::default();
     let c: Vec<char> = s.chars().collect();
     let mut i = 0;
     while i < c.len() {
@@ -174,7 +174,7 @@ impl Vm {
                     let tag = tag.trim_start_matches('/').trim_end_matches('/');
                     let (name, attrs) = match tag.find(char::is_whitespace) {
                         Some(i) => (tag[..i].to_lowercase(), parse_attrs(&tag[i..])),
-                        None => (tag.to_lowercase(), HashMap::new()),
+                        None => (tag.to_lowercase(), HashMap::default()),
                     };
                     match (name.as_str(), closing) {
                         ("p", false) => {

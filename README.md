@@ -219,7 +219,8 @@ aligned in Konsole, kitty and others; `EMUERA_MEASURE=0` skips that,
 `EMUERA_TRACE` as above. Game scripts are read and parsed on every CPU
 core (AnonTW loads in about a second instead of five);
 `EMUERA_THREADS=N` caps the thread count, and `EMUERA_TIMING=1` prints
-how long each loading phase took.
+how long each loading phase took. `EMUERA_SEED=N` fixes the random
+number seed, so a run can be repeated exactly (tests, bug reports).
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
 self-test; `emuera-tty sample --headless --echo` plays the sample in plain
@@ -306,16 +307,17 @@ checked.
 - Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
   per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
-  filters and XML), `LOADTEXT`/`SAVETEXT`, `HTML_TAGSPLIT`,
-  `HTML_POPPRINTINGSTR`.
+  filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
+  `text()`, `@attr`, predicates), `VARSETEX`, `AWAIT`, `LOADTEXT`/`SAVETEXT`,
+  `HTML_TAGSPLIT`, `HTML_POPPRINTINGSTR`.
 
 Debugging: `EMUERA_TRACE=<part of a function name>` logs matching calls and
 their return values to stderr.
 
 ## Roadmap
 
-1. Burn down the remaining AnonTW parse errors / unknown commands
-   (`XML_*`, `VARSETEX`, `AWAIT`, `SAVECHARA`, …) and play deeper into it.
+1. Play deeper into AnonTW. Its 5 remaining parse errors are mistakes in
+   the game's own scripts (Emuera reports them too).
 2. Emuera graphics API (`GCREATE`, `GDRAWSPRITE`, `SPRITE*`, `CBG*`) — eratohoTW's
    newer UI uses these; currently ignored with a warning.
 3. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.

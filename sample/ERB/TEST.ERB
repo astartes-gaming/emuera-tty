@@ -202,6 +202,21 @@ CALL CHECK, "dtcell", DT_CELL_SET("T", 0, "cost", 9) == 1 && DT_CELL_GET("T", 0,
 LOCALS '= DT_TOXML("T", LOCALSTR:2)
 DT_RELEASE "T"
 CALL CHECK, "dtxml", DT_FROMXML("T", LOCALSTR:2, LOCALS) == 1 && DT_ROW_LENGTH("T") == 3 && DT_CELL_GET("T", LOCAL:1, "cost", 1) == 3
+;XML_* on a string variable (edited text goes back into it)
+LOCALS '= "<r />"
+XML_ADDNODE LOCALS, "/r", "<e k='a'>x</e>"
+XML_ADDNODE LOCALS, "/r", "<e k='b'>y</e>"
+CALL CHECKS, "xmladd", LOCALS, "<r><e k=\"a\">x</e><e k=\"b\">y</e></r>"
+LOCALSTR = 
+CALL CHECK, "xmlget", XML_GET(LOCALS, "/r/e[@k='b']/text()", LOCALSTR) == 1 && LOCALSTR == "y" && XML_GET(LOCALS, "/r/*") == 2
+XML_REMOVENODE LOCALS, "/r/*[1]"
+CALL CHECK, "xmlremove", XML_GET(LOCALS, "/r/e[last()]/@k", 1) == 1 && RESULTS == "b" && XML_GET(LOCALS, "/r/*") == 1
+CALL CHECK, "xmldoc", XML_DOCUMENT(7, "<d><v>1</v></d>") == 1 && XML_SET(7, "/d/v", "2", 0, 1) == 1 && XML_TOSTR(7) == "<d><v>2</v></d>" && XML_RELEASE(7) == 1 && XML_GET(7, "/d") == -1
+LOCAL:1 = 0
+LOCAL:4 = 0
+LOCAL:5 = 3
+VARSETEX "LOCAL", 9, 1, 2, 4
+CALL CHECK, "varsetex", LOCAL:1 == 0 && LOCAL:2 == 9 && LOCAL:3 == 9 && LOCAL:4 == 0 && LOCAL:5 == 3
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 

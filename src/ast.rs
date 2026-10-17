@@ -17,6 +17,10 @@
 // Arc (aliased as Rc): parsed programs are built on several threads
 use std::sync::Arc as Rc;
 
+/// A shared, immutable name: cloned into every resolved variable location,
+/// so a clone must be a reference-count bump, not a string copy.
+pub type Name = Rc<str>;
+
 #[derive(Debug, Clone)]
 pub enum Expr {
     Int(i64),
@@ -41,7 +45,7 @@ pub enum Expr {
 /// may be a CSV name (`好感度`), resolved against the variable's name table.
 #[derive(Debug, Clone)]
 pub struct VarRef {
-    pub name: String,
+    pub name: Name,
     pub idx: Vec<Expr>,
 }
 
@@ -285,7 +289,7 @@ pub struct Function {
     /// (file index, line number) per instruction
     pub lines: Vec<(u32, u32)>,
     /// `$LABEL` → instruction index, for GOTO.
-    pub labels: std::collections::HashMap<String, usize>,
+    pub labels: crate::fxhash::HashMap<String, usize>,
     /// Private `#DIM`s declared in this function.
     pub dims: Vec<DimDecl>,
     /// `#FUNCTION` / `#FUNCTIONS`: callable inside expressions.

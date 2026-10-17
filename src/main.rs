@@ -12,6 +12,7 @@ mod console;
 mod csvdata;
 mod expr;
 mod frontend;
+mod fxhash;
 mod gfx;
 mod html;
 mod loader;
@@ -254,7 +255,10 @@ fn run(o: Opts) -> i32 {
         eprintln!("... {} more parse errors (run with --check to list all)", prog.errors.len() - 30);
     }
     if o.check {
-        return if prog.errors.is_empty() { 0 } else { 1 };
+        let code = if prog.errors.is_empty() { 0 } else { 1 };
+        // the process exits next: don't spend time freeing ~100k functions
+        std::mem::forget(prog);
+        return code;
     }
     drop(files);
     let res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
@@ -291,6 +295,9 @@ fn run(o: Opts) -> i32 {
     for w in vm.res.warnings.iter().take(10) {
         eprintln!("resources: {}", w);
     }
+    // the process exits next; freeing the program and all game data one
+    // allocation at a time would only delay quitting
+    std::mem::forget(vm);
     match r {
         Ok(()) => 0,
         Err(e) => {

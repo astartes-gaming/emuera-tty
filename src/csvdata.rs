@@ -7,7 +7,7 @@
 //! Everything here is loaded once at startup and read-only afterwards.
 
 use crate::loader::{csv_fields, find_file_ci, read_text, walk};
-use std::collections::HashMap;
+use crate::fxhash::HashMap;
 use std::path::Path;
 
 /// One `index,name` table, searchable both ways.

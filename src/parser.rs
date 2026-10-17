@@ -22,7 +22,7 @@
 
 use crate::ast::*;
 use crate::expr::{parse_expr, parse_expr_list, parse_form, split_top, ExprParser};
-use std::collections::{HashMap, HashSet};
+use crate::fxhash::{HashMap, HashSet};
 // Arc (aliased as Rc): parsed programs are built on several threads
 use std::sync::Arc as Rc;
 
@@ -90,6 +90,9 @@ struct FuncBuilder {
     str_locals: HashSet<String>,
     /// Source position recorded for each emitted instruction.
     cur_line: (u32, u32),
+    /// A parse error in a block opener's expression: reported, but the
+    /// block is still opened so the rest of the function nests as in Emuera.
+    soft_error: Option<String>,
 }
 
 impl FuncBuilder {
@@ -203,6 +206,13 @@ pub fn parse_print_name(cmd: &str) -> Option<(char, PrintFlags)> {
         }
         "C" => fl.column = Some(Align::Right),
         "LC" => fl.column = Some(Align::Left),
+        // the column forms take K/D after the C: PRINTCD, PRINTFORMLCK…
+        "CK" => fl.column = Some(Align::Right),
+        "LCK" => fl.column = Some(Align::Left),
+        "CD" | "LCD" => {
+            fl.column = Some(if s == "CD" { Align::Right } else { Align::Left });
+            fl.default_color = true;
+        }
         _ => return None,
     }
     Some((mid, fl))
@@ -248,7 +258,7 @@ const IGNORED_BLOCKS: &[&str] = &["NOSKIP", "ENDNOSKIP"];
 
 impl<'a> Parser<'a> {
     pub fn new(rename: &'a [(String, String)], debug: bool) -> Self {
-        Parser { prog: Program::default(), rename, global_str: HashSet::new(), debug }
+        Parser { prog: Program::default(), rename, global_str: HashSet::default(), debug }
     }
 
     /// Preprocess raw text into logical (line_no, text) pairs.
@@ -502,7 +512,11 @@ impl<'a> Parser<'a> {
                 continue;
             };
             b.cur_line = (file_idx, no);
-            if let Err(e) = self.statement(b, &line) {
+            let r = self.statement(b, &line);
+            if let Some(e) = b.soft_error.take() {
+                self.prog.errors.push(format!("{}:{}: {} :: {}", src.path, no, e, line));
+            }
+            if let Err(e) = r {
                 self.prog.errors.push(format!("{}:{}: {} :: {}", src.path, no, e, line));
                 // keep the line's place so a pending SIF guards it, as in Emuera
                 let fatal = !e.starts_with("unknown command");
@@ -538,12 +552,13 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(FuncBuilder {
+            soft_error: None,
             f: Function {
                 name,
                 params,
                 code: vec![],
                 lines: vec![],
-                labels: HashMap::new(),
+                labels: HashMap::default(),
                 dims: vec![],
                 is_function: false,
                 returns_str: false,
@@ -556,7 +571,7 @@ impl<'a> Parser<'a> {
             },
             ctl: vec![],
             sif: vec![],
-            str_locals: HashSet::new(),
+            str_locals: HashSet::default(),
             cur_line: (file_idx, line),
         })
     }
@@ -718,20 +733,25 @@ impl<'a> Parser<'a> {
 
         match cmd.as_str() {
             "IF" => {
-                let c = self.expr(arg_c)?;
+                let c = self.block_expr(b, arg_c, line);
                 let t = b.emit(Instr::JumpIfNot(c, 0));
                 b.ctl.push(Ctl::If { test: Some(t), ends: vec![] });
             }
             "ELSEIF" => {
-                let c = self.expr(arg_c)?;
+                if !matches!(b.ctl.last(), Some(Ctl::If { .. })) {
+                    return Err("ELSEIF without IF".into());
+                }
                 let j = b.emit(Instr::Jump(0));
                 let pc = b.pc();
-                let Some(Ctl::If { test, ends }) = b.ctl.last_mut() else { return Err("ELSEIF without IF".into()) };
+                let Some(Ctl::If { test, ends }) = b.ctl.last_mut() else { unreachable!() };
                 ends.push(j);
                 let old = test.take();
                 if let Some(t) = old {
                     b.patch(t, pc);
                 }
+                // (after the previous branch's jump: a bad condition fails
+                // only when this ELSEIF is reached)
+                let c = self.block_expr(b, arg_c, line);
                 let t = b.emit(Instr::JumpIfNot(c, 0));
                 if let Some(Ctl::If { test, .. }) = b.ctl.last_mut() {
                     *test = Some(t);
@@ -765,7 +785,7 @@ impl<'a> Parser<'a> {
                 return Ok(());
             }
             "SELECTCASE" => {
-                let e = self.expr(arg_c)?;
+                let e = self.block_expr(b, arg_c, line);
                 let slot = b.slot();
                 b.emit(Instr::SelectEval(e, slot));
                 b.ctl.push(Ctl::Select { slot, test: None, ends: vec![], first: true });
@@ -841,7 +861,7 @@ impl<'a> Parser<'a> {
                 Self::after_stmt(b);
             }
             "WHILE" => {
-                let c = self.expr(arg_c)?;
+                let c = self.block_expr(b, arg_c, line);
                 let top = b.pc();
                 let test = b.emit(Instr::JumpIfNot(c, 0));
                 b.ctl.push(Ctl::While { top, test, breaks: vec![], conts: vec![] });
@@ -1103,6 +1123,21 @@ impl<'a> Parser<'a> {
         Ok(upper_expr(parse_expr(s, &self.prog.defines)?))
     }
 
+    /// The condition / value of a block opener (IF, WHILE, SELECTCASE…). A
+    /// bad one is reported and replaced by a fatal [`Instr::BadLine`] (the
+    /// error happens when the line runs, as in Emuera), so the block still
+    /// opens and its ENDIF / WEND… still match.
+    fn block_expr(&self, b: &mut FuncBuilder, s: &str, line: &str) -> Expr {
+        match self.expr(s) {
+            Ok(e) => e,
+            Err(e) => {
+                b.emit(Instr::BadLine(format!("{} :: {}", e, line).into(), true));
+                b.soft_error = Some(e);
+                Expr::Int(0)
+            }
+        }
+    }
+
     fn expr_or_zero(&self, s: &str) -> Result<Expr, String> {
         if s.is_empty() { Ok(Expr::Int(0)) } else { self.expr(s) }
     }
@@ -1271,7 +1306,7 @@ pub fn upper_var(v: &mut Rc<VarRef>) {
     let inner = Rc::make_mut(v);
     // CSV-name indices (`ABL:技巧`) are upper-cased too: name-table
     // lookups are case-insensitive, so nothing is lost.
-    inner.name = inner.name.to_uppercase();
+    inner.name = inner.name.to_uppercase().into();
     inner.idx = std::mem::take(&mut inner.idx).into_iter().map(upper_expr).collect();
 }
 

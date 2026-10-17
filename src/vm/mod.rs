@@ -10,7 +10,7 @@
 //! |---|---|
 //! | system globals (FLAG, RESULT…) and ERH `#DIM`s | `Vm::globals`, created on first use |
 //! | character variables (CFLAG, TALENT…, `#DIM CHARADATA`) | `Vm::charas[i].vars` |
-//! | a function's LOCAL/ARG and non-DYNAMIC private `#DIM`s | `Vm::statics`, key `"FUNC::NAME"` |
+//! | a function's LOCAL/ARG and non-DYNAMIC private `#DIM`s | `Vm::statics[FUNC][NAME]` |
 //! | `#DIM DYNAMIC` privates | the call's [`Frame::vars`] |
 //! | `#DIM REF` parameters | an alias in [`Frame::refs`] to the caller's storage |
 //!
@@ -41,7 +41,7 @@ use crate::frontend::{Frontend, InputKind, InputReq, InputResult};
 use crate::loader::sjis_len;
 use crate::parser::Program;
 use crate::resources::Resources;
-use std::collections::{HashMap, HashSet};
+use crate::fxhash::{HashMap, HashSet};
 use std::path::PathBuf;
 // Arc (aliased as Rc): parsed programs are built on several threads
 use std::sync::Arc as Rc;
@@ -80,15 +80,15 @@ pub struct Chara {
 /// Which array a [`Place`] is in.
 #[derive(Clone)]
 pub enum Loc {
-    Global(String),
+    Global(Name),
     /// `#DIM DYNAMIC` in the current frame
-    Frame(String),
+    Frame(Name),
     /// a variable in a specific (caller's) frame, for REF parameters
-    FrameAt(usize, String),
-    /// function-owned storage, key `"FUNC::NAME"`
-    Static(String),
+    FrameAt(usize, Name),
+    /// function-owned storage: `statics[function name][variable]`
+    Static(Rc<Function>, Name),
     /// (character index, variable)
-    Chara(usize, String),
+    Chara(usize, Name),
     /// read-only computed value (CHARANUM, RAND:n, GAMEBASE_*…)
     Ro(Value),
 }
@@ -107,7 +107,7 @@ pub struct Vm {
     pub fe: Box<dyn Frontend>,
     pub res: Resources,
     pub globals: HashMap<String, Arr>,
-    pub statics: HashMap<String, Arr>,
+    pub statics: HashMap<String, HashMap<String, Arr>>,
     pub charas: Vec<Chara>,
     /// The call stack, innermost last.
     pub frames: Vec<Frame>,
@@ -117,6 +117,8 @@ pub struct Vm {
     pub maps: HashMap<String, StrMap>,
     /// Emuera-EM DT_* data tables, by (case-sensitive) name
     pub dts: HashMap<String, datatable::DataTable>,
+    /// XML_DOCUMENT's documents, by key (see `xml_fn`)
+    pub xml_docs: HashMap<String, crate::xml::Element>,
     /// extensions LOADTEXT/SAVETEXT may use with a path (config), plus txt
     pub text_exts: Vec<String>,
     /// REF bindings collected by `call_args` for the next `call_func`
@@ -153,28 +155,32 @@ pub(crate) fn sized_dims(varsize: &HashMap<String, Vec<usize>>, name: &str, def:
 
 impl Vm {
     pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf) -> Vm {
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0x1234_5678);
+        // EMUERA_SEED=N makes runs repeatable (tests, bug reports)
+        let seed = std::env::var("EMUERA_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x1234_5678)
+        });
         let mut vm = Vm {
             prog,
             csv,
             con: Console::new(),
             fe,
             res,
-            globals: HashMap::new(),
-            statics: HashMap::new(),
+            globals: HashMap::default(),
+            statics: HashMap::default(),
             charas: Vec::new(),
             frames: Vec::new(),
-            user_dims: HashMap::new(),
-            maps: HashMap::new(),
-            dts: HashMap::new(),
+            user_dims: HashMap::default(),
+            maps: HashMap::default(),
+            dts: HashMap::default(),
+            xml_docs: HashMap::default(),
             text_exts: vec!["txt".into()],
             pending_refs: Vec::new(),
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             rng: seed | 1,
-            warned: HashSet::new(),
+            warned: HashSet::default(),
             game_dir,
             strict: false,
             is_timeout: false,
@@ -414,15 +420,8 @@ impl Vm {
     /// CSV name tables (ABLNAME…), read-only pseudo variables, system
     /// variables. Unknown names are an error.
     pub fn locate(&mut self, v: &VarRef) -> VmResult<Place> {
-        let name = v.name.as_str();
-        let table_owned: Option<String>;
-        let table: Option<&str> = match table_for_var(name) {
-            Some(t) => Some(t),
-            None => {
-                table_owned = if self.csv.tables.contains_key(name) { Some(name.to_string()) } else { None };
-                table_owned.as_deref()
-            }
-        };
+        let name = &*v.name;
+        let table: Option<&str> = table_for_var(name).or_else(|| self.csv.tables.contains_key(name).then_some(name));
         // 0. REF parameter aliases
         if let Some(loc) = self.frames.last().and_then(|f| f.refs.get(name)).cloned() {
             let idx = self.eval_indices(v, 0, table)?;
@@ -441,19 +440,18 @@ impl Vm {
             None => (false, false),
         };
         if is_static {
-            let fname = self.frames.last().unwrap().func.name.clone();
-            let key = format!("{}::{}", fname, name);
-            if !self.statics.contains_key(&key) {
+            let func = self.frames.last().unwrap().func.clone();
+            if !self.statics.get(&func.name).is_some_and(|m| m.contains_key(name)) {
                 let a = match self.frame_private(name).cloned() {
                     Some(d) => self.make_dim(&d)?,
                     None if matches!(name, "LOCAL" | "ARG") => Arr::new(false, &[1000]),
                     None => Arr::new(true, &[100]),
                 };
-                self.statics.insert(key.clone(), a);
+                self.statics.entry(func.name.clone()).or_default().insert(name.to_string(), a);
             }
             let idx = self.eval_indices(v, 0, table)?;
-            let flat = self.statics[&key].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc: Loc::Static(key), flat });
+            let flat = self.statics[&func.name][name].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            return Ok(Place { loc: Loc::Static(func, v.name.clone()), flat });
         }
         // DYNAMIC privates: allocated per call by `call_func`
         if is_private {
@@ -461,7 +459,7 @@ impl Vm {
             let f = self.frames.last().unwrap();
             let a = f.vars.get(name).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc: Loc::Frame(name.to_string()), flat });
+            return Ok(Place { loc: Loc::Frame(v.name.clone()), flat });
         }
         // 2. user globals
         if let Some((is_chara, nd)) = self.user_dims.get(name).map(|d| (d.is_chara, d.dims.len())) {
@@ -471,7 +469,7 @@ impl Vm {
             let idx = self.eval_indices(v, 0, table)?;
             let a = self.globals.get(name).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc: Loc::Global(name.to_string()), flat });
+            return Ok(Place { loc: Loc::Global(v.name.clone()), flat });
         }
         // 3a. CSV name tables (ABLNAME, BASENAME, …) as real string arrays,
         // so FINDELEMENT / VARSIZE / array builtins can take them
@@ -495,7 +493,7 @@ impl Vm {
                 }
                 let idx = self.eval_indices(v, 0, table)?;
                 let flat = self.globals[name].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-                return Ok(Place { loc: Loc::Global(name.to_string()), flat });
+                return Ok(Place { loc: Loc::Global(v.name.clone()), flat });
             }
         }
         // 3. pseudo variables
@@ -511,7 +509,7 @@ impl Vm {
             let idx = self.eval_indices(v, 0, table)?;
             let a = self.global_arr(name);
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc: Loc::Global(name.to_string()), flat });
+            return Ok(Place { loc: Loc::Global(v.name.clone()), flat });
         }
         err(format!("undefined variable '{}'", name))
     }
@@ -535,9 +533,9 @@ impl Vm {
     pub fn arr_at(&mut self, loc: &Loc) -> Option<&mut Arr> {
         match loc {
             Loc::Global(n) => Some(self.global_arr(n)),
-            Loc::Frame(n) => self.frames.last_mut().and_then(|f| f.vars.get_mut(n)),
-            Loc::FrameAt(d, n) => self.frames.get_mut(*d).and_then(|f| f.vars.get_mut(n)),
-            Loc::Static(k) => self.statics.get_mut(k),
+            Loc::Frame(n) => self.frames.last_mut().and_then(|f| f.vars.get_mut(&**n)),
+            Loc::FrameAt(d, n) => self.frames.get_mut(*d).and_then(|f| f.vars.get_mut(&**n)),
+            Loc::Static(f, n) => self.statics.get_mut(&f.name).and_then(|m| m.get_mut(&**n)),
             Loc::Chara(c, n) => Some(self.chara_arr(*c, n)),
             Loc::Ro(_) => None,
         }
@@ -573,9 +571,9 @@ impl Vm {
     /// are handled here (they have no backing array).
     pub fn set_var(&mut self, v: &VarRef, val: Value) -> VmResult<()> {
         // writable pseudo-ish strings
-        if matches!(v.name.as_str(), "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") {
+        if matches!(&*v.name, "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") {
             let s = val.into_string();
-            match v.name.as_str() {
+            match &*v.name {
                 "WINDOW_TITLE" => self.con.title = s,
                 "DRAWLINESTR" => self.con.drawline_str = s,
                 _ => {
@@ -599,7 +597,7 @@ impl Vm {
 
     /// Values of the computed, read-only variables (see `vars::pseudo_var`).
     fn pseudo_value(&mut self, v: &VarRef, table: Option<&str>) -> VmResult<Value> {
-        let name = v.name.as_str();
+        let name = &*v.name;
         let i0 = |vm: &mut Vm| -> VmResult<i64> {
             match v.idx.first() {
                 Some(e) => vm.eval_index(e, table, name),
@@ -855,14 +853,14 @@ impl Vm {
         let mut refs = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let p = f.params.get(i).map(|p| p.target.name.clone());
-            let is_ref = p.as_ref().is_some_and(|n| f.dims.iter().any(|d| d.is_ref && &d.name == n));
+            let is_ref = p.as_ref().is_some_and(|n| f.dims.iter().any(|d| d.is_ref && *d.name == **n));
             if let (true, Expr::Var(v)) = (is_ref, a) {
                 let top = self.frames.len().saturating_sub(1);
                 let loc = match self.locate(&VarRef { name: v.name.clone(), idx: vec![] })?.loc {
                     Loc::Frame(n) => Loc::FrameAt(top, n),
                     l => l,
                 };
-                refs.push((p.unwrap(), loc));
+                refs.push((p.unwrap().to_string(), loc));
                 vals.push(None);
                 continue;
             }
@@ -889,7 +887,7 @@ impl Vm {
             return err("call stack overflow");
         }
         // allocate private (non-static) dims in the caller context
-        let mut vars = HashMap::new();
+        let mut vars = HashMap::default();
         for d in &f.dims {
             if !d.is_static {
                 let a = self.make_dim(d)?;
@@ -912,7 +910,7 @@ impl Vm {
                     // no declared default: ARG/ARGS/private params get 0 / ""
                     // (Emuera's implicit default), never the previous call's value
                     None => {
-                        let n = p.target.name.as_str();
+                        let n = &*p.target.name;
                         let is_param_var = matches!(n, "ARG" | "ARGS") || f.dims.iter().any(|d| d.name == n && !d.is_ref);
                         if is_param_var {
                             match self.var_is_str(&p.target) {

@@ -14,7 +14,7 @@
 //! mirroring Emuera's own lexer, so every caller agrees on the boundaries.
 
 use crate::ast::*;
-use std::collections::HashMap;
+use crate::fxhash::HashMap;
 // Arc (aliased as Rc): parsed programs are built on several threads
 use std::sync::Arc as Rc;
 
@@ -421,7 +421,7 @@ impl<'a> ExprParser<'a> {
                 idx.push(self.primary(false)?);
             }
         }
-        Ok(Expr::Var(Rc::new(VarRef { name, idx })))
+        Ok(Expr::Var(Rc::new(VarRef { name: name.into(), idx })))
     }
 
     /// Parse a variable reference (assignment target).

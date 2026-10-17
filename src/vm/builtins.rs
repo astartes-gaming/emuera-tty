@@ -46,7 +46,7 @@ pub const COMMANDS: &[&str] = &[
     "GDRAWGWITHMASK", "GSETCOLOR", "GSETBRUSH", "GSETFONT", "GSETPEN", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE",
     "SPRITEMOVE", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
     "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_",
-    "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM",
+    "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM", "AWAIT", "VARSETEX", "SPRITEANIMECREATE", "SPRITEANIMEADDFRAME",
 ];
 
 pub const FUNCTIONS: &[&str] = &[
@@ -72,17 +72,20 @@ pub const FUNCTIONS: &[&str] = &[
     "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES", "DT_COLUMN_EXIST",
     "DT_COLUMN_REMOVE", "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET",
     "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT",
+    "XML_DOCUMENT", "XML_RELEASE", "XML_EXIST", "XML_TOSTR", "XML_GET", "XML_GET_BYNAME", "XML_SET", "XML_SET_BYNAME",
+    "XML_ADDNODE", "XML_ADDNODE_BYNAME", "XML_REMOVENODE", "XML_REMOVENODE_BYNAME", "XML_REPLACE", "XML_REPLACE_BYNAME",
+    "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
 ];
 
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
 /// every statement while parsing)
 pub fn is_builtin_command(c: &str) -> bool {
-    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    static SET: std::sync::OnceLock<crate::fxhash::HashSet<&'static str>> = std::sync::OnceLock::new();
     SET.get_or_init(|| COMMANDS.iter().copied().collect()).contains(c)
 }
 /// Is `c` (upper-case) a built-in function (also usable as a statement)?
 pub fn is_builtin_function(c: &str) -> bool {
-    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    static SET: std::sync::OnceLock<crate::fxhash::HashSet<&'static str>> = std::sync::OnceLock::new();
     SET.get_or_init(|| FUNCTIONS.iter().copied().collect()).contains(c)
 }
 
@@ -517,7 +520,7 @@ impl Vm {
             "PRINT_IMG" => {
                 // accept both a string expression and a bare sprite name
                 let n = match a.first() {
-                    Some(Expr::Var(v)) if v.idx.is_empty() && !self.var_exists(&v.name) => v.name.clone(),
+                    Some(Expr::Var(v)) if v.idx.is_empty() && !self.var_exists(&v.name) => v.name.to_string(),
                     _ => self.as_(a, 0, "")?,
                 };
                 self.print_img(&n, None, None, 0.0, None);
@@ -585,6 +588,57 @@ impl Vm {
                 self.set_results(v);
             }
             "WAIT" | "FORCEWAIT" | "WAITANYKEY" => self.wait()?,
+            "AWAIT" => {
+                // Emuera-EE: show what's printed so far and pause (no input);
+                // at most 10 s. Headless runs don't sleep.
+                let ms = self.ai(a, 0, 0)?;
+                if !(0..=10000).contains(&ms) {
+                    return err(format!("AWAIT: {} ms is out of range (0 to 10000)", ms));
+                }
+                self.fe.flush(&mut self.con, &mut self.res);
+                if self.fe.is_fullscreen() && ms > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+                }
+            }
+            "VARSETEX" => {
+                // VARSETEX "VAR:i:j", value, all_rows = 1, start = 0, end
+                let n = self.as_(a, 0, "")?;
+                let e = crate::expr::parse_expr(&n, &self.prog.defines).map_err(|e| Ctrl::Error(e, false))?;
+                let Expr::Var(v) = crate::parser::upper_expr(e) else { return err(format!("VARSETEX: '{}' is not a variable", n)) };
+                let val = self.arg(a, 1)?;
+                let all_rows = self.ai(a, 2, 1)? != 0;
+                let start = self.ai(a, 3, 0)?.max(0) as usize;
+                let end = self.arg(a, 4)?.map(|x| x.as_int().max(0) as usize);
+                let p = self.locate(&v)?;
+                let arr = self.arr_at(&p.loc).ok_or_else(|| Ctrl::Error(format!("VARSETEX: {} is read-only", n), false))?;
+                let is_str = arr.is_str();
+                let val = match val {
+                    Some(x) if x.is_str() != is_str => return err(format!("VARSETEX: value type doesn't match {}", n)),
+                    Some(x) => x,
+                    None if is_str => Value::Str(String::new()),
+                    None => Value::Int(0),
+                };
+                let rl = if arr.dims.len() <= 1 { arr.len() } else { arr.last_dim() }.max(1);
+                let end = end.unwrap_or(rl).min(rl);
+                if arr.dims.len() <= 1 {
+                    for i in start..end {
+                        arr.set(i, val.clone());
+                    }
+                } else {
+                    // from the given index on, in its row, or (integer
+                    // arrays, all_rows) in every row
+                    let col = p.flat % rl;
+                    let rows: Vec<usize> = if all_rows && !is_str { (0..arr.len() / rl).collect() } else { vec![p.flat / rl] };
+                    for r in rows {
+                        for i in start.max(col)..end {
+                            arr.set(r * rl + i, val.clone());
+                        }
+                    }
+                }
+                self.set_result(1);
+            }
+            // sprite animations: no animated sprites in a terminal
+            "SPRITEANIMECREATE" | "SPRITEANIMEADDFRAME" => self.set_result(0),
             "TWAIT" => {
                 let t = self.ai(a, 0, 1000)?.max(0) as u64;
                 let force = self.ai(a, 1, 0)?;
@@ -731,7 +785,7 @@ impl Vm {
             }
             "ARRAYSORT" => {
                 let v = self.avar(a, 0)?;
-                let back = matches!(a.get(1), Some(Expr::Var(o)) if o.name == "BACK");
+                let back = matches!(a.get(1), Some(Expr::Var(o)) if &*o.name == "BACK");
                 let start = self.ai(a, 2, 0)?.max(0) as usize;
                 let (loc, base, len) = self.array_row(&v)?;
                 let cnt = self.ai(a, 3, (len - start.min(len)) as i64)?.max(0) as usize;
@@ -751,8 +805,8 @@ impl Vm {
             "ARRAYCOPY" => {
                 let src = self.as_(a, 0, "")?.to_uppercase();
                 let dst = self.as_(a, 1, "")?.to_uppercase();
-                let sv = VarRef { name: src, idx: vec![] };
-                let dv = VarRef { name: dst, idx: vec![] };
+                let sv = VarRef { name: src.into(), idx: vec![] };
+                let dv = VarRef { name: dst.into(), idx: vec![] };
                 let sp = self.locate(&sv)?;
                 let data = self.arr_at(&sp.loc).cloned();
                 let dp = self.locate(&dv)?;
@@ -827,7 +881,7 @@ impl Vm {
                 let mut k = 2;
                 while k + 1 < a.len() {
                     let opt = match &a[k] {
-                        Expr::Var(v) => v.name.clone(),
+                        Expr::Var(v) => v.name.to_string(),
                         e => self.eval(e)?.into_string().to_uppercase(),
                     };
                     let v = self.eval(&a[k + 1])?;
@@ -1196,6 +1250,175 @@ impl Vm {
         Ok(())
     }
 
+    /// Emuera-EM's XML_* functions (return codes as in emuera.em). The first
+    /// argument is either XML text, edited copies of which go back into it
+    /// when it is a variable, or the key of a document XML_DOCUMENT holds
+    /// (an integer, or any string for the *_BYNAME forms). Most return the
+    /// number of nodes the XPath matched; -1 for an unknown key.
+    fn xml_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        use crate::xml;
+        let i = |v: i64| Ok(Some(Value::Int(v)));
+        let n = a.iter().rposition(|e| !matches!(e, Expr::Empty)).map_or(0, |p| p + 1);
+        let a = &a[..n];
+        let (base, byname) = match name.strip_suffix("_BYNAME") {
+            Some(b) => (b, true),
+            None => (name, false),
+        };
+        let xerr = |e: String| Ctrl::Error(format!("{}: {}", name, e), false);
+        let first = self.arg(a, 0)?.unwrap_or(Value::Int(0));
+        let key = first.as_string();
+        match base {
+            "XML_DOCUMENT" => {
+                if self.xml_docs.contains_key(&key) {
+                    return i(0);
+                }
+                let src = self.as_(a, 1, "")?;
+                let d = xml::load_doc(&src).map_err(xerr)?;
+                self.xml_docs.insert(key, d);
+                return i(1);
+            }
+            "XML_RELEASE" => return i(self.xml_docs.remove(&key).is_some() as i64),
+            "XML_EXIST" => return i(self.xml_docs.contains_key(&key) as i64),
+            "XML_TOSTR" => return Ok(Some(Value::Str(self.xml_docs.get(&key).map(xml::doc_to_string).unwrap_or_default()))),
+            _ => {}
+        }
+        let held = matches!(first, Value::Int(_)) || byname || (base == "XML_REPLACE" && a.len() == 2);
+        if held && base == "XML_REPLACE" && a.len() == 2 {
+            // XML_REPLACE key, xml: swap the whole document
+            if !self.xml_docs.contains_key(&key) {
+                return i(-1);
+            }
+            let d = xml::load_doc(&self.as_(a, 1, "")?).map_err(xerr)?;
+            self.xml_docs.insert(key, d);
+            return i(1);
+        }
+        let mut doc = if held {
+            match self.xml_docs.remove(&key) {
+                Some(d) => d,
+                None => return i(-1),
+            }
+        } else {
+            xml::load_doc(&key).map_err(xerr)?
+        };
+        let r = self.xml_op(base, a, &mut doc);
+        let changed = matches!(r, Ok((_, true)));
+        if held {
+            self.xml_docs.insert(key, doc);
+        } else if changed {
+            if let Some(Expr::Var(v)) = a.first() {
+                self.set_var(v, Value::Str(xml::doc_to_string(&doc)))?;
+            }
+        }
+        i(r?.0)
+    }
+
+    /// The node operations of `xml_fn`: (return value, document changed).
+    fn xml_op(&mut self, base: &str, a: &[Expr], doc: &mut crate::xml::Element) -> VmResult<(i64, bool)> {
+        use crate::xml;
+        let xerr = |e: String| Ctrl::Error(format!("{}: {}", base, e), false);
+        let path = self.as_(a, 1, "")?;
+        let sels = xml::select(doc, &path).map_err(xerr)?;
+        let count = sels.len() as i64;
+        // an XPath matching several nodes changes them only when asked to
+        // (the "all nodes" flag); one node is changed always
+        let targets = |all: bool| -> Vec<xml::Sel> {
+            match sels.len() {
+                1 => sels.clone(),
+                _ if all => sels.iter().rev().cloned().collect(),
+                _ => vec![],
+            }
+        };
+        let new_node = |src: &str| -> VmResult<xml::Node> {
+            xml::parse_fragment(src)
+                .map_err(xerr)?
+                .into_iter()
+                .find(|n| matches!(n, xml::Node::Elem(_)))
+                .ok_or_else(|| xerr(format!("no element in '{}'", src)))
+        };
+        if sels.is_empty() && base != "XML_GET" {
+            return Ok((0, false));
+        }
+        match base {
+            "XML_GET" => {
+                let style = self.ai(a, 3, 0)?;
+                let vals: Vec<Value> = sels.iter().map(|s| Value::Str(xml::node_output(doc, s, style))).collect();
+                match a.get(2) {
+                    Some(Expr::Var(v)) if self.var_is_str(v)? => self.fill_array(v, vals)?,
+                    Some(_) if self.ai(a, 2, 0)? != 0 => {
+                        self.fill_array(&VarRef { name: "RESULTS".into(), idx: vec![] }, vals)?;
+                    }
+                    _ => {}
+                }
+                Ok((count, false))
+            }
+            "XML_SET" => {
+                let val = self.as_(a, 2, "")?;
+                let all = self.ai(a, 3, 0)? != 0;
+                let style = self.ai(a, 4, 0)?.clamp(0, 2);
+                for s in targets(all) {
+                    xml::set_node(doc, &s, &val, style).map_err(xerr)?;
+                }
+                Ok((count, true))
+            }
+            "XML_ADDNODE" => {
+                let child = new_node(&self.as_(a, 2, "")?)?;
+                let method = Some(self.ai(a, 3, 0)?).filter(|m| (0..=2).contains(m)).unwrap_or(0);
+                let all = self.ai(a, 4, 0)? != 0;
+                if sels.len() == 1 && !xml::insert_node(doc, &sels[0], child.clone(), method) && method > 0 {
+                    return Ok((0, false));
+                }
+                if sels.len() > 1 {
+                    for s in targets(all) {
+                        xml::insert_node(doc, &s, child.clone(), method);
+                    }
+                }
+                Ok((count, true))
+            }
+            "XML_ADDATTRIBUTE" => {
+                let an = self.as_(a, 2, "")?;
+                let av = self.as_(a, 3, "")?;
+                let method = Some(self.ai(a, 4, 0)?).filter(|m| (0..=2).contains(m)).unwrap_or(0);
+                let all = self.ai(a, 5, 0)? != 0;
+                if sels.len() == 1 && !xml::insert_attr(doc, &sels[0], &an, &av, method) && method > 0 {
+                    return Ok((0, false));
+                }
+                if sels.len() > 1 {
+                    for s in targets(all) {
+                        xml::insert_attr(doc, &s, &an, &av, method);
+                    }
+                }
+                Ok((count, true))
+            }
+            "XML_REMOVENODE" | "XML_REMOVEATTRIBUTE" => {
+                let attrs = base == "XML_REMOVEATTRIBUTE";
+                let all = self.ai(a, 2, 0)? != 0;
+                if sels.len() == 1 && !xml::remove(doc, &sels[0], attrs) {
+                    return Ok((0, false));
+                }
+                if sels.len() > 1 {
+                    for s in targets(all) {
+                        xml::remove(doc, &s, attrs);
+                    }
+                }
+                Ok((count, true))
+            }
+            "XML_REPLACE" => {
+                let node = new_node(&self.as_(a, 2, "")?)?;
+                let all = self.ai(a, 3, 0)? != 0;
+                if sels.len() == 1 && !xml::replace_node(doc, &sels[0], node.clone()) {
+                    return Ok((0, false));
+                }
+                if sels.len() > 1 {
+                    for s in targets(all) {
+                        xml::replace_node(doc, &s, node.clone());
+                    }
+                }
+                Ok((count, true))
+            }
+            _ => Ok((0, false)),
+        }
+    }
+
     /// Emuera-EM data tables; return codes follow emuera.em
     /// (-1: no such table, -2/-3: bad row / column, 0: nothing done).
     fn dt_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
@@ -1467,6 +1690,9 @@ impl Vm {
         if name.starts_with("DT_") {
             return self.dt_fn(name, a);
         }
+        if name.starts_with("XML_") {
+            return self.xml_fn(name, a);
+        }
         match name {
             "__FORMS" => {
                 let src = self.as_(a, 0, "")?;
@@ -1654,7 +1880,7 @@ impl Vm {
                     // character variables have a size even when no character exists
                     Some(def) if def.chara => super::sized_dims(&self.csv.varsize, &n, def),
                     _ => {
-                        let vr = VarRef { name: n, idx: vec![] };
+                        let vr = VarRef { name: n.into(), idx: vec![] };
                         let p = self.locate(&vr)?;
                         let arr = self.arr_at(&p.loc);
                         arr.map(|a| a.dims.clone()).unwrap_or_default()
