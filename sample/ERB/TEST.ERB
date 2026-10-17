@@ -236,6 +236,7 @@ DELCHARA LOCAL
 CFLAG:1:3 = 0
 CALL CHECK, "getconfig", GETCONFIG("LINE HEIGHT") == GETCONFIG("一行の高さ") && GETCONFIG("Font Size") > 0 && GETCONFIG("fontsize") == GETCONFIG("フォントサイズ")
 CALL GTEST
+CALL MSORTTEST
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 
@@ -315,3 +316,16 @@ GDRAWSPRITE 2, "GT_S1", 0, 0, 4, 4, CM
 CALL CHECK, "colormatrix", GGETCOLOR(2, 3, 3) == 0xFF0000FF
 CALL CHECK, "spritedispose", SPRITEDISPOSE("GT_S1") == 1 && !SPRITECREATED("GT_S1") && GDISPOSE(1) == 1 && !GCREATED(1)
 GDISPOSE 2
+
+@MSORTTEST
+#DIM MK, 6
+#DIMS MV, 6
+MK:0 = 30
+MK:1 = 10
+MK:2 = 20
+MV:0 = c
+MV:1 = a
+MV:2 = b
+MV:3 = z
+ARRAYMSORT MK, MV
+CALL CHECK, "arraymsort", RESULT == 1 && MK:0 == 10 && MK:2 == 30 && MV:0 == "a" && MV:1 == "b" && MV:2 == "c" && MV:3 == "z"

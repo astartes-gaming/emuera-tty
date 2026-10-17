@@ -37,7 +37,7 @@ pub const COMMANDS: &[&str] = &[
     "CLEARTEXTBOX", "UPDATECHECK", "INPUT", "INPUTS", "TINPUT", "TINPUTS", "ONEINPUT", "ONEINPUTS", "TONEINPUT",
     "TONEINPUTS", "WAIT", "FORCEWAIT", "TWAIT", "WAITANYKEY", "INPUTMOUSEKEY", "DOTRAIN", "CALLTRAIN", "STOPCALLTRAIN",
     "SAVEGAME", "LOADGAME", "SAVEDATA", "LOADDATA", "DELDATA", "SAVEGLOBAL", "LOADGLOBAL", "RESETDATA", "RESETGLOBAL",
-    "VARSET", "CVARSET", "ARRAYSHIFT", "ARRAYREMOVE", "ARRAYSORT", "ARRAYCOPY", "ARRAYMSORT", "SWAP", "TIMES",
+    "VARSET", "CVARSET", "ARRAYSHIFT", "ARRAYREMOVE", "ARRAYSORT", "ARRAYCOPY", "SWAP", "TIMES",
     "SETBIT", "CLEARBIT", "INVERTBIT", "SPLIT", "RANDOMIZE", "INITRAND", "DUMPRAND", "STRLEN", "STRLENU", "STRLENFORM",
     "STRLENFORMU", "PUTFORM", "ADDCHARA", "ADDSPCHARA", "ADDDEFCHARA", "ADDVOIDCHARA", "DELCHARA", "DELALLCHARA",
     "PICKUPCHARA", "SWAPCHARA", "COPYCHARA", "ADDCOPYCHARA", "SORTCHARA", "RESET_STAIN", "UPCHECK", "CUPCHECK",
@@ -75,7 +75,7 @@ pub const FUNCTIONS: &[&str] = &[
     "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
     // graphics buffers (methods, usable as statements: result in RESULT)
     "GCREATE", "GCREATEFROMFILE", "GDISPOSE", "GCLEAR", "GFILLRECTANGLE", "GDRAWSPRITE", "GDRAWG", "GDRAWGWITHMASK",
-    "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE",
+    "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE", "ARRAYMSORT",
 ];
 
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
@@ -1339,6 +1339,98 @@ impl Vm {
         }
     }
 
+    /// ARRAYMSORT key, arrays… (and ARRAYMSORTEX key, names, ascending,
+    /// length): sort the key array's leading elements (up to the first 0 /
+    /// empty one, or `length`) and put every listed array's first-dimension
+    /// entries in the same order. 1 done, 0 if an array is too short.
+    fn array_msort(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        let ex = name == "ARRAYMSORTEX";
+        let whole = |v: &VarRef| VarRef { name: v.name.clone(), idx: vec![] };
+        let by_name = |vm: &mut Self, n: &str| -> VmResult<VarRef> {
+            match crate::parser::upper_expr(crate::expr::parse_expr(n, &vm.prog.defines).map_err(|e| Ctrl::Error(e, false))?) {
+                Expr::Var(v) => Ok(whole(&v)),
+                _ => err(format!("{}: '{}' is not a variable", name, n)),
+            }
+        };
+        let key = match a.first() {
+            Some(Expr::Var(v)) => whole(v),
+            _ if ex => {
+                let n = self.as_(a, 0, "")?;
+                by_name(self, &n)?
+            }
+            _ => return err(format!("{}: the first argument must be an array", name)),
+        };
+        let asc = !ex || self.ai(a, 2, 1)? != 0;
+        let fixed = if ex { self.ai(a, 3, -1)? } else { -1 };
+        if fixed == 0 {
+            return Ok(Some(Value::Int(0)));
+        }
+        let kp = self.locate(&key)?;
+        let karr = self.arr_at(&kp.loc).ok_or_else(|| Ctrl::Error(format!("{}: {} is read-only", name, key.name), false))?.clone();
+        let len = if fixed > 0 { (fixed as usize).min(karr.len()) } else { karr.len() };
+        let mut keys: Vec<(Value, usize)> = Vec::new();
+        for i in 0..len {
+            let v = karr.get(i);
+            let empty = match &v {
+                Value::Int(x) => *x == 0,
+                Value::Str(s) => s.is_empty(),
+            };
+            if empty && fixed == -1 {
+                if ex && v.is_str() {
+                    return Ok(Some(Value::Int(0)));
+                }
+                break;
+            }
+            keys.push((v, i));
+        }
+        keys.sort_by(|x, y| {
+            let o = match (&x.0, &y.0) {
+                (Value::Int(p), Value::Int(q)) => p.cmp(q),
+                (p, q) => p.as_string().cmp(&q.as_string()),
+            };
+            if asc { o } else { o.reverse() }
+        });
+        let order: Vec<usize> = keys.into_iter().map(|(_, i)| i).collect();
+        let targets: Vec<VarRef> = if ex {
+            let names = match a.get(1) {
+                Some(Expr::Var(v)) => {
+                    let p = self.locate(&whole(v))?;
+                    let arr = self.arr_at(&p.loc).ok_or_else(|| Ctrl::Error(format!("{}: bad name list", name), false))?;
+                    (0..arr.len()).map(|i| arr.get(i).as_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>()
+                }
+                _ => return err(format!("{}: the second argument must be a string array", name)),
+            };
+            let mut t = Vec::new();
+            for n in names {
+                t.push(by_name(self, &n)?);
+            }
+            t
+        } else {
+            a.iter()
+                .map(|e| match e {
+                    Expr::Var(v) => Ok(whole(v)),
+                    _ => err(format!("{}: arguments must be arrays", name)),
+                })
+                .collect::<VmResult<_>>()?
+        };
+        for t in targets {
+            let p = self.locate(&t)?;
+            let Some(arr) = self.arr_at(&p.loc) else { return err(format!("{}: {} is read-only", name, t.name)) };
+            let first = arr.dims.first().copied().unwrap_or(1);
+            let chunk: usize = arr.dims.iter().skip(1).product::<usize>().max(1);
+            if first < order.len() {
+                return Ok(Some(Value::Int(0)));
+            }
+            let old = arr.clone();
+            for (i, &src) in order.iter().enumerate() {
+                for k in 0..chunk {
+                    arr.set(i * chunk + k, old.get(src * chunk + k));
+                }
+            }
+        }
+        Ok(Some(Value::Int(1)))
+    }
+
     /// Emuera's graphics buffers (`G*`) and SPRITECREATE: drawn in memory
     /// and shown through sprites, so composed portraits work. Return values
     /// as in Emuera: 1 done, 0 not (missing buffer / sprite, already
@@ -2518,6 +2610,7 @@ impl Vm {
                 let sz = self.res.sprite_size(&n).unwrap_or((0, 0));
                 i(if name == "SPRITEWIDTH" { sz.0 } else { sz.1 } as i64)
             }
+            "ARRAYMSORT" | "ARRAYMSORTEX" => self.array_msort(name, a),
             "GCREATED" | "GWIDTH" | "GHEIGHT" => {
                 let id = self.ai(a, 0, 0)?;
                 i(match self.res.graphics.get(&id) {
