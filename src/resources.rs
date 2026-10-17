@@ -38,6 +38,8 @@ pub struct Resources {
     pub cbg: Vec<CbgLayer>,
     /// CBGSETBMAPG: the buffer whose pixel colours are button values
     pub cbg_bmap: Option<i64>,
+    /// image sizes read from file headers (before decoding)
+    dims: HashMap<PathBuf, (u32, u32)>,
     /// when each buffer last changed (`gen` values)
     g_gen: HashMap<i64, u64>,
     /// prepared (cut, scaled) parts of draws, by source, its version, the
@@ -604,7 +606,108 @@ impl Resources {
         if let Some(Sprite { rect: Some((_, _, w, h)), .. }) = self.sprites.get(&key) {
             return Some((*w, *h));
         }
+        // a whole image file: its header has the size, so the (slow) decode
+        // can wait for the screen, which decodes on all cores
+        if let Some(sp) = self.sprites.get(&key) {
+            if !self.files.contains_key(&sp.file) {
+                if let Some(d) = self.dims.get(&sp.file) {
+                    return Some(*d);
+                }
+                if let Ok(d) = image::ImageReader::open(&sp.file).and_then(|r| r.with_guessed_format()).map_err(image::ImageError::IoError).and_then(|r| r.into_dimensions()) {
+                    self.dims.insert(sp.file.clone(), d);
+                    return Some(d);
+                }
+            }
+        }
         self.sprite(name).map(|i| (i.width(), i.height()))
+    }
+
+    /// Scale every listed sprite that isn't cached yet, in parallel
+    /// (one thread per core, up to the number of pictures).
+    pub fn prescale(&mut self, want: Vec<(&str, u32, u32)>) {
+        // image files not decoded yet: decode them on all cores first
+        let mut files: Vec<PathBuf> = Vec::new();
+        for (name, w, h) in &want {
+            let key = (name.to_uppercase(), (*w).max(1), (*h).max(1));
+            if self.scaled.contains_key(&key) || self.cropped.contains_key(&key.0) {
+                continue;
+            }
+            if let Some(sp) = self.sprites.get(&key.0) {
+                if !self.files.contains_key(&sp.file) && !files.contains(&sp.file) {
+                    files.push(sp.file.clone());
+                }
+            }
+        }
+        if files.len() >= 2 {
+            let cores = std::thread::available_parallelism().map_or(1, |n| n.get()).min(files.len());
+            let mut decoded: Vec<(PathBuf, Result<RgbaImage, String>)> = Vec::new();
+            std::thread::scope(|sc| {
+                let hs: Vec<_> = (0..cores)
+                    .map(|t| {
+                        let files = &files;
+                        sc.spawn(move || {
+                            (t..files.len()).step_by(cores).map(|i| (files[i].clone(), image::open(&files[i]).map(|im| im.to_rgba8()).map_err(|e| e.to_string()))).collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                for h in hs {
+                    decoded.extend(h.join().unwrap_or_default());
+                }
+            });
+            for (p, r) in decoded {
+                let img = match r {
+                    Ok(i) => Some(Rc::new(i)),
+                    Err(e) => {
+                        self.warnings.push(format!("cannot load {}: {}", p.display(), e));
+                        None
+                    }
+                };
+                self.files.insert(p, img);
+            }
+        }
+        let mut jobs: Vec<((String, u32, u32), Rc<RgbaImage>)> = Vec::new();
+        for (name, w, h) in want {
+            let key = (name.to_uppercase(), w.max(1), h.max(1));
+            if self.scaled.contains_key(&key) || jobs.iter().any(|j| j.0 == key) {
+                continue;
+            }
+            if let Some(src) = self.sprite(name) {
+                if src.dimensions() != (key.1, key.2) {
+                    jobs.push((key, src));
+                }
+            }
+        }
+        if jobs.len() < 2 {
+            return; // one picture: `scaled` does it on this thread
+        }
+        let cores = std::thread::available_parallelism().map_or(1, |n| n.get()).min(jobs.len());
+        // the images are shared read-only with the workers (`Rc` itself
+        // stays here); each worker scales every `cores`-th job
+        let srcs: Vec<(&RgbaImage, u32, u32)> = jobs.iter().map(|(k, img)| (&**img, k.1, k.2)).collect();
+        let mut results: Vec<Option<RgbaImage>> = (0..srcs.len()).map(|_| None).collect();
+        std::thread::scope(|sc| {
+            let chunks: Vec<_> = (0..cores)
+                .map(|t| {
+                    let srcs = &srcs;
+                    sc.spawn(move || {
+                        (t..srcs.len()).step_by(cores).map(|i| (i, image::imageops::resize(srcs[i].0, srcs[i].1, srcs[i].2, image::imageops::FilterType::Triangle))).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            for c in chunks {
+                for (i, img) in c.join().unwrap_or_default() {
+                    results[i] = Some(img);
+                }
+            }
+        });
+        if self.scaled.len() + results.len() > 512 {
+            self.scaled.clear();
+        }
+        for ((key, _), img) in jobs.into_iter().zip(results) {
+            if let Some(img) = img {
+                self.scaled.insert(key, Rc::new(img));
+            }
+        }
     }
 
     /// Sprite scaled to exactly w x h pixels (cached).

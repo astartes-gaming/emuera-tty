@@ -86,8 +86,8 @@ pub enum Loc {
     Frame(Name),
     /// a variable in a specific (caller's) frame, for REF parameters
     FrameAt(usize, Name),
-    /// function-owned storage: `statics[function name][variable]`
-    Static(Rc<Function>, Name),
+    /// function-owned storage: slot in `Vm::statics`
+    Static(usize),
     /// (character index, variable)
     Chara(usize, Name),
     /// read-only computed value (CHARANUM, RAND:n, GAMEBASE_*…)
@@ -108,12 +108,18 @@ pub struct Vm {
     pub fe: Box<dyn Frontend>,
     pub res: Resources,
     pub globals: HashMap<String, Arr>,
-    pub statics: HashMap<String, HashMap<String, Arr>>,
+    pub statics: Vec<Arr>,
+    /// (function name, variable) → slot in `statics`
+    static_index: HashMap<(String, String), usize>,
+    /// the same by (function, name) pointers, for the hot path
+    static_slot: HashMap<(usize, usize), (Name, usize)>,
     pub charas: Vec<Chara>,
     /// The call stack, innermost last.
     pub frames: Vec<Frame>,
     /// ERH `#DIM` declarations by name (sizes / flags for lookups).
     pub user_dims: HashMap<String, DimDecl>,
+    /// `var_info` results by (function, name) pointers
+    var_cache: HashMap<(usize, usize), (Name, VarInfo)>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
     pub maps: HashMap<String, StrMap>,
     /// Emuera-EM DT_* data tables, by (case-sensitive) name
@@ -188,10 +194,13 @@ impl Vm {
             fe,
             res,
             globals: HashMap::default(),
-            statics: HashMap::default(),
+            statics: Vec::new(),
+            static_index: HashMap::default(),
+            static_slot: HashMap::default(),
             charas: Vec::new(),
             frames: Vec::new(),
             user_dims: HashMap::default(),
+            var_cache: HashMap::default(),
             maps: HashMap::default(),
             dts: HashMap::default(),
             xml_docs: HashMap::default(),
@@ -233,6 +242,8 @@ impl Vm {
         self.charas.clear();
         // function-owned LOCAL/ARG and static #DIMs go back to defaults too
         self.statics.clear();
+        self.static_index.clear();
+        self.static_slot.clear();
         for (k, v) in keep {
             self.globals.insert(k, v);
         }
@@ -346,7 +357,11 @@ impl Vm {
 
     /// A global array, created with its default size on first use.
     pub fn global_arr(&mut self, name: &str) -> &mut Arr {
-        if !self.globals.contains_key(name) {
+        // (one lookup when it exists: the borrow checker wants it this way)
+        if self.globals.contains_key(name) {
+            return self.globals.get_mut(name).unwrap();
+        }
+        {
             let a = match system_var(name) {
                 Some(def) => Arr::new(def.is_str, &self.var_def_dims(name, def)),
                 None => Arr::new(false, &[1]),
@@ -459,18 +474,24 @@ impl Vm {
     /// aliases, the current function's privates and LOCAL/ARG, ERH `#DIM`s,
     /// CSV name tables (ABLNAME…), read-only pseudo variables, system
     /// variables. Unknown names are an error.
-    pub fn locate(&mut self, v: &VarRef) -> VmResult<Place> {
-        let name = &*v.name;
-        let table: Option<&str> = table_for_var(name).or_else(|| self.csv.tables.contains_key(name).then_some(name));
-        // 0. REF parameter aliases
-        if let Some(loc) = self.frames.last().and_then(|f| f.refs.get(name)).cloned() {
-            let idx = self.eval_indices(v, 0, table)?;
-            let a = self.arr_at(&loc).ok_or_else(|| Ctrl::Error(format!("{}: referenced variable is gone", name), false))?;
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc, flat });
+    /// How `v`'s name resolves in the running function (cached: the same
+    /// name in the same function always means the same kind of variable).
+    fn var_info(&mut self, v: &VarRef) -> VarInfo {
+        let func = self.frames.last().map(|f| Rc::as_ptr(&f.func) as *const u8 as usize).unwrap_or(0);
+        let key = (func, Rc::as_ptr(&v.name) as *const u8 as usize);
+        if let Some((n, info)) = self.var_cache.get(&key) {
+            // (the pointer may have been reused by another name since)
+            if Rc::ptr_eq(n, &v.name) || **n == *v.name {
+                return *info;
+            }
         }
-        // 1. frame-local
-        let (is_private, is_static) = match self.frames.last() {
+        let name = &*v.name;
+        let table = match table_for_var(name) {
+            Some(t) => Tbl::Static(t),
+            None if self.csv.tables.contains_key(name) => Tbl::Own,
+            None => Tbl::None,
+        };
+        let (private, is_static) = match self.frames.last() {
             Some(f) => match f.func.dims.iter().find(|d| d.name == name) {
                 Some(d) => (true, d.is_static),
                 // Emuera's LOCAL/ARG family is per-function storage that
@@ -479,19 +500,68 @@ impl Vm {
             },
             None => (false, false),
         };
-        if is_static {
-            let func = self.frames.last().unwrap().func.clone();
-            if !self.statics.get(&func.name).is_some_and(|m| m.contains_key(name)) {
-                let a = match self.frame_private(name).cloned() {
-                    Some(d) => self.make_dim(&d)?,
-                    None if matches!(name, "LOCAL" | "ARG") => Arr::new(false, &[1000]),
-                    None => Arr::new(true, &[100]),
-                };
-                self.statics.entry(func.name.clone()).or_default().insert(name.to_string(), a);
-            }
+        let info = VarInfo {
+            table,
+            private,
+            is_static,
+            user: self.user_dims.get(name).map(|d| (d.is_chara, d.dims.len())),
+            csv_name: name.ends_with("NAME") && name != "NAME" && table_for_var(name).is_some(),
+            pseudo: pseudo_var(name),
+            system: system_var(name),
+        };
+        if self.var_cache.len() > 200_000 {
+            self.var_cache.clear();
+        }
+        self.var_cache.insert(key, (v.name.clone(), info));
+        info
+    }
+
+    pub fn locate(&mut self, v: &VarRef) -> VmResult<Place> {
+        let name = &*v.name;
+        let info = self.var_info(v);
+        let table: Option<&str> = match info.table {
+            Tbl::None => None,
+            Tbl::Static(t) => Some(t),
+            Tbl::Own => Some(name),
+        };
+        // 0. REF parameter aliases
+        if let Some(loc) = self.frames.last().and_then(|f| if f.refs.is_empty() { None } else { f.refs.get(name) }).cloned() {
             let idx = self.eval_indices(v, 0, table)?;
-            let flat = self.statics[&func.name][name].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc: Loc::Static(func, v.name.clone()), flat });
+            let a = self.arr_at(&loc).ok_or_else(|| Ctrl::Error(format!("{}: referenced variable is gone", name), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            return Ok(Place { loc, flat });
+        }
+        // 1. frame-local
+        let (is_private, is_static) = (info.private, info.is_static);
+        if is_static {
+            let fptr = Rc::as_ptr(&self.frames.last().unwrap().func) as *const u8 as usize;
+            let key = (fptr, Rc::as_ptr(&v.name) as *const u8 as usize);
+            let slot = match self.static_slot.get(&key) {
+                Some((n, s)) if Rc::ptr_eq(n, &v.name) || **n == *v.name => *s,
+                _ => {
+                    // storage is per function name (event functions with one
+                    // name share it), found by name once, then by pointer
+                    let k = (self.frames.last().unwrap().func.name.to_string(), name.to_string());
+                    let s = match self.static_index.get(&k) {
+                        Some(&s) => s,
+                        None => {
+                            let a = match self.frame_private(name).cloned() {
+                                Some(d) => self.make_dim(&d)?,
+                                None if matches!(name, "LOCAL" | "ARG") => Arr::new(false, &[1000]),
+                                None => Arr::new(true, &[100]),
+                            };
+                            self.statics.push(a);
+                            self.static_index.insert(k, self.statics.len() - 1);
+                            self.statics.len() - 1
+                        }
+                    };
+                    self.static_slot.insert(key, (v.name.clone(), s));
+                    s
+                }
+            };
+            let idx = self.eval_indices(v, 0, table)?;
+            let flat = self.statics[slot].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            return Ok(Place { loc: Loc::Static(slot), flat });
         }
         // DYNAMIC privates: allocated per call by `call_func`
         if is_private {
@@ -502,7 +572,7 @@ impl Vm {
             return Ok(Place { loc: Loc::Frame(v.name.clone()), flat });
         }
         // 2. user globals
-        if let Some((is_chara, nd)) = self.user_dims.get(name).map(|d| (d.is_chara, d.dims.len())) {
+        if let Some((is_chara, nd)) = info.user {
             if is_chara {
                 return self.locate_chara(v, nd, table);
             }
@@ -513,7 +583,7 @@ impl Vm {
         }
         // 3a. CSV name tables (ABLNAME, BASENAME, …) as real string arrays,
         // so FINDELEMENT / VARSIZE / array builtins can take them
-        if name.ends_with("NAME") && name != "NAME" {
+        if info.csv_name {
             if let Some(t) = table_for_var(name) {
                 if !self.globals.contains_key(name) {
                     let tbl = self.csv.tables.get(t);
@@ -537,12 +607,12 @@ impl Vm {
             }
         }
         // 3. pseudo variables
-        if pseudo_var(name) {
+        if info.pseudo {
             let val = self.pseudo_value(v, table)?;
             return Ok(Place { loc: Loc::Ro(val), flat: 0 });
         }
         // 4. system variables
-        if let Some(def) = system_var(name) {
+        if let Some(def) = info.system {
             if def.chara {
                 return self.locate_chara(v, def.dims.len(), table);
             }
@@ -575,7 +645,7 @@ impl Vm {
             Loc::Global(n) => Some(self.global_arr(n)),
             Loc::Frame(n) => self.frames.last_mut().and_then(|f| f.vars.get_mut(&**n)),
             Loc::FrameAt(d, n) => self.frames.get_mut(*d).and_then(|f| f.vars.get_mut(&**n)),
-            Loc::Static(f, n) => self.statics.get_mut(&f.name).and_then(|m| m.get_mut(&**n)),
+            Loc::Static(slot) => self.statics.get_mut(*slot),
             Loc::Chara(c, n) => Some(self.chara_arr(*c, n)),
             Loc::Ro(_) => None,
         }
@@ -1012,11 +1082,10 @@ impl Vm {
 
     /// The instruction loop of the innermost frame.
     fn exec(&mut self) -> VmResult<Option<Value>> {
+        // a frame's function never changes while it runs: take it once
+        let f = self.frames.last().unwrap().func.clone();
         loop {
-            let (f, pc) = {
-                let fr = self.frames.last().unwrap();
-                (fr.func.clone(), fr.pc)
-            };
+            let pc = self.frames.last().unwrap().pc;
             if pc >= f.code.len() {
                 return Ok(None);
             }
@@ -1557,6 +1626,28 @@ pub fn pad(s: &str, w: usize, a: Align) -> String {
 fn trace_clock() -> f64 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
+}
+
+/// Which CSV name table indexes a variable.
+#[derive(Clone, Copy)]
+enum Tbl {
+    None,
+    Static(&'static str),
+    /// the variable's own name (a table named like an ERH variable)
+    Own,
+}
+
+/// What a variable name means inside a function (see `Vm::var_info`).
+#[derive(Clone, Copy)]
+pub(crate) struct VarInfo {
+    table: Tbl,
+    private: bool,
+    is_static: bool,
+    /// user `#DIM`: (CHARADATA, dimensions)
+    user: Option<(bool, usize)>,
+    csv_name: bool,
+    pseudo: bool,
+    system: Option<&'static VarDef>,
 }
 
 /// `EMUERA_PROFILE=<file>`: which ERB functions the time goes to. A thread

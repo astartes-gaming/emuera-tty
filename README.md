@@ -328,7 +328,10 @@ aligned in Konsole, kitty and others; `EMUERA_MEASURE=0` skips that,
 core (AnonTW loads in about a second instead of five, and takes about
 600 MB of memory);
 `EMUERA_THREADS=N` caps the thread count, and `EMUERA_TIMING=1` prints
-how long each loading phase took. `EMUERA_SEED=N` fixes the random
+how long each loading phase took. Running the script itself is one
+thread by nature (every line may read what the previous one wrote), but
+pictures a screen needs are decoded and scaled on all cores, and the
+interpreter caches how each variable name resolves in each function. `EMUERA_SEED=N` fixes the random
 number seed, so a run can be repeated exactly (tests, bug reports).
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
@@ -457,8 +460,8 @@ for the player not counted) and keeps `<file>` updated with the top 60.
 2. Tooltips are accepted but not shown; `<div>` borders, padding and
    background colours are ignored; CBG layers behind the text are drawn
    over it by kitty.
-3. Speed of script-heavy games: pops-tw's new game takes about a minute
-   (mostly its own object system, thousands of dynamic calls).
+3. Speed of script-heavy games: pops-tw's new game takes about 15
+   seconds (its own object system makes many thousands of dynamic calls).
 4. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.
 5. `LOCAL@FUNC`, `#LOCALSIZE`.
 6. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and

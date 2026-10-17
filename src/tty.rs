@@ -1081,6 +1081,7 @@ impl Tty {
         // printed on the next line, back onto the first one) and is cropped
         // to the view
         let (ch, view_px) = (self.cell.1.max(1) as i32, (view_h as u32 * self.cell.1.max(1)) as i32);
+        let mut pending: Vec<(String, u32, u32, i32, i32, u32, u32)> = Vec::new();
         for idx in start.saturating_sub(IMG_REACH)..all.len().min(end + IMG_REACH) {
             let sr = idx as i32 - start as i32;
             for im in all[idx].imgs.iter().filter(|im| im.col < cols) {
@@ -1099,17 +1100,23 @@ impl Tty {
                 if self.no_images {
                     continue;
                 }
-                if let Some(img) = res.scaled(&im.name, pw, ph) {
-                    placements.push(Placement {
-                        key: format!("{}@{}x{}#{}", im.name, pw, ph, res.version(&im.name)),
-                        img,
-                        col: im.col as i32,
-                        row: top / ch,
-                        y_off: top % ch,
-                        crop_top,
-                        crop_h,
-                    });
-                }
+                pending.push((im.name.clone(), pw, ph, im.col as i32, top, crop_top, crop_h));
+            }
+        }
+        // pictures not scaled yet are scaled on all cores at once (a status
+        // screen shows several large portrait layers)
+        res.prescale(pending.iter().map(|p| (p.0.as_str(), p.1, p.2)).collect());
+        for (name, pw, ph, col, top, crop_top, crop_h) in pending {
+            if let Some(img) = res.scaled(&name, pw, ph) {
+                placements.push(Placement {
+                    key: format!("{}@{}x{}#{}", name, pw, ph, res.version(&name)),
+                    img,
+                    col,
+                    row: top / ch,
+                    y_off: top % ch,
+                    crop_top,
+                    crop_h,
+                });
             }
         }
         for sr in visible.len()..view_h {
