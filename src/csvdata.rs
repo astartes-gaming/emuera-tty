@@ -1,10 +1,16 @@
 //! CSV data: name tables (ABL.csv, TALENT.csv, ...), character templates
 //! (Chara*.csv), GAMEBASE.csv, VariableSize.csv, _Rename.csv, *.ERD.
+//!
+//! Name tables are what make `ABL:技巧` work: each row `index,name` lets a
+//! script use the name instead of the number. [`table_for_var`] says which
+//! table a variable's index is looked up in (MAXBASE uses BASE.csv…).
+//! Everything here is loaded once at startup and read-only afterwards.
 
 use crate::loader::{csv_fields, find_file_ci, read_text, walk};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// One `index,name` table, searchable both ways.
 #[derive(Default, Debug, Clone)]
 pub struct NameTable {
     pub by_name: HashMap<String, i64>,
@@ -12,6 +18,7 @@ pub struct NameTable {
 }
 
 impl NameTable {
+    /// Add a row; the first index wins if a name is repeated.
     pub fn insert(&mut self, idx: i64, name: &str) {
         if !name.is_empty() {
             self.by_name.entry(name.to_string()).or_insert(idx);
@@ -21,8 +28,11 @@ impl NameTable {
     }
 }
 
+/// A `Chara*.csv` file: the initial values ADDCHARA copies into a new
+/// character.
 #[derive(Default, Debug, Clone)]
 pub struct CharaTemplate {
+    /// 番号: the number ADDCHARA / EXISTCSV refer to.
     pub no: i64,
     pub name: String,
     pub callname: String,
@@ -31,17 +41,25 @@ pub struct CharaTemplate {
     /// (VARIABLE, index, value)
     pub ints: Vec<(String, i64, i64)>,
     pub strs: Vec<(String, i64, String)>,
+    /// SP character (eramaker's ADDSPCHARA)
     pub is_sp: bool,
 }
 
+/// All CSV-side data of a game.
 #[derive(Default, Debug)]
 pub struct GameCsv {
+    /// Name tables keyed by table name (`"ABL"`, `"CFLAG"`, ERD names…).
     pub tables: HashMap<String, NameTable>,
+    /// Item.csv third column.
     pub item_price: HashMap<i64, i64>,
     pub charas: Vec<CharaTemplate>,
+    /// GAMEBASE.csv `key,value` (タイトル, 作者, バージョン…).
     pub gamebase: HashMap<String, String>,
+    /// VariableSize.csv: array sizes overriding the built-in defaults.
     pub varsize: HashMap<String, Vec<usize>>,
+    /// _Rename.csv `(name, replacement)` for `[[name]]` in scripts.
     pub rename: Vec<(String, String)>,
+    /// Str.csv: initial STR values.
     pub str_init: Vec<(i64, String)>,
     pub warnings: Vec<String>,
 }
@@ -106,6 +124,7 @@ const TABLE_FILES: &[(&str, &str)] = &[
     ("GLOBALS.CSV", "GLOBALS"),
 ];
 
+/// Decimal or `0x` hex.
 fn parse_i64(s: &str) -> Option<i64> {
     let s = s.trim();
     if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
@@ -116,6 +135,8 @@ fn parse_i64(s: &str) -> Option<i64> {
 }
 
 impl GameCsv {
+    /// Read every CSV the engine knows from `csv_dir` (file names are
+    /// matched case-insensitively), plus `*.ERD` tables under `erb_dir`.
     pub fn load(csv_dir: &Path, erb_dir: Option<&Path>) -> GameCsv {
         let mut g = GameCsv::default();
         for (file, key) in TABLE_FILES {
@@ -217,14 +238,19 @@ impl GameCsv {
         g
     }
 
+    /// Index of `name` in a name table. Keys are stored upper-cased, so
+    /// run-time strings (`GETNUM(TALENT, "Lunatic")`) match case-insensitively.
     pub fn lookup(&self, table: &str, name: &str) -> Option<i64> {
-        self.tables.get(table).and_then(|t| t.by_name.get(name).copied())
+        let t = self.tables.get(table)?;
+        t.by_name.get(name).or_else(|| t.by_name.get(&name.to_uppercase())).copied()
     }
 
     pub fn name_of(&self, table: &str, idx: i64) -> Option<&str> {
         self.tables.get(table).and_then(|t| t.by_index.get(&idx)).map(|s| s.as_str())
     }
 
+    /// A Chara*.csv index column: a number or a name from `table`
+    /// (warns and returns None for unknown names).
     fn idx(&mut self, table: &str, s: &str, file: &Path) -> Option<i64> {
         if let Some(v) = parse_i64(s) {
             return Some(v);
@@ -238,6 +264,7 @@ impl GameCsv {
         }
     }
 
+    /// One character file: `番号,1` / `名前,…` / `能力,技巧,3` style rows.
     fn parse_chara(&mut self, text: &str, file: &Path) -> CharaTemplate {
         let mut c = CharaTemplate::default();
         for line in text.lines() {

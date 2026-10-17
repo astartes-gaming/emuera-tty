@@ -1,26 +1,52 @@
-//! ERB/ERH statement parser and compiler to flat instruction lists.
+//! ERB/ERH statement parser: turns source files into a [`Program`].
+//!
+//! Pipeline per file:
+//!
+//! 1. `logical_lines` — strip comments-only lines, apply `[SKIPSTART]`,
+//!    `[IF_DEBUG]`/`[IF X]` conditional blocks, `[[rename]]` substitution
+//!    and `{ … }` line joining, yielding (line number, text) pairs.
+//! 2. `.ERH` headers (`parse_erh`): `#DEFINE`s first, then global `#DIM`s.
+//! 3. `.ERB` files (`parse_erb`): an `@NAME(args)` line starts a function;
+//!    every following line goes through `statement`, which emits
+//!    [`Instr`]s into a [`FuncBuilder`].
+//!
+//! Block statements are compiled with a stack of open blocks (`Ctl`): IF
+//! emits a `JumpIfNot` with a placeholder target, ELSE/ENDIF *patch* it
+//! once the target is known, BREAK/CONTINUE are recorded on the innermost
+//! loop and patched at NEXT/WEND/LOOP. SIF is special: its jump is patched
+//! after the next statement, whatever it is (`after_stmt`).
+//!
+//! A line that fails to parse becomes an [`Instr::BadLine`] rather than
+//! disappearing, so jumps and SIF still line up and the error surfaces if
+//! the line is actually executed.
 
 use crate::ast::*;
 use crate::expr::{parse_expr, parse_expr_list, parse_form, split_top, ExprParser};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+/// One loaded .ERB/.ERH file (path relative to the game, decoded text).
 pub struct SourceFile {
     pub path: String,
     pub text: String,
 }
 
+/// Everything compiled from a game: what the VM runs.
 #[derive(Default)]
 pub struct Program {
     pub files: Vec<String>,
     /// Functions by uppercase name; several entries == event function.
     pub funcs: HashMap<String, Vec<Rc<Function>>>,
+    /// `#DIM`s from .ERH files, allocated at game start / RESETDATA.
     pub global_dims: Vec<DimDecl>,
+    /// `#DEFINE NAME body`: expanded textually inside expressions.
     pub defines: HashMap<String, String>,
+    /// Parse errors, "file:line: message"; shown by `--check`.
     pub errors: Vec<String>,
 }
 
-/// System string variables (all others are integer).
+/// System string variables (all others are integer). Whether a variable is a
+/// string decides how `X = …` parses: string `=` takes FORM text.
 pub fn is_system_str_var(n: &str) -> bool {
     matches!(
         n,
@@ -34,28 +60,40 @@ pub fn is_system_str_var(n: &str) -> bool {
     )
 }
 
+/// An open block while compiling, with the instruction indices still
+/// waiting for a jump target.
 enum Ctl {
+    /// `test`: the pending JumpIfNot of the current IF/ELSEIF branch;
+    /// `ends`: jumps from the end of each branch to ENDIF.
     If { test: Option<usize>, ends: Vec<usize> },
     Select { slot: usize, test: Option<usize>, ends: Vec<usize>, first: bool },
     For { begin: usize, slot: usize, var: Rc<VarRef>, breaks: Vec<usize>, conts: Vec<usize> },
     While { top: usize, test: usize, breaks: Vec<usize>, conts: Vec<usize> },
     Do { top: usize, breaks: Vec<usize>, conts: Vec<usize> },
+    /// TRYC*… CATCH … ENDCATCH: `call` gets its catch target patched.
     TryC { call: usize, ends: Vec<usize> },
+    /// PRINTDATA (`flags`) / STRDATA (`var`): collects DATA lines until
+    /// ENDDATA; DATALIST…ENDLIST groups several lines into one entry.
     Data { var: Option<Rc<VarRef>>, flags: Option<PrintFlags>, entries: Vec<Vec<Form>>, list: Option<Vec<Form>> },
     CallList { kind: CallKind, goto: bool, entries: Vec<(CallTarget, Vec<Expr>)> },
     NoSkip,
 }
 
+/// The function being compiled.
 struct FuncBuilder {
     f: Function,
+    /// Open blocks, innermost last.
     ctl: Vec<Ctl>,
+    /// SIF jumps waiting for "the end of the next statement".
     sif: Vec<usize>,
-    gotos: Vec<(usize, String)>,
+    /// Private `#DIMS` names (string-typed for assignment parsing).
     str_locals: HashSet<String>,
+    /// Source position recorded for each emitted instruction.
     cur_line: (u32, u32),
 }
 
 impl FuncBuilder {
+    /// Append an instruction; returns its index (for later patching).
     fn emit(&mut self, i: Instr) -> usize {
         self.f.code.push(i);
         self.f.lines.push(self.cur_line);
@@ -64,6 +102,7 @@ impl FuncBuilder {
     fn pc(&self) -> usize {
         self.f.code.len()
     }
+    /// Fill in the jump / exit / catch target of instruction `at`.
     fn patch(&mut self, at: usize, target: usize) {
         match &mut self.f.code[at] {
             Instr::Jump(t) => *t = target,
@@ -75,6 +114,7 @@ impl FuncBuilder {
             _ => {}
         }
     }
+    /// Reserve a per-call scratch slot (FOR bounds, SELECTCASE value).
     fn slot(&mut self) -> usize {
         self.f.n_slots += 1;
         self.f.n_slots - 1
@@ -83,11 +123,16 @@ impl FuncBuilder {
 
 pub struct Parser<'a> {
     pub prog: Program,
+    /// `_Rename.csv` pairs for `[[name]]` substitution.
     rename: &'a [(String, String)],
+    /// Global `#DIMS` names.
     global_str: HashSet<String>,
+    /// `--debug`: keep `;#;` lines and `[IF_DEBUG]` blocks.
     debug: bool,
 }
 
+/// Cut a trailing `; comment`, ignoring `;` inside quotes (quote nesting
+/// pairs up, so a plain toggle is enough).
 fn strip_comment(s: &str) -> &str {
     let mut in_str = false;
     let mut prev = '\0';
@@ -120,6 +165,9 @@ fn split_cmd(line: &str) -> (String, &str) {
     (cmd, rest)
 }
 
+/// Decode a PRINT-family name: `PRINT[SINGLE|PLAIN][V|S|FORM|FORMS][K|D][L|W|C|LC|N]`.
+/// Returns the content kind (R raw, V, S, F form, G forms) and the flags,
+/// or None if `cmd` isn't a PRINT variant.
 pub fn parse_print_name(cmd: &str) -> Option<(char, PrintFlags)> {
     let mut s = cmd.strip_prefix("PRINT")?;
     let mut fl = PrintFlags::default();
@@ -160,6 +208,7 @@ pub fn parse_print_name(cmd: &str) -> Option<(char, PrintFlags)> {
     Some((mid, fl))
 }
 
+/// PRINTDATA[K|D][L|W] → flags, or None for other commands.
 fn print_data_flags(cmd: &str) -> Option<PrintFlags> {
     let s = cmd.strip_prefix("PRINTDATA")?;
     let mut fl = PrintFlags::default();
@@ -194,6 +243,7 @@ fn form_arg_cmd(cmd: &str) -> bool {
     )
 }
 
+/// Block markers that only matter to Emuera's message skipping.
 const IGNORED_BLOCKS: &[&str] = &["NOSKIP", "ENDNOSKIP"];
 
 impl<'a> Parser<'a> {
@@ -297,6 +347,8 @@ impl<'a> Parser<'a> {
         out
     }
 
+    /// Header file: `#DEFINE`s and global `#DIM`s only. All headers are
+    /// parsed before any .ERB, so functions can use what they declare.
     pub fn parse_erh(&mut self, file_idx: u32, src: &SourceFile) {
         let lines = self.logical_lines(&src.text);
         // defines first (so dims can use them)
@@ -330,6 +382,7 @@ impl<'a> Parser<'a> {
         let _ = file_idx;
     }
 
+    /// `#DIM[S] [CONST|STATIC|GLOBAL|SAVEDATA|CHARADATA|REF|DYNAMIC…] NAME[, size…][ = init…]`.
     fn parse_dim(&self, line: &str) -> Result<DimDecl, String> {
         let up = line.to_uppercase();
         let is_str = up.starts_with("#DIMS");
@@ -397,6 +450,7 @@ impl<'a> Parser<'a> {
         Ok(d)
     }
 
+    /// Script file: a sequence of `@FUNCTION` blocks.
     pub fn parse_erb(&mut self, file_idx: u32, src: &SourceFile) {
         let lines = self.logical_lines(&src.text);
         let mut fb: Option<FuncBuilder> = None;
@@ -429,6 +483,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// `@NAME(ARG, ARGS:1 = "x")` or `@NAME, ARG, …`: start a function.
     fn func_header(&self, s: &str, file_idx: u32, line: u32) -> Result<FuncBuilder, String> {
         let s = strip_comment(s).trim();
         let end = s.find(|c: char| c == '(' || c == ',' || c.is_whitespace()).unwrap_or(s.len());
@@ -469,12 +524,13 @@ impl<'a> Parser<'a> {
             },
             ctl: vec![],
             sif: vec![],
-            gotos: vec![],
             str_locals: HashSet::new(),
             cur_line: (file_idx, line),
         })
     }
 
+    /// Close a function: report unclosed blocks and register it. Several
+    /// functions with one name form an event (all are kept).
     fn finish(&mut self, mut b: FuncBuilder, path: &str) {
         if !b.ctl.is_empty() {
             let kinds: Vec<&str> = b
@@ -496,9 +552,6 @@ impl<'a> Parser<'a> {
         }
         // falling off the end returns without touching RESULT
         b.emit(Instr::ReturnF(None));
-        for (at, label) in b.gotos.clone() {
-            let _ = (at, label);
-        }
         let name = b.f.name.clone();
         self.prog.funcs.entry(name).or_default().push(Rc::new(b.f));
     }
@@ -507,6 +560,8 @@ impl<'a> Parser<'a> {
         is_system_str_var(name) || self.global_str.contains(name) || b.str_locals.contains(name)
     }
 
+    /// Called after each complete statement: any pending SIF jumps land
+    /// here, i.e. just past the statement they guarded.
     fn after_stmt(b: &mut FuncBuilder) {
         let pc = b.pc();
         for s in std::mem::take(&mut b.sif) {
@@ -514,6 +569,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Compile one logical line. Order matters: inside PRINTDATA/TRY*LIST
+    /// only their sub-commands are allowed; then labels, `#` directives,
+    /// PRINT variants, control flow, other commands, and finally
+    /// assignment (anything that isn't a known command).
     fn statement(&mut self, b: &mut FuncBuilder, line: &str) -> Result<(), String> {
         // Inside PRINTDATA / STRDATA collect DATA lines.
         if let Some(Ctl::Data { .. }) = b.ctl.last() {
@@ -774,6 +833,7 @@ impl<'a> Parser<'a> {
                 b.ctl.push(Ctl::Do { top, breaks: vec![], conts: vec![] });
             }
             "LOOP" => {
+                // DO … LOOP cond: repeat while cond is true
                 let c = self.expr(arg_c)?;
                 let Some(Ctl::Do { top, breaks, conts }) = b.ctl.pop() else { return Err("LOOP without DO".into()) };
                 let lp = b.pc();
@@ -913,6 +973,9 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// `VAR op value`. Integer and `'=` assignments take an expression list
+    /// (`A = 1, 2, 3` fills A:0..2); a string variable's plain `=` takes
+    /// FORM text, as in Emuera (`STR = Hello %NAME%`).
     fn assignment(&self, b: &mut FuncBuilder, line: &str) -> Result<(), String> {
         let mut p = ExprParser::new(line, &self.prog.defines);
         let mut v = p.var_ref()?;
@@ -976,13 +1039,12 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// Function attributes: private `#DIM`s, `#FUNCTION(S)`, event order.
     fn directive(&mut self, b: &mut FuncBuilder, line: &str) -> Result<(), String> {
         let line = strip_comment(line).trim();
         let up = line.to_uppercase();
         if up.starts_with("#DIM") {
-            let mut d = self.parse_dim(line)?;
-            d.dims = d.dims.into_iter().map(upper_expr).collect();
-            d.init = d.init.into_iter().map(upper_expr).collect();
+            let d = self.parse_dim(line)?;
             if d.is_str {
                 b.str_locals.insert(d.name.clone());
             }
@@ -1023,6 +1085,7 @@ impl<'a> Parser<'a> {
         Ok(v)
     }
 
+    /// The conditions of one CASE line: `a`, `a TO b`, `IS op a`, comma-separated.
     fn case_conds(&self, s: &str) -> Result<Vec<CaseCond>, String> {
         let mut out = Vec::new();
         for part in split_top(s, ',') {
@@ -1129,6 +1192,8 @@ fn strip_comment_form(s: &str) -> &str {
     s
 }
 
+/// Position of `w` as a whitespace-delimited word outside quotes
+/// (`CASE 1 TO 5`), so names containing TO aren't split.
 fn find_word(up: &str, w: &str) -> Option<usize> {
     let mut in_str = false;
     let b = up.as_bytes();
@@ -1172,8 +1237,8 @@ pub fn upper_expr(e: Expr) -> Expr {
 
 pub fn upper_var(v: &mut Rc<VarRef>) {
     let inner = Rc::make_mut(v);
-    // keep original spelling for CSV-name lookups: store uppercase name,
-    // CSV lookups are case-insensitive.
+    // CSV-name indices (`ABL:技巧`) are upper-cased too: name-table
+    // lookups are case-insensitive, so nothing is lost.
     inner.name = inner.name.to_uppercase();
     inner.idx = std::mem::take(&mut inner.idx).into_iter().map(upper_expr).collect();
 }

@@ -1,6 +1,18 @@
-//! Expression and instruction types. Function bodies are compiled into a
-//! flat instruction list with resolved jump targets so the VM can run
-//! GOTO/labels/loops without recursion.
+//! The program representation shared by the parser and the VM.
+//!
+//! ERB source is compiled once at startup into these types:
+//!
+//! * [`Expr`] — expressions (`1 + X:2`, `@"text %NAME%"`, `FOO(1, 2)`).
+//! * [`Form`] — Emuera "FORM strings": literal text with `%…%`, `{…}` and
+//!   `\@ c ? a # b \@` holes, used by PRINTFORM, `@"…"` and string `=`.
+//! * [`Instr`] — one statement. A function body is a *flat* `Vec<Instr>`:
+//!   IF/loops/SELECTCASE/GOTO become jumps to instruction indices that the
+//!   parser patches in, so the VM's main loop is just "run `code[pc]`,
+//!   advance `pc`" and needs no recursion for control flow.
+//! * [`Function`] — a compiled `@FUNCTION` with its parameters, private
+//!   `#DIM`s, labels and per-instruction source positions (for errors).
+//!
+//! All identifiers are stored upper-cased (Emuera is case-insensitive).
 
 use std::rc::Rc;
 
@@ -8,11 +20,14 @@ use std::rc::Rc;
 pub enum Expr {
     Int(i64),
     Str(String),
+    /// `@"…"` or a `\@ … \@` ternary used as a value: evaluated to a string.
     Form(Rc<Form>),
     Var(Rc<VarRef>),
+    /// User function or built-in; resolved at run time (user functions win).
     Call(String, Vec<Expr>),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
+    /// `c ? a # b` (Emuera uses `#` where C uses `:`).
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     /// ++X / X++ / --X / X--  (pre, delta)
     IncDec(Rc<VarRef>, bool, i64),
@@ -20,6 +35,9 @@ pub enum Expr {
     Empty,
 }
 
+/// A variable with its index chain: `CFLAG:TARGET:好感度` is
+/// `name = "CFLAG"`, `idx = [TARGET, 好感度]`. A bare name used as an index
+/// may be a CSV name (`好感度`), resolved against the variable's name table.
 #[derive(Debug, Clone)]
 pub struct VarRef {
     pub name: String,
@@ -53,7 +71,9 @@ pub enum BinOp {
     BitOr,
     And,
     Or,
+    /// `!&` — not (a && b)
     Nand,
+    /// `!|` — not (a || b)
     Nor,
 }
 
@@ -75,6 +95,7 @@ pub enum FormPart {
     Cond(Expr, Form, Form),
 }
 
+/// A FORM string: concatenation of its parts at evaluation time.
 #[derive(Debug, Clone, Default)]
 pub struct Form {
     pub parts: Vec<FormPart>,
@@ -103,7 +124,9 @@ pub enum AsgOp {
     Shr,
 }
 
-/// How a PRINT-family command finishes its output.
+/// How a PRINT-family command finishes its output. The command name is
+/// decoded once by the parser (`PRINTFORMDL` → form + default colour +
+/// newline), so the VM only looks at these flags.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct PrintFlags {
     pub newline: bool,
@@ -118,6 +141,8 @@ pub struct PrintFlags {
     pub no_auto_button: bool,
 }
 
+/// What a PRINT prints: raw text (`PRINT`), a FORM (`PRINTFORM`), one
+/// expression (`PRINTS`) or several (`PRINTV`).
 #[derive(Debug, Clone)]
 pub enum PrintContent {
     Raw(String),
@@ -127,6 +152,8 @@ pub enum PrintContent {
     Exprs(Vec<Expr>),
 }
 
+/// The function / label named by CALL, JUMP, GOTO…: fixed, or built at run
+/// time from a FORM (`CALLFORM EVENT_%NAME%`).
 #[derive(Debug, Clone)]
 pub enum CallTarget {
     Static(String),
@@ -136,10 +163,13 @@ pub enum CallTarget {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CallKind {
     Call,
+    /// JUMP: call, then return from the *calling* function too.
     Jump,
+    /// CALLF: call a #FUNCTION, discarding its value.
     CallF,
 }
 
+/// One condition of a CASE line: `CASE 1`, `CASE 3 TO 5`, `CASE IS >= 10`.
 #[derive(Debug, Clone)]
 pub enum CaseCond {
     Eq(Expr),
@@ -147,6 +177,8 @@ pub enum CaseCond {
     Is(BinOp, Expr),
 }
 
+/// Arguments of a generic built-in command, in the form that command
+/// expects: a comma list, a FORM string, or the raw rest of the line.
 #[derive(Debug, Clone)]
 pub enum Args {
     None,
@@ -155,6 +187,10 @@ pub enum Args {
     Raw(String),
 }
 
+/// One compiled statement. Jump targets (`usize`) are indices into the
+/// owning function's `code`. "Slots" are per-call scratch cells (see
+/// `vm::Slot`) holding loop bounds and the SELECTCASE value, so nested
+/// constructs don't clash.
 #[derive(Debug, Clone)]
 pub enum Instr {
     Nop,
@@ -167,50 +203,73 @@ pub enum Instr {
     /// STRDATA var: pick one random entry into var
     StrData(Option<Rc<VarRef>>, Vec<Vec<Form>>),
     Assign(Rc<VarRef>, AsgOp, Vec<Expr>),
-    /// Assignment whose RHS is a FORM string (string variable `=`/`+=`)
+    /// Assignment whose RHS is a FORM string (string variable `=` only;
+    /// `+=` takes an expression)
     AssignForm(Rc<VarRef>, AsgOp, Form),
+    /// An expression evaluated for its side effects (`X++`, CALLF-style calls).
     Eval(Expr),
     Jump(usize),
+    /// Jump when the condition is false (IF / SIF / WHILE tests).
     JumpIfNot(Expr, usize),
+    /// FOR/REPEAT entry: set `var = start`, keep (end, step) in `slot`,
+    /// and jump to `exit` if the loop runs zero times.
     ForBegin { var: Rc<VarRef>, start: Expr, end: Expr, step: Option<Expr>, slot: usize, exit: usize },
+    /// NEXT/REND: `var += step`; jump back to `body` while still in range.
     ForNext { var: Rc<VarRef>, slot: usize, body: usize, exit: usize },
+    /// SELECTCASE: evaluate once into `slot`.
     SelectEval(Expr, usize),
+    /// CASE: test the value in `slot` against the conditions; on a miss
+    /// jump to the next CASE (third field).
     CaseTest(usize, Vec<CaseCond>, usize),
+    /// CALL / JUMP / CALLF and their TRY*/FORM variants. With `try_`, a
+    /// missing function is not an error; `catch` is where TRYC* goes then.
     Call { target: CallTarget, args: Vec<Expr>, kind: CallKind, try_: bool, catch: Option<usize> },
     /// TRYCALLLIST etc: first existing function wins.
     CallList(Vec<(CallTarget, Vec<Expr>)>, CallKind),
     Goto { target: CallTarget, try_: bool, catch: Option<usize> },
     GotoList(Vec<CallTarget>),
+    /// RETURN a, b, …: values go to RESULT:0, RESULT:1, …
     Return(Vec<Expr>),
+    /// RETURNF x: the value of a #FUNCTION(S) call.
     ReturnF(Option<Expr>),
+    /// BEGIN TRAIN / SHOP / …: unwind to the system loop and switch state.
     Begin(String),
     Restart,
     Quit,
     Throw(Form),
+    /// Any other built-in command, dispatched by name in `vm::builtins`.
     Command(String, Args),
 }
 
+/// A `#DIM` / `#DIMS` declaration (global in .ERH, or private to a function).
 #[derive(Debug, Clone)]
 pub struct DimDecl {
     pub name: String,
     pub is_str: bool,
+    /// Sizes per dimension; may name CONSTs, so evaluated at allocation.
     pub dims: Vec<Expr>,
     pub init: Vec<Expr>,
     pub is_const: bool,
+    /// Private dims keep their value between calls unless DYNAMIC / REF
+    /// (Emuera's default); see `Parser::parse_dim`.
     pub is_static: bool,
     pub is_global: bool,
     pub is_savedata: bool,
     pub is_chara: bool,
+    /// `#DIM REF`: a parameter aliasing the caller's variable.
     pub is_ref: bool,
     pub is_dynamic: bool,
 }
 
+/// A function parameter: the variable it binds to (`ARG:1`, a private
+/// dim…) and its optional default.
 #[derive(Debug, Clone)]
 pub struct Param {
     pub target: Rc<VarRef>,
     pub default: Option<Expr>,
 }
 
+/// Event function ordering (#PRI before normal before #LATER).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EventOrder {
     Pri,
@@ -225,13 +284,19 @@ pub struct Function {
     pub code: Vec<Instr>,
     /// (file index, line number) per instruction
     pub lines: Vec<(u32, u32)>,
+    /// `$LABEL` → instruction index, for GOTO.
     pub labels: std::collections::HashMap<String, usize>,
+    /// Private `#DIM`s declared in this function.
     pub dims: Vec<DimDecl>,
+    /// `#FUNCTION` / `#FUNCTIONS`: callable inside expressions.
     pub is_function: bool,
     pub returns_str: bool,
     pub order: EventOrder,
+    /// `#SINGLE`: stop running further handlers of this event.
     pub single: bool,
+    /// `#ONLY`: this handler replaces all others of the event.
     pub only: bool,
+    /// Number of [`Instr`] slots a call needs.
     pub n_slots: usize,
     pub file: u32,
     pub line: u32,

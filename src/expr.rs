@@ -1,4 +1,17 @@
 //! Expression and FORM-string parser (char-level recursive descent).
+//!
+//! Two entry points matter:
+//!
+//! * [`parse_expr`] / [`ExprParser`] — Emuera expressions. Precedence is
+//!   handled by `binary(level)`, one level per row of the table in
+//!   `binop`, lowest (`||`) first; `primary` handles literals, `@"…"`,
+//!   `\@…\@`, `'text`, calls, `#DEFINE` macros and `VAR:idx:idx` chains.
+//! * [`parse_form`] — FORM strings (`text %str% {int} \@ c ? a # b \@`).
+//!
+//! The awkward part is nesting: `@"a %F("x")% b"` contains a quote that
+//! does *not* end the outer string, because it is inside a `%…%`
+//! expression. The `scan_*` functions find where such regions really end,
+//! mirroring Emuera's own lexer, so every caller agrees on the boundaries.
 
 use crate::ast::*;
 use std::collections::HashMap;
@@ -6,10 +19,8 @@ use std::rc::Rc;
 
 pub type PResult<T> = Result<T, String>;
 
-pub struct Defines<'a> {
-    pub map: &'a HashMap<String, String>,
-}
-
+/// Cursor over one expression's characters. `defs` are the program's
+/// `#DEFINE`s (expanded inline, `depth` guards against runaway recursion).
 pub struct ExprParser<'a> {
     s: Vec<char>,
     pub pos: usize,
@@ -17,6 +28,8 @@ pub struct ExprParser<'a> {
     depth: usize,
 }
 
+/// Can `c` appear in an identifier? Anything that isn't whitespace or an
+/// operator/punctuation character — so Japanese names like `好感度` work.
 pub fn is_ident_char(c: char) -> bool {
     !(c.is_whitespace()
         || c == '\u{3000}'
@@ -28,10 +41,13 @@ impl<'a> ExprParser<'a> {
         ExprParser { s: src.chars().collect(), pos: 0, defs, depth: 0 }
     }
 
+    /// A sub-parser for a `#DEFINE` body, one expansion level deeper.
     fn with_depth(src: &str, defs: &'a HashMap<String, String>, depth: usize) -> Self {
         ExprParser { s: src.chars().collect(), pos: 0, defs, depth }
     }
 
+    /// The unparsed remainder (for error messages and callers that take
+    /// over after an expression, e.g. assignments).
     pub fn rest(&self) -> String {
         self.s[self.pos.min(self.s.len())..].iter().collect()
     }
@@ -66,6 +82,7 @@ impl<'a> ExprParser<'a> {
         true
     }
 
+    /// Skip whitespace and consume `t` if it comes next.
     pub fn eat(&mut self, t: &str) -> bool {
         self.skip_ws();
         if self.starts_with(t) {
@@ -80,6 +97,7 @@ impl<'a> ExprParser<'a> {
         if self.eat(t) { Ok(()) } else { Err(format!("expected '{}' near '{}'", t, self.rest())) }
     }
 
+    /// Read an identifier (not starting with a digit), if there is one.
     pub fn ident(&mut self) -> Option<String> {
         self.skip_ws();
         let start = self.pos;
@@ -118,6 +136,7 @@ impl<'a> ExprParser<'a> {
         Ok(out)
     }
 
+    /// A full expression, including the lowest-precedence `c ? a # b`.
     pub fn expr(&mut self) -> PResult<Expr> {
         let c = self.binary(0)?;
         if self.eat("?") {
@@ -129,6 +148,9 @@ impl<'a> ExprParser<'a> {
         Ok(c)
     }
 
+    /// Consume a binary operator of the given precedence level (0 binds
+    /// loosest). Levels follow Emuera: `||` < `&&` < `|` < `^` < `&` <
+    /// equality < comparison < shifts < `+ -` < `* / %`.
     fn binop(&mut self, level: usize) -> Option<BinOp> {
         self.skip_ws();
         let ops: &[(&str, BinOp)] = match level {
@@ -167,6 +189,7 @@ impl<'a> ExprParser<'a> {
         None
     }
 
+    /// Left-associative chain of operators at `level` and tighter ones.
     fn binary(&mut self, level: usize) -> PResult<Expr> {
         if level > 9 {
             return self.unary();
@@ -179,6 +202,7 @@ impl<'a> ExprParser<'a> {
         Ok(lhs)
     }
 
+    /// Prefix operators: `++X`, `--X`, `-`, `+`, `!`, `~`.
     fn unary(&mut self) -> PResult<Expr> {
         self.skip_ws();
         if self.starts_with("++") || self.starts_with("--") {
@@ -215,6 +239,7 @@ impl<'a> ExprParser<'a> {
         }
     }
 
+    /// A primary, then an optional postfix `X++` / `X--` on a variable.
     fn postfix(&mut self) -> PResult<Expr> {
         let e = self.primary(true)?;
         if let Expr::Var(v) = &e {
@@ -227,6 +252,8 @@ impl<'a> ExprParser<'a> {
         Ok(e)
     }
 
+    /// Integer literal: decimal, `0x…`, `0b…`, plus Emuera's `1p3` (shift)
+    /// and `1e3` (power of ten) suffixes.
     fn number(&mut self) -> PResult<Expr> {
         let start = self.pos;
         let radix = if self.starts_with("0x") || self.starts_with("0X") {
@@ -266,6 +293,7 @@ impl<'a> ExprParser<'a> {
         Ok(Expr::Int(v))
     }
 
+    /// A plain `"…"` literal (no interpolation), with `\n`, `\t`, `\"`.
     pub fn string_lit(&mut self) -> PResult<String> {
         // at '"'
         self.pos += 1;
@@ -296,6 +324,9 @@ impl<'a> ExprParser<'a> {
         Ok(out)
     }
 
+    /// The innermost terms. `allow_index` is false while parsing an index
+    /// itself, so `A:B:C` is one variable with two indices rather than
+    /// `A:(B:C)`.
     fn primary(&mut self, allow_index: bool) -> PResult<Expr> {
         self.skip_ws();
         let Some(c) = self.peek() else { return Err("unexpected end of expression".into()) };
@@ -401,6 +432,7 @@ impl<'a> ExprParser<'a> {
     }
 }
 
+/// Parse `src` as exactly one expression (trailing text is an error).
 pub fn parse_expr(src: &str, defs: &HashMap<String, String>) -> PResult<Expr> {
     let mut p = ExprParser::new(src, defs);
     let e = p.expr()?;
@@ -410,6 +442,8 @@ pub fn parse_expr(src: &str, defs: &HashMap<String, String>) -> PResult<Expr> {
     Ok(e)
 }
 
+/// Parse a comma list such as command arguments; `a,,b` yields an
+/// [`Expr::Empty`] in the middle.
 pub fn parse_expr_list(src: &str, defs: &HashMap<String, String>) -> PResult<Vec<Expr>> {
     let mut p = ExprParser::new(src, defs);
     let e = p.expr_list()?;
@@ -563,6 +597,8 @@ pub fn split_top(s: &str, sep: char) -> Vec<String> {
     out
 }
 
+/// The optional `,width,LEFT` tail of `%expr,width,align%`: pad to width
+/// (right-aligned unless LEFT).
 fn width_align(parts: &[String], defs: &HashMap<String, String>) -> PResult<(Option<Expr>, Align)> {
     let w = match parts.get(1) {
         Some(s) if !s.trim().is_empty() => Some(parse_expr(s.trim(), defs)?),
