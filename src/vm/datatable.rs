@@ -263,9 +263,12 @@ impl DataTable {
 
     // ---------------------------------------------------------------- XML
 
-    /// WriteXmlSchema equivalent.
+    /// WriteXmlSchema equivalent, byte for byte as .NET writes it (checked
+    /// against a real Emuera save): CRLF line ends, the table's own
+    /// CaseSensitive flag.
     pub fn to_xml_schema(&self) -> String {
         let n = xml::escape(&self.name);
+        let cs = if self.case_sensitive { "True" } else { "False" };
         let mut s = String::from("<?xml version=\"1.0\" encoding=\"utf-16\"?>\n");
         s += "<xs:schema id=\"NewDataSet\" xmlns=\"\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:msdata=\"urn:schemas-microsoft-com:xml-msdata\">\n";
         s += &format!(
@@ -273,7 +276,7 @@ impl DataTable {
             n, self.case_sensitive
         );
         s += "    <xs:complexType>\n      <xs:choice minOccurs=\"0\" maxOccurs=\"unbounded\">\n";
-        s += &format!("        <xs:element name=\"{}\">\n          <xs:complexType>\n            <xs:sequence>\n", n);
+        s += &format!("        <xs:element name=\"{}\" msdata:CaseSensitive=\"{}\">\n          <xs:complexType>\n            <xs:sequence>\n", n, cs);
         for c in &self.columns {
             let mut e = format!("              <xs:element name=\"{}\" type=\"{}\"", xml::escape(&c.name), c.ty.xsd());
             if let Some(d) = &c.default {
@@ -292,22 +295,23 @@ impl DataTable {
             n
         );
         s += "  </xs:element>\n</xs:schema>";
-        s
+        s.replace('\n', "\r\n")
     }
 
-    /// WriteXml equivalent (null cells are omitted).
+    /// WriteXml equivalent (null cells are omitted; no XML declaration and
+    /// CRLF line ends, as .NET writes it to a string).
     pub fn to_xml(&self) -> String {
         let n = xml::escape(&self.name);
-        let mut s = String::from("<?xml version=\"1.0\" standalone=\"yes\"?>\n<DocumentElement>\n");
+        let mut s = String::from("<DocumentElement>\r\n");
         for r in &self.rows {
-            s += &format!("  <{}>\n", n);
+            s += &format!("  <{}>\r\n", n);
             for (c, v) in self.columns.iter().zip(r) {
                 if let Some(v) = v {
                     let cn = xml::escape(&c.name);
-                    s += &format!("    <{}>{}</{}>\n", cn, xml::escape(&v.as_string()), cn);
+                    s += &format!("    <{}>{}</{}>\r\n", cn, xml::escape(&v.as_string()), cn);
                 }
             }
-            s += &format!("  </{}>\n", n);
+            s += &format!("  </{}>\r\n", n);
         }
         s += "</DocumentElement>";
         s

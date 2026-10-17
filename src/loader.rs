@@ -30,8 +30,8 @@ pub fn decode(bytes: &[u8]) -> String {
 pub fn find_dir_ci(base: &Path, name: &str) -> Option<PathBuf> {
     let rd = fs::read_dir(base).ok()?;
     for e in rd.flatten() {
-        if e.file_type().map(|t| t.is_dir()).unwrap_or(false)
-            && e.file_name().to_string_lossy().eq_ignore_ascii_case(name)
+        // e.path().is_dir() follows symlinks (a linked resources/ folder)
+        if e.file_name().to_string_lossy().eq_ignore_ascii_case(name) && e.path().is_dir()
         {
             return Some(e.path());
         }

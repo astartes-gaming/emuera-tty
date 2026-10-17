@@ -29,7 +29,9 @@ pub enum Expr {
     Form(Rc<Form>),
     Var(Rc<VarRef>),
     /// User function or built-in; resolved at run time (user functions win).
-    Call(String, Vec<Expr>),
+    /// Boxed (with the width / ternary parts of [`FormPart`]) to keep
+    /// `Expr` at 32 bytes: the parsed program holds millions of them.
+    Call(Box<(String, Vec<Expr>)>),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// `c ? a # b` (Emuera uses `#` where C uses `:`).
@@ -93,11 +95,11 @@ pub enum Align {
 pub enum FormPart {
     Lit(String),
     /// %expr,width,align%   (string interpolation; ints are stringified)
-    Str(Expr, Option<Expr>, Align),
+    Str(Expr, Option<Box<Expr>>, Align),
     /// {expr,width,align}
-    Int(Expr, Option<Expr>, Align),
+    Int(Expr, Option<Box<Expr>>, Align),
     /// \@ cond ? a # b \@
-    Cond(Expr, Form, Form),
+    Cond(Box<(Expr, Form, Form)>),
 }
 
 /// A FORM string: concatenation of its parts at evaluation time.
@@ -217,7 +219,7 @@ pub enum Instr {
     JumpIfNot(Expr, usize),
     /// FOR/REPEAT entry: set `var = start`, keep (end, step) in `slot`,
     /// and jump to `exit` if the loop runs zero times.
-    ForBegin { var: Rc<VarRef>, start: Expr, end: Expr, step: Option<Expr>, slot: usize, exit: usize },
+    ForBegin(Box<ForBegin>),
     /// NEXT/REND: `var += step`; jump back to `body` while still in range.
     ForNext { var: Rc<VarRef>, slot: usize, body: usize },
     /// SELECTCASE: evaluate once into `slot`.
@@ -227,10 +229,11 @@ pub enum Instr {
     CaseTest(usize, Vec<CaseCond>, usize),
     /// CALL / JUMP / CALLF and their TRY*/FORM variants. With `try_`, a
     /// missing function is not an error; `catch` is where TRYC* goes then.
-    Call { target: CallTarget, args: Vec<Expr>, kind: CallKind, try_: bool, catch: Option<usize> },
+    Call(Box<CallInstr>),
     /// TRYCALLLIST etc: first existing function wins.
     CallList(Vec<(CallTarget, Vec<Expr>)>, CallKind),
-    Goto { target: CallTarget, try_: bool, catch: Option<usize> },
+    /// GOTO / TRYGOTO …: (target, try_, catch) as for `Call`
+    Goto(Box<(CallTarget, bool, Option<usize>)>),
     GotoList(Vec<CallTarget>),
     /// RETURN a, b, …: values go to RESULT:0, RESULT:1, …
     Return(Vec<Expr>),
@@ -242,13 +245,40 @@ pub enum Instr {
     Quit,
     Throw(Form),
     /// Any other built-in command, dispatched by name in `vm::builtins`.
-    Command(String, Args),
+    Command(Box<(String, Args)>),
+}
+
+// The two largest instructions live behind a Box: every instruction is as
+// big as the largest variant, and there are millions of them (AnonTW: 2.1M).
+
+/// See [`Instr::ForBegin`].
+#[derive(Debug, Clone)]
+pub struct ForBegin {
+    pub var: Rc<VarRef>,
+    pub start: Expr,
+    pub end: Expr,
+    pub step: Option<Expr>,
+    pub slot: usize,
+    pub exit: usize,
+}
+
+/// See [`Instr::Call`].
+#[derive(Debug, Clone)]
+pub struct CallInstr {
+    pub target: CallTarget,
+    pub args: Vec<Expr>,
+    pub kind: CallKind,
+    pub try_: bool,
+    pub catch: Option<usize>,
 }
 
 /// A `#DIM` / `#DIMS` declaration (global in .ERH, or private to a function).
 #[derive(Debug, Clone)]
 pub struct DimDecl {
+    /// upper-cased (identifiers are case-insensitive)
     pub name: String,
+    /// as written in the script: Emuera saves variables under this spelling
+    pub decl_name: String,
     pub is_str: bool,
     /// Sizes per dimension; may name CONSTs, so evaluated at allocation.
     pub dims: Vec<Expr>,
@@ -304,4 +334,16 @@ pub struct Function {
     pub n_slots: usize,
     pub file: u32,
     pub line: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    /// The parsed program holds millions of these (AnonTW: 2.1M
+    /// instructions): growing them costs hundreds of MB.
+    #[test]
+    fn node_sizes_stay_small() {
+        assert!(std::mem::size_of::<super::Instr>() <= 48);
+        assert!(std::mem::size_of::<super::Expr>() <= 32);
+        assert!(std::mem::size_of::<super::FormPart>() <= 48);
+    }
 }

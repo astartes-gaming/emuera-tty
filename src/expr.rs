@@ -404,7 +404,7 @@ impl<'a> ExprParser<'a> {
                 self.expect(")")?;
                 a
             };
-            return Ok(Expr::Call(name, args));
+            return Ok(Expr::Call(Box::new((name, args))));
         }
         let mut idx = Vec::new();
         if allow_index {
@@ -620,7 +620,10 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
     let mut i = 0;
     let flush = |lit: &mut String, parts: &mut Vec<FormPart>| {
         if !lit.is_empty() {
-            parts.push(FormPart::Lit(std::mem::take(lit)));
+            // built a char at a time: drop the growth slack, it's kept for good
+            let mut s = std::mem::take(lit);
+            s.shrink_to_fit();
+            parts.push(FormPart::Lit(s));
         }
     };
     while i < ch.len() {
@@ -642,7 +645,7 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
                 let a = text(q + 1, a_end);
                 let b = if end > a_end { text(a_end + 1, end) } else { String::new() };
                 flush(&mut lit, &mut parts);
-                parts.push(FormPart::Cond(cond, parse_form(&a, defs)?, parse_form(&b, defs)?));
+                parts.push(FormPart::Cond(Box::new((cond, parse_form(&a, defs)?, parse_form(&b, defs)?))));
                 i = end + 2;
                 continue;
             }
@@ -667,6 +670,7 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
             let e = parse_expr(sp[0].trim(), defs)?;
             let (w, a) = width_align(&sp, defs)?;
             flush(&mut lit, &mut parts);
+            let w = w.map(Box::new);
             parts.push(if c == '%' { FormPart::Str(e, w, a) } else { FormPart::Int(e, w, a) });
             i = j + 1;
             continue;
@@ -675,5 +679,6 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
         i += 1;
     }
     flush(&mut lit, &mut parts);
+    parts.shrink_to_fit();
     Ok(Form { parts })
 }

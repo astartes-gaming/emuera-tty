@@ -110,10 +110,10 @@ impl FuncBuilder {
         match &mut self.f.code[at] {
             Instr::Jump(t) => *t = target,
             Instr::JumpIfNot(_, t) => *t = target,
-            Instr::ForBegin { exit, .. } => *exit = target,
+            Instr::ForBegin(f) => f.exit = target,
             Instr::CaseTest(_, _, t) => *t = target,
-            Instr::Call { catch, .. } => *catch = Some(target),
-            Instr::Goto { catch, .. } => *catch = Some(target),
+            Instr::Call(c) => c.catch = Some(target),
+            Instr::Goto(g) => g.2 = Some(target),
             _ => {}
         }
     }
@@ -432,6 +432,7 @@ impl<'a> Parser<'a> {
         let mut p = ExprParser::new(rest, &self.prog.defines);
         let mut d = DimDecl {
             name: String::new(),
+            decl_name: String::new(),
             is_str,
             dims: vec![],
             init: vec![],
@@ -457,6 +458,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     let _ = save;
                     d.name = id.to_uppercase();
+                    d.decl_name = id.to_string();
                     break;
                 }
             }
@@ -598,6 +600,12 @@ impl<'a> Parser<'a> {
         }
         // falling off the end returns without touching RESULT
         b.emit(Instr::ReturnF(None));
+        // the program is kept for the whole run: no spare capacity
+        b.f.code.shrink_to_fit();
+        b.f.lines.shrink_to_fit();
+        b.f.dims.shrink_to_fit();
+        b.f.params.shrink_to_fit();
+        b.f.labels.shrink_to_fit();
         let name = b.f.name.clone();
         self.prog.funcs.entry(name).or_default().push(Rc::new(b.f));
     }
@@ -720,7 +728,7 @@ impl<'a> Parser<'a> {
                 let content = match mid {
                     'R' => PrintContent::Raw(rest.to_string()),
                     'F' => PrintContent::Form(upper_form(parse_form(rest, defs)?)),
-                    'G' => PrintContent::Exprs(vec![Expr::Call("__FORMS".into(), vec![upper_expr(parse_expr(arg_c, defs)?)])]),
+                    'G' => PrintContent::Exprs(vec![Expr::Call(Box::new(("__FORMS".into(), vec![upper_expr(parse_expr(arg_c, defs)?)])))]),
                     'S' => PrintContent::Expr(upper_expr(parse_expr(arg_c, defs)?)),
                     'V' => PrintContent::Exprs(parse_expr_list(arg_c, defs)?.into_iter().map(upper_expr).collect()),
                     _ => unreachable!(),
@@ -843,7 +851,7 @@ impl<'a> Parser<'a> {
                     (Rc::new(VarRef { name: "COUNT".into(), idx: vec![] }), Expr::Int(0), self.expr(arg_c)?, None)
                 };
                 let slot = b.slot();
-                let begin = b.emit(Instr::ForBegin { var: var.clone(), start, end, step, slot, exit: 0 });
+                let begin = b.emit(Instr::ForBegin(Box::new(ForBegin { var: var.clone(), start, end, step, slot, exit: 0 })));
                 b.ctl.push(Ctl::For { begin, slot, var, breaks: vec![], conts: vec![] });
             }
             "NEXT" | "REND" => {
@@ -928,7 +936,7 @@ impl<'a> Parser<'a> {
                     CallKind::Call
                 };
                 let try_ = cmd.starts_with("TRY");
-                let c = b.emit(Instr::Call { target, args, kind, try_, catch: None });
+                let c = b.emit(Instr::Call(Box::new(CallInstr { target, args, kind, try_, catch: None })));
                 if matches!(cmd.as_str(), "TRYCCALL" | "TRYCJUMP" | "TRYCCALLFORM" | "TRYCJUMPFORM") {
                     b.ctl.push(Ctl::TryC { call: c, ends: vec![] });
                     return Ok(());
@@ -937,7 +945,7 @@ impl<'a> Parser<'a> {
             }
             "TRYCGOTO" | "TRYCGOTOFORM" => {
                 let target = self.goto_target(arg_c, cmd.contains("FORM"))?;
-                let c = b.emit(Instr::Goto { target, try_: true, catch: None });
+                let c = b.emit(Instr::Goto(Box::new((target, true, None))));
                 b.ctl.push(Ctl::TryC { call: c, ends: vec![] });
             }
             "CATCH" => {
@@ -951,7 +959,7 @@ impl<'a> Parser<'a> {
             "ENDCATCH" => {
                 let Some(Ctl::TryC { call, ends }) = b.ctl.pop() else { return Err("ENDCATCH without TRYC*".into()) };
                 let pc = b.pc();
-                if let Instr::Call { catch: None, .. } | Instr::Goto { catch: None, .. } = &b.f.code[call] {
+                if matches!(&b.f.code[call], Instr::Call(c) if c.catch.is_none()) || matches!(&b.f.code[call], Instr::Goto(g) if g.2.is_none()) {
                     b.patch(call, pc);
                 }
                 for e in ends {
@@ -965,7 +973,7 @@ impl<'a> Parser<'a> {
             }
             "GOTO" | "TRYGOTO" | "GOTOFORM" | "TRYGOTOFORM" => {
                 let target = self.goto_target(arg_c, cmd.contains("FORM"))?;
-                b.emit(Instr::Goto { target, try_: cmd.starts_with("TRY"), catch: None });
+                b.emit(Instr::Goto(Box::new((target, cmd.starts_with("TRY"), None))));
                 Self::after_stmt(b);
             }
             "RETURN" => {
@@ -1014,7 +1022,7 @@ impl<'a> Parser<'a> {
                     } else {
                         Args::Exprs(parse_expr_list(arg_c, defs)?.into_iter().map(upper_expr).collect())
                     };
-                    b.emit(Instr::Command(cmd, args));
+                    b.emit(Instr::Command(Box::new((cmd, args))));
                 } else {
                     self.assignment(b, line)?;
                 }
@@ -1288,7 +1296,12 @@ pub fn upper_expr(e: Expr) -> Expr {
             upper_var(&mut v);
             Expr::Var(v)
         }
-        Expr::Call(n, a) => Expr::Call(n.to_uppercase(), a.into_iter().map(upper_expr).collect()),
+        Expr::Call(c) => {
+            let (n, a) = *c;
+            let mut a: Vec<Expr> = a.into_iter().map(upper_expr).collect();
+            a.shrink_to_fit();
+            Expr::Call(Box::new((n.to_uppercase(), a)))
+        }
         Expr::Unary(o, x) => Expr::Unary(o, Box::new(upper_expr(*x))),
         Expr::Binary(o, a, b) => Expr::Binary(o, Box::new(upper_expr(*a)), Box::new(upper_expr(*b))),
         Expr::Ternary(a, b, c) => Expr::Ternary(Box::new(upper_expr(*a)), Box::new(upper_expr(*b)), Box::new(upper_expr(*c))),
@@ -1297,17 +1310,44 @@ pub fn upper_expr(e: Expr) -> Expr {
             upper_var(&mut v);
             Expr::IncDec(v, p, d)
         }
-        Expr::Form(f) => Expr::Form(Rc::new(upper_form((*f).clone()))),
+        Expr::Form(f) => Expr::Form(Rc::new(upper_form(Rc::try_unwrap(f).unwrap_or_else(|f| (*f).clone())))),
         e => e,
     }
+}
+
+/// One shared copy of each variable name per parse thread: the same few
+/// thousand names occur millions of times in a big game.
+fn intern(s: String) -> crate::ast::Name {
+    thread_local! {
+        static NAMES: std::cell::RefCell<HashSet<crate::ast::Name>> = std::cell::RefCell::new(HashSet::default());
+    }
+    NAMES.with(|n| {
+        let mut n = n.borrow_mut();
+        if let Some(x) = n.get(s.as_str()) {
+            return x.clone();
+        }
+        let x: crate::ast::Name = s.into();
+        n.insert(x.clone());
+        x
+    })
 }
 
 pub fn upper_var(v: &mut Rc<VarRef>) {
     let inner = Rc::make_mut(v);
     // CSV-name indices (`ABL:技巧`) are upper-cased too: name-table
     // lookups are case-insensitive, so nothing is lost.
-    inner.name = inner.name.to_uppercase().into();
-    inner.idx = std::mem::take(&mut inner.idx).into_iter().map(upper_expr).collect();
+    inner.name = intern(inner.name.to_uppercase());
+    let mut idx: Vec<Expr> = std::mem::take(&mut inner.idx).into_iter().map(upper_expr).collect();
+    idx.shrink_to_fit();
+    inner.idx = idx;
+    // a bare `LOCAL` / `RESULT` …: one shared reference per name
+    if inner.idx.is_empty() {
+        thread_local! {
+            static BARE: std::cell::RefCell<HashMap<crate::ast::Name, Rc<VarRef>>> = std::cell::RefCell::new(HashMap::default());
+        }
+        let name = inner.name.clone();
+        *v = BARE.with(|b| b.borrow_mut().entry(name).or_insert_with(|| v.clone()).clone());
+    }
 }
 
 pub fn upper_form(f: Form) -> Form {
@@ -1316,9 +1356,12 @@ pub fn upper_form(f: Form) -> Form {
             .parts
             .into_iter()
             .map(|p| match p {
-                FormPart::Str(e, w, a) => FormPart::Str(upper_expr(e), w.map(upper_expr), a),
-                FormPart::Int(e, w, a) => FormPart::Int(upper_expr(e), w.map(upper_expr), a),
-                FormPart::Cond(c, a, b) => FormPart::Cond(upper_expr(c), upper_form(a), upper_form(b)),
+                FormPart::Str(e, w, a) => FormPart::Str(upper_expr(e), w.map(|w| Box::new(upper_expr(*w))), a),
+                FormPart::Int(e, w, a) => FormPart::Int(upper_expr(e), w.map(|w| Box::new(upper_expr(*w))), a),
+                FormPart::Cond(c) => {
+                    let (c, a, b) = *c;
+                    FormPart::Cond(Box::new((upper_expr(c), upper_form(a), upper_form(b))))
+                }
                 l => l,
             })
             .collect(),

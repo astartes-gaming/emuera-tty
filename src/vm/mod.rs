@@ -29,6 +29,7 @@
 
 pub mod builtins;
 pub mod datatable;
+pub mod erasav;
 pub mod save;
 pub mod system;
 pub mod value;
@@ -121,6 +122,10 @@ pub struct Vm {
     pub xml_docs: HashMap<String, crate::xml::Element>,
     /// extensions LOADTEXT/SAVETEXT may use with a path (config), plus txt
     pub text_exts: Vec<String>,
+    /// save folder / compression, from the config
+    pub save_opts: save::SaveOpts,
+    /// VarExt*.csv: Emuera-EM data saved with the game
+    pub varext: save::VarExt,
     /// REF bindings collected by `call_args` for the next `call_func`
     pending_refs: Vec<(String, Loc)>,
     /// `EMUERA_TRACE`: log calls whose name contains this.
@@ -131,6 +136,9 @@ pub struct Vm {
     pub game_dir: PathBuf,
     /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
+    /// instructions run, for the periodic screen update (`tick`)
+    ticks: u32,
+    last_draw: std::time::Instant,
     /// ISTIMEOUT: did the last timed input expire?
     pub is_timeout: bool,
     pub last_input: String,
@@ -177,12 +185,16 @@ impl Vm {
             dts: HashMap::default(),
             xml_docs: HashMap::default(),
             text_exts: vec!["txt".into()],
+            save_opts: save::SaveOpts::default(),
+            varext: save::VarExt::load(crate::loader::find_dir_ci(&game_dir, "CSV").as_deref()),
             pending_refs: Vec::new(),
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             rng: seed | 1,
             warned: HashSet::default(),
             game_dir,
             strict: false,
+            ticks: 0,
+            last_draw: std::time::Instant::now(),
             is_timeout: false,
             last_input: String::new(),
             state: "TITLE".into(),
@@ -245,8 +257,22 @@ impl Vm {
             self.global_arr("ITEMPRICE").set(i.max(0) as usize, Value::Int(p));
         }
         self.global_arr("MASTER").set_i(0, 0);
-        self.global_arr("TARGET").set_i(0, 0);
+        self.global_arr("TARGET").set_i(0, 1);
         self.global_arr("ASSI").set_i(0, -1);
+        // Emuera's level tables (_Replace.csv may give its own, `a/b/c…`)
+        for (var, key, def) in [
+            ("PALAMLV", "PALAMLVの初期値", &[0i64, 100, 500, 3000, 10000, 30000, 60000, 100000, 150000, 250000][..]),
+            ("EXPLV", "EXPLVの初期値", &[0, 1, 4, 20, 50, 200][..]),
+        ] {
+            let vals: Vec<i64> = match self.csv.replace.get(key) {
+                Some(s) => s.split('/').filter_map(|x| x.trim().parse().ok()).collect(),
+                None => def.to_vec(),
+            };
+            let a = self.global_arr(var);
+            for (i, v) in vals.into_iter().enumerate().take(a.len()) {
+                a.set_i(i, v);
+            }
+        }
     }
 
     /// Allocate a `#DIM` declaration: evaluate its sizes and initialisers.
@@ -663,7 +689,7 @@ impl Vm {
             Expr::Empty => Ok(Value::Int(0)),
             Expr::Form(f) => Ok(Value::Str(self.eval_form(f)?)),
             Expr::Var(v) => self.get_var(v),
-            Expr::Call(name, args) => self.call_expr(name, args),
+            Expr::Call(c) => self.call_expr(&c.0, &c.1),
             Expr::Unary(op, x) => {
                 let v = self.eval(x)?;
                 Ok(Value::Int(match op {
@@ -792,7 +818,8 @@ impl Vm {
                         None => out.push_str(&s),
                     }
                 }
-                FormPart::Cond(c, a, b) => {
+                FormPart::Cond(cab) => {
+                    let (c, a, b) = &**cab;
                     let s = if self.eval(c)?.truthy() { self.eval_form(a)? } else { self.eval_form(b)? };
                     out.push_str(&s);
                 }
@@ -971,6 +998,10 @@ impl Vm {
                 return Ok(None);
             }
             self.frames.last_mut().unwrap().pc = pc + 1;
+            self.ticks = self.ticks.wrapping_add(1);
+            if self.ticks & 0xFFF == 0 {
+                self.tick()?;
+            }
             match self.step(&f, pc) {
                 Ok(None) => {}
                 Ok(Some(ret)) => return Ok(ret),
@@ -1066,7 +1097,8 @@ impl Vm {
                     self.set_pc(*t);
                 }
             }
-            Instr::ForBegin { var, start, end, step, slot, exit } => {
+            Instr::ForBegin(fb) => {
+                let ForBegin { var, start, end, step, slot, exit } = &**fb;
                 let s = self.eval_int(start)?;
                 let e = self.eval_int(end)?;
                 let st = match step {
@@ -1111,7 +1143,8 @@ impl Vm {
                     self.set_pc(*next);
                 }
             }
-            Instr::Call { target, args, kind, try_, catch } => {
+            Instr::Call(ci) => {
+                let CallInstr { target, args, kind, try_, catch } = &**ci;
                 let name = self.resolve_target(target)?;
                 let (vals, refs) = match self.prog.funcs.get(&name).map(|fs| fs[0].clone()) {
                     Some(f) => self.call_args(&f, args)?,
@@ -1148,7 +1181,8 @@ impl Vm {
                     }
                 }
             }
-            Instr::Goto { target, try_, catch } => {
+            Instr::Goto(g) => {
+                let (target, try_, catch) = (&g.0, &g.1, &g.2);
                 let label = self.resolve_target(target)?;
                 match f.labels.get(&label) {
                     Some(&t) => self.set_pc(t),
@@ -1206,7 +1240,7 @@ impl Vm {
                 let s = self.eval_form(fm)?;
                 return err(format!("THROW: {}", s));
             }
-            Instr::Command(name, args) => self.command(name, args)?,
+            Instr::Command(c) => self.command(&c.0, &c.1)?,
         }
         Ok(None)
     }
@@ -1435,6 +1469,23 @@ impl Vm {
             Some(s) if s.is_empty() => default.unwrap_or_default(),
             Some(s) => s,
         })
+    }
+
+    /// Every few thousand instructions: while a script computes for a long
+    /// time, keep the screen up to date (as Emuera does) and let Ctrl+C
+    /// quit, so a long or endless loop never looks like a dead program.
+    fn tick(&mut self) -> VmResult<()> {
+        if self.last_draw.elapsed() < std::time::Duration::from_millis(150) {
+            return Ok(());
+        }
+        self.last_draw = std::time::Instant::now();
+        if self.fe.poll_interrupt() {
+            return Err(Ctrl::Quit);
+        }
+        if self.con.dirty && self.con.redraw {
+            self.flush();
+        }
+        Ok(())
     }
 
     /// Push pending output to the frontend without waiting.

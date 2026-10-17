@@ -455,14 +455,39 @@ pub fn install() -> Result<String, String> {
     install_from(&exe)
 }
 
-/// The per-user (non-root) binary folder: `$XDG_BIN_HOME` if set, else
-/// `~/.local/bin` (the XDG / systemd file-hierarchy default).
+/// Can we write into `d` (an existing folder)?
+fn writable(d: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = std::ffi::CString::new(d.as_os_str().as_bytes()) else { return false };
+    d.is_dir() && unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 }
+}
+
+/// Where `--install` puts the program: a folder on the default `$PATH`, so
+/// `emuera-tty` runs from any terminal right away. In order:
+/// 1. a writable PATH folder that already has emuera-tty (upgrade in place);
+/// 2. the usual user folders when they are on PATH: `$XDG_BIN_HOME`,
+///    `~/.local/bin`, `~/bin`;
+/// 3. any other writable PATH folder (e.g. `/usr/local/bin` as root), but
+///    not tool-managed ones like `~/.cargo/bin`;
+/// 4. failing all that, `$XDG_BIN_HOME` or `~/.local/bin` (created; the
+///    install message then says how to add it to PATH).
 pub fn bin_dir() -> Result<PathBuf, String> {
-    if let Some(d) = std::env::var_os("XDG_BIN_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
-        return Ok(d);
+    let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?);
+    let xdg = std::env::var_os("XDG_BIN_HOME").map(PathBuf::from).filter(|p| p.is_absolute());
+    let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|d| d.is_absolute()).collect()).unwrap_or_default();
+    if let Some(d) = path.iter().find(|d| d.join("emuera-tty").is_file() && writable(d)) {
+        return Ok(d.clone());
     }
-    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".local").join("bin"))
+    let usual: Vec<PathBuf> = xdg.iter().cloned().chain([home.join(".local").join("bin"), home.join("bin")]).collect();
+    if let Some(d) = usual.iter().find(|u| path.contains(u) && (writable(u) || !u.exists())) {
+        return Ok(d.clone());
+    }
+    let managed = [".cargo", ".rustup", ".npm", ".nvm", ".pyenv", ".rbenv", ".local/share", "go/bin", "snap"];
+    let is_managed = |d: &Path| d.strip_prefix(&home).is_ok_and(|r| managed.iter().any(|m| r.starts_with(m)));
+    if let Some(d) = path.iter().find(|d| writable(d) && !is_managed(d)) {
+        return Ok(d.clone());
+    }
+    Ok(xdg.unwrap_or_else(|| home.join(".local").join("bin")))
 }
 
 /// Copy the binary `exe` to the user binary folder ([`bin_dir`]).
@@ -489,7 +514,13 @@ fn install_from(exe: &Path) -> Result<String, String> {
 
 /// `--uninstall`: remove the installed copy.
 pub fn uninstall() -> Result<String, String> {
-    let dest = bin_dir()?.join("emuera-tty");
+    // the copy the shell would run, else where --install would put it
+    let on_path = std::env::var_os("PATH")
+        .and_then(|p| std::env::split_paths(&p).map(|d| d.join("emuera-tty")).find(|f| f.is_file() && f.parent().is_some_and(writable)));
+    let dest = match on_path {
+        Some(f) => f,
+        None => bin_dir()?.join("emuera-tty"),
+    };
     match std::fs::remove_file(&dest) {
         Ok(()) => Ok(format!("Removed {}.", dest.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!("{} is not installed.", dest.display())),

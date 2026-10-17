@@ -176,6 +176,11 @@ impl Vm {
     fn shop(&mut self, skip_event: bool) -> VmResult<String> {
         if !skip_event {
             self.call_opt("EVENTSHOP")?;
+            // Emuera autosaves each time SHOP is entered by BEGIN (not
+            // right after a load)
+            if self.save_opts.autosave {
+                self.autosave()?;
+            }
         }
         loop {
             self.call_opt("SHOW_SHOP")?;
@@ -316,6 +321,23 @@ impl Vm {
         }
     }
 
+    /// The autosave: @SYSTEM_AUTOSAVE if the game has one, else slot 99
+    /// with a timestamp and @SAVEINFO's text.
+    fn autosave(&mut self) -> VmResult<()> {
+        if self.call_opt("SYSTEM_AUTOSAVE")? {
+            return Ok(());
+        }
+        let stamp = super::builtins::save_timestamp();
+        self.globals.entry("SAVEDATA_TEXT".into()).or_insert_with(|| super::vars::Arr::new(true, &[1])).set(0, Value::Str(stamp));
+        self.call_opt("SAVEINFO")?;
+        let text = self.globals.get("SAVEDATA_TEXT").map(|a| a.get(0).into_string()).unwrap_or_default();
+        if let Err(Ctrl::Error(e, _)) = self.save_slot(99, &text) {
+            self.con.print(&format!("autosave failed: {}", e));
+            self.con.newline();
+        }
+        Ok(())
+    }
+
     /// Built-in save/load menu. Returns true if something was saved/loaded.
     pub fn save_menu(&mut self, save: bool) -> VmResult<bool> {
         loop {
@@ -323,11 +345,7 @@ impl Vm {
             self.con.print(if save { "どこにセーブしますか？" } else { "どれをロードしますか？" });
             self.con.newline();
             for n in 0..20 {
-                let t = self.peek_save(n);
-                let label = match &t {
-                    Some(t) => format!("[{:2}] {}", n, t),
-                    None => format!("[{:2}] ----", n),
-                };
+                let label = format!("[{:2}] {}", n, self.check_save(n).mes);
                 self.con.print_button(&label, Value::Int(n));
                 self.con.newline();
             }
@@ -341,22 +359,16 @@ impl Vm {
                 continue;
             }
             if save {
-                self.globals.remove("SAVEDATA_TEXT");
+                // as Emuera: a timestamp, then whatever @SAVEINFO PUTFORMs
+                let stamp = super::builtins::save_timestamp();
+                self.globals.entry("SAVEDATA_TEXT".into()).or_insert_with(|| super::vars::Arr::new(true, &[1])).set(0, Value::Str(stamp));
                 if self.has_func("SAVEINFO") {
                     self.call_name("SAVEINFO", vec![])?;
                 }
-                let text = self
-                    .globals
-                    .get("SAVEDATA_TEXT")
-                    .map(|a| a.get(0).into_string())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| {
-                        let t = super::builtins::format_number(self.get_global_i("DAY", 0), "");
-                        format!("DAY {}", t)
-                    });
+                let text = self.globals.get("SAVEDATA_TEXT").map(|a| a.get(0).into_string()).unwrap_or_default();
                 self.save_slot(v, &text)?;
                 return Ok(true);
-            } else if self.peek_save(v).is_some() {
+            } else if self.check_save(v).state == 0 {
                 return self.load_slot(v);
             }
         }

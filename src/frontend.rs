@@ -56,6 +56,11 @@ pub trait Frontend {
     fn is_fullscreen(&self) -> bool {
         false
     }
+    /// Called now and then while a script runs: has the user asked to quit
+    /// (Ctrl+C) or gone away (terminal closed)? Other typed keys stay queued.
+    fn poll_interrupt(&mut self) -> bool {
+        false
+    }
     /// Override the width, for frontends with no real terminal size.
     fn set_cols(&mut self, _cols: usize) {}
     fn shutdown(&mut self) {}

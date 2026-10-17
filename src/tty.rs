@@ -104,6 +104,9 @@ pub struct Tty {
     buttons: Vec<Value>,
     hover: Option<usize>,
     active: bool,
+    /// the terminal went away (hangup / end of input): quit instead of
+    /// waiting forever on a dead stdin
+    hangup: bool,
     fb_cell_fixed: bool,
 }
 
@@ -233,6 +236,7 @@ impl Tty {
             buttons: Vec::new(),
             hover: None,
             active: true,
+            hangup: false,
             fb_cell_fixed: false,
         };
         if xp > 0 && yp > 0 {
@@ -265,6 +269,10 @@ impl Tty {
         if r <= 0 {
             return false;
         }
+        if pfd[0].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 && pfd[0].revents & libc::POLLIN == 0 {
+            self.hangup = true;
+            return false;
+        }
         if pfd[1].revents & libc::POLLIN != 0 {
             let (cell, cols, rows) = (self.cell, self.cols, self.rows);
             if let Some(m) = &mut self.mice {
@@ -282,8 +290,19 @@ impl Tty {
             self.pending.extend_from_slice(&b[..n as usize]);
             true
         } else {
+            // 0: end of input; an error other than "try again"
+            let e = std::io::Error::last_os_error().raw_os_error();
+            if n == 0 || !matches!(e, Some(libc::EINTR) | Some(libc::EAGAIN)) {
+                self.hangup = true;
+            }
             false
         }
+    }
+
+    /// Is unread input waiting on stdin right now?
+    fn input_waiting(&self) -> bool {
+        let mut pfd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+        unsafe { libc::poll(&mut pfd, 1, 0) > 0 && pfd.revents & libc::POLLIN != 0 }
     }
 
     /// Send a query and collect the reply until `done` or timeout.
@@ -938,7 +957,17 @@ impl Frontend for Tty {
         self.render(con, res, Some(req));
         let deadline = req.timeout_ms.map(|t| Instant::now() + Duration::from_millis(t));
         let (mut last_cols, mut last_rows) = (self.cols, self.rows);
+        // a redraw owed for input already handled: done once the burst of
+        // input (mouse motion, a held key) has been read, not per event
+        let mut owed = false;
         loop {
+            if self.hangup {
+                return InputResult::Quit;
+            }
+            if owed && self.queued.is_empty() && self.pending.is_empty() && !self.input_waiting() {
+                self.render(con, res, Some(req));
+                owed = false;
+            }
             let wait = match deadline {
                 Some(d) => {
                     let now = Instant::now();
@@ -1039,9 +1068,7 @@ impl Frontend for Tty {
                 }
                 _ => {}
             }
-            if redraw {
-                self.render(con, res, Some(req));
-            }
+            owed |= redraw;
         }
     }
 
@@ -1055,6 +1082,19 @@ impl Frontend for Tty {
 
     fn is_fullscreen(&self) -> bool {
         true
+    }
+
+    /// Ctrl+C typed (or the terminal gone) while a script runs. Other keys
+    /// read meanwhile stay pending for the next input.
+    fn poll_interrupt(&mut self) -> bool {
+        if self.input_waiting() {
+            self.read_bytes(0);
+        }
+        if let Some(i) = self.pending.iter().position(|&b| b == 0x03) {
+            self.pending.drain(..=i);
+            return true;
+        }
+        self.hangup
     }
 
     /// Restore the terminal (mouse off, main screen, cooked mode).

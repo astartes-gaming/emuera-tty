@@ -8,7 +8,7 @@
 > breaks. It is not a serious or complete Emuera port, nobody has audited it,
 > and it will mis-render, misbehave or crash on plenty of scripts.
 >
-> - Expect bugs. Don't trust it with save files you care about.
+> - Expect bugs. Keep a copy of save files you care about.
 > - It is not affiliated with Emuera, Emuera-EM/EE, eratohoTW or AnonTW.
 >   Where behaviour was copied, it was by reading
 >   [EvilMask's emuera.em](https://gitlab.com/EvilMask/emuera.em) source for
@@ -55,10 +55,14 @@ cargo build --release
 ./target/release/emuera-tty --install
 ```
 
-`--install` copies the program to your personal program folder,
-`~/.local/bin` (or `$XDG_BIN_HOME` if you set one); no root needed. If it
-says that folder isn't on your `PATH`, add this line to `~/.bashrc` (or
-`~/.profile`) and open a new terminal:
+`--install` copies the program into a folder on your `PATH`, so
+`emuera-tty` runs from any terminal: the one already holding an installed
+copy, else your personal program folder (`$XDG_BIN_HOME`, `~/.local/bin`
+or `~/bin`, whichever your PATH has), else any other folder on PATH you
+can write to (tool folders like `~/.cargo/bin` are skipped). No root
+needed. Only if none of those exist does it fall back to `~/.local/bin`
+and tell you to add that to `PATH`, with this line in `~/.bashrc` (or
+`~/.profile`), then open a new terminal:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -116,11 +120,21 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   the mouse wheel. A `[scroll -N]` tag shows you're looking at history;
   End jumps back.
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
+  Ctrl-C also works while the game is busy computing, so a script stuck
+  in a loop can always be stopped; the screen keeps updating meanwhile.
 
-**Saving** uses the game's own save menu. Saves are written to the
-game folder's `sav/` directory as `save00.rsav`, `save01.rsav`, … (and
-`global.rsav`). They are emuera-tty's own format: Emuera's `.sav` files
-can't be loaded, and these can't be loaded in Emuera.
+**Saving** uses the game's own save menu, and the files are Emuera's own
+(binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
+`dat/chara_*.dat` for SAVECHARA. Saves move both ways between emuera-tty
+and Emuera on Windows. They go where Emuera puts them: in `sav/` when
+the game's config says so (`セーブデータをsavフォルダ内に作成する`, as
+AnonTW's does), else next to the game; compressed when it asks for that
+(`セーブデータを圧縮して保存する`). Emuera-EM maps, XML documents and data
+tables named in `VarExt.csv` are saved too, and the autosave runs on
+entering the shop, like Emuera's. Older emuera-tty saves (`sav/*.rsav`)
+still load, and the next save of that slot writes a `.sav`. Emuera's
+older text save format (games without the binary option) can't be read
+yet.
 
 ## 5. Picking a terminal
 
@@ -217,7 +231,8 @@ At startup emuera-tty also measures how wide the terminal really draws
 those characters (terminals' width tables differ), which keeps maps
 aligned in Konsole, kitty and others; `EMUERA_MEASURE=0` skips that,
 `EMUERA_TRACE` as above. Game scripts are read and parsed on every CPU
-core (AnonTW loads in about a second instead of five);
+core (AnonTW loads in about a second instead of five, and takes about
+600 MB of memory);
 `EMUERA_THREADS=N` caps the thread count, and `EMUERA_TIMING=1` prints
 how long each loading phase took. `EMUERA_SEED=N` fixes the random
 number seed, so a run can be repeated exactly (tests, bug reports).
@@ -273,7 +288,8 @@ src/
   vm/mod.rs      variables (global / LOCAL / private #DIM / STATIC / chara), eval, call stack
   vm/builtins.rs ~200 commands & functions
   vm/system.rs   TITLE / FIRST / SHOP / TRAIN / ABLUP / AFTERTRAIN / TURNEND flow
-  vm/save.rs     save/load (own text format in GAME/sav/*.rsav)
+  vm/save.rs     save/load: what goes into Emuera's .sav / .dat files
+  vm/erasav.rs   Emuera's binary save format (reader / writer)
   console.rs     Emuera console model: styled segments, buttons, auto `[N]` buttons
   html.rs        HTML_PRINT subset
   tty.rs         raw-mode TUI, layout/wrapping/alignment, mouse, colour downgrade (24-bit/256/16)
@@ -321,9 +337,8 @@ their return values to stderr.
 2. Emuera graphics API (`GCREATE`, `GDRAWSPRITE`, `SPRITE*`, `CBG*`) — eratohoTW's
    newer UI uses these; currently ignored with a warning.
 3. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.
-4. `LOCAL@FUNC`, `#LOCALSIZE`; saving `SAVE_MAPS` / `SAVE_DTS` (VarExt.csv)
-   maps and data tables with the game.
+4. `LOCAL@FUNC`, `#LOCALSIZE`.
 5. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
    the shop item table layout.
-6. Emuera `.sav` compatibility (read existing saves).
+6. Emuera's older text save format (binary `.sav` files already work).
 7. fbterm 256-colour escapes; damage-tracked redraw to reduce flicker on fb.

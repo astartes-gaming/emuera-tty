@@ -60,7 +60,7 @@ fn usage_exit(code: i32) -> ! {
          \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
          \n\
          setup:\n\
-         \x20 --install                        copy this program to ~/.local/bin (or $XDG_BIN_HOME)\n\
+         \x20 --install                        copy this program to a folder on your PATH (~/.local/bin…)\n\
          \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
          \x20 --uninstall                      remove the installed copy\n\
          \x20 --reset-data                     forget settings (remembered game folder); saves are kept"
@@ -120,13 +120,16 @@ fn parse_args() -> Opts {
 /// Read a few keys from the config files (key:value lines), in Emuera's
 /// order: CSV/_default.config, emuera.config, CSV/_fixed.config (wins).
 /// Returns the configured window width in pixels, if any.
-fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut console::Console, text_exts: &mut Vec<String>) -> Option<f32> {
+fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut console::Console, text_exts: &mut Vec<String>, saves: &mut vm::save::SaveOpts) -> Option<f32> {
     let mut paths = vec![loader::find_file_ci(csv_dir, "_default.config"), loader::find_file_ci(game, "emuera.config")];
     if let Some(d) = loader::find_dir_ci(game, "config") {
         paths.push(loader::find_file_ci(&d, "emuera.config"));
     }
     paths.push(loader::find_file_ci(csv_dir, "_fixed.config"));
     let mut window_px = None;
+    let yes = |v: &str| v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE");
+    let mut zip = false;
+    let mut binary = false;
     for p in paths.into_iter().flatten() {
         let Ok(text) = loader::read_text(&p) else { continue };
         for line in text.lines() {
@@ -138,6 +141,10 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
             };
             match k.trim() {
                 "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
+                "セーブデータをsavフォルダ内に作成する" => saves.in_folder = yes(v),
+                "セーブデータをバイナリ形式で保存する" => binary = yes(v),
+                "セーブデータを圧縮して保存する" => zip = yes(v),
+                "オートセーブを行なう" => saves.autosave = yes(v),
                 "LOADTEXTとSAVETEXTで使える拡張子" => {
                     for e in v.split(',').map(|e| e.trim().trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()) {
                         if !text_exts.contains(&e) {
@@ -174,6 +181,9 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
             }
         }
     }
+    // Emuera compresses only binary saves; emuera-tty always writes binary
+    // (Emuera reads it whatever its config says)
+    saves.zip = zip && binary;
     window_px
 }
 
@@ -261,6 +271,12 @@ fn run(o: Opts) -> i32 {
         return code;
     }
     drop(files);
+    // the parse threads leave most of their scratch memory (source text,
+    // line copies) cached in glibc's per-thread arenas: give it back
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    unsafe {
+        libc::malloc_trim(0);
+    }
     let res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
     let fe: Box<dyn frontend::Frontend> = if o.headless {
         Box::new(frontend::Headless::new(o.echo))
@@ -277,7 +293,7 @@ fn run(o: Opts) -> i32 {
     if timing {
         eprintln!("timing: {:<12} {:>8.2?} (resources, terminal, data init)", "vm ready", lap.elapsed());
     }
-    if let Some(px) = load_config(&game, &csv_dir, &mut vm.con, &mut vm.text_exts) {
+    if let Some(px) = load_config(&game, &csv_dir, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
         // no real terminal to fit: use Emuera's width (half-width cells are font_size/2 px)
         if o.headless {
             vm.fe.set_cols((px / (vm.con.font_size / 2.0).max(1.0)) as usize);

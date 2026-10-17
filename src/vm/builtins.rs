@@ -93,6 +93,12 @@ fn now() -> chrono_like::DateTime {
     chrono_like::now()
 }
 
+/// What Emuera puts in SAVEDATA_TEXT before @SAVEINFO: `yyyy/MM/dd HH:mm:ss `.
+pub(crate) fn save_timestamp() -> String {
+    let t = now();
+    format!("{:04}/{:02}/{:02} {:02}:{:02}:{:02} ", t.y, t.mo, t.d, t.h, t.mi, t.s)
+}
+
 /// Tiny local-time helper (avoids a chrono dependency).
 mod chrono_like {
     pub struct DateTime {
@@ -696,7 +702,29 @@ impl Vm {
             }
             "DELDATA" => {
                 let n = self.ai(a, 0, 0)?;
-                let _ = std::fs::remove_file(self.save_path(n));
+                self.delete_slot(n);
+            }
+            "SAVECHARA" => {
+                // SAVECHARA file, comment, character, character…
+                let file = self.as_(a, 0, "")?;
+                let text = self.as_(a, 1, "")?;
+                let mut list = Vec::new();
+                for k in 2..a.len() {
+                    let c = self.ai(a, k, 0)?;
+                    if c < 0 || c as usize >= self.charas.len() {
+                        return err(format!("SAVECHARA: character {} out of range", c));
+                    }
+                    if list.contains(&(c as usize)) {
+                        return err(format!("SAVECHARA: character {} given twice", c));
+                    }
+                    list.push(c as usize);
+                }
+                self.save_chara(&file, &text, &list)?;
+            }
+            "LOADCHARA" => {
+                let file = self.as_(a, 0, "")?;
+                let ok = self.load_chara(&file)?;
+                self.set_result(ok as i64);
             }
             "SAVEGLOBAL" => self.save_global()?,
             "LOADGLOBAL" => {
@@ -1248,6 +1276,61 @@ impl Vm {
             arr.set(base + k, x);
         }
         Ok(())
+    }
+
+    /// A config item for GETCONFIG(S), by its Japanese name, English name
+    /// or internal name, any case (`"LINE HEIGHT"`, `"一行の高さ"`,
+    /// `"LineHeight"`), as Emuera's `ConfigData.GetItem`.
+    fn config_value(&self, key: &str) -> Option<Value> {
+        let k = key.trim().to_uppercase();
+        let int = |v: i64| Some(Value::Int(v));
+        let rep = |jp: &str| self.csv.replace.get(jp).map(|s| s.trim().to_string());
+        let rep_i = |jp: &str, d: i64| rep(jp).and_then(|s| s.parse().ok()).unwrap_or(d);
+        let names = |jp: &str, en: &str, code: &str| k == jp.to_uppercase() || k == en.to_uppercase() || k == code.to_uppercase();
+        if names("フォントサイズ", "Font size", "FontSize") {
+            int(self.con.font_size as i64)
+        } else if names("一行の高さ", "Line height", "LineHeight") {
+            int(self.con.line_height as i64)
+        } else if names("ウィンドウ幅", "Window width", "WindowX") {
+            int((self.con.width as f32 * self.con.font_size / 2.0) as i64)
+        } else if names("PRINTCを並べる数", "Items per line for PRINTC", "PrintCPerLine") {
+            int(3)
+        } else if names("PRINTCの文字数", "Number of Item characters for PRINTC", "PrintCLength") {
+            int(self.con.printc_len as i64)
+        } else if names("表示するセーブデータ数", "Save data count per page", "SaveDataNos") {
+            int(20)
+        } else if names("オートセーブを行なう", "Make autosaves", "AutoSave") {
+            int(self.save_opts.autosave as i64)
+        } else if names("文字色", "Text color", "ForeColor") {
+            int(self.con.default_fg.to_i64())
+        } else if names("背景色", "Background color", "BackColor") {
+            int(self.con.default_bg.to_i64())
+        } else if names("選択中文字色", "Highlight color", "FocusColor") {
+            int(self.con.focus_fg.to_i64())
+        } else if names("履歴文字色", "History log color", "LogColor") {
+            int(self.con.log_fg.to_i64())
+        } else if names("販売アイテム数", "Max shop item storage", "MaxShopItem") {
+            int(rep_i("販売アイテム数", 100))
+        } else if names("COM_ABLE初期値", "Default COM_ABLE", "ComAbleDefault") {
+            int(rep_i("COM_ABLE初期値", 1))
+        } else if names("PBANDの初期値", "Default PBAND", "pbandDef") {
+            int(rep_i("PBANDの初期値", 4))
+        } else if names("RELATIONの初期値", "Default RELATION", "RelationDef") {
+            int(rep_i("RELATIONの初期値", 0))
+        } else if names("単位の位置", "Currency symbol position", "MoneyFirst") {
+            int(rep("単位の位置").map_or(1, |s| matches!(s.to_uppercase().as_str(), "YES" | "TRUE" | "1" | "前") as i64))
+        } else if names("お金の単位", "Currency symbol", "MoneyLabel") {
+            Some(Value::Str(self.csv.gamebase.get("お金の単位").cloned().or_else(|| rep("お金の単位")).unwrap_or_else(|| "$".into())))
+        } else if names("フォント名", "Font name", "FontName") {
+            Some(Value::Str(if self.con.font_name.is_empty() { "ＭＳ ゴシック".into() } else { self.con.font_name.clone() }))
+        } else if names("描画インターフェース", "Drawing interface", "TextDrawingMode") {
+            // Emuera's default; games check it isn't WINAPI
+            Some(Value::Str("TEXTRENDERER".into()))
+        } else if names("DRAWLINE文字", "DRAWLINE character", "DrawLineString") {
+            Some(Value::Str(self.con.drawline_str.clone()))
+        } else {
+            None
+        }
     }
 
     /// Emuera-EM's XML_* functions (return codes as in emuera.em). The first
@@ -2162,14 +2245,9 @@ impl Vm {
             }
             "CHKDATA" => {
                 let n = self.ai(a, 0, 0)?;
-                let r = self.peek_save(n);
-                match r {
-                    Some(text) => {
-                        self.set_results(text);
-                        i(0)
-                    }
-                    None => i(1),
-                }
+                let r = self.check_save(n);
+                self.set_results(r.mes);
+                i(r.state)
             }
             "EXISTFUNCTION" => {
                 let n = self.as_(a, 0, "")?.to_uppercase();
@@ -2209,16 +2287,14 @@ impl Vm {
                 i(if name == "SPRITEWIDTH" { sz.0 } else { sz.1 } as i64)
             }
             "GCREATED" | "GWIDTH" | "GHEIGHT" => i(0),
-            "GETCONFIG" => {
+            "GETCONFIG" | "GETCONFIGS" => {
                 let k = self.as_(a, 0, "")?;
-                i(match k.as_str() {
-                    "フォントサイズ" | "FontSize" => self.con.font_size as i64,
-                    "一行の高さ" | "LineHeight" => self.con.line_height as i64,
-                    "ウィンドウ幅" | "WindowX" => (self.con.width as f32 * self.con.font_size / 2.0) as i64,
-                    _ => 0,
-                })
+                match self.config_value(&k) {
+                    Some(v) if v.is_str() == (name == "GETCONFIGS") => Ok(Some(v)),
+                    Some(_) => err(format!("{}: '{}' is a {} setting (use {})", name, k, if name == "GETCONFIG" { "text" } else { "number" }, if name == "GETCONFIG" { "GETCONFIGS" } else { "GETCONFIG" })),
+                    None => err(format!("{}: unknown config item '{}'", name, k)),
+                }
             }
-            "GETCONFIGS" => s(String::new()),
             "HTML_ESCAPE" => {
                 let x = self.as_(a, 0, "")?;
                 s(crate::xml::escape(&x))
@@ -2312,14 +2388,21 @@ impl Vm {
                 i(std::fs::write(&path, text).is_ok() as i64)
             }
             "FIND_CHARADATA" => {
-                // SAVECHARA is not implemented yet, so there are no chara files to find
-                self.set_results(String::new());
-                i(0)
+                // names (without chara_ / .dat) into RESULTS:0…
+                let pat = self.as_(a, 0, "*")?;
+                let names = self.find_chara_files(&pat);
+                let n = names.len() as i64;
+                let r = self.global_arr("RESULTS");
+                for (k, s) in names.into_iter().take(r.len()).enumerate() {
+                    r.set(k, Value::Str(s));
+                }
+                i(n)
             }
             "CHKCHARADATA" => {
-                // 1 = file not found (Emuera's CHKDATA convention)
-                self.set_results(String::new());
-                i(1)
+                let file = self.as_(a, 0, "")?;
+                let r = self.check_chara(&file);
+                self.set_results(r.mes);
+                i(r.state)
             }
             "HTML_GETPRINTEDSTR" => {
                 let n = self.ai(a, 0, 0)?;

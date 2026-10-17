@@ -225,7 +225,10 @@ impl Console {
         let segs = auto_buttons(segs);
         let align = self.cur_align.take().unwrap_or(self.align);
         self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1 });
-        if self.lines.len() > self.max_lines {
+        // trim the history in batches: dropping one line at a time shifts
+        // all the others down for every line printed, which made long
+        // listings crawl (seconds per screen) once the history was full
+        if self.lines.len() > self.max_lines + (self.max_lines / 8).max(64) {
             let n = self.lines.len() - self.max_lines;
             self.lines.drain(0..n);
             self.dropped_front += n;
