@@ -251,6 +251,11 @@ fn run(o: Opts) -> i32 {
     vm.strict = o.strict;
     let r = vm.run();
     vm.fe.shutdown();
+    if vm.defer_warnings {
+        for w in &vm.log {
+            eprintln!("warning: {}", w);
+        }
+    }
     for w in vm.res.warnings.iter().take(10) {
         eprintln!("resources: {}", w);
     }

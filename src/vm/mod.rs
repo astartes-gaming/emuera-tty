@@ -133,7 +133,10 @@ pub struct Vm {
     pub last_input: String,
     /// Current system phase (TITLE, SHOP, TRAIN…), see `system.rs`.
     pub state: String,
+    /// Warnings collected so far.
     pub log: Vec<String>,
+    /// Keep warnings in `log` instead of printing them (full-screen UI).
+    pub defer_warnings: bool,
 }
 
 /// Nested user calls allowed before reporting a stack overflow.
@@ -177,7 +180,9 @@ impl Vm {
             last_input: String::new(),
             state: "TITLE".into(),
             log: Vec::new(),
+            defer_warnings: false,
         };
+        vm.defer_warnings = vm.fe.is_fullscreen();
         vm.con.width = vm.fe.cols().saturating_sub(1).max(20);
         vm.init_data();
         vm
@@ -256,10 +261,14 @@ impl Vm {
         Ok(a)
     }
 
-    /// Print a warning to stderr, once per distinct message.
+    /// Record a warning, once per distinct message. Printed to stderr right
+    /// away in headless mode; the full-screen UI shows them after quitting
+    /// (`log`), since writing mid-frame would scribble over the screen.
     pub fn warn(&mut self, msg: &str) {
         if self.warned.insert(msg.to_string()) {
-            eprintln!("warning: {}", msg);
+            if !self.defer_warnings {
+                eprintln!("warning: {}", msg);
+            }
             self.log.push(msg.to_string());
         }
     }

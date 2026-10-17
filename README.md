@@ -25,51 +25,176 @@ with sixel, yaft…).
 
 Status: **proof of concept**. The language core, game flow, save/load, the
 terminal UI and all three image backends run. AnonTW (eratohoTW, English)
-gets from its title screen through new-game setup to the main menu in
-headless mode; anything past that is untested. Large parts of the Emuera
-command set are still missing (see *Roadmap*).
+gets through new-game setup to the in-game screen, where basic commands
+(resting, moving between rooms, menus) work; deeper gameplay is largely
+untested. Large parts of the Emuera command set are still missing (see
+*Roadmap*).
 
-## Build & run
+# Guide
+
+## 1. What you need
+
+- **Linux** (other Unix-likes may work; Windows does not).
+- A **terminal**. Any modern one works for text; see
+  [Picking a terminal](#5-picking-a-terminal) for pictures and Japanese text.
+- **Rust** to build it: install with [rustup](https://rustup.rs)
+  (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`), then
+  open a new terminal so `cargo` is on your `PATH`.
+- **git**, to download the source and for `--upgrade`.
+- **An Emuera game**, downloaded from the game's own project page. What
+  emuera-tty needs is the game folder: the one containing `CSV/` and
+  `ERB/` (the `Emuera.exe` next to them isn't used). Unpack it anywhere.
+
+## 2. Install
 
 ```sh
+git clone https://github.com/astartes-gaming/emuera-tty.git
+cd emuera-tty
 cargo build --release
-./target/release/emuera-tty /path/to/eratohoTW            # full-screen TUI
-./target/release/emuera-tty /path/to/eratohoTW --check    # parse only, list errors
-./target/release/emuera-tty sample --headless --echo      # stdin/stdout mode
-cargo test                                               # runs unit tests + sample/ self-test
+./target/release/emuera-tty --install
 ```
 
-Options: `--gfx auto|kitty|sixel|fb|none` (or `EMUERA_GFX`), `--headless`,
-`--echo`, `--check`, `--strict` (unknown commands become errors), `--debug`
-(enables `[IF_DEBUG]` / `;#;` lines). `FRAMEBUFFER=/dev/fbN` picks another fb.
-
-### Install, upgrade, remove
+`--install` copies the program to `~/.local/bin/emuera-tty`. If it says
+that folder isn't on your `PATH`, add this line to `~/.bashrc` (or
+`~/.profile`) and open a new terminal:
 
 ```sh
-./target/release/emuera-tty --install     # copy to ~/.local/bin/emuera-tty
-emuera-tty --upgrade                      # git clone/pull + cargo build + reinstall
-emuera-tty --uninstall                    # remove ~/.local/bin/emuera-tty
-emuera-tty --reset-data                   # forget settings (saves are kept)
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-`--install` tells you if `~/.local/bin` isn't on your `PATH` yet.
-`--upgrade` keeps its checkout in `~/.local/share/emuera-tty/src` and
-needs `git` and `cargo`.
+## 3. First run: choose your game
 
-### Choosing a game
+```sh
+emuera-tty
+```
 
-Run `emuera-tty` with no folder and it uses, in order: the current folder
-if it is a game, the game you picked last time, or a **folder picker**
-(first run). The picker marks Emuera games (folders with `CSV/` and `ERB/`)
-with ★ and their title; Enter plays one, arrows / mouse move around, `q`
-cancels. `emuera-tty --choose` opens it again. The choice is stored in
-`~/.config/emuera-tty/config`; `--reset-data` clears it.
+The first time, a **folder picker** opens in your home folder. Game folders
+are marked with **★** and their title.
 
-## Controls
+| Key | Action |
+|---|---|
+| ↑ / ↓ (or `k` / `j`), PgUp / PgDn, Home / End | move |
+| Enter | play the ★ game under the cursor, or open a folder |
+| → / ← (or Backspace) | open a folder / go up |
+| `~` | jump to your home folder |
+| `.` | show hidden folders |
+| `q` / Esc | cancel |
 
-Type a number + Enter, or **click** any `[N]` / HTML button (mouse hover
-highlights it). Enter / any key / click continues a WAIT. PgUp/PgDn, ↑/↓,
-Home/End and the mouse wheel scroll the log. Ctrl-L redraws, Ctrl-C quits.
+The mouse works too: click an entry to select it, click it again to open
+or play it, scroll with the wheel.
+
+emuera-tty remembers the game. From then on `emuera-tty` starts it
+straight away. Other ways to start:
+
+```sh
+emuera-tty --choose                 # open the picker again (switch games)
+emuera-tty ~/games/eratohoTW        # play a specific folder
+cd ~/games/eratohoTW && emuera-tty  # a game in the current folder wins
+```
+
+## 4. Playing
+
+Emuera games are menus of numbered choices like `[100] Wake Up`.
+
+- **Choose**: type the number and press Enter, or **click** it. Buttons
+  under the mouse are highlighted.
+- **Continue** (when the game waits after text, `▼ (Enter)` at the
+  bottom): Enter, any key, or a click.
+- **Scroll back** through earlier text: PgUp / PgDn, ↑ / ↓, Home / End or
+  the mouse wheel. A `[scroll -N]` tag shows you're looking at history;
+  End jumps back.
+- **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
+
+**Saving** uses the game's own save menu. Saves are written to the
+game folder's `sav/` directory as `save00.rsav`, `save01.rsav`, … (and
+`global.rsav`). They are emuera-tty's own format: Emuera's `.sav` files
+can't be loaded, and these can't be loaded in Emuera.
+
+## 5. Picking a terminal
+
+Text works everywhere. Images and Japanese/Chinese text depend on the
+terminal:
+
+| Terminal | Images | Notes |
+|---|---|---|
+| **kitty**, **WezTerm**, **Ghostty**, Konsole | yes (kitty graphics) | best choice |
+| **foot**, xterm (`-ti vt340`), mlterm, yaft | yes (sixel) | |
+| GNOME Terminal, Alacritty, others | `░` placeholders | fine for playing |
+| Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
+| bare Linux console (no fbterm) | yes (framebuffer) | can't show Japanese/Chinese text |
+
+- Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
+  names and symbols show up.
+- Make the window **wide**: many games lay out menus for ~150 columns.
+  If a game warns that the window is too narrow, shrink the font or
+  widen the window.
+- `--gfx none` turns images off; `--gfx kitty|sixel|fb` forces a backend
+  if auto-detection guesses wrong.
+
+**On the Linux console** (Ctrl-Alt-F3 etc.):
+
+- Run inside fbterm for CJK text: `fbterm -- emuera-tty`.
+- Images draw straight to `/dev/fb0`, which needs the `video` group:
+  `sudo usermod -aG video $USER`, then log in again.
+- The mouse needs either **gpm** (`sudo apt install gpm`) or read access
+  to `/dev/input/mice` (the `input` group). Be aware the `input` group can
+  read every input device, keyboards included; gpm is the safer choice.
+
+## 6. Updating and removing
+
+```sh
+emuera-tty --upgrade      # download the latest version, rebuild, reinstall
+emuera-tty --reset-data   # forget the remembered game (saves are kept)
+emuera-tty --uninstall    # remove ~/.local/bin/emuera-tty
+```
+
+`--upgrade` keeps its own copy of the source in
+`~/.local/share/emuera-tty/src` and needs `git` and `cargo`. Settings live
+in `~/.config/emuera-tty/`; delete that folder (or use `--reset-data`) to
+start fresh.
+
+## 7. When something goes wrong
+
+This is a proof of concept, so it will happen.
+
+- **A red `*** script error ***` screen** means the game hit something
+  emuera-tty doesn't support yet. The message names the game file, line
+  and function. Press Enter to quit; your last save is safe.
+- **`warning: … not implemented (ignored)`** lines in the terminal after
+  quitting are commands emuera-tty skipped; the game usually carries on.
+- **Check a game without playing it:** `emuera-tty /path/to/game --check`
+  lists every line that fails to parse.
+- **Screen looks broken:** Ctrl-L redraws; try `--gfx none` to rule out
+  image problems; make the window wider.
+- **Reporting a bug:** include the error text and, if you can, a trace:
+  `EMUERA_TRACE=FUNCTIONNAME emuera-tty 2> trace.txt` logs every call to
+  functions whose name contains `FUNCTIONNAME`, with their results.
+
+# Reference
+
+## Command-line options
+
+```sh
+emuera-tty [GAME_DIR] [options]
+```
+
+| Option | |
+|---|---|
+| `--choose` | open the game picker even if a game is remembered |
+| `--gfx auto\|kitty\|sixel\|fb\|none` | image backend (also `EMUERA_GFX`) |
+| `--check` | parse the game, list errors, exit |
+| `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input |
+| `--strict` | unimplemented commands are errors instead of warnings |
+| `--debug` | enable `[IF_DEBUG]` blocks and `;#;` lines |
+| `--install` / `--upgrade` / `--uninstall` / `--reset-data` | see the guide |
+
+Environment: `FRAMEBUFFER=/dev/fbN` picks another framebuffer,
+`EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice,
+`EMUERA_TRACE` as above.
+
+For development: `cargo test` runs the unit tests and the `sample/` game's
+self-test; `emuera-tty sample --headless --echo` plays the sample in plain
+text.
 
 ### Mouse
 
@@ -161,7 +286,7 @@ their return values to stderr.
 ## Roadmap
 
 1. Burn down the remaining AnonTW parse errors / unknown commands
-   (`XML_*`, `VARSETEX`, `AWAIT`, `SAVECHARA`, …) and play past the main menu.
+   (`XML_*`, `VARSETEX`, `AWAIT`, `SAVECHARA`, …) and play deeper into it.
 2. Emuera graphics API (`GCREATE`, `GDRAWSPRITE`, `SPRITE*`, `CBG*`) — eratohoTW's
    newer UI uses these; currently ignored with a warning.
 3. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.

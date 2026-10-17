@@ -897,6 +897,10 @@ impl Frontend for Tty {
         self.rows
     }
 
+    fn is_fullscreen(&self) -> bool {
+        true
+    }
+
     /// Restore the terminal (mouse off, main screen, cooked mode).
     fn shutdown(&mut self) {
         if !self.active {

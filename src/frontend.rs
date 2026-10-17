@@ -51,6 +51,11 @@ pub trait Frontend {
     fn rows(&self) -> usize {
         40
     }
+    /// Does this frontend own the whole screen (so stray stderr output
+    /// would corrupt it)?
+    fn is_fullscreen(&self) -> bool {
+        false
+    }
     /// Override the width, for frontends with no real terminal size.
     fn set_cols(&mut self, _cols: usize) {}
     fn shutdown(&mut self) {}
