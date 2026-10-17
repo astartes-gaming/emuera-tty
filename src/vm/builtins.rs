@@ -2595,11 +2595,11 @@ impl Vm {
             }
             "TOINT" => {
                 let x = self.as_(a, 0, "")?;
-                i(to_half(x.trim()).parse().unwrap_or(0))
+                i(emu_str_int(&x, false).unwrap_or(0))
             }
             "ISNUMERIC" => {
                 let x = self.as_(a, 0, "")?;
-                i(to_half(x.trim()).parse::<i64>().is_ok() as i64)
+                i(emu_str_int(&x, true).is_some() as i64)
             }
             "TOUPPER" => {
                 let x = self.as_(a, 0, "")?;
@@ -3463,5 +3463,95 @@ mod tests {
         assert!(m("\\s", "two words") && !m("\\s", "oneword"));
         assert!(m("^\\d\\d$", "42") && !m("^\\d\\d$", "4a"));
         assert!(m("\\.", "a.b") && !m("\\.", "ab"));
+    }
+}
+
+/// Emuera's TOINT / ISNUMERIC reading of a string: an optional sign, then
+/// a decimal, `0x` hex or `0b` binary number, an optional `e` / `p`
+/// exponent and a `.digits` fraction that is dropped. Anything else
+/// (spaces, full-width characters, trailing text) is not a number.
+/// `strict` is ISNUMERIC's check that an exponent has digits.
+pub(crate) fn emu_str_int(s: &str, strict: bool) -> Option<i64> {
+    let c: Vec<char> = s.chars().collect();
+    let at = |k: usize| c.get(k).copied().unwrap_or('\0');
+    let first = at(0);
+    if !(first.is_ascii_digit() || ((first == '+' || first == '-') && at(1).is_ascii_digit())) {
+        return None;
+    }
+    let mut k = 0;
+    let mut base = 10;
+    if first == '0' && matches!(at(1), 'x' | 'X') {
+        base = 16;
+        k = 2;
+    } else if first == '0' && matches!(at(1), 'b' | 'B') {
+        base = 2;
+        k = 2;
+    }
+    let digits = |k: &mut usize, base: u32| -> Option<i64> {
+        let start = *k;
+        if matches!(at(*k), '+' | '-') {
+            *k += 1;
+        }
+        while at(*k).is_digit(base) || (base == 2 && at(*k).is_ascii_digit()) {
+            *k += 1;
+        }
+        let t: String = c[start..*k].iter().collect();
+        if base == 10 {
+            t.parse::<i64>().ok()
+        } else {
+            let (neg, d) = t.strip_prefix('-').map(|d| (true, d)).unwrap_or((false, t.trim_start_matches('+')));
+            let v = u64::from_str_radix(d, base).ok()? as i64;
+            Some(if neg { v.wrapping_neg() } else { v })
+        }
+    };
+    if base != 10 && !at(k).is_digit(base) {
+        return None;
+    }
+    let mut v = digits(&mut k, base)?;
+    let exp_base = match at(k) {
+        'p' | 'P' => 2.0,
+        'e' | 'E' => 10.0,
+        _ => 0.0,
+    };
+    if exp_base != 0.0 {
+        k += 1;
+        if strict && !at(k).is_ascii_digit() {
+            return None;
+        }
+        let e = digits(&mut k, base).unwrap_or(0);
+        if e != 0 {
+            let d = v as f64 * f64::powi(exp_base, e as i32);
+            if !d.is_finite() || d > i64::MAX as f64 || d < i64::MIN as f64 {
+                return None;
+            }
+            v = d as i64;
+        }
+    }
+    if k < c.len() {
+        if c[k] != '.' || !c[k + 1..].iter().all(|ch| ch.is_ascii_digit()) {
+            return None;
+        }
+    }
+    Some(v)
+}
+
+#[cfg(test)]
+mod str_int_tests {
+    use super::emu_str_int;
+
+    #[test]
+    fn emuera_number_strings() {
+        assert_eq!(emu_str_int("0x797979", false), Some(0x797979));
+        assert_eq!(emu_str_int("0X0b0B0b", true), Some(0x0b0b0b));
+        assert_eq!(emu_str_int("0b101", false), Some(5));
+        assert_eq!(emu_str_int("-42", false), Some(-42));
+        assert_eq!(emu_str_int("+7", false), Some(7));
+        assert_eq!(emu_str_int("12.75", false), Some(12));
+        assert_eq!(emu_str_int("3e2", false), Some(300));
+        assert_eq!(emu_str_int("3e", false), Some(3));
+        assert_eq!(emu_str_int("3e", true), None);
+        for bad in ["", " 1", "1 ", "１２", "abc", "0x", "-", "1a", "def", "floras", "12.a"] {
+            assert_eq!(emu_str_int(bad, false), None, "{:?}", bad);
+        }
     }
 }
