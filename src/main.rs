@@ -272,10 +272,8 @@ fn run(o: Opts) -> i32 {
 /// the picker (or there is nothing to run, already reported).
 fn choose_game(o: &Opts) -> Option<PathBuf> {
     let interactive = !o.headless && !o.check && unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 };
+    // an explicit folder is used as-is; only picker choices are remembered
     if let Some(g) = &o.game {
-        if interactive && picker::is_game_dir(g) {
-            picker::remember(g);
-        }
         return Some(g.clone());
     }
     if !o.choose {
