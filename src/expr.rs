@@ -306,32 +306,27 @@ impl<'a> ExprParser<'a> {
             return Ok(Expr::Str(self.string_lit()?));
         }
         if c == '@' && self.peek_at(1) == Some('"') {
-            self.pos += 1;
-            // raw scan to the closing quote respecting \"
-            self.pos += 1;
-            let mut raw = String::new();
-            loop {
-                match self.peek() {
-                    None => return Err("unterminated form string".into()),
-                    Some('"') => {
-                        self.pos += 1;
-                        break;
-                    }
-                    Some('\\') => {
-                        raw.push('\\');
-                        self.pos += 1;
-                        if let Some(n) = self.peek() {
-                            raw.push(n);
-                            self.pos += 1;
-                        }
-                    }
-                    Some(ch) => {
-                        raw.push(ch);
-                        self.pos += 1;
-                    }
-                }
-            }
+            let start = self.pos + 2;
+            let end = scan_form(&self.s, start, FormEnd::Quote).ok_or("unterminated form string")?;
+            let raw: String = self.s[start..end].iter().collect();
+            self.pos = end + 1;
             return Ok(Expr::Form(Rc::new(parse_form(&raw, self.defs)?)));
+        }
+        if c == '\\' && self.peek_at(1) == Some('@') {
+            // string-valued `\@ cond ? a # b \@`
+            let end = scan_ternary(&self.s, self.pos + 2).ok_or("unterminated \\@ in expression")?;
+            let raw: String = self.s[self.pos..end].iter().collect();
+            self.pos = end;
+            return Ok(Expr::Form(Rc::new(parse_form(&raw, self.defs)?)));
+        }
+        if c == '\'' {
+            // Emuera simple string: 'text runs to the next comma
+            self.pos += 1;
+            let start = self.pos;
+            while self.peek().is_some_and(|c| c != ',') {
+                self.pos += 1;
+            }
+            return Ok(Expr::Str(self.s[start..self.pos].iter().collect()));
         }
         if c == '(' {
             self.pos += 1;
@@ -362,6 +357,12 @@ impl<'a> ExprParser<'a> {
             }
             return Ok(e);
         }
+        // Emuera accepts a space between a function name and its '('
+        let save = self.pos;
+        self.skip_ws();
+        if self.peek() != Some('(') {
+            self.pos = save;
+        }
         if self.peek() == Some('(') {
             self.pos += 1;
             let args = if self.eat(")") {
@@ -375,8 +376,14 @@ impl<'a> ExprParser<'a> {
         }
         let mut idx = Vec::new();
         if allow_index {
-            // index chain: NAME:a:b:c (no whitespace before ':')
-            while self.peek() == Some(':') {
+            // index chain: NAME:a:b:c (Emuera also accepts `NAME :a`)
+            loop {
+                let save = self.pos;
+                self.skip_ws();
+                if self.peek() != Some(':') {
+                    self.pos = save;
+                    break;
+                }
                 self.pos += 1;
                 self.skip_ws();
                 idx.push(self.primary(false)?);
@@ -412,6 +419,94 @@ pub fn parse_expr_list(src: &str, defs: &HashMap<String, String>) -> PResult<Vec
     Ok(e)
 }
 
+// ---- nesting-aware scanners (mirror Emuera's lexer) ----
+//
+// A FORM string's `%..%` / `{..}` regions are expressions, which may hold
+// `".."`, `@".."` and `\@ c ? a # b \@`, nested arbitrarily. These return
+// char indices into `ch`, or None if the input ends first.
+
+#[derive(Clone, Copy, PartialEq)]
+enum FormEnd {
+    Quote,
+    YenAt,
+    SharpOrYenAt,
+}
+
+/// Index just past the closing `"` of a plain string starting at `ch[i] == '"'`.
+fn skip_plain_str(ch: &[char], mut i: usize) -> Option<usize> {
+    i += 1;
+    while i < ch.len() {
+        match ch[i] {
+            '\\' => i += 2,
+            '"' => return Some(i + 1),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// Index of `term` at paren depth 0, scanning an expression from `i`.
+fn scan_expr(ch: &[char], mut i: usize, term: char) -> Option<usize> {
+    let mut depth = 0i32;
+    while i < ch.len() {
+        let c = ch[i];
+        if c == '"' {
+            i = skip_plain_str(ch, i)?;
+            continue;
+        }
+        if c == '@' && ch.get(i + 1) == Some(&'"') {
+            i = scan_form(ch, i + 2, FormEnd::Quote)? + 1;
+            continue;
+        }
+        if c == '\\' && ch.get(i + 1) == Some(&'@') {
+            i = scan_ternary(ch, i + 2)?;
+            continue;
+        }
+        if c == term && depth == 0 {
+            return Some(i);
+        }
+        if c == '(' || (term == '}' && c == '{') {
+            depth += 1;
+        } else if c == ')' || (term == '}' && c == '}') {
+            depth -= 1;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `i` is just after an opening `\@`; returns the index just past the closing `\@`.
+fn scan_ternary(ch: &[char], i: usize) -> Option<usize> {
+    let q = scan_expr(ch, i, '?')?;
+    Some(scan_form(ch, q + 1, FormEnd::YenAt)? + 2)
+}
+
+/// Index of the FORM terminator (`"`, `\@` or `#`) starting the scan at `i`.
+fn scan_form(ch: &[char], mut i: usize, end: FormEnd) -> Option<usize> {
+    while i < ch.len() {
+        let c = ch[i];
+        if c == '\\' && ch.get(i + 1) == Some(&'@') {
+            if end != FormEnd::Quote {
+                return Some(i);
+            }
+            i = scan_ternary(ch, i + 2)?;
+            continue;
+        }
+        match c {
+            '\\' => i += 2,
+            '%' | '{' => {
+                let close = if c == '%' { '%' } else { '}' };
+                // unmatched '%' / '{' is literal text
+                i = scan_expr(ch, i + 1, close).map_or(i + 1, |j| j + 1);
+            }
+            '"' if end == FormEnd::Quote => return Some(i),
+            '#' if end == FormEnd::SharpOrYenAt => return Some(i),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
 /// Split at top-level occurrences of `sep` (outside quotes/parens/braces/%..%).
 pub fn split_top(s: &str, sep: char) -> Vec<String> {
     let chars: Vec<char> = s.chars().collect();
@@ -422,6 +517,21 @@ pub fn split_top(s: &str, sep: char) -> Vec<String> {
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
+        // copy nested strings / \@ sections through whole
+        let skip = if c == '"' {
+            skip_plain_str(&chars, i)
+        } else if c == '@' && chars.get(i + 1) == Some(&'"') {
+            scan_form(&chars, i + 2, FormEnd::Quote).map(|j| j + 1)
+        } else if c == '\\' && chars.get(i + 1) == Some(&'@') {
+            scan_ternary(&chars, i + 2)
+        } else {
+            None
+        };
+        if let Some(j) = skip {
+            cur.extend(&chars[i..j]);
+            i = j;
+            continue;
+        }
         if in_str {
             cur.push(c);
             if c == '\\' && i + 1 < chars.len() {
@@ -433,6 +543,7 @@ pub fn split_top(s: &str, sep: char) -> Vec<String> {
                 in_str = false;
             }
         } else if c == '"' {
+            // unterminated string: rest is one piece
             in_str = true;
             cur.push(c);
         } else if c == '(' || c == '{' {
@@ -480,35 +591,19 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
         if c == '\\' && i + 1 < ch.len() {
             let n = ch[i + 1];
             if n == '@' {
-                // conditional section, find matching \@
+                // conditional section: \@ cond ? a # b \@
                 let start = i + 2;
-                let mut j = start;
-                let mut nest = 0;
-                let mut end = None;
-                while j + 1 < ch.len() + 1 && j < ch.len() {
-                    if ch[j] == '\\' && j + 1 < ch.len() && ch[j + 1] == '@' {
-                        // a nested \@ opens only if a '?' follows before the next \@ ... keep simple:
-                        if nest == 0 {
-                            end = Some(j);
-                            break;
-                        }
-                        nest -= 1;
-                        j += 2;
-                        continue;
-                    }
-                    j += 1;
-                }
-                let end = end.ok_or("unterminated \\@ in FORM")?;
-                let inner: String = ch[start..end].iter().collect();
-                let q = split_top(&inner, '?');
-                if q.len() < 2 {
-                    return Err(format!("bad \\@ conditional: {}", inner));
-                }
-                let cond = parse_expr(q[0].trim(), defs)?;
-                let rest = q[1..].join("?");
-                let h = split_top(&rest, '#');
-                let a = h[0].trim().to_string();
-                let b = if h.len() > 1 { h[1..].join("#").trim().to_string() } else { String::new() };
+                let q = scan_expr(&ch, start, '?').ok_or("unterminated \\@ in FORM")?;
+                let k = scan_form(&ch, q + 1, FormEnd::SharpOrYenAt).ok_or("unterminated \\@ in FORM")?;
+                let (a_end, end) = if ch[k] == '#' {
+                    (k, scan_form(&ch, k + 1, FormEnd::YenAt).ok_or("unterminated \\@ in FORM")?)
+                } else {
+                    (k, k)
+                };
+                let text = |a: usize, b: usize| ch[a..b].iter().collect::<String>().trim().to_string();
+                let cond = parse_expr(&text(start, q), defs)?;
+                let a = text(q + 1, a_end);
+                let b = if end > a_end { text(a_end + 1, end) } else { String::new() };
                 flush(&mut lit, &mut parts);
                 parts.push(FormPart::Cond(cond, parse_form(&a, defs)?, parse_form(&b, defs)?));
                 i = end + 2;
@@ -524,36 +619,12 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
         }
         if c == '%' || c == '{' {
             let close = if c == '%' { '%' } else { '}' };
-            let mut j = i + 1;
-            let mut depth = 0;
-            let mut in_str = false;
-            while j < ch.len() {
-                let d = ch[j];
-                if in_str {
-                    if d == '\\' {
-                        j += 2;
-                        continue;
-                    }
-                    if d == '"' {
-                        in_str = false;
-                    }
-                } else if d == '"' {
-                    in_str = true;
-                } else if d == '(' || (c == '{' && d == '{') {
-                    depth += 1;
-                } else if d == ')' || (c == '{' && d == '}' && depth > 0) {
-                    depth -= 1;
-                } else if d == close && depth == 0 {
-                    break;
-                }
-                j += 1;
-            }
-            if j >= ch.len() {
+            let Some(j) = scan_expr(&ch, i + 1, close) else {
                 // unmatched: treat literally
                 lit.push(c);
                 i += 1;
                 continue;
-            }
+            };
             let inner: String = ch[i + 1..j].iter().collect();
             let sp = split_top(&inner, ',');
             let e = parse_expr(sp[0].trim(), defs)?;

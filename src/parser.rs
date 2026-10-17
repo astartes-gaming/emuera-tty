@@ -368,7 +368,13 @@ impl<'a> Parser<'a> {
         }
         if p.eat(",") {
             loop {
-                d.dims.push(p.expr()?);
+                p.skip_ws();
+                // `#DIM REF X,,` leaves the sizes to the referenced array
+                if d.is_ref && matches!(p.peek(), None | Some(',')) {
+                    d.dims.push(Expr::Int(0));
+                } else {
+                    d.dims.push(p.expr()?);
+                }
                 if !p.eat(",") {
                     break;
                 }
@@ -941,7 +947,8 @@ impl<'a> Parser<'a> {
         };
         let rest = p.rest();
         let is_str = self.is_str_var(b, &v.name);
-        if is_str && matches!(op, AsgOp::Set | AsgOp::Add) {
+        // only plain `STR = ...` takes FORM text; `+=` takes a string expression
+        if is_str && op == AsgOp::Set {
             let raw = strip_comment_form(&rest);
             let raw = raw.strip_prefix(' ').unwrap_or(raw);
             let raw = raw.trim_start();
@@ -1009,6 +1016,10 @@ impl<'a> Parser<'a> {
         let mut out = Vec::new();
         for part in split_top(s, ',') {
             let part = part.trim();
+            if part.is_empty() {
+                // trailing comma: `CASE 1, 2,`
+                continue;
+            }
             let up = part.to_uppercase();
             if let Some(r) = up.strip_prefix("IS ") {
                 let r_orig = &part[part.len() - r.len()..];
@@ -1025,6 +1036,8 @@ impl<'a> Parser<'a> {
                     (BinOp::Lt, x)
                 } else if let Some(x) = r.strip_prefix('>') {
                     (BinOp::Gt, x)
+                } else if let Some(x) = r.strip_prefix('&') {
+                    (BinOp::BitAnd, x)
                 } else {
                     return Err(format!("bad CASE IS: {}", part));
                 };

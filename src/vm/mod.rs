@@ -839,7 +839,7 @@ impl Vm {
                     AsgOp::Add => self.get_place(&p).into_string() + &s,
                     _ => s,
                 };
-                self.set_place(&p, Value::Str(new))?;
+                self.store(v, &p, Value::Str(new))?;
             }
             Instr::Eval(e) => {
                 self.eval(e)?;
@@ -1034,6 +1034,7 @@ impl Vm {
                         BinOp::Gt => a > b,
                         BinOp::Ge => a >= b,
                         BinOp::Eq => a == b,
+                        BinOp::BitAnd => a & b != 0,
                         _ => a != b,
                     }
                 }
@@ -1093,7 +1094,16 @@ impl Vm {
                 }
             }
         };
-        self.set_place(&p, new)
+        self.store(v, &p, new)
+    }
+
+    /// Write an assignment result; read-only places go through `set_var`,
+    /// which accepts the writable pseudo variables (WINDOW_TITLE, …).
+    fn store(&mut self, v: &VarRef, p: &Place, val: Value) -> VmResult<()> {
+        if matches!(p.loc, Loc::Ro(_)) {
+            return self.set_var(v, val);
+        }
+        self.set_place(p, val)
     }
 
     // ---------------------------------------------------------------- output

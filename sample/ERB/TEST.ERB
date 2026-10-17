@@ -9,7 +9,7 @@ CALL CHECK, "bits", (5 & 3) == 1 && (5 | 3) == 7 && (5 ^ 3) == 6 && (1 << 4) == 
 CALL CHECK, "ternary", (3 > 2 ? 10 # 20) == 10
 ;--- strings
 LOCALS = abc
-LOCALS += def
+LOCALS += "def"
 CALL CHECKS, "strasg", LOCALS, "abcdef"
 LOCALS '= "x" + "y" * 3
 CALL CHECKS, "strexpr", LOCALS, "xyyy"
@@ -133,6 +133,30 @@ ENDDATA
 LOCAL = 5
 LOCAL:1 = LOCAL++ + ++LOCAL
 CALL CHECK, "incdec", LOCAL == 7 && LOCAL:1 == 12
+;--- nested strings / lexer corners (seen in AnonTW)
+CALL CHECKS, "nestform", @"[%GREET(@"<%GREET("x")%>")%]", "[こんにちは、<こんにちは、x>]"
+CALL CHECKS, "ternexpr", @"%\@ 1 ? y # n \@%", "y"
+LOCALS = a%\@ 0 ? y # n \@%b
+CALL CHECKS, "ternform", LOCALS, "anb"
+CALL CHECKS, "sqstr", 'abc, "abc"
+LOCAL = 5
+CALL CHECK, "idxspace", LOCAL :0 == 5
+LOCALS = x
+LOCALS += "y" + "z"
+CALL CHECKS, "straddexpr", LOCALS, "xyz"
+LOCAL = 0
+SELECTCASE 12
+	CASE IS & 16
+		LOCAL = 1
+	CASE IS & 8
+		LOCAL = 2
+ENDSELECT
+CALL CHECK, "caseisand", LOCAL == 2
+SELECTCASE 6
+	CASE 1, 6,
+		LOCAL = 3
+ENDSELECT
+CALL CHECK, "casetrail", LOCAL == 3
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 
