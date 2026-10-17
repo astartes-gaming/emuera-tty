@@ -157,6 +157,26 @@ SELECTCASE 6
 		LOCAL = 3
 ENDSELECT
 CALL CHECK, "casetrail", LOCAL == 3
+;--- Emuera-EM MAP_*
+CALL CHECK, "mapmissing", MAP_EXIST("M") == 0 && MAP_SIZE("M") == -1 && MAP_SET("M", "a", "1") == -1 && MAP_GET("M", "a") == ""
+CALL CHECK, "mapcreate", MAP_CREATE("M") == 1 && MAP_CREATE("M") == 0 && MAP_EXIST("M") == 1
+MAP_SET "M", "b", "2"
+MAP_SET "M", "a", "1"
+MAP_SET "M", "b", "3"
+CALL CHECK, "mapset", MAP_SIZE("M") == 2 && MAP_HAS("M", "a") && !MAP_HAS("M", "z")
+CALL CHECKS, "mapget", MAP_GET("M", "b") + MAP_GET("M", "zz"), "3"
+CALL CHECKS, "mapkeys", MAP_GETKEYS("M"), "b,a"
+CALL CHECKS, "maptoxml", MAP_TOXML("M"), "<map><p><k>b</k><v>3</v></p><p><k>a</k><v>1</v></p></map>"
+MAP_GETKEYS "M", LOCALSTR, 1
+CALL CHECK, "mapkeysarr", RESULT == 2 && LOCALSTR:0 == "b" && LOCALSTR:1 == "a"
+MAP_REMOVE "M", "b"
+CALL CHECKS, "mapremove", MAP_GETKEYS("M"), "a"
+MAP_CLEAR "M"
+CALL CHECK, "mapclear", MAP_SIZE("M") == 0
+MAP_RELEASE "M"
+CALL CHECK, "maprelease", MAP_EXIST("M") == 0
+;--- VariableSize.csv applies to character variables
+CALL CHECK, "varsizechara", VARSIZE("TALENT") == 1200
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 

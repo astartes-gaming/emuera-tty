@@ -64,6 +64,8 @@ pub struct Vm {
     pub charas: Vec<Chara>,
     pub frames: Vec<Frame>,
     pub user_dims: HashMap<String, DimDecl>,
+    /// Emuera-EM MAP_* string maps, by (case-sensitive) name
+    pub maps: HashMap<String, StrMap>,
     rng: u64,
     warned: HashSet<String>,
     pub game_dir: PathBuf,
@@ -76,6 +78,14 @@ pub struct Vm {
 }
 
 const MAX_DEPTH: usize = 4000;
+
+/// A built-in variable's dimensions with VariableSize.csv applied.
+pub(crate) fn sized_dims(varsize: &HashMap<String, Vec<usize>>, name: &str, def: &VarDef) -> Vec<usize> {
+    match varsize.get(name) {
+        Some(d) if !d.is_empty() && !def.dims.is_empty() => d.iter().take(def.dims.len().max(1)).copied().collect(),
+        _ => def.dims.to_vec(),
+    }
+}
 
 impl Vm {
     pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf) -> Vm {
@@ -94,6 +104,7 @@ impl Vm {
             charas: Vec::new(),
             frames: Vec::new(),
             user_dims: HashMap::new(),
+            maps: HashMap::new(),
             rng: seed | 1,
             warned: HashSet::new(),
             game_dir,
@@ -198,10 +209,7 @@ impl Vm {
 
     // ------------------------------------------------------------ variables
     fn var_def_dims(&self, name: &str, def: &VarDef) -> Vec<usize> {
-        match self.csv.varsize.get(name) {
-            Some(d) if !d.is_empty() && !def.dims.is_empty() => d.iter().take(def.dims.len().max(1)).copied().collect(),
-            _ => def.dims.to_vec(),
-        }
+        sized_dims(&self.csv.varsize, name, def)
     }
 
     pub fn global_arr(&mut self, name: &str) -> &mut Arr {

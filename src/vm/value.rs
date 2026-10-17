@@ -59,3 +59,44 @@ pub type VmResult<T> = Result<T, Ctrl>;
 pub fn err<T>(msg: impl Into<String>) -> VmResult<T> {
     Err(Ctrl::Error(msg.into(), false))
 }
+
+/// String→string map for Emuera-EM's MAP_* functions. Keys keep insertion
+/// order, which MAP_GETKEYS exposes (C# Dictionary enumerates that way).
+#[derive(Clone, Debug, Default)]
+pub struct StrMap {
+    keys: Vec<String>,
+    vals: std::collections::HashMap<String, String>,
+}
+
+impl StrMap {
+    pub fn get(&self, k: &str) -> Option<&String> {
+        self.vals.get(k)
+    }
+    pub fn has(&self, k: &str) -> bool {
+        self.vals.contains_key(k)
+    }
+    pub fn set(&mut self, k: String, v: String) {
+        if !self.vals.contains_key(&k) {
+            self.keys.push(k.clone());
+        }
+        self.vals.insert(k, v);
+    }
+    pub fn remove(&mut self, k: &str) {
+        if self.vals.remove(k).is_some() {
+            self.keys.retain(|x| x != k);
+        }
+    }
+    pub fn clear(&mut self) {
+        self.keys.clear();
+        self.vals.clear();
+    }
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+    pub fn keys(&self) -> &[String] {
+        &self.keys
+    }
+    pub fn pairs(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.keys.iter().map(|k| (k, &self.vals[k]))
+    }
+}

@@ -48,6 +48,8 @@ pub const FUNCTIONS: &[&str] = &[
     "GETVAR", "GETVARS", "SETVAR", "ISDEFINED", "STRREPEAT", "GETLINESTR", "REGEXPMATCH", "CHKCHARADATA", "FIND_CHARADATA",
     "GCREATED", "GWIDTH", "GHEIGHT", "GETCHARA_", "__FORMS", "ARRAYMSORTEX", "GETMEMORYUSAGE", "CLEARMEMORY", "TRIM",
     "EXISTSOUND", "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH",
+    "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE", "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE",
+    "MAP_GETKEYS", "MAP_TOXML",
 ];
 
 pub fn is_builtin_command(c: &str) -> bool {
@@ -246,10 +248,11 @@ impl Vm {
 
     pub fn new_chara_from_csv(&mut self, no: i64) -> VmResult<Chara> {
         let mut c = Chara::default();
-        let mut set = |c: &mut Chara, name: &str, idx: i64, val: Value| {
+        let varsize = &self.csv.varsize;
+        let set = |c: &mut Chara, name: &str, idx: i64, val: Value| {
             let def = super::vars::system_var(name);
             let a = c.vars.entry(name.to_string()).or_insert_with(|| match def {
-                Some(d) => Arr::new(d.is_str, d.dims),
+                Some(d) => Arr::new(d.is_str, &super::sized_dims(varsize, name, d)),
                 None => Arr::new(val.is_str(), &[1000]),
             });
             a.set(idx.max(0) as usize, val);
@@ -907,10 +910,82 @@ impl Vm {
         self.con.push_seg(Seg::Image { name: name.to_string(), w, h, ypos: fs * ypos_pct / 100.0, button });
     }
 
+    /// Emuera-EM string maps. Mirrors MapManagementMethod / MapDataOperationMethod /
+    /// MapGetStrMethod: ops on a missing map return -1 (or "" for strings).
+    fn map_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        let i = |v: i64| Ok(Some(Value::Int(v)));
+        let s = |v: String| Ok(Some(Value::Str(v)));
+        let map = self.as_(a, 0, "")?;
+        match name {
+            "MAP_CREATE" => {
+                if self.maps.contains_key(&map) {
+                    return i(0);
+                }
+                self.maps.insert(map, StrMap::default());
+                i(1)
+            }
+            "MAP_EXIST" => i(self.maps.contains_key(&map) as i64),
+            "MAP_RELEASE" => {
+                self.maps.remove(&map);
+                i(1)
+            }
+            "MAP_GET" => {
+                let key = self.as_(a, 1, "")?;
+                s(self.maps.get(&map).and_then(|m| m.get(&key)).cloned().unwrap_or_default())
+            }
+            "MAP_CLEAR" | "MAP_SIZE" | "MAP_HAS" | "MAP_SET" | "MAP_REMOVE" => {
+                let key = if matches!(name, "MAP_CLEAR" | "MAP_SIZE") { String::new() } else { self.as_(a, 1, "")? };
+                let val = if name == "MAP_SET" { self.as_(a, 2, "")? } else { String::new() };
+                let Some(m) = self.maps.get_mut(&map) else { return i(-1) };
+                match name {
+                    "MAP_CLEAR" => m.clear(),
+                    "MAP_SIZE" => return i(m.len() as i64),
+                    "MAP_HAS" => return i(m.has(&key) as i64),
+                    "MAP_REMOVE" => m.remove(&key),
+                    _ => m.set(key, val),
+                }
+                i(1)
+            }
+            "MAP_GETKEYS" => {
+                let Some(keys) = self.maps.get(&map).map(|m| m.keys().to_vec()) else { return s(String::new()) };
+                if a.len() < 2 {
+                    return s(keys.join(","));
+                }
+                // MAP_GETKEYS map, doit  -> RESULTS:*;  MAP_GETKEYS map, ARR, doit -> ARR:*
+                let (target, flag) = if a.len() >= 3 {
+                    (self.avar(a, 1)?, 2)
+                } else {
+                    (Rc::new(VarRef { name: "RESULTS".into(), idx: vec![] }), 1)
+                };
+                if self.ai(a, flag, 0)? == 0 {
+                    return s(String::new());
+                }
+                let (loc, base, len) = self.array_row(&target)?;
+                let arr = self.arr_at(&loc).unwrap();
+                for (k, key) in keys.iter().take(len).enumerate() {
+                    arr.set(base + k, Value::Str(key.clone()));
+                }
+                self.set_result(keys.len() as i64);
+                let first = if a.len() == 2 { keys.first().cloned().unwrap_or_default() } else { String::new() };
+                s(first)
+            }
+            "MAP_TOXML" => {
+                let Some(m) = self.maps.get(&map) else { return s(String::new()) };
+                // upstream does not escape keys/values either
+                let body: String = m.pairs().map(|(k, v)| format!("<p><k>{}</k><v>{}</v></p>", k, v)).collect();
+                s(format!("<map>{}</map>", body))
+            }
+            _ => Ok(None),
+        }
+    }
+
     // ============================================================== functions
     pub fn builtin_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         let i = |v: i64| Ok(Some(Value::Int(v)));
         let s = |v: String| Ok(Some(Value::Str(v)));
+        if name.starts_with("MAP_") {
+            return self.map_fn(name, a);
+        }
         match name {
             "__FORMS" => {
                 let src = self.as_(a, 0, "")?;
@@ -1094,10 +1169,17 @@ impl Vm {
             "VARSIZE" => {
                 let n = self.as_(a, 0, "")?.to_uppercase();
                 let d = self.ai(a, 1, -1)?;
-                let vr = VarRef { name: n, idx: vec![] };
-                let p = self.locate(&vr)?;
-                let arr = self.arr_at(&p.loc);
-                let dims = arr.map(|a| if a.dims.is_empty() { vec![1] } else { a.dims.clone() }).unwrap_or(vec![1]);
+                let dims = match super::vars::system_var(&n) {
+                    // character variables have a size even when no character exists
+                    Some(def) if def.chara => super::sized_dims(&self.csv.varsize, &n, def),
+                    _ => {
+                        let vr = VarRef { name: n, idx: vec![] };
+                        let p = self.locate(&vr)?;
+                        let arr = self.arr_at(&p.loc);
+                        arr.map(|a| a.dims.clone()).unwrap_or_default()
+                    }
+                };
+                let dims = if dims.is_empty() { vec![1] } else { dims };
                 let k = if d < 0 { dims.len() - 1 } else { (d as usize).min(dims.len() - 1) };
                 i(dims[k] as i64)
             }
