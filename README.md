@@ -171,10 +171,14 @@ terminal:
   to `/dev/input/mice` (the `input` group). Be aware the `input` group can
   read every input device, keyboards included; gpm is the safer choice.
   Without either, the input line says so (and so does the terminal after
-  quitting).
+  quitting). emuera-tty draws the pointer itself; moving it repaints only
+  the cells it crosses, so images don't flicker.
 - The console has no double-width characters, so emuera-tty notices that
   at startup and pads kanji, kana and full-width symbols itself, which
   keeps menus and maps lined up (`EMUERA_AMBIGUOUS=single` forces this).
+- The console has 16 colours. Dim colours keep their hue (dark teal
+  walls stay cyan, brown floors brown) and greys step through black, dark
+  grey, light grey and white, so coloured maps stay readable.
 
 ## 6. Updating and removing
 
@@ -252,14 +256,15 @@ text.
 |---|---|
 | xterm, kitty, WezTerm, foot, Ghostty, Alacritty, GNOME/KDE terminals, tmux | SGR (1006) mouse reports |
 | urxvt and other 1015 terminals | urxvt (1015) reports |
-| older terminals; Linux console with **gpm** running | legacy X10 reports |
-| Linux console / fbterm **without** gpm | reads `/dev/input/mice` directly (wheel included) and draws its own pointer |
+| older terminals | legacy X10 reports |
+| Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client, draws its own pointer |
+| Linux console / fbterm **without** gpm | reads `/dev/input/mice` directly (wheel included), draws its own pointer |
 
-Modifier keys held during a click are ignored. The console-mouse path needs
-read access to `/dev/input/mice`: either run gpm (`apt install gpm`), or add
-yourself to the `input` group — note that the `input` group can read *all*
-input devices, keyboards included. `EMUERA_MOUSE=mice` forces the console
-mouse anywhere, `EMUERA_MOUSE=off` (or `term`) disables it.
+Modifier keys held during a click are ignored. On the console, gpm needs
+nothing else; the `/dev/input/mice` fallback needs read access to the
+device, i.e. the `input` group — note that it can read *all* input
+devices, keyboards included. `EMUERA_MOUSE=mice` forces the console mouse
+anywhere, `EMUERA_MOUSE=off` (or `term`) disables it.
 
 ## Graphics backends
 
@@ -291,12 +296,12 @@ src/
   parser.rs      ERB/ERH statements → flat instruction lists with patched jumps
   ast.rs         Expr / Instr / Function types
   vm/mod.rs      variables (global / LOCAL / private #DIM / STATIC / chara), eval, call stack
-  vm/builtins.rs ~200 commands & functions
+  vm/builtins.rs every Emuera / Emuera-EM command and function
   vm/system.rs   TITLE / FIRST / SHOP / TRAIN / ABLUP / AFTERTRAIN / TURNEND flow
   vm/save.rs     save/load: what goes into Emuera's .sav / .dat files
   vm/erasav.rs   Emuera's binary save format (reader / writer)
   console.rs     Emuera console model: styled segments, buttons, auto `[N]` buttons
-  html.rs        HTML_PRINT subset
+  html.rs        HTML_PRINT: font/b/i/u/s, p, br, button/nonbutton, clearbutton, img, shape, space, div
   tty.rs         raw-mode TUI, layout/wrapping/alignment, mouse, colour downgrade (24-bit/256/16)
   gfx/{kitty,sixel,fb}.rs
 sample/          small test game; ERB/TEST.ERB is a language self-test
@@ -313,7 +318,7 @@ checked.
 - ERB: functions with params/defaults, `#FUNCTION(S)`, event functions with
   `#PRI/#LATER/#SINGLE/#ONLY`, `#DIM(S)` incl. CONST/STATIC/SAVEDATA/GLOBAL/
   CHARADATA and initialisers, `#DEFINE`, `[SKIPSTART]`, `[IF_DEBUG]`, `[IF X]`,
-  `{ }` line joining, `;!;`, `_Rename.csv`.
+  `{ }` line joining, `;!;` / `;^;`, `_Rename.csv`.
 - Control flow: IF/ELSEIF/ELSE, SIF, SELECTCASE (`TO`, `IS`), FOR/NEXT,
   REPEAT/REND, WHILE/WEND, DO/LOOP, BREAK/CONTINUE, GOTO/TRYGOTO,
   CALL/JUMP/TRY*/TRYC*…CATCH, *FORM variants, TRY*LIST, RETURN/RETURNF,
@@ -324,6 +329,17 @@ checked.
 - INPUT/INPUTS/TINPUT/ONEINPUT/WAIT/TWAIT/INPUTMOUSEKEY (approx.).
 - Characters: ADD/DEL/SWAP/COPY/SORT/PICKUP, CSV* lookups, FINDCHARA.
 - Strings, math, arrays (VARSET, ARRAYSHIFT/REMOVE/SORT/COPY, SPLIT, …).
+  `TOSTR` takes .NET format strings exactly as Emuera does: standard
+  (`D2`, `X6`, `N0`, `F2`, `E3`, `P0`, `C`) and custom (`#,0`, `0.0`,
+  `00;-00`, `0,.###`, `0%`, quoted text, `E+0`). `TOINT` / `ISNUMERIC`
+  read `0x` hex, `0b` binary and exponents; FORM strings and literals
+  know `\n \t \s \S`.
+- HTML_PRINT as in Emuera-EM: `px` sizes, `<div>` boxes laid out at their
+  offset (`xpos`/`ypos`/`width`/`height`, `rect=`, `size=`),
+  `<clearbutton>`, newlines in the text break the line like `<br>`.
+- Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
+  `SPRITECREATE`, `SPRITE*`), shown through the image backends.
+- `DAY.csv` / `TIME.csv` / `MONEY.csv` names (`DAYNAME`, `TIMENAME`).
 - SAVEGAME/LOADGAME menus, SAVEDATA/LOADDATA, SAVEGLOBAL/LOADGLOBAL, @SAVEINFO.
 - Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
   per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
@@ -339,11 +355,12 @@ their return values to stderr.
 
 1. Play deeper into AnonTW. Its 5 remaining parse errors are mistakes in
    the game's own scripts (Emuera reports them too).
-2. Emuera graphics API (`GCREATE`, `GDRAWSPRITE`, `SPRITE*`, `CBG*`) — eratohoTW's
-   newer UI uses these; currently ignored with a warning.
+2. `CBG*` client-background layers and tooltips are accepted but not
+   drawn; `<div>` borders, padding and background colours are ignored.
 3. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.
 4. `LOCAL@FUNC`, `#LOCALSIZE`.
 5. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
    the shop item table layout.
 6. Emuera's older text save format (binary `.sav` files already work).
-7. fbterm 256-colour escapes; damage-tracked redraw to reduce flicker on fb.
+7. fbterm 256-colour escapes; damage-tracked redraw for everything, not
+   just pointer moves, to reduce flicker on fb.

@@ -309,8 +309,11 @@ impl<'a> ExprParser<'a> {
                 Some('\\') => {
                     self.pos += 1;
                     match self.peek() {
+                        // Emuera's escapes: \s space, \S full-width space
                         Some('n') => out.push('\n'),
                         Some('t') => out.push('\t'),
+                        Some('s') => out.push(' '),
+                        Some('S') => out.push('　'),
                         Some(c) => out.push(c),
                         None => {}
                     }
@@ -652,6 +655,8 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
             match n {
                 'n' => lit.push('\n'),
                 's' => lit.push(' '),
+                'S' => lit.push('　'),
+                't' => lit.push('\t'),
                 _ => lit.push(n),
             }
             i += 2;

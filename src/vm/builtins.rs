@@ -3276,54 +3276,432 @@ pub fn barstr(v: i64, m: i64, l: i64) -> String {
     format!("[{}{}]", "*".repeat(filled as usize), ".".repeat((l - filled) as usize))
 }
 
-/// .NET-style numeric format subset: "0000", "#,##0", "00.0"-less ints, "X"/"x"
-/// TOSTR's .NET-style number formats (`"0000"`, `"#,0"`…), the common subset.
+/// `TOSTR(v, fmt)`: .NET's `Int64.ToString(fmt)`, which Emuera calls
+/// directly. Standard formats are a letter and an optional precision
+/// (`D2`, `X6`, `N0`, `F2`, `E3`, `P0`, `C`, `G`); anything else is a
+/// custom pattern (see [`format_custom`]). Culture-dependent bits follow
+/// ja-JP, the culture Emuera games are written for.
 pub fn format_number(v: i64, fmt: &str) -> String {
     if fmt.is_empty() {
         return v.to_string();
     }
-    // .NET standard formats: a letter plus an optional digit count
     let mut ch = fmt.chars();
-    let (letter, prec) = (ch.next().unwrap(), ch.as_str());
-    if prec.is_empty() || prec.bytes().all(|b| b.is_ascii_digit()) {
-        let n: usize = prec.parse().unwrap_or(0);
+    let letter = ch.next().unwrap();
+    let prec_s = ch.as_str();
+    if letter.is_ascii_alphabetic() && prec_s.len() <= 3 && prec_s.bytes().all(|b| b.is_ascii_digit()) {
+        let prec: Option<usize> = prec_s.parse().ok();
+        let neg = if v < 0 { "-" } else { "" };
+        let grouped = |n: u128| group3(&n.to_string());
         match letter {
             // hex of the two's-complement value, like C#
-            'X' => return format!("{:0n$X}", v, n = n),
-            'x' => return format!("{:0n$x}", v, n = n),
-            'D' | 'd' => {
-                let d = format!("{:0n$}", v.unsigned_abs(), n = n);
-                return if v < 0 { format!("-{}", d) } else { d };
+            'X' => return format!("{:0n$X}", v, n = prec.unwrap_or(0)),
+            'x' => return format!("{:0n$x}", v, n = prec.unwrap_or(0)),
+            'D' | 'd' => return format!("{}{:0n$}", neg, v.unsigned_abs(), n = prec.unwrap_or(0)),
+            'N' | 'n' => return format!("{}{}{}", neg, grouped(v.unsigned_abs() as u128), frac_zeros(prec.unwrap_or(2))),
+            'F' | 'f' => return format!("{}{}{}", neg, v.unsigned_abs(), frac_zeros(prec.unwrap_or(2))),
+            'P' | 'p' => return format!("{}{}{}%", neg, grouped(v.unsigned_abs() as u128 * 100), frac_zeros(prec.unwrap_or(2))),
+            'C' | 'c' => return format!("{}¥{}{}", neg, grouped(v.unsigned_abs() as u128), frac_zeros(prec.unwrap_or(0))),
+            'G' | 'g' | 'R' | 'r' => {
+                let digits = v.unsigned_abs().to_string();
+                match prec {
+                    Some(p) if p > 0 && digits.len() > p => {
+                        return format!("{}{}", neg, sci(&digits, p - 1, if letter == 'g' { 'e' } else { 'E' }, true, 2, true).trim_end_matches(['0']).to_string());
+                    }
+                    _ => return v.to_string(),
+                }
             }
-            'N' | 'n' => {
-                let g = format_number(v, "#,0");
-                return if n > 0 { format!("{}.{}", g, "0".repeat(n)) } else { g };
+            'E' | 'e' => {
+                let digits = v.unsigned_abs().to_string();
+                return format!("{}{}", neg, sci(&digits, prec.unwrap_or(6), letter, true, 3, false));
             }
-            'F' | 'f' => return if n > 0 { format!("{}.{}", v, "0".repeat(n)) } else { v.to_string() },
             _ => {}
         }
     }
-    let comma = fmt.contains(',');
-    let zeros = fmt.chars().filter(|c| *c == '0').count();
-    let neg = v < 0;
-    let mut digits = v.unsigned_abs().to_string();
-    while digits.len() < zeros {
-        digits.insert(0, '0');
-    }
-    if comma {
-        let mut out = String::new();
-        for (k, c) in digits.chars().enumerate() {
-            if k > 0 && (digits.len() - k) % 3 == 0 {
-                out.push(',');
-            }
-            out.push(c);
-        }
-        digits = out;
-    }
-    if neg {
-        format!("-{}", digits)
+    format_custom(v, fmt)
+}
+
+fn frac_zeros(n: usize) -> String {
+    if n == 0 {
+        String::new()
     } else {
-        digits
+        format!(".{}", "0".repeat(n))
+    }
+}
+
+/// Digits grouped by threes with commas.
+fn group3(d: &str) -> String {
+    let mut out = String::with_capacity(d.len() + d.len() / 3);
+    for (k, c) in d.chars().enumerate() {
+        if k > 0 && (d.len() - k) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Round a digit string (no sign) to `keep` digits, half away from zero.
+/// Returns the digits and whether rounding carried into a new leading digit.
+fn round_digits(d: &[u8], keep: usize) -> (Vec<u8>, bool) {
+    if d.len() <= keep {
+        let mut v = d.to_vec();
+        v.resize(keep, 0);
+        return (v, false);
+    }
+    let mut v = d[..keep].to_vec();
+    if d[keep] >= 5 {
+        let mut i = keep;
+        loop {
+            if i == 0 {
+                v.insert(0, 1);
+                return (v, true);
+            }
+            i -= 1;
+            if v[i] == 9 {
+                v[i] = 0;
+            } else {
+                v[i] += 1;
+                break;
+            }
+        }
+    }
+    (v, false)
+}
+
+/// `d.ddd E+xxx` for the digits of an integer: `frac` digits after the
+/// point, the exponent padded to `exp_digits` with an explicit `+` when
+/// `plus`. `trim` drops trailing fraction zeros (G).
+fn sci(digits: &str, frac: usize, e: char, plus: bool, exp_digits: usize, trim: bool) -> String {
+    let d: Vec<u8> = digits.bytes().map(|b| b - b'0').collect();
+    let mut exp = d.len() as i64 - 1;
+    if d.iter().all(|&x| x == 0) {
+        exp = 0;
+    }
+    let (r, carry) = round_digits(&d, frac + 1);
+    if carry {
+        exp += 1;
+    }
+    let mut m: String = r.iter().take(frac + 1).map(|x| (b'0' + x) as char).collect();
+    if frac > 0 {
+        m.insert(1, '.');
+    }
+    if trim && m.contains('.') {
+        m = m.trim_end_matches('0').trim_end_matches('.').to_string();
+    }
+    let sign = if exp < 0 { "-" } else if plus { "+" } else { "" };
+    format!("{}{}{}{:0w$}", m, e, sign, exp.abs(), w = exp_digits)
+}
+
+/// One token of a custom numeric pattern.
+#[derive(Clone, Debug, PartialEq)]
+enum NumTok {
+    Zero,
+    Hash,
+    Point,
+    Comma,
+    Percent,
+    PerMille,
+    /// `E+00` etc.: (letter, always show the sign, minimum digits)
+    Exp(char, bool, usize),
+    Lit(String),
+}
+
+/// Split a custom pattern into `;` sections of tokens (quotes and `\`
+/// escapes are literal text).
+fn num_sections(fmt: &str) -> Vec<Vec<NumTok>> {
+    let c: Vec<char> = fmt.chars().collect();
+    let mut secs = vec![Vec::new()];
+    let mut i = 0;
+    while i < c.len() {
+        let t = match c[i] {
+            '0' => NumTok::Zero,
+            '#' => NumTok::Hash,
+            '.' => NumTok::Point,
+            ',' => NumTok::Comma,
+            '%' => NumTok::Percent,
+            '‰' => NumTok::PerMille,
+            ';' => {
+                secs.push(Vec::new());
+                i += 1;
+                continue;
+            }
+            '\\' if i + 1 < c.len() => {
+                i += 1;
+                NumTok::Lit(c[i].to_string())
+            }
+            q @ ('\'' | '"') => {
+                let mut s = String::new();
+                i += 1;
+                while i < c.len() && c[i] != q {
+                    s.push(c[i]);
+                    i += 1;
+                }
+                NumTok::Lit(s)
+            }
+            e @ ('E' | 'e') => {
+                let mut j = i + 1;
+                let mut plus = false;
+                if j < c.len() && (c[j] == '+' || c[j] == '-') {
+                    plus = c[j] == '+';
+                    j += 1;
+                }
+                if j < c.len() && c[j] == '0' {
+                    let mut n = 0;
+                    while j < c.len() && c[j] == '0' {
+                        n += 1;
+                        j += 1;
+                    }
+                    secs.last_mut().unwrap().push(NumTok::Exp(e, plus, n));
+                    i = j;
+                    continue;
+                }
+                NumTok::Lit(e.to_string())
+            }
+            other => NumTok::Lit(other.to_string()),
+        };
+        secs.last_mut().unwrap().push(t);
+        i += 1;
+    }
+    secs
+}
+
+/// A .NET custom numeric format (`#,0`, `0.0`, `00;-00`, `0,.###`, `0%`,
+/// `'x'0`, `0.00E+0`, ...) applied to an integer.
+fn format_custom(v: i64, fmt: &str) -> String {
+    let secs = num_sections(fmt);
+    // 1 section: all values; 2: positive & zero / negative; 3: + / - / 0.
+    // A negative section shows the value without its minus sign.
+    let (sec, sign) = if v == 0 && secs.len() >= 3 && !secs[2].is_empty() {
+        (&secs[2], false)
+    } else if v < 0 && secs.len() >= 2 && !secs[1].is_empty() {
+        (&secs[1], false)
+    } else {
+        (&secs[0], v < 0)
+    };
+    // .NET's first pass: placeholders, the decimal point, grouping and
+    // scaling commas, percent / per mille, exponent
+    let (mut digit_count, mut first_zero, mut last_zero) = (0usize, usize::MAX, 0usize);
+    let mut decimal_pos: Option<usize> = None;
+    let (mut thousand_pos, mut thousand_count, mut thousand_seps) = (None::<usize>, 0usize, false);
+    let mut scale: i32 = 0; // power of ten applied to the value
+    let mut exp: Option<(char, bool, usize)> = None;
+    for t in sec {
+        match t {
+            NumTok::Zero => {
+                if first_zero == usize::MAX {
+                    first_zero = digit_count;
+                }
+                digit_count += 1;
+                last_zero = digit_count;
+            }
+            NumTok::Hash => digit_count += 1,
+            NumTok::Point => {
+                if decimal_pos.is_none() {
+                    decimal_pos = Some(digit_count);
+                }
+            }
+            NumTok::Comma => {
+                if digit_count > 0 && decimal_pos.is_none() {
+                    if let Some(tp) = thousand_pos {
+                        if tp == digit_count {
+                            thousand_count += 1;
+                            continue;
+                        }
+                        thousand_seps = true;
+                    }
+                    thousand_pos = Some(digit_count);
+                    thousand_count = 1;
+                }
+            }
+            NumTok::Percent => scale += 2,
+            NumTok::PerMille => scale += 3,
+            NumTok::Exp(e, plus, n) => {
+                if exp.is_none() {
+                    exp = Some((*e, *plus, *n));
+                }
+            }
+            NumTok::Lit(_) => {}
+        }
+    }
+    let decimal_pos = decimal_pos.unwrap_or(digit_count);
+    if let Some(tp) = thousand_pos {
+        if tp == decimal_pos {
+            scale -= 3 * thousand_count as i32;
+        } else {
+            thousand_seps = true;
+        }
+    }
+    if exp.is_some() {
+        // no scaling or grouping in scientific notation
+        thousand_seps = false;
+    }
+    let frac_places = digit_count - decimal_pos;
+    let min_int = if first_zero < decimal_pos { decimal_pos - first_zero } else { 0 };
+    let min_frac = last_zero.saturating_sub(decimal_pos);
+
+    // the value as decimal digits with the point `point` digits from the
+    // left (exact: an integer times a power of ten)
+    let mut digits: Vec<u8> = v.unsigned_abs().to_string().bytes().map(|b| b - b'0').collect();
+    let mut point: i64 = digits.len() as i64;
+    let mut exponent: i64 = 0;
+    if let Some(_) = exp {
+        // scientific: as many integer digits as there are integer placeholders
+        let lead = decimal_pos.max(1) as i64;
+        if digits.iter().all(|&d| d == 0) {
+            digits = vec![0];
+        } else {
+            exponent = digits.len() as i64 - lead;
+        }
+        point = lead;
+    } else {
+        point += scale as i64;
+    }
+    // integer and fraction digits, rounded to the fraction placeholders
+    let total = (point.max(0) as usize) + frac_places;
+    let mut all: Vec<u8> = if point < 0 {
+        let mut z = vec![0u8; (-point) as usize];
+        z.extend(&digits);
+        z
+    } else {
+        digits.clone()
+    };
+    let int_len = point.max(0) as usize;
+    let (mut r, carry) = round_digits(&all, total);
+    let mut int_len2 = int_len;
+    if carry {
+        if exp.is_some() {
+            r.pop();
+            exponent += 1;
+        } else {
+            int_len2 += 1;
+        }
+    }
+    all = r;
+    let mut int_d: Vec<u8> = all[..int_len2.min(all.len())].to_vec();
+    let frac_d: Vec<u8> = all[int_len2.min(all.len())..].to_vec();
+    while int_d.len() > 1 && int_d[0] == 0 {
+        int_d.remove(0);
+    }
+    if int_d == [0] {
+        int_d.clear();
+    }
+    while int_d.len() < min_int {
+        int_d.insert(0, 0);
+    }
+    // fraction digits shown: up to the last non-zero, at least min_frac
+    let shown = frac_d.iter().rposition(|&d| d != 0).map_or(0, |p| p + 1).max(min_frac).min(frac_places);
+
+    // second pass: emit
+    let mut out = String::new();
+    if sign {
+        out.push('-');
+    }
+    let int_chars: Vec<char> = int_d.iter().map(|d| (b'0' + d) as char).collect();
+    let n = int_chars.len();
+    let mut ph = 0usize; // placeholder index
+    let mut emitted_exp = false;
+    let push_digit = |out: &mut String, k: usize| {
+        out.push(int_chars[k]);
+        if thousand_seps && n - 1 - k > 0 && (n - 1 - k) % 3 == 0 {
+            out.push(',');
+        }
+    };
+    for t in sec {
+        match t {
+            NumTok::Zero | NumTok::Hash => {
+                if ph < decimal_pos {
+                    // integer placeholders take the digits right-aligned;
+                    // the first one also takes any extra leading digits
+                    let slot = n as i64 - (decimal_pos - ph) as i64;
+                    if ph == 0 {
+                        for k in 0..slot.max(0) as usize {
+                            push_digit(&mut out, k);
+                        }
+                    }
+                    if slot >= 0 {
+                        push_digit(&mut out, slot as usize);
+                    }
+                } else {
+                    let j = ph - decimal_pos;
+                    if j < shown {
+                        out.push((b'0' + frac_d[j]) as char);
+                    }
+                }
+                ph += 1;
+            }
+            NumTok::Point => {
+                if ph == decimal_pos && shown > 0 && !out.contains('.') {
+                    out.push('.');
+                }
+            }
+            NumTok::Comma => {}
+            NumTok::Percent => out.push('%'),
+            NumTok::PerMille => out.push('‰'),
+            NumTok::Exp(e, plus, w) => {
+                if !emitted_exp {
+                    emitted_exp = true;
+                    let s = if exponent < 0 { "-" } else if *plus { "+" } else { "" };
+                    let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{}{}{:0w$}", e, s, exponent.abs(), w = *w));
+                }
+            }
+            NumTok::Lit(s) => out.push_str(s),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::format_number as f;
+
+    #[test]
+    fn dotnet_standard_formats() {
+        assert_eq!(f(255, "X6"), "0000FF");
+        assert_eq!(f(31, "x4"), "001f");
+        assert_eq!(f(-1, "X"), "FFFFFFFFFFFFFFFF");
+        assert_eq!(f(5, "D2"), "05");
+        assert_eq!(f(-5, "D3"), "-005");
+        assert_eq!(f(1234, "N0"), "1,234");
+        assert_eq!(f(1234, "N"), "1,234.00");
+        assert_eq!(f(-1234, "N1"), "-1,234.0");
+        assert_eq!(f(5, "F"), "5.00");
+        assert_eq!(f(5, "F0"), "5");
+        assert_eq!(f(5, "P0"), "500%");
+        assert_eq!(f(5, "E2"), "5.00E+000");
+        assert_eq!(f(12345, "e3"), "1.235e+004");
+        assert_eq!(f(50, "G"), "50");
+        assert_eq!(f(12, "C"), "¥12");
+    }
+
+    #[test]
+    fn dotnet_custom_formats() {
+        assert_eq!(f(1234567, "#,0"), "1,234,567");
+        assert_eq!(f(-1234, "#,0"), "-1,234");
+        assert_eq!(f(1234, "#,###"), "1,234");
+        assert_eq!(f(1234, "#,##0"), "1,234");
+        assert_eq!(f(3, "000"), "003");
+        assert_eq!(f(12, "0.0"), "12.0");
+        assert_eq!(f(7, "00;-00"), "07");
+        assert_eq!(f(-7, "00;-00"), "-07");
+        assert_eq!(f(-3, "0;(0)"), "(3)");
+        assert_eq!(f(0, "0;-0;zero"), "zero");
+        assert_eq!(f(0, "#"), "");
+        assert_eq!(f(0, "0"), "0");
+        assert_eq!(f(5, "'abc'0"), "abc5");
+        assert_eq!(f(5, "\\#0"), "#5");
+        assert_eq!(f(5, "0%"), "500%");
+        assert_eq!(f(1234, "# 0"), "123 4");
+        assert_eq!(f(12, "# 0"), "1 2");
+        // scaling commas: AnonTW shows its version as 4980 -> "4.98"
+        assert_eq!(f(4980, "0,.###"), "4.98");
+        assert_eq!(f(4985, "0,.##"), "4.99");
+        assert_eq!(f(1500000, "0,,"), "2");
+        assert_eq!(f(999, "0,,"), "0");
+        assert_eq!(f(12345, "0.00E+0"), "1.23E+4");
+        assert_eq!(f(5, "0.##"), "5");
+        assert_eq!(f(5, "0.00"), "5.00");
+        assert_eq!(f(9, "Red:Blue"), "Red:Blue");
+        assert_eq!(f(42, ""), "42");
     }
 }
 
