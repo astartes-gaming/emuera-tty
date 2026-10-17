@@ -21,6 +21,7 @@ mod parser;
 mod picker;
 mod resources;
 mod retro;
+mod settings;
 mod terminfo;
 mod tty;
 mod xml;
@@ -88,7 +89,7 @@ fn usage_exit(code: i32) -> ! {
          \x20 --install                        copy this program to a folder on your PATH (~/.local/bin…)\n\
          \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
          \x20 --uninstall                      remove the installed copy\n\
-         \x20 --reset-data                     forget settings (remembered game folder); saves are kept"
+         \x20 --reset-data                     forget settings and the game library; saves are kept"
     );
     std::process::exit(code)
 }
@@ -217,7 +218,8 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
                 }
                 "背景色" => {
                     if let Some(c) = rgb(v) {
-                        con.default_bg = c
+                        con.default_bg = c;
+                        con.screen_bg = c;
                     }
                 }
                 "選択中文字色" => {
@@ -333,8 +335,16 @@ fn run(o: Opts) -> i32 {
         libc::malloc_trim(0);
     }
     let res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
+    // saved settings (options and EMUERA_* variables win)
+    let st = settings::Settings::load();
+    st.export_env();
+    let mut o = o;
+    if o.gfx == "auto" && std::env::var_os("EMUERA_GFX").is_none() {
+        o.gfx = st.get("images").to_string();
+    }
     let term_env = std::env::var("TERM").unwrap_or_default();
-    let use_retro = !o.headless && (o.serial.is_some() || o.retro.is_some() || retro::wanted_for(&term_env));
+    let use_retro = !o.headless
+        && (o.serial.is_some() || o.retro.is_some() || st.get("frontend") == "retro" || (st.get("frontend") != "ansi" && retro::wanted_for(&term_env)));
     let fe: Box<dyn frontend::Frontend> = if o.headless {
         Box::new(frontend::Headless::new(o.echo))
     } else if use_retro {
@@ -358,7 +368,11 @@ fn run(o: Opts) -> i32 {
         }
     } else {
         match tty::Tty::new(&o.gfx) {
-            Ok(t) => Box::new(t),
+            Ok(mut t) => {
+                t.contrast = st.contrast_ratio();
+                t.wheel = st.get("wheel").parse().unwrap_or(3);
+                Box::new(t)
+            }
             Err(e) => {
                 eprintln!("terminal init failed ({}); falling back to headless", e);
                 Box::new(frontend::Headless::new(o.echo))
@@ -473,26 +487,30 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
                 }
             };
         }
+        // a game played by path joins the library too (not as the last one)
+        if interactive && picker::is_game_dir(g) {
+            let mut st = settings::Settings::load();
+            st.add_game(g);
+            st.save();
+        }
         return Some(g.clone());
     }
     if !o.choose {
         if picker::is_game_dir(std::path::Path::new(".")) {
             return Some(PathBuf::from("."));
         }
-        if let Some(g) = picker::last_game() {
-            return Some(g);
+        // one game known: play it; several: let the user choose
+        if picker::library_size() < 2 || !interactive {
+            if let Some(g) = picker::last_game() {
+                return Some(g);
+            }
         }
     }
     if !interactive {
         eprintln!("emuera-tty: no game folder given (pass GAME_DIR, or run in a terminal to pick one)");
         return None;
     }
-    // start where the last game was, else in the home folder
-    let start = picker::last_game()
-        .and_then(|g| g.parent().map(|p| p.to_path_buf()))
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("."));
-    let g = picker::pick(&start)?;
+    let g = picker::launcher()?;
     picker::remember(&g);
     Some(g)
 }

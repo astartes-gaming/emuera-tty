@@ -85,6 +85,9 @@ pub struct Console {
     pub style: Style,
     pub default_fg: Rgb,
     pub default_bg: Rgb,
+    /// The window background (SETBGCOLOR): Emuera paints the whole
+    /// console with it, old lines included.
+    pub screen_bg: Rgb,
     /// Colour of a hovered / selected button.
     pub focus_fg: Rgb,
     pub log_fg: Rgb,
@@ -137,6 +140,7 @@ impl Console {
             style: Style { fg, bg: None, bold: false, italic: false, underline: false, strike: false },
             default_fg: fg,
             default_bg: Rgb(0, 0, 0),
+            screen_bg: Rgb(0, 0, 0),
             focus_fg: Rgb(255, 255, 0),
             log_fg: Rgb(192, 192, 192),
             align: Align::Left,
@@ -718,5 +722,67 @@ mod tests {
                 ("  [2] No".to_string(), Some(Value::Int(2))),
             ]
         );
+    }
+}
+
+/// Relative luminance (WCAG) of an sRGB colour.
+fn luminance(c: Rgb) -> f32 {
+    let lin = |v: u8| {
+        let v = v as f32 / 255.0;
+        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
+}
+
+/// WCAG contrast ratio of two colours (1 to 21).
+pub fn contrast(a: Rgb, b: Rgb) -> f32 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// `fg`, lightened (on a dark `bg`) or darkened (on a light one) until it
+/// reaches contrast `min` against `bg`, keeping its hue. Greys are left
+/// alone: games use dark greys on purpose (shading, faded map edges);
+/// it is saturated colours like pure blue on black that are unreadable.
+pub fn readable(fg: Rgb, bg: Rgb, min: f32) -> Rgb {
+    if min <= 1.0 {
+        return fg;
+    }
+    let (mx, mn) = (fg.0.max(fg.1).max(fg.2) as i32, fg.0.min(fg.1).min(fg.2) as i32);
+    if (mx - mn) * 4 < mx.max(1) || contrast(fg, bg) >= min {
+        return fg;
+    }
+    let target = if luminance(bg) < 0.4 { Rgb(255, 255, 255) } else { Rgb(0, 0, 0) };
+    let mix = |t: f32| {
+        let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+        Rgb(m(fg.0, target.0), m(fg.1, target.1), m(fg.2, target.2))
+    };
+    for k in 1..=20 {
+        let c = mix(k as f32 / 20.0);
+        if contrast(c, bg) >= min {
+            return c;
+        }
+    }
+    target
+}
+
+#[cfg(test)]
+mod contrast_tests {
+    use super::*;
+
+    #[test]
+    fn dark_blue_gets_readable() {
+        let black = Rgb(0, 0, 0);
+        let navy = Rgb(1, 24, 60); // AnonTW's time-stop background
+        let blue = Rgb(0, 0, 255);
+        assert!(contrast(blue, black) < 3.0);
+        let b = readable(blue, black, 3.0);
+        assert!(contrast(b, black) >= 3.0 && b.2 == 255 && b.0 < 128, "{:?}", b);
+        let b = readable(Rgb(64, 64, 200), navy, 3.0);
+        assert!(contrast(b, navy) >= 3.0, "{:?}", b);
+        // greys and already readable colours stay as they are
+        assert_eq!(readable(Rgb(0x15, 0x15, 0x15), black, 3.0), Rgb(0x15, 0x15, 0x15));
+        assert_eq!(readable(Rgb(255, 255, 0), black, 3.0), Rgb(255, 255, 0));
+        assert_eq!(readable(blue, black, 1.0), blue);
     }
 }

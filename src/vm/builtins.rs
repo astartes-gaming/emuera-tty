@@ -482,20 +482,27 @@ impl Vm {
                 if name == "SETCOLOR" {
                     self.con.style.fg = c
                 } else {
-                    self.con.style.bg = Some(c)
+                    self.con.screen_bg = c;
+                    self.con.dirty = true;
                 }
             }
             "SETCOLORBYNAME" | "SETBGCOLORBYNAME" => {
                 if let Args::Raw(s) = args {
                     match parse_color_name(s) {
                         Some(c) if name == "SETCOLORBYNAME" => self.con.style.fg = c,
-                        Some(c) => self.con.style.bg = Some(c),
+                        Some(c) => {
+                            self.con.screen_bg = c;
+                            self.con.dirty = true;
+                        }
                         None => self.warn(&format!("unknown color name {}", s)),
                     }
                 }
             }
             "RESETCOLOR" => self.con.style.fg = self.con.default_fg,
-            "RESETBGCOLOR" => self.con.style.bg = None,
+            "RESETBGCOLOR" => {
+                self.con.screen_bg = self.con.default_bg;
+                self.con.dirty = true;
+            }
             "FONTBOLD" => self.con.style.bold = true,
             "FONTITALIC" => self.con.style.italic = true,
             "FONTREGULAR" => {
@@ -2764,7 +2771,7 @@ impl Vm {
             }
             "GETCOLOR" => i(self.con.style.fg.to_i64()),
             "GETDEFCOLOR" => i(self.con.default_fg.to_i64()),
-            "GETBGCOLOR" => i(self.con.style.bg.unwrap_or(self.con.default_bg).to_i64()),
+            "GETBGCOLOR" => i(self.con.screen_bg.to_i64()),
             "GETDEFBGCOLOR" => i(self.con.default_bg.to_i64()),
             "GETFOCUSCOLOR" => i(self.con.focus_fg.to_i64()),
             "GETSTYLE" => {

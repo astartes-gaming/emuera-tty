@@ -128,8 +128,19 @@ enum Key {
     End,
     CtrlC,
     CtrlL,
+    Left,
+    Right,
+    /// F1 or Ctrl-O: the settings overlay
+    Settings,
     Mouse { btn: u16, x: u16, y: u16, press: bool },
     Other,
+}
+
+/// What the settings overlay asks the input loop to do next.
+enum OverlayExit {
+    Close,
+    SwitchGame,
+    Quit,
 }
 
 pub struct Tty {
@@ -172,6 +183,19 @@ pub struct Tty {
     frame_imgs: Vec<Placement>,
     drawn_pointer: Option<(usize, usize)>,
     frame_cursor: Option<(usize, usize)>,
+    /// the window background for this frame (None: the terminal's own)
+    screen_bg: Option<Rgb>,
+    /// minimum contrast for coloured text (1: off), see `console::readable`
+    pub contrast: f32,
+    /// lines per mouse-wheel step
+    pub wheel: usize,
+    /// frames drawn without images (under the settings overlay)
+    no_images: bool,
+    /// the colour mode detected at startup, for the "auto" setting
+    auto_color: ColorMode,
+    /// the `--gfx` preference and $TERM, to set the image backend up again
+    gfx_pref: String,
+    term: String,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -277,7 +301,13 @@ impl Tty {
         unsafe { libc::tcsetattr(0, libc::TCSANOW, &raw) };
         let term = std::env::var("TERM").unwrap_or_default();
         let colorterm = std::env::var("COLORTERM").unwrap_or_default();
-        let color = if term == "linux" || term.starts_with("fbterm") {
+        let forced = match std::env::var("EMUERA_COLORS").as_deref() {
+            Ok("truecolor") | Ok("24bit") => Some(ColorMode::True),
+            Ok("256") => Some(ColorMode::C256),
+            Ok("16") => Some(ColorMode::C16),
+            _ => None,
+        };
+        let detected = if term == "linux" || term.starts_with("fbterm") {
             ColorMode::C16
         } else if colorterm.contains("truecolor") || colorterm.contains("24bit") || term.contains("kitty") || term.contains("foot") || term.contains("direct") {
             ColorMode::True
@@ -286,6 +316,7 @@ impl Tty {
         } else {
             ColorMode::True
         };
+        let color = forced.unwrap_or(detected);
         let (cols, rows, xp, yp) = winsize();
         let mut t = Tty {
             orig,
@@ -313,6 +344,13 @@ impl Tty {
             frame_imgs: Vec::new(),
             drawn_pointer: None,
             frame_cursor: None,
+            screen_bg: None,
+            contrast: 3.0,
+            wheel: 3,
+            no_images: false,
+            auto_color: detected,
+            gfx_pref: gfx_pref.to_string(),
+            term: term.clone(),
         };
         if xp > 0 && yp > 0 {
             t.cell = (xp / cols as u32, yp / rows as u32);
@@ -624,8 +662,13 @@ impl Tty {
                                             Key::Other
                                         }
                                     }
+                                    // F1: xterm-style, and the Linux console's ESC [ [ A
+                                    (p, b'~') if p == b"11" => Key::Settings,
+                                    (p, b'A') if p == b"[" => Key::Settings,
                                     (_, b'A') => Key::Up,
                                     (_, b'B') => Key::Down,
+                                    (_, b'C') => Key::Right,
+                                    (_, b'D') => Key::Left,
                                     (_, b'H') => Key::Home,
                                     (_, b'F') => Key::End,
                                     (p, b'~') if p == b"5" => Key::PageUp,
@@ -640,7 +683,14 @@ impl Tty {
                         }
                     }
                 } else if b[1] == b'O' && b.len() >= 3 {
-                    (Key::Other, 3)
+                    (match b[2] {
+                        b'P' => Key::Settings,
+                        b'A' => Key::Up,
+                        b'B' => Key::Down,
+                        b'C' => Key::Right,
+                        b'D' => Key::Left,
+                        _ => Key::Other,
+                    }, 3)
                 } else {
                     (Key::Esc, 1)
                 }
@@ -649,6 +699,7 @@ impl Tty {
             0x7f | 0x08 => (Key::Backspace, 1),
             0x03 => (Key::CtrlC, 1),
             0x0c => (Key::CtrlL, 1),
+            0x0f => (Key::Settings, 1),
             c if c < 0x20 => (Key::Other, 1),
             c => {
                 let len = if c >= 0xf0 {
@@ -810,8 +861,11 @@ impl Tty {
     }
 
     /// Emit the SGR sequence for a style in the terminal's colour mode.
+    /// The background is the text's own, else the window's (SETBGCOLOR);
+    /// the foreground is made readable against it (see `contrast`).
     fn sgr(&self, out: &mut Vec<u8>, st: &Style, fg_override: Option<Rgb>) {
-        let fg = fg_override.unwrap_or(st.fg);
+        let bg = st.bg.or(self.screen_bg);
+        let fg = crate::console::readable(fg_override.unwrap_or(st.fg), bg.unwrap_or(Rgb(0, 0, 0)), self.contrast);
         out.extend_from_slice(b"\x1b[0");
         if st.bold {
             out.extend_from_slice(b";1");
@@ -828,13 +882,13 @@ impl Tty {
         match self.color {
             ColorMode::True => {
                 let _ = write!(out, ";38;2;{};{};{}", fg.0, fg.1, fg.2);
-                if let Some(b) = st.bg {
+                if let Some(b) = bg {
                     let _ = write!(out, ";48;2;{};{};{}", b.0, b.1, b.2);
                 }
             }
             ColorMode::C256 => {
                 let _ = write!(out, ";38;5;{}", rgb256(fg));
-                if let Some(b) = st.bg {
+                if let Some(b) = bg {
                     let _ = write!(out, ";48;5;{}", rgb256(b));
                 }
             }
@@ -845,17 +899,34 @@ impl Tty {
                 if bright {
                     out.extend_from_slice(b";1");
                 }
-                if let Some(b) = st.bg {
-                    let (c, _) = rgb16(b);
-                    let _ = write!(out, ";{}", 40 + c);
+                if let Some(b) = bg {
+                    let _ = write!(out, ";{}", 40 + rgb16_bg(b));
                 }
             }
         }
         out.push(b'm');
     }
 
+    /// Reset attributes to the window background and clear to the end of
+    /// the line with it.
+    fn clear_eol(&self, out: &mut Vec<u8>) {
+        match self.screen_bg {
+            None => out.extend_from_slice(b"\x1b[0m\x1b[K"),
+            Some(b) => {
+                let _ = match self.color {
+                    ColorMode::True => write!(out, "\x1b[0;48;2;{};{};{}m\x1b[K", b.0, b.1, b.2),
+                    ColorMode::C256 => write!(out, "\x1b[0;48;5;{}m\x1b[K", rgb256(b)),
+                    ColorMode::C16 => write!(out, "\x1b[0;{}m\x1b[K", 40 + rgb16_bg(b)),
+                };
+            }
+        }
+    }
+
     /// Draw a full frame: text rows, images, the prompt / status line.
     fn render(&mut self, con: &mut Console, res: &mut Resources, req: Option<&InputReq>) {
+        // the window background, unless it is the game's default (then the
+        // terminal's own background shows)
+        self.screen_bg = (con.screen_bg != con.default_bg).then_some(con.screen_bg);
         let (cols, rows, xp, yp) = winsize();
         self.cols = cols;
         self.rows = rows.max(2);
@@ -986,7 +1057,7 @@ impl Tty {
             if let Some((s, b)) = btn_start {
                 self.btn_map[sr].push((s, col, b));
             }
-            out.extend_from_slice(b"\x1b[0m\x1b[K");
+            self.clear_eol(&mut out);
             // images on this row (skipping any that start past the edge)
         }
         // images: placed by pixel, so a picture can start rows above or
@@ -1009,6 +1080,9 @@ impl Tty {
                 if crop_h == 0 {
                     continue;
                 }
+                if self.no_images {
+                    continue;
+                }
                 if let Some(img) = res.scaled(&im.name, pw, ph) {
                     placements.push(Placement {
                         key: format!("{}@{}x{}#{}", im.name, pw, ph, res.version(&im.name)),
@@ -1023,7 +1097,8 @@ impl Tty {
             }
         }
         for sr in visible.len()..view_h {
-            let _ = write!(out, "\x1b[{};1H\x1b[0m\x1b[K", sr + 1);
+            let _ = write!(out, "\x1b[{};1H", sr + 1);
+            self.clear_eol(&mut out);
         }
         if let (Some((px, py)), false) = (pointer, pointer_drawn) {
             // pointer over blank space
@@ -1032,7 +1107,8 @@ impl Tty {
             }
         }
         // status / input line
-        let _ = write!(out, "\x1b[{};1H\x1b[0m\x1b[K", self.rows);
+        let _ = write!(out, "\x1b[{};1H", self.rows);
+        self.clear_eol(&mut out);
         let prompt = match req {
             Some(r) if r.kind == InputKind::Wait => "\x1b[2m▼ (Enter)\x1b[0m".to_string(),
             Some(_) if self.buf.is_empty() && self.notice.is_some() => format!("\x1b[1m>\x1b[0m \x1b[2m({})\x1b[0m", self.notice.as_deref().unwrap_or("")),
@@ -1040,6 +1116,13 @@ impl Tty {
             None => String::new(),
         };
         out.extend_from_slice(prompt.as_bytes());
+        if self.scroll == 0 && cols > 40 && req.is_some() && !self.no_images {
+            let hint = "F1 settings";
+            let used = 2 + self.buf.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 20;
+            if used + hint.len() < cols {
+                let _ = write!(out, "\x1b[{};{}H\x1b[0;2m{}\x1b[0m", self.rows, cols - hint.len(), hint);
+            }
+        }
         if self.scroll > 0 {
             let tag = format!(" [scroll -{}] ", self.scroll);
             let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
@@ -1113,7 +1196,11 @@ impl Tty {
         // pointer over blank space past the end of a row
         for (k, (pos, inverse)) in [(self.drawn_pointer, false), (new_ptr, true)].into_iter().enumerate() {
             if let (Some((px, py)), false) = (pos, covered[k]) {
-                let _ = write!(out, "\x1b[{};{}H\x1b[0m{}", py + 1, px + 1, if inverse { "\x1b[7m \x1b[0m" } else { " " });
+                let _ = write!(out, "\x1b[{};{}H", py + 1, px + 1);
+                // a blank in the window background, inverted for the pointer
+                let blank = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
+                self.sgr(&mut out, &blank, None);
+                out.extend_from_slice(if inverse { b"\x1b[7m \x1b[0m" } else { b" \x1b[0m" });
                 touched.push((px, py, 1));
             }
         }
@@ -1145,6 +1232,158 @@ impl Tty {
         if !hit.is_empty() {
             self.gfx.after_flush(&hit, self.cell);
         }
+    }
+
+    /// The settings overlay (F1 / Ctrl-O): a box over the game listing
+    /// `settings::ITEMS`, changed with ← / → / Enter and saved at once;
+    /// most apply to the running game. Images are hidden while it is up
+    /// (kitty would draw them over it).
+    fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
+        use crate::settings::{Settings, ITEMS};
+        let mut st = Settings::load();
+        let extra = ["Switch game…  (unsaved progress is lost)", "Quit emuera-tty", "Close  (Esc)"];
+        let n = ITEMS.len() + extra.len();
+        let mut sel = 0usize;
+        let mut note = String::new();
+        let exit = loop {
+            self.no_images = true;
+            self.render(con, res, Some(req));
+            let geo = self.draw_overlay(&st, &extra, sel, &note);
+            let Some(k) = self.next_key(500) else {
+                if self.hangup {
+                    break OverlayExit::Quit;
+                }
+                continue;
+            };
+            note.clear();
+            // a click picks a row (and acts on it)
+            let mut act = 0i32; // 1 next / Enter, -1 previous
+            match k {
+                Key::Up | Key::Char('k') => sel = (sel + n - 1) % n,
+                Key::Down | Key::Char('j') => sel = (sel + 1) % n,
+                Key::Esc | Key::Settings | Key::Char('q') => break OverlayExit::Close,
+                Key::CtrlC => break OverlayExit::Quit,
+                Key::Enter | Key::Right | Key::Char(' ') | Key::Char('l') => act = 1,
+                Key::Left | Key::Char('h') | Key::Backspace => act = -1,
+                Key::Mouse { btn, y, press: true, .. } => match btn & !(4 | 8 | 16) {
+                    64 => sel = (sel + n - 1) % n,
+                    65 => sel = (sel + 1) % n,
+                    0 => {
+                        let row = y as usize;
+                        if row > geo.0 && row <= geo.0 + n {
+                            sel = row - geo.0 - 1;
+                            act = 1;
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+            if act == 0 {
+                continue;
+            }
+            if sel < ITEMS.len() {
+                let it = &ITEMS[sel];
+                let v = st.cycle(it.key, act).to_string();
+                st.save();
+                if it.live {
+                    self.apply_setting(it.key, &v, &st);
+                } else {
+                    note = format!("{} takes effect the next time emuera-tty starts", it.label);
+                }
+            } else if act == 1 {
+                match sel - ITEMS.len() {
+                    0 => break OverlayExit::SwitchGame,
+                    1 => break OverlayExit::Quit,
+                    _ => break OverlayExit::Close,
+                }
+            }
+        };
+        self.no_images = false;
+        exit
+    }
+
+    /// Apply a changed setting to the running terminal.
+    fn apply_setting(&mut self, key: &str, v: &str, st: &crate::settings::Settings) {
+        match key {
+            "contrast" => self.contrast = st.contrast_ratio(),
+            "wheel" => self.wheel = v.parse().unwrap_or(3),
+            "colors" => {
+                self.color = match v {
+                    "truecolor" => ColorMode::True,
+                    "256" => ColorMode::C256,
+                    "16" => ColorMode::C16,
+                    _ => self.auto_color,
+                }
+            }
+            "wide" => {
+                if v == "auto" {
+                    std::env::remove_var("EMUERA_AMBIGUOUS");
+                } else {
+                    std::env::set_var("EMUERA_AMBIGUOUS", v);
+                }
+                self.ambi = self.detect_ambiguous();
+            }
+            "images" => {
+                let mut out = Vec::new();
+                self.gfx.shutdown(&mut out);
+                write_all(&out);
+                self.gfx = Box::new(gfx::NoGfx);
+                self.fb_cell_fixed = false;
+                let pref = if v == "auto" && self.gfx_pref != "auto" { self.gfx_pref.clone() } else { v.to_string() };
+                let term = self.term.clone();
+                self.setup_gfx(&pref, &term);
+            }
+            _ => {}
+        }
+    }
+
+    /// Draw the overlay box; returns its top row (1-based, the title row)
+    /// for mapping clicks.
+    fn draw_overlay(&self, st: &crate::settings::Settings, extra: &[&str], sel: usize, note: &str) -> (usize,) {
+        use crate::settings::ITEMS;
+        let n = ITEMS.len() + extra.len();
+        let w = self.cols.saturating_sub(4).clamp(30, 72);
+        let h = n + 4; // title, rows, help, borders
+        let left = (self.cols.saturating_sub(w)) / 2 + 1;
+        let top = (self.rows.saturating_sub(h)) / 2 + 1;
+        let mut out: Vec<u8> = Vec::new();
+        let inner = w - 2;
+        let line = |out: &mut Vec<u8>, row: usize, text: &str, style: &str| {
+            let mut t: String = String::new();
+            let mut used = 0;
+            for c in text.chars() {
+                let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+                if used + cw > inner {
+                    break;
+                }
+                t.push(c);
+                used += cw;
+            }
+            let _ = write!(out, "\x1b[{};{}H\x1b[0;37;44m│{}{}{}\x1b[0;37;44m│", row, left, style, t, " ".repeat(inner - used));
+        };
+        let _ = write!(out, "\x1b[?25l\x1b[{};{}H\x1b[0;37;44m┌{}┐", top, left, "─".repeat(inner));
+        line(&mut out, top + 1, " emuera-tty settings  (F1 / Ctrl-O)", "\x1b[1;97;44m");
+        for (i, it) in ITEMS.iter().enumerate() {
+            let later = if it.live { "" } else { "  (next start)" };
+            let text = format!("  {:<18} ‹ {} ›{}", it.label, st.get(it.key), later);
+            line(&mut out, top + 2 + i, &text, if i == sel { "\x1b[0;30;47m" } else { "\x1b[0;97;44m" });
+        }
+        for (k, e) in extra.iter().enumerate() {
+            let i = ITEMS.len() + k;
+            line(&mut out, top + 2 + i, &format!("  {}", e), if i == sel { "\x1b[0;30;47m" } else { "\x1b[0;96;44m" });
+        }
+        let help = if !note.is_empty() {
+            note.to_string()
+        } else if sel < ITEMS.len() {
+            ITEMS[sel].help.to_string()
+        } else {
+            "↑↓ choose  ←→ / Enter change  Esc close".to_string()
+        };
+        line(&mut out, top + 2 + n, &format!(" {}", help), "\x1b[0;93;44m");
+        let _ = write!(out, "\x1b[{};{}H\x1b[0;37;44m└{}┘\x1b[0m", top + 3 + n, left, "─".repeat(inner));
+        write_all(&out);
+        (top + 1,)
     }
 
     /// The button id at a 0-based screen cell, from the last frame.
@@ -1199,6 +1438,19 @@ pub(crate) fn rgb16(c: Rgb) -> (u8, bool) {
     let t = min + (max - min) / 3;
     let code = ((r > t) as u8) | ((g > t) as u8) << 1 | ((b > t) as u8) << 2;
     (code, max > 200)
+}
+
+/// An ANSI background colour for a window background: only the strongest
+/// channels count, so a dark navy stays blue (not cyan) and very dark
+/// colours stay black.
+fn rgb16_bg(c: Rgb) -> u8 {
+    let (r, g, b) = (c.0 as u32, c.1 as u32, c.2 as u32);
+    let max = r.max(g).max(b);
+    if max < 40 {
+        return 0;
+    }
+    let t = max * 2 / 3;
+    ((r > t) as u8) | ((g > t) as u8) << 1 | ((b > t) as u8) << 2
 }
 
 #[cfg(test)]
@@ -1308,6 +1560,21 @@ impl Frontend for Tty {
             match k {
                 Key::CtrlC => return InputResult::Quit,
                 Key::CtrlL => redraw = true,
+                Key::Settings => match self.settings_overlay(con, res, req) {
+                    OverlayExit::Close => redraw = true,
+                    OverlayExit::Quit => return InputResult::Quit,
+                    OverlayExit::SwitchGame => {
+                        // start over on the launcher (this game's unsaved
+                        // progress goes, as the overlay warns)
+                        self.shutdown();
+                        if let Ok(exe) = std::env::current_exe() {
+                            use std::os::unix::process::CommandExt;
+                            let e = std::process::Command::new(exe).arg("--choose").exec();
+                            eprintln!("emuera-tty: can't restart: {}", e);
+                        }
+                        return InputResult::Quit;
+                    }
+                },
                 Key::PageUp | Key::Up if req.kind == InputKind::Wait || self.buf.is_empty() => {
                     self.scroll += if matches!(k, Key::PageUp) { self.rows / 2 } else { 1 };
                     redraw = true;
@@ -1329,11 +1596,11 @@ impl Frontend for Tty {
                     // ignore Shift / Alt / Ctrl so modified clicks still work
                     match btn & !(4 | 8 | 16) {
                         64 => {
-                            self.scroll += 3;
+                            self.scroll += self.wheel;
                             redraw = true;
                         }
                         65 => {
-                            self.scroll = self.scroll.saturating_sub(3);
+                            self.scroll = self.scroll.saturating_sub(self.wheel);
                             redraw = true;
                         }
                         b if b & 32 != 0 => {
@@ -1359,7 +1626,7 @@ impl Frontend for Tty {
                     }
                 }
                 _ if req.kind == InputKind::Wait => {
-                    if !matches!(k, Key::Other) {
+                    if !matches!(k, Key::Other | Key::Left | Key::Right) {
                         return InputResult::Text(String::new());
                     }
                 }

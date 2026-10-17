@@ -1,7 +1,13 @@
-//! First-run game picker: a small full-screen directory browser for
-//! choosing an Emuera game folder (one with `CSV/` and `ERB/` inside), or a
-//! downloaded archive of one (extracted on choice, see `crate::archive`).
+//! The game launcher and first-run picker: a small full-screen list with
+//! three pages. The **library** lists the games played or added (eraTW,
+//! eraMegaten, eraPoPs…) to launch one; **Add a game** opens a directory
+//! browser for an Emuera game folder (one with `CSV/` and `ERB/` inside)
+//! or a downloaded archive of one (extracted on choice, see
+//! `crate::archive`); **Settings** edits `crate::settings`.
 //!
+//! Library keys: Enter plays, `a` adds, `d` / Delete removes from the list
+//! (files stay), `s` settings, q quits. Settings: ← / → change, Esc back.
+//! Browser keys:
 //! Keys: ↑/↓ (or k/j), PgUp/PgDn, Home/End move; Enter plays a marked game
 //! or opens a folder; → opens a folder; ← / Backspace goes up; `~` jumps
 //! home; `.` shows hidden folders; q / Esc cancels. Mouse: click selects,
@@ -32,8 +38,22 @@ struct Entry {
     kind: Kind,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Library,
+    Browse,
+    Settings,
+}
+
 #[derive(Clone, PartialEq)]
 enum Kind {
+    /// library: a game to launch (`ok`: the folder is still there)
+    Game { path: PathBuf, ok: bool },
+    AddGame,
+    OpenSettings,
+    /// settings: `crate::settings::ITEMS[i]`
+    Setting(usize),
+    Back,
     /// play the current folder (it is a game)
     PlayHere,
     Up,
@@ -55,6 +75,9 @@ enum Act {
     ToggleHidden,
     Cancel,
     Click(usize),
+    /// a letter with no meaning in the browser (library / settings keys)
+    Letter(char),
+    Delete,
     None,
 }
 
@@ -67,11 +90,30 @@ struct Picker {
     note: String,
     mice: Option<crate::mice::Mice>,
     pending: Vec<u8>,
+    mode: Mode,
+    /// the browser was opened from the library to add a game
+    adding: bool,
+    st: crate::settings::Settings,
 }
 
-/// Run the picker starting in `start`. Returns the chosen game folder, or
-/// None if the user cancelled. Needs a terminal on stdin/stdout.
-pub fn pick(start: &Path) -> Option<PathBuf> {
+/// The launcher: the game library, with adding games and settings. Returns
+/// the game to play (already remembered as the last one), or None.
+pub fn launcher() -> Option<PathBuf> {
+    let st = crate::settings::Settings::load();
+    let start = browse_start(&st);
+    run_screen(Mode::Library, &start)
+}
+
+/// Where the browser opens: next to the last game, else home.
+fn browse_start(st: &crate::settings::Settings) -> PathBuf {
+    st.last
+        .as_ref()
+        .and_then(|g| g.parent().map(|p| p.to_path_buf()))
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
     let mut orig: libc::termios = unsafe { std::mem::zeroed() };
     if unsafe { libc::isatty(0) == 0 || libc::isatty(1) == 0 || libc::tcgetattr(0, &mut orig) != 0 } {
         return None;
@@ -85,7 +127,19 @@ pub fn pick(start: &Path) -> Option<PathBuf> {
     let is_vt = term == "linux" || term.starts_with("fbterm");
     let mice = if crate::mice::Mice::wanted(is_vt) { crate::mice::Mice::open().ok() } else { None };
     out(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1015h\x1b[?1006h");
-    let mut p = Picker { dir: start.to_path_buf(), entries: Vec::new(), sel: 0, top: 0, hidden: false, note: String::new(), mice, pending: Vec::new() };
+    let mut p = Picker {
+        dir: start.to_path_buf(),
+        entries: Vec::new(),
+        sel: 0,
+        top: 0,
+        hidden: false,
+        note: String::new(),
+        mice,
+        pending: Vec::new(),
+        mode,
+        adding: false,
+        st: crate::settings::Settings::load(),
+    };
     p.load();
     let chosen = p.run();
     out(b"\x1b[?1006l\x1b[?1015l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
@@ -117,9 +171,35 @@ fn fit(s: &str, w: usize) -> String {
 }
 
 impl Picker {
-    /// List the current folder.
+    /// List the current page.
     fn load(&mut self) {
         self.entries.clear();
+        match self.mode {
+            Mode::Library => {
+                for g in self.st.library.clone() {
+                    let ok = is_game_dir(&g);
+                    let title = if ok { game_title(&g).unwrap_or_else(|| "Emuera game".into()) } else { "(folder missing)".into() };
+                    let last = if self.st.last.as_ref() == Some(&g) { "  · last played" } else { "" };
+                    self.entries.push(Entry { label: format!("★ {}   {}{}", title, g.display(), last), kind: Kind::Game { path: g, ok } });
+                }
+                self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), kind: Kind::AddGame });
+                self.entries.push(Entry { label: "⚙ Settings".into(), kind: Kind::OpenSettings });
+                self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if self.st.last.as_ref() == Some(path))).unwrap_or(0);
+                self.top = 0;
+                return;
+            }
+            Mode::Settings => {
+                for (i, it) in crate::settings::ITEMS.iter().enumerate() {
+                    let v = self.st.get(it.key);
+                    let restart = if it.live { "" } else { "  (next start)" };
+                    self.entries.push(Entry { label: format!("{:<18} ‹ {} ›{}", it.label, v, restart), kind: Kind::Setting(i) });
+                }
+                self.entries.push(Entry { label: "← Back".into(), kind: Kind::Back });
+                self.sel = self.sel.min(self.entries.len() - 1);
+                return;
+            }
+            Mode::Browse => {}
+        }
         if is_game_dir(&self.dir) {
             let t = game_title(&self.dir).unwrap_or_else(|| "this game".into());
             self.entries.push(Entry { label: format!("▶ Play {}", t), kind: Kind::PlayHere });
@@ -182,12 +262,18 @@ impl Picker {
             self.top = self.sel + 1 - rows;
         }
         let mut s = String::from("\x1b[H\x1b[0m\x1b[2J");
-        s += &format!("\x1b[1mChoose an Emuera game folder or archive\x1b[0m  (★ = game, ▣ = archive)\r\n\x1b[2m{}\x1b[0m\r\n", fit(&self.dir.display().to_string(), cols));
+        match self.mode {
+            Mode::Library => s += &format!("\x1b[1memuera-tty — your games\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n", fit("Enter to play · a add a game · d remove from the list · s settings", cols)),
+            Mode::Settings => s += &format!("\x1b[1mSettings\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n", fit(&crate::settings::config_path().map(|p| p.display().to_string()).unwrap_or_default(), cols)),
+            Mode::Browse => s += &format!("\x1b[1mChoose an Emuera game folder or archive\x1b[0m  (★ = game, ▣ = archive)\r\n\x1b[2m{}\x1b[0m\r\n", fit(&self.dir.display().to_string(), cols)),
+        }
         for (i, e) in self.entries.iter().enumerate().skip(self.top).take(rows) {
             let line = fit(&e.label, cols.saturating_sub(1));
             let pad = cols.saturating_sub(line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 1);
             let color = match e.kind {
-                Kind::PlayHere | Kind::Dir { game: true, .. } => "\x1b[33m",
+                Kind::Game { ok: false, .. } => "\x1b[2m",
+                Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
+                Kind::AddGame | Kind::OpenSettings => "\x1b[36m",
                 Kind::Archive { .. } => "\x1b[36m",
                 _ => "",
             };
@@ -200,7 +286,18 @@ impl Picker {
         if self.entries.is_empty() {
             s += "  (empty)\r\n";
         }
-        let help = "↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit";
+        let help = match self.mode {
+            Mode::Library => "↑↓ move  Enter play  a add  d remove  s settings  q quit",
+            Mode::Settings => "↑↓ move  ←/→ or Enter change  Esc back",
+            Mode::Browse if self.adding => "↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back",
+            Mode::Browse => "↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit",
+        };
+        // the selected setting's explanation
+        if let (Mode::Settings, Some(Entry { kind: Kind::Setting(i), .. })) = (self.mode, self.entries.get(self.sel)) {
+            if self.note.is_empty() {
+                self.note = crate::settings::ITEMS[*i].help.to_string();
+            }
+        }
         let (_, trows) = term_size();
         s += &format!("\x1b[{};1H\x1b[0m{}\x1b[{};1H\x1b[2m{}\x1b[0m", trows.saturating_sub(1), fit(&self.note, cols), trows, fit(help, cols));
         out(s.as_bytes());
@@ -210,8 +307,20 @@ impl Picker {
         loop {
             self.draw();
             let act = self.next_act();
-            self.note.clear();
+            // (a timeout only redraws: keep the message)
+            if !matches!(act, Act::None) {
+                self.note.clear();
+            }
             let n = self.entries.len();
+            let act = match self.mode_act(act) {
+                Ok(a) => a,
+                Err(r) => {
+                    if r.is_some() {
+                        return r;
+                    }
+                    continue;
+                }
+            };
             match act {
                 Act::Move(d) => self.sel = (self.sel as isize + d).clamp(0, n.saturating_sub(1) as isize) as usize,
                 Act::Page(d) => {
@@ -257,10 +366,87 @@ impl Picker {
                     self.hidden = !self.hidden;
                     self.load();
                 }
+                Act::Cancel if self.mode == Mode::Browse && self.adding => {
+                    self.adding = false;
+                    self.mode = Mode::Library;
+                    self.load();
+                }
+                Act::Cancel if self.mode == Mode::Settings => {
+                    self.mode = Mode::Library;
+                    self.load();
+                }
                 Act::Cancel => return None,
                 _ => {}
             }
         }
+    }
+
+    /// Library and settings keys. Ok(act): handle `act` the usual way;
+    /// Err(Some(game)): play it; Err(None): handled.
+    fn mode_act(&mut self, act: Act) -> Result<Act, Option<PathBuf>> {
+        match (self.mode, &act) {
+            (Mode::Library, Act::Letter('a')) => {
+                self.start_adding();
+                Err(None)
+            }
+            (Mode::Library, Act::Letter('s')) => {
+                self.mode = Mode::Settings;
+                self.sel = 0;
+                self.load();
+                Err(None)
+            }
+            (Mode::Library, Act::Letter('d') | Act::Delete) => {
+                if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(self.sel) {
+                    let p = path.clone();
+                    self.st.remove_game(&p);
+                    self.st.save();
+                    let sel = self.sel;
+                    self.load();
+                    self.sel = sel.min(self.entries.len().saturating_sub(1));
+                    self.note = format!("Removed {} from the list (its files are still there).", p.display());
+                }
+                Err(None)
+            }
+            // ← / Backspace mean nothing on the library
+            (Mode::Library, Act::Up) => Err(None),
+            (Mode::Settings, Act::Open | Act::Up) => {
+                if let Some(Entry { kind: Kind::Setting(i), .. }) = self.entries.get(self.sel) {
+                    let key = crate::settings::ITEMS[*i].key;
+                    self.st.cycle(key, if matches!(act, Act::Up) { -1 } else { 1 });
+                    self.st.save();
+                    self.load();
+                    return Err(None);
+                }
+                if matches!(act, Act::Up) {
+                    return Ok(Act::Cancel);
+                }
+                Err(None)
+            }
+            _ => Ok(act),
+        }
+    }
+
+    fn start_adding(&mut self) {
+        self.adding = true;
+        self.mode = Mode::Browse;
+        self.dir = browse_start(&self.st);
+        self.load();
+    }
+
+    /// A game folder was chosen in the browser: add it to the library (when
+    /// adding), or play it.
+    fn chosen(&mut self, game: PathBuf) -> Option<PathBuf> {
+        if !self.adding {
+            return Some(game);
+        }
+        let g = self.st.add_game(&game);
+        self.st.save();
+        self.adding = false;
+        self.mode = Mode::Library;
+        self.load();
+        self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == g)).unwrap_or(0);
+        self.note = format!("Added {} — Enter to play.", game_title(&g).unwrap_or_else(|| g.display().to_string()));
+        None
     }
 
     fn go_up(&mut self) {
@@ -273,11 +459,31 @@ impl Picker {
     fn activate(&mut self) -> Option<PathBuf> {
         let kind = self.entries.get(self.sel)?.kind.clone();
         match kind {
-            Kind::PlayHere => return Some(self.dir.clone()),
+            Kind::Game { path, ok: true } => return Some(path),
+            Kind::Game { path, ok: false } => self.note = format!("\x1b[31m{} is gone (d removes it from the list)\x1b[0m", path.display()),
+            Kind::AddGame => self.start_adding(),
+            Kind::OpenSettings => {
+                self.mode = Mode::Settings;
+                self.sel = 0;
+                self.load();
+            }
+            Kind::Setting(i) => {
+                self.st.cycle(crate::settings::ITEMS[i].key, 1);
+                self.st.save();
+                self.load();
+            }
+            Kind::Back => {
+                self.mode = Mode::Library;
+                self.load();
+            }
+            Kind::PlayHere => {
+                let d = self.dir.clone();
+                return self.chosen(d);
+            }
             Kind::Up => self.go_up(),
-            Kind::Dir { path, game: true } => return Some(path),
+            Kind::Dir { path, game: true } => return self.chosen(path),
             Kind::Archive { path } => match self.extract(&path) {
-                Ok(g) => return Some(g),
+                Ok(g) => return self.chosen(g),
                 Err(e) => self.note = format!("\x1b[31m{}\x1b[0m", e),
             },
             Kind::Dir { path, game: false } => {
@@ -365,6 +571,7 @@ impl Picker {
                 b'.' => Act::ToggleHidden,
                 b'g' => Act::Top,
                 b'G' => Act::Bottom,
+                c if c.is_ascii_alphabetic() => Act::Letter(c as char),
                 _ => Act::None,
             };
             return Some((a, 1));
@@ -395,6 +602,7 @@ impl Picker {
             (b'D', _) => Act::Up,
             (b'H', _) => Act::Top,
             (b'F', _) => Act::Bottom,
+            (b'~', "3") => Act::Delete,
             (b'~', "5") => Act::Page(-1),
             (b'~', "6") => Act::Page(1),
             (b'~', "1") | (b'~', "7") => Act::Top,
@@ -421,30 +629,21 @@ impl Picker {
 
 // ------------------------------------------------------------ remembering
 
-/// `$XDG_CONFIG_HOME/emuera-tty/config` (default `~/.config/…`).
-fn config_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("emuera-tty").join("config"))
-}
-
 /// The game folder chosen last time, if it still looks like a game.
 pub fn last_game() -> Option<PathBuf> {
-    let text = std::fs::read_to_string(config_path()?).ok()?;
-    let p = PathBuf::from(text.lines().find_map(|l| l.strip_prefix("game="))?.trim());
-    is_game_dir(&p).then_some(p)
+    crate::settings::Settings::load().last.filter(|p| is_game_dir(p))
 }
 
-/// Remember `game` for the next run without arguments.
+/// Remember `game` for the next run without arguments (and in the library).
 pub fn remember(game: &Path) {
-    let Some(cfg) = config_path() else { return };
-    let game = game.canonicalize().unwrap_or_else(|_| game.to_path_buf());
-    if let Some(d) = cfg.parent() {
-        let _ = std::fs::create_dir_all(d);
-    }
-    let _ = std::fs::write(&cfg, format!("game={}\n", game.display()));
+    let mut st = crate::settings::Settings::load();
+    st.played(game);
+    st.save();
+}
+
+/// How many games the library lists (folders still there).
+pub fn library_size() -> usize {
+    crate::settings::Settings::load().library.iter().filter(|g| is_game_dir(g)).count()
 }
 
 // ------------------------------------------------------------- installing
@@ -531,10 +730,10 @@ pub fn uninstall() -> Result<String, String> {
 /// `--reset-data`: forget emuera-tty's own settings (the remembered game
 /// folder). Game saves live in each game's `sav/` and are not touched.
 pub fn reset_data() -> Result<String, String> {
-    let cfg = config_path().ok_or("HOME is not set")?;
+    let cfg = crate::settings::config_path().ok_or("HOME is not set")?;
     let dir = cfg.parent().map(Path::to_path_buf).unwrap_or(cfg);
     match std::fs::remove_dir_all(&dir) {
-        Ok(()) => Ok(format!("Removed {}; the next start will ask for a game folder.", dir.display())),
+        Ok(()) => Ok(format!("Removed {} (settings and the game list); the next start will ask for a game folder.", dir.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("Nothing to reset.".into()),
         Err(e) => Err(format!("{}: {}", dir.display(), e)),
     }

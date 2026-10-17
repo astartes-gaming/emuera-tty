@@ -90,10 +90,25 @@ The mouse works too: click an entry to select it, click it again to open
 or play it, scroll with the wheel.
 
 emuera-tty remembers the game. From then on `emuera-tty` starts it
-straight away. Other ways to start:
+straight away.
+
+**Several games** (eraTW, eraMegaten, eraPoPs, any Emuera game): every game
+you play or add goes into your **library**. Once there are two or more,
+`emuera-tty` opens the launcher instead:
+
+| Key | Action |
+|---|---|
+| Enter (or click twice) | play the selected game |
+| `a` / **＋ Add a game…** | open the folder picker above to add a folder or archive |
+| `d` / Delete | take the game off the list (its files and saves stay) |
+| `s` / **⚙ Settings** | the settings page (see [Settings](#settings)) |
+| `q` / Esc | quit |
+
+Inside a game, **F1** (or Ctrl-O) → *Switch game…* goes back to the
+launcher. Other ways to start:
 
 ```sh
-emuera-tty --choose                 # open the picker again (switch games)
+emuera-tty --choose                 # open the launcher even with one game
 emuera-tty ~/games/eratohoTW        # play a specific folder
 cd ~/games/eratohoTW && emuera-tty  # a game in the current folder wins
 emuera-tty ~/Downloads/eratohoTW.zip # play straight from the archive
@@ -119,6 +134,7 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
 - **Scroll back** through earlier text: PgUp / PgDn, ↑ / ↓, Home / End or
   the mouse wheel. A `[scroll -N]` tag shows you're looking at history;
   End jumps back.
+- **Settings**: F1 or Ctrl-O opens them over the game (see below).
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.
@@ -135,6 +151,34 @@ entering the shop, like Emuera's. Older emuera-tty saves (`sav/*.rsav`)
 still load, and the next save of that slot writes a `.sav`. Emuera's
 older text save format (games without the binary option) can't be read
 yet.
+
+### Settings
+
+F1 (or Ctrl-O) in a game, or *⚙ Settings* in the launcher. ↑ / ↓ choose,
+← / → or Enter change, Esc closes; changes are saved at once in
+`~/.config/emuera-tty/config` and, except where marked, apply to the
+running game:
+
+| Setting | Values | |
+|---|---|---|
+| Images | auto, kitty, sixel, fb, none | how pictures are drawn |
+| Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
+| Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
+| Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
+| Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
+| Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
+| Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
+
+The overlay also has *Switch game…* and *Quit*. Command-line options and
+`EMUERA_*` variables override saved settings.
+
+**Readable colours:** games are drawn for Emuera's black (or game-set)
+background, and some colours there are hard to read, like pure blue, or
+AnonTW's blue text on the dark navy background of time stop. emuera-tty
+lightens coloured text until it reaches a minimum contrast (WCAG 3:1, or
+4.5:1 on *high*), keeping its hue; greys are left alone, since games use
+them for shading. The window background set by `SETBGCOLOR` covers the
+whole screen, as in Emuera.
 
 ## 5. Picking a terminal
 
@@ -221,7 +265,7 @@ computer's own screen; the game quits when the line hangs up.
 
 ```sh
 emuera-tty --upgrade      # download the latest version, rebuild, reinstall
-emuera-tty --reset-data   # forget the remembered game (saves are kept)
+emuera-tty --reset-data   # forget settings and the game list (saves are kept)
 emuera-tty --uninstall    # remove the installed program
 ```
 
@@ -346,6 +390,8 @@ src/
   tty.rs         raw-mode TUI, layout/wrapping/alignment, mouse, colour downgrade (24-bit/256/16)
   retro.rs       retro / dumb / serial terminals: terminfo-driven, ASCII, changed-cells-only redraw
   terminfo.rs    compiled terminfo reader, tparm, delay padding
+  settings.rs    saved settings and the game library (~/.config/emuera-tty/config)
+  picker.rs      launcher: game library, folder / archive picker, settings page
   gfx/{kitty,sixel,fb}.rs
 sample/          small test game; ERB/TEST.ERB is a language self-test
 ```

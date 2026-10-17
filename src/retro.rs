@@ -1199,7 +1199,6 @@ impl Frontend for Retro {
             if redraw && self.pending.is_empty() {
                 self.render(con, Some(req));
             } else if redraw {
-                con.redraw = true;
                 let more = self.port.read(0);
                 if let Some(b) = more {
                     self.pending.extend(b);
