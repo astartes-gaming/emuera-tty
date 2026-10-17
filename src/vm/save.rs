@@ -7,6 +7,15 @@
 //! CHARA
 //! V <var> <flat> i|s <value>
 //! ```
+//!
+//! One line per non-default element, so files stay small and diffable.
+//! `G` lines are globals, each `CHARA` line starts the next character and
+//! is followed by its `V` lines. Saves live in `<game>/sav/saveNN.rsav`,
+//! global data (SAVEGLOBAL) in `global.rsav`. Temporary variables
+//! (`is_temp_var`) are not saved. The header name predates the rename to
+//! emuera-tty and stays so old saves keep loading.
+//!
+//! Not saved yet: Emuera-EM maps / data tables named in VarExt.csv.
 
 use super::value::*;
 use super::vars::{is_temp_var, Arr, Data};
@@ -14,6 +23,7 @@ use super::{Chara, Vm};
 use std::fs;
 use std::path::PathBuf;
 
+/// Escape a string value so it fits on one line (`\n`, `\\`…).
 fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     for c in s.chars() {
@@ -28,6 +38,7 @@ fn esc(s: &str) -> String {
     o
 }
 
+/// Reverse of [`esc`].
 fn unesc(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     let mut it = s.chars();
@@ -47,6 +58,7 @@ fn unesc(s: &str) -> String {
     o
 }
 
+/// Append one line per non-zero / non-empty element of `a`.
 fn dump_arr(out: &mut String, tag: &str, name: &str, a: &Arr) {
     // record dims so multi-D shapes survive
     out.push_str(&format!("D {} {} {}\n", tag, name, a.dims.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(",")));
@@ -76,6 +88,7 @@ impl Vm {
         self.save_dir().join(format!("save{:02}.rsav", n))
     }
 
+    /// Is this global part of SAVEGLOBAL (GLOBAL/GLOBALS, `#DIM GLOBAL`)?
     fn is_saved_global(&self, name: &str) -> bool {
         if let Some(d) = self.user_dims.get(name) {
             return d.is_savedata && !d.is_global;
@@ -106,6 +119,7 @@ impl Vm {
         fs::write(self.save_path(n), out).map_err(|e| Ctrl::Error(format!("save failed: {}", e), false))
     }
 
+    /// The comment line of slot `n` (for the save/load menu), if it exists.
     pub fn peek_save(&self, n: i64) -> Option<String> {
         let s = fs::read_to_string(self.save_path(n)).ok()?;
         let mut lines = s.lines();
@@ -115,6 +129,7 @@ impl Vm {
         Some(lines.next().and_then(|l| l.strip_prefix("TEXT ")).map(unesc).unwrap_or_default())
     }
 
+    /// Load G/CHARA/V lines into the current state.
     fn apply_lines(&mut self, s: &str, global_only: bool) {
         let mut cur_chara: Option<usize> = None;
         for line in s.lines() {

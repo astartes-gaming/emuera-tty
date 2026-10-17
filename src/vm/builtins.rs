@@ -1,8 +1,24 @@
 //! Built-in commands and functions.
+//!
+//! Layout:
+//!
+//! * `COMMANDS` / `FUNCTIONS` — every built-in name the parser accepts.
+//!   A name in neither list on a statement line is parsed as an assignment.
+//! * [`Vm::command`] — statement-style commands (`Instr::Command`). Its
+//!   fallback arm runs [`Vm::builtin_fn`] for functions used as statements
+//!   (`STRLENS "x"` puts the value in RESULT / RESULTS, as in Emuera).
+//! * [`Vm::builtin_fn`] — functions usable in expressions. Returns
+//!   `Ok(None)` for names it doesn't know, so callers can report them.
+//! * `map_fn` / `dt_fn` — the Emuera-EM `MAP_*` and `DT_*` families.
+//!
+//! Arguments arrive unevaluated (`&[Expr]`): helpers `arg` / `ai` / `as_`
+//! evaluate argument *k* with a default for omitted ones, `avar` takes an
+//! argument that must be a variable (for commands that write into it), and
+//! `array_row` / `arr_vals` treat such a variable as an array row.
 
 use super::value::*;
 use super::vars::Arr;
-use super::{pad, Chara, Loc, Place, Vm};
+use super::{pad, Chara, Loc, Vm};
 use crate::ast::*;
 use crate::console::{Rgb, Seg};
 use crate::expr::parse_form;
@@ -57,9 +73,11 @@ pub const FUNCTIONS: &[&str] = &[
     "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT",
 ];
 
+/// Is `c` (upper-case) a statement-only built-in?
 pub fn is_builtin_command(c: &str) -> bool {
     COMMANDS.contains(&c)
 }
+/// Is `c` (upper-case) a built-in function (also usable as a statement)?
 pub fn is_builtin_function(c: &str) -> bool {
     FUNCTIONS.contains(&c)
 }
@@ -99,6 +117,7 @@ mod chrono_like {
     }
 }
 
+/// TOHALF: full-width ASCII (ＡＢＣ１２３) and the ideographic space to half-width.
 fn to_half(s: &str) -> String {
     s.chars()
         .map(|c| match c {
@@ -109,6 +128,7 @@ fn to_half(s: &str) -> String {
         .collect()
 }
 
+/// TOFULL: the reverse of [`to_half`].
 fn to_full(s: &str) -> String {
     s.chars()
         .map(|c| match c {
@@ -302,23 +322,29 @@ fn parse_color_name(n: &str) -> Option<Rgb> {
     None
 }
 
+/// A colour given by name (`"red"`) or as `#RRGGBB`, for HTML and SETCOLORBYNAME.
 pub fn color_from_str(s: &str) -> Option<Rgb> {
     parse_color_name(s)
 }
 
 impl Vm {
+    /// Argument `k`, evaluated; None when omitted (`F(1,,3)`) or absent.
     fn arg(&mut self, args: &[Expr], k: usize) -> VmResult<Option<Value>> {
         match args.get(k) {
             None | Some(Expr::Empty) => Ok(None),
             Some(e) => Ok(Some(self.eval(e)?)),
         }
     }
+    /// Integer argument `k`, or `d` if omitted.
     fn ai(&mut self, args: &[Expr], k: usize, d: i64) -> VmResult<i64> {
         Ok(self.arg(args, k)?.map(|v| v.as_int()).unwrap_or(d))
     }
+    /// String argument `k`, or `d` if omitted.
     fn as_(&mut self, args: &[Expr], k: usize, d: &str) -> VmResult<String> {
         Ok(self.arg(args, k)?.map(|v| v.into_string()).unwrap_or_else(|| d.to_string()))
     }
+    /// Argument `k` as a variable reference (not evaluated), for built-ins
+    /// that write their results into a caller-supplied variable.
     fn avar(&self, args: &[Expr], k: usize) -> VmResult<Rc<VarRef>> {
         match args.get(k) {
             Some(Expr::Var(v)) => Ok(v.clone()),
@@ -339,6 +365,8 @@ impl Vm {
         Ok((p.loc, base, row_len))
     }
 
+    /// Elements `start..end` of `v`'s row (end defaults to the row length):
+    /// (location, flat index of `start`, values).
     fn arr_vals(&mut self, v: &VarRef, start: i64, end: Option<i64>) -> VmResult<(Loc, usize, Vec<Value>)> {
         let (loc, base, len) = self.array_row(v)?;
         let end = end.unwrap_or(len as i64).min(len as i64).max(0) as usize;
@@ -348,10 +376,13 @@ impl Vm {
         Ok((loc, base + start, vals))
     }
 
+    /// Index into `csv.charas` of the template with 番号 `no`.
     fn chara_no_template(&self, no: i64) -> Option<usize> {
         self.csv.charas.iter().position(|c| c.no == no)
     }
 
+    /// Build a character from its Chara*.csv template (ADDCHARA); `-1`
+    /// makes an empty one (ADDVOIDCHARA). Arrays get VariableSize.csv sizes.
     pub fn new_chara_from_csv(&mut self, no: i64) -> VmResult<Chara> {
         let mut c = Chara::default();
         let varsize = &self.csv.varsize;
@@ -383,6 +414,9 @@ impl Vm {
     }
 
     // =============================================================== commands
+    /// Run a statement-style built-in. Unknown names fall through to
+    /// `builtin_fn`; if that doesn't know them either, they are warned
+    /// about once and skipped (errors with `--strict`).
     pub fn command(&mut self, name: &str, args: &Args) -> VmResult<()> {
         let ex: Vec<Expr> = match args {
             Args::Exprs(v) => v.clone(),
@@ -527,7 +561,6 @@ impl Vm {
                 } else {
                     (None, self.arg(a, 0)?.map(|v| v.as_int()))
                 };
-                self.flush_partial();
                 let v = self.input_int(default, timeout, one)?;
                 if timed && self.is_timeout && a.len() >= 4 {
                     let msg = self.as_(a, 3, "")?;
@@ -544,7 +577,6 @@ impl Vm {
                 } else {
                     (None, self.arg(a, 0)?.map(|v| v.into_string()))
                 };
-                self.flush_partial();
                 let v = self.input_str(default, timeout, one)?;
                 self.set_results(v);
             }
@@ -1003,8 +1035,8 @@ impl Vm {
         Ok(())
     }
 
-    fn flush_partial(&mut self) {}
-
+    /// Evaluate an index for variable `var` with CSV-name lookup, for
+    /// built-ins that take "variable + index" as separate arguments.
     pub fn eval_index_pub(&mut self, e: &Expr, var: &str) -> VmResult<i64> {
         // CSV-aware index evaluation for an explicit variable table
         if let Expr::Var(v) = e {
@@ -1019,8 +1051,11 @@ impl Vm {
         Ok(self.eval(e)?.as_int())
     }
 
+    /// UPCHECK / CUPCHECK: apply this turn's parameter changes,
+    /// PALAM += UP - DOWN for TARGET (CUP/CDOWN for the given character),
+    /// print a "name old+up-down=new" line per changed entry, then clear
+    /// UP/DOWN.
     fn upcheck(&mut self, cup: bool, a: &[Expr]) -> VmResult<()> {
-        // PALAM += UP - DOWN for TARGET (or CUP/CDOWN for chara arg), printing changes
         let c = if cup { self.ai(a, 0, 0)? } else { self.target() };
         if c < 0 || c as usize >= self.charas.len() {
             return Ok(());
@@ -1061,6 +1096,9 @@ impl Vm {
         Ok(())
     }
 
+    /// PRINT_IMG / `<img>`: queue an image segment. Sizes are percentages
+    /// of the font size (Emuera's units); a zero/omitted width keeps the
+    /// sprite's aspect ratio.
     pub fn print_img(&mut self, name: &str, w_pct: Option<f32>, h_pct: Option<f32>, ypos_pct: f32, button: Option<Value>) {
         let fs = self.con.font_size;
         let (sw, sh) = self.res.sprite_size(name).unwrap_or((fs as u32, fs as u32));
@@ -1415,6 +1453,7 @@ impl Vm {
     }
 
     // ============================================================== functions
+    /// Evaluate a built-in function; `Ok(None)` if `name` isn't one.
     pub fn builtin_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         let i = |v: i64| Ok(Some(Value::Int(v)));
         let s = |v: String| Ok(Some(Value::Str(v)));
@@ -1952,7 +1991,7 @@ impl Vm {
             "GETCONFIGS" => s(String::new()),
             "HTML_ESCAPE" => {
                 let x = self.as_(a, 0, "")?;
-                s(x.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;"))
+                s(crate::xml::escape(&x))
             }
             "COLOR_FROMNAME" => {
                 let n = self.as_(a, 0, "")?;
@@ -2019,8 +2058,8 @@ impl Vm {
                 let mut out = String::new();
                 for seg in &segs {
                     match seg {
-                        Seg::Text { text, .. } => out.push_str(&html_escape(text)),
-                        Seg::Image { name, .. } => out.push_str(&format!("<img src='{}'>", html_escape(name))),
+                        Seg::Text { text, .. } => out.push_str(&crate::xml::escape(text)),
+                        Seg::Image { name, .. } => out.push_str(&format!("<img src='{}'>", crate::xml::escape(name))),
                         Seg::Space { w } => out.push_str(&format!("<space value='{}'>", (*w).round() as i64)),
                         Seg::Rect { .. } => {}
                     }
@@ -2073,6 +2112,7 @@ impl Vm {
     }
 }
 
+/// BARSTR / BAR: `[***...]` of length `l` filled in proportion v/m.
 pub fn barstr(v: i64, m: i64, l: i64) -> String {
     let l = l.max(0);
     let filled = if m <= 0 { 0 } else { (v.max(0) * l / m).min(l) };
@@ -2080,6 +2120,7 @@ pub fn barstr(v: i64, m: i64, l: i64) -> String {
 }
 
 /// .NET-style numeric format subset: "0000", "#,##0", "00.0"-less ints, "X"/"x"
+/// TOSTR's .NET-style number formats (`"0000"`, `"#,0"`…), the common subset.
 pub fn format_number(v: i64, fmt: &str) -> String {
     if fmt.is_empty() {
         return v.to_string();
@@ -2113,6 +2154,10 @@ pub fn format_number(v: i64, fmt: &str) -> String {
 
 /// Minimal pattern matcher: supports literal text, '.', '*', '+', '?', '^', '$'
 /// and character classes [abc]. Enough for typical FINDELEMENT/REGEXPMATCH use.
+/// A small backtracking regex matcher (literals, `.`, `[...]`, `* + ?`,
+/// `^ $`, `\d \s \w` and their negations, escapes) for REGEXPMATCH /
+/// FINDELEMENT, avoiding a regex crate. No groups or `|` alternation.
+/// Unanchored: true if the pattern matches anywhere in `text`.
 pub fn regex_lite_match(pat: &str, text: &str) -> bool {
     let p: Vec<char> = pat.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -2139,7 +2184,17 @@ fn atom_len(p: &[char]) -> usize {
 fn atom_match(a: &[char], c: char) -> bool {
     match a.first() {
         Some('.') => true,
-        Some('\\') => a.get(1) == Some(&c),
+        Some('\\') => match a.get(1) {
+            Some('d') => c.is_ascii_digit(),
+            Some('D') => !c.is_ascii_digit(),
+            Some('s') => c.is_whitespace(),
+            Some('S') => !c.is_whitespace(),
+            Some('w') => c.is_alphanumeric() || c == '_',
+            Some('W') => !(c.is_alphanumeric() || c == '_'),
+            Some('n') => c == '\n',
+            Some('t') => c == '\t',
+            x => x == Some(&c),
+        },
         Some('[') => {
             let inner = &a[1..a.len().saturating_sub(1)];
             let (neg, inner) = if inner.first() == Some(&'^') { (true, &inner[1..]) } else { (false, inner) };
@@ -2190,9 +2245,6 @@ fn m_here(p: &[char], t: &[char]) -> bool {
     }
 }
 
-#[allow(dead_code)]
-fn unused(_: Place) {}
-
 /// Emuera's HtmlManager.HtmlTagSplit: alternating text runs and `<...>` tags;
 /// None if a tag is unterminated.
 fn html_tag_split(s: &str) -> Option<Vec<String>> {
@@ -2213,6 +2265,18 @@ fn html_tag_split(s: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
-fn html_escape(x: &str) -> String {
-    x.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+
+#[cfg(test)]
+mod tests {
+    use super::regex_lite_match as m;
+
+    #[test]
+    fn regex_lite_basics() {
+        assert!(m("a.c", "xxabcxx"));
+        assert!(m("^ab+c$", "abbbc") && !m("^ab+c$", "ac"));
+        assert!(m("[0-9]+", "x42") && !m("^[^0-9]+$", "x42"));
+        assert!(m("\\s", "two words") && !m("\\s", "oneword"));
+        assert!(m("^\\d\\d$", "42") && !m("^\\d\\d$", "4a"));
+        assert!(m("\\.", "a.b") && !m("\\.", "ab"));
+    }
 }

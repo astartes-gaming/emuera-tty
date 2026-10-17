@@ -1,3 +1,5 @@
+//! Script values, the VM's error/control type, and the MAP_* map type.
+
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -48,7 +50,9 @@ impl fmt::Display for Value {
 /// Non-local control flow and errors, propagated with `?`.
 #[derive(Debug, Clone)]
 pub enum Ctrl {
+    /// BEGIN <state>: unwind to the system loop and switch state
     Begin(String),
+    /// QUIT
     Quit,
     /// runtime error: message, already-located flag
     Error(String, bool),
@@ -56,6 +60,7 @@ pub enum Ctrl {
 
 pub type VmResult<T> = Result<T, Ctrl>;
 
+/// Shorthand for a not-yet-located runtime error.
 pub fn err<T>(msg: impl Into<String>) -> VmResult<T> {
     Err(Ctrl::Error(msg.into(), false))
 }

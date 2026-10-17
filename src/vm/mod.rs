@@ -1,6 +1,31 @@
 //! The interpreter: variable resolution, expression evaluation, the
 //! instruction loop and function calls. System flow lives in `system.rs`,
 //! built-in commands/functions in `builtins.rs`.
+//!
+//! ## Variables
+//!
+//! Every variable is an [`Arr`] (`vars.rs`), even scalars. Where it lives:
+//!
+//! | kind | storage |
+//! |---|---|
+//! | system globals (FLAG, RESULT…) and ERH `#DIM`s | `Vm::globals`, created on first use |
+//! | character variables (CFLAG, TALENT…, `#DIM CHARADATA`) | `Vm::charas[i].vars` |
+//! | a function's LOCAL/ARG and non-DYNAMIC private `#DIM`s | `Vm::statics`, key `"FUNC::NAME"` |
+//! | `#DIM DYNAMIC` privates | the call's [`Frame::vars`] |
+//! | `#DIM REF` parameters | an alias in [`Frame::refs`] to the caller's storage |
+//!
+//! [`Vm::locate`] turns a [`VarRef`] into a [`Place`] — which array
+//! ([`Loc`]) and which flat element — and everything else reads and writes
+//! through places. Indices that are bare names are looked up in the
+//! variable's CSV name table (`ABL:技巧`).
+//!
+//! ## Control
+//!
+//! Errors and non-local exits (`BEGIN`, `QUIT`) travel as `Err(Ctrl)` so
+//! `?` unwinds the Rust call stack back to the system loop. A user `CALL`
+//! is a Rust call into [`Vm::call_func`], which runs [`Vm::exec`] on a new
+//! [`Frame`]; deep ERB recursion therefore needs the big stack `main`
+//! gives the VM thread.
 
 pub mod builtins;
 pub mod datatable;
@@ -22,42 +47,57 @@ use std::rc::Rc;
 use value::*;
 use vars::*;
 
+/// Per-call scratch cell used by loops and SELECTCASE (see `Instr`).
 #[derive(Clone, Debug)]
 pub enum Slot {
     None,
+    /// FOR/REPEAT: (end, step)
     For(i64, i64),
+    /// SELECTCASE: the value being matched
     Sel(Value),
 }
 
+/// One active function call.
 pub struct Frame {
     pub func: Rc<Function>,
+    /// Index of the next instruction to run.
     pub pc: usize,
+    /// `#DIM DYNAMIC` privates (fresh each call).
     pub vars: HashMap<String, Arr>,
     pub slots: Vec<Slot>,
     /// `#DIM REF` parameters: name -> the caller's variable
     pub refs: HashMap<String, Loc>,
 }
 
+/// One character added with ADDCHARA: its character-variable arrays,
+/// created lazily on first access.
 #[derive(Default, Clone)]
 pub struct Chara {
     pub vars: HashMap<String, Arr>,
 }
 
+/// Which array a [`Place`] is in.
 pub enum Loc {
     Global(String),
+    /// `#DIM DYNAMIC` in the current frame
     Frame(String),
     /// a variable in a specific (caller's) frame, for REF parameters
     FrameAt(usize, String),
+    /// function-owned storage, key `"FUNC::NAME"`
     Static(String),
+    /// (character index, variable)
     Chara(usize, String),
+    /// read-only computed value (CHARANUM, RAND:n, GAMEBASE_*…)
     Ro(Value),
 }
 
+/// A resolved variable element: array + row-major flat index.
 pub struct Place {
     pub loc: Loc,
     pub flat: usize,
 }
 
+/// The whole interpreter state.
 pub struct Vm {
     pub prog: Program,
     pub csv: GameCsv,
@@ -67,7 +107,9 @@ pub struct Vm {
     pub globals: HashMap<String, Arr>,
     pub statics: HashMap<String, Arr>,
     pub charas: Vec<Chara>,
+    /// The call stack, innermost last.
     pub frames: Vec<Frame>,
+    /// ERH `#DIM` declarations by name (sizes / flags for lookups).
     pub user_dims: HashMap<String, DimDecl>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
     pub maps: HashMap<String, StrMap>,
@@ -77,18 +119,24 @@ pub struct Vm {
     pub text_exts: Vec<String>,
     /// REF bindings collected by `call_args` for the next `call_func`
     pending_refs: Vec<(String, Loc)>,
+    /// `EMUERA_TRACE`: log calls whose name contains this.
     trace: Option<String>,
     rng: u64,
+    /// Warnings already printed (each is shown once).
     warned: HashSet<String>,
     pub game_dir: PathBuf,
+    /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
+    /// ISTIMEOUT: did the last timed input expire?
     pub is_timeout: bool,
     pub call_depth: usize,
     pub last_input: String,
+    /// Current system phase (TITLE, SHOP, TRAIN…), see `system.rs`.
     pub state: String,
     pub log: Vec<String>,
 }
 
+/// Nested user calls allowed before reporting a stack overflow.
 const MAX_DEPTH: usize = 4000;
 
 /// A built-in variable's dimensions with VariableSize.csv applied.
@@ -188,10 +236,9 @@ impl Vm {
         self.global_arr("MASTER").set_i(0, 0);
         self.global_arr("TARGET").set_i(0, 0);
         self.global_arr("ASSI").set_i(0, -1);
-        let money = self.csv.gamebase.get("最初からいるキャラ").cloned();
-        let _ = money;
     }
 
+    /// Allocate a `#DIM` declaration: evaluate its sizes and initialisers.
     fn make_dim(&mut self, d: &DimDecl) -> VmResult<Arr> {
         let mut dims = Vec::new();
         for e in &d.dims {
@@ -210,6 +257,7 @@ impl Vm {
         Ok(a)
     }
 
+    /// Print a warning to stderr, once per distinct message.
     pub fn warn(&mut self, msg: &str) {
         if self.warned.insert(msg.to_string()) {
             eprintln!("warning: {}", msg);
@@ -218,6 +266,8 @@ impl Vm {
     }
 
     // ---------------------------------------------------------------- rng
+    /// RAND:n — uniform 0..n via xorshift64*. Not Emuera's generator, so
+    /// seeded sequences differ from the original (scripts rarely rely on it).
     pub fn rand(&mut self, n: i64) -> i64 {
         if n <= 0 {
             return 0;
@@ -238,6 +288,7 @@ impl Vm {
         sized_dims(&self.csv.varsize, name, def)
     }
 
+    /// A global array, created with its default size on first use.
     pub fn global_arr(&mut self, name: &str) -> &mut Arr {
         if !self.globals.contains_key(name) {
             let a = match system_var(name) {
@@ -249,6 +300,8 @@ impl Vm {
         self.globals.get_mut(name).unwrap()
     }
 
+    /// Character `c`'s array for `name`, created on first use (system
+    /// character variable or `#DIM CHARADATA`).
     pub fn chara_arr(&mut self, c: usize, name: &str) -> &mut Arr {
         if !self.charas[c].vars.contains_key(name) {
             let a = if let Some(def) = system_var(name) {
@@ -298,6 +351,9 @@ impl Vm {
             || pseudo_var(name)
     }
 
+    /// One index value. A bare identifier that isn't a variable, or a
+    /// string, is a CSV name looked up in `table` (or a table named after
+    /// the variable, for ERD files).
     fn eval_index(&mut self, e: &Expr, table: Option<&str>, var: &str) -> VmResult<i64> {
         match e {
             Expr::Var(v) if v.idx.is_empty() && !self.var_exists(&v.name) => {
@@ -319,6 +375,7 @@ impl Vm {
         }
     }
 
+    /// All indices of `v` from position `from` (1 skips a character index).
     fn eval_indices(&mut self, v: &VarRef, from: usize, table: Option<&str>) -> VmResult<Vec<i64>> {
         let mut out = Vec::with_capacity(v.idx.len());
         let n = v.idx.len();
@@ -341,6 +398,10 @@ impl Vm {
         Ok(c as usize)
     }
 
+    /// Resolve a variable reference to a [`Place`]. Lookup order: REF
+    /// aliases, the current function's privates and LOCAL/ARG, ERH `#DIM`s,
+    /// CSV name tables (ABLNAME…), read-only pseudo variables, system
+    /// variables. Unknown names are an error.
     pub fn locate(&mut self, v: &VarRef) -> VmResult<Place> {
         let name = v.name.as_str();
         let table_owned: Option<String>;
@@ -383,18 +444,12 @@ impl Vm {
             let flat = self.statics[&key].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
             return Ok(Place { loc: Loc::Static(key), flat });
         }
-        let is_frame = is_private || matches!(name, "LOCAL" | "LOCALS" | "ARG" | "ARGS");
-        if is_frame && !self.frames.is_empty() {
+        // DYNAMIC privates: allocated per call by `call_func`
+        if is_private {
             let idx = self.eval_indices(v, 0, table)?;
-            let f = self.frames.last_mut().unwrap();
-            if !f.vars.contains_key(name) {
-                let a = match name {
-                    "LOCAL" | "ARG" => Arr::new(false, &[1000]),
-                    _ => Arr::new(true, &[100]),
-                };
-                f.vars.insert(name.to_string(), a);
-            }
-            let flat = f.vars[name].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let f = self.frames.last().unwrap();
+            let a = f.vars.get(name).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
             return Ok(Place { loc: Loc::Frame(name.to_string()), flat });
         }
         // 2. user globals
@@ -450,6 +505,8 @@ impl Vm {
         err(format!("undefined variable '{}'", name))
     }
 
+    /// Character variables: `CFLAG:c:i` names the character, `CFLAG:i`
+    /// (one index fewer than the variable has) means TARGET's.
     fn locate_chara(&mut self, v: &VarRef, ndim: usize, table: Option<&str>) -> VmResult<Place> {
         let (c, rest) = if v.idx.len() > ndim {
             (self.eval(&v.idx[0])?.as_int(), 1)
@@ -463,6 +520,7 @@ impl Vm {
         Ok(Place { loc: Loc::Chara(ci, v.name.clone()), flat })
     }
 
+    /// The array a location refers to (None for read-only values).
     pub fn arr_at(&mut self, loc: &Loc) -> Option<&mut Arr> {
         match loc {
             Loc::Global(n) => Some(self.global_arr(n)),
@@ -500,6 +558,8 @@ impl Vm {
         Ok(self.get_place(&p))
     }
 
+    /// Assign to a variable. A few computed variables accept writes and
+    /// are handled here (they have no backing array).
     pub fn set_var(&mut self, v: &VarRef, val: Value) -> VmResult<()> {
         // writable pseudo-ish strings
         if matches!(v.name.as_str(), "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") {
@@ -525,6 +585,7 @@ impl Vm {
         })
     }
 
+    /// Values of the computed, read-only variables (see `vars::pseudo_var`).
     fn pseudo_value(&mut self, v: &VarRef, table: Option<&str>) -> VmResult<Value> {
         let name = v.name.as_str();
         let i0 = |vm: &mut Vm| -> VmResult<i64> {
@@ -584,6 +645,7 @@ impl Vm {
     }
 
     // ---------------------------------------------------------- expressions
+    /// Evaluate an expression. Integers wrap on overflow, as in C#.
     pub fn eval(&mut self, e: &Expr) -> VmResult<Value> {
         match e {
             Expr::Int(i) => Ok(Value::Int(*i)),
@@ -625,6 +687,8 @@ impl Vm {
         Ok(self.eval(e)?.into_string())
     }
 
+    /// Binary operators. `&&`/`||` short-circuit; if either side is a
+    /// string, `+` concatenates, `*` repeats, comparisons compare text.
     fn binary(&mut self, op: BinOp, a: &Expr, b: &Expr) -> VmResult<Value> {
         match op {
             BinOp::And => {
@@ -702,6 +766,7 @@ impl Vm {
         }))
     }
 
+    /// Build a FORM string's text.
     pub fn eval_form(&mut self, f: &Form) -> VmResult<String> {
         let mut out = String::new();
         for p in &f.parts {
@@ -726,6 +791,8 @@ impl Vm {
         Ok(out)
     }
 
+    /// A call inside an expression: user functions first, then built-ins.
+    /// A user function that returns nothing yields 0 / "".
     pub(crate) fn call_expr(&mut self, name: &str, args: &[Expr]) -> VmResult<Value> {
         if let Some(fs) = self.prog.funcs.get(name) {
             let f = fs[0].clone();
@@ -795,6 +862,9 @@ impl Vm {
         Ok((vals, refs))
     }
 
+    /// Run one function: set up its frame (DYNAMIC privates, REF aliases
+    /// from `pending_refs`), bind parameters, execute, pop. Returns the
+    /// RETURNF value, if any.
     pub fn call_func(&mut self, f: Rc<Function>, args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
         let refs: HashMap<String, Loc> = std::mem::take(&mut self.pending_refs).into_iter().collect();
         // debugging aid: EMUERA_TRACE=<substring of function name>
@@ -867,6 +937,8 @@ impl Vm {
         r
     }
 
+    /// Prefix an error with "file:line: @FUNC:" the first time it passes
+    /// through a frame, so messages point at the failing ERB line.
     fn located(&self, e: Ctrl, f: &Function, pc: usize) -> Ctrl {
         match e {
             Ctrl::Error(m, false) => {
@@ -878,6 +950,7 @@ impl Vm {
         }
     }
 
+    /// The instruction loop of the innermost frame.
     fn exec(&mut self) -> VmResult<Option<Value>> {
         loop {
             let (f, pc) = {
@@ -900,6 +973,7 @@ impl Vm {
         self.frames.last_mut().unwrap().pc = pc;
     }
 
+    /// The function / label name of a CALL/GOTO target.
     fn resolve_target(&mut self, t: &CallTarget) -> VmResult<String> {
         Ok(match t {
             CallTarget::Static(s) => s.clone(),

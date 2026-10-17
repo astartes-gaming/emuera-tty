@@ -1,4 +1,12 @@
 //! Emuera's built-in game flow (TITLE / FIRST / SHOP / TRAIN / ABLUP / ...).
+//!
+//! An Emuera game is a state machine the *engine* drives: each state calls
+//! the script's event functions (`@SYSTEM_TITLE`, `@EVENTFIRST`,
+//! `@SHOW_SHOP`, `@USERSHOP`…) and moves on when a script says
+//! `BEGIN <state>`. [`Vm::run`] is that loop; [`Vm::run_state`] runs one
+//! state and returns the next. Scripts that override a phase completely
+//! (most modern games, AnonTW included, replace TITLE) still end up here
+//! whenever they BEGIN another state.
 
 use super::value::*;
 use super::Vm;
@@ -41,15 +49,19 @@ impl Vm {
         }
     }
 
+    /// Call an event function if the game defines it.
     fn call_opt(&mut self, name: &str) -> VmResult<bool> {
         self.call_name(name, vec![])
     }
 
+    /// An event that should end with BEGIN returned normally instead.
     fn need_begin(&mut self, after: &str) -> VmResult<String> {
         self.warn(&format!("@{} returned without BEGIN; going to SHOP", after));
         Ok("SHOP".into())
     }
 
+    /// Run one system state; returns the state to go to next.
+    /// `__LOADED` is internal: after a load, run @EVENTLOAD then the shop.
     pub fn run_state(&mut self, st: &str) -> VmResult<String> {
         match st {
             "TITLE" => {
@@ -95,6 +107,8 @@ impl Vm {
         }
     }
 
+    /// "Start a new game" from the built-in title: reset data and add the
+    /// initial characters.
     pub fn new_game(&mut self) -> VmResult<()> {
         self.init_data();
         // Emuera adds chara 番号0 (if defined) as MASTER, then 最初からいるキャラ
@@ -113,6 +127,7 @@ impl Vm {
         Ok(())
     }
 
+    /// The default title screen, for games without @SYSTEM_TITLE.
     fn builtin_title(&mut self) -> VmResult<String> {
         let gb = |k: &str, vm: &Vm| vm.csv.gamebase.get(k).cloned().unwrap_or_default();
         let save_align = self.con.align;
@@ -154,6 +169,9 @@ impl Vm {
         }
     }
 
+    /// SHOP: @EVENTSHOP once, then repeat @SHOW_SHOP + number input.
+    /// Item numbers that are on sale buy the item (@EVENTBUY); any other
+    /// number goes to @USERSHOP with RESULT set.
     fn shop(&mut self, skip_event: bool) -> VmResult<String> {
         if !skip_event {
             self.call_opt("EVENTSHOP")?;
@@ -184,6 +202,7 @@ impl Vm {
         }
     }
 
+    /// Clear the per-training temporaries at the start of TRAIN.
     fn train_reset(&mut self) {
         self.set_global_i("ASSIPLAY", 0, 0);
         self.set_global_i("PREVCOM", 0, -1);
@@ -196,6 +215,7 @@ impl Vm {
         }
     }
 
+    /// Is training command `n` available? (@COM_ABLEn, default yes.)
     fn com_able(&mut self, n: i64) -> VmResult<bool> {
         let name = format!("COM_ABLE{}", n);
         if self.has_func(&name) {
@@ -207,6 +227,7 @@ impl Vm {
         }
     }
 
+    /// Run training command `n`: @EVENTCOM, @COMn, @SOURCE_CHECK, @EVENTCOMEND.
     pub fn do_train_command(&mut self, n: i64) -> VmResult<()> {
         self.set_global_i("SELECTCOM", 0, n);
         self.global_arr("UP").clear();
@@ -227,6 +248,7 @@ impl Vm {
         Ok(())
     }
 
+    /// TRAIN: list the available commands, run the chosen one, repeat.
     fn train(&mut self) -> VmResult<String> {
         self.train_reset();
         self.call_opt("EVENTTRAIN")?;
@@ -272,6 +294,8 @@ impl Vm {
         }
     }
 
+    /// ABLUP: @SHOW_JUEL / @SHOW_ABLUP_SELECT, then @ABLUPn for the
+    /// choice, or @USERABLUP (RESULT = the number) when there is none.
     fn ablup(&mut self) -> VmResult<String> {
         loop {
             self.call_opt("SHOW_JUEL")?;

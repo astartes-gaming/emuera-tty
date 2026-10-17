@@ -1,13 +1,16 @@
-//! Variable storage: arrays of ints or strings with 0..3 dimensions.
+//! Variable storage: arrays of ints or strings with 0..3 dimensions, plus
+//! the table of Emuera's built-in variables and their default sizes.
 
 use super::value::Value;
 
+/// The element storage of an [`Arr`], row-major.
 #[derive(Clone, Debug)]
 pub enum Data {
     I(Vec<i64>),
     S(Vec<String>),
 }
 
+/// One variable: every Emuera variable, scalars included, is an array.
 #[derive(Clone, Debug)]
 pub struct Arr {
     pub data: Data,
@@ -125,6 +128,8 @@ impl Arr {
     }
 }
 
+/// A built-in variable: string or int, per-character or global, and its
+/// default dimensions (empty = scalar).
 pub struct VarDef {
     pub name: &'static str,
     pub is_str: bool,
@@ -241,6 +246,7 @@ pub static SYSTEM_VARS: &[VarDef] = &[
     v!("CSTR", true, true, &[100]),
 ];
 
+/// Look up a built-in variable by (upper-case) name.
 pub fn system_var(name: &str) -> Option<&'static VarDef> {
     SYSTEM_VARS.iter().find(|d| d.name == name)
 }
