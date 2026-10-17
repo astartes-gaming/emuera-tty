@@ -199,6 +199,8 @@ pub struct Tty {
     /// fingerprint of the last frame sent (an identical one is skipped)
     last_frame: u64,
     force_frame: bool,
+    /// the game's "ボタンの途中で行を折りかえさない" setting (per frame)
+    button_wrap: bool,
     /// CBG pictures scaled to the terminal, by (fingerprint, size)
     cbg_scaled: std::collections::HashMap<(u64, u32, u32), std::rc::Rc<image::RgbaImage>>,
 }
@@ -359,6 +361,7 @@ impl Tty {
             last_frame: 0,
             force_frame: false,
             cbg_scaled: std::collections::HashMap::new(),
+            button_wrap: false,
         };
         if xp > 0 && yp > 0 {
             t.cell = (xp / cols as u32, yp / rows as u32);
@@ -762,9 +765,31 @@ impl Tty {
                 _ => None,
             }
         };
-        for seg in &line.segs {
+        for (si, seg) in line.segs.iter().enumerate() {
             match seg {
                 Seg::Text { text, style, button, .. } => {
+                    // Emuera's "ボタンの途中で行を折りかえさない": a button that
+                    // doesn't fit the rest of the row starts the next one
+                    // whole (its pieces in other colours count with it)
+                    let starts_button = button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
+                    if self.button_wrap && starts_button && col > 0 {
+                        let mut w = 0;
+                        for s2 in &line.segs[si..] {
+                            match s2 {
+                                Seg::Text { text: t2, button: b2, .. } if b2 == button => {
+                                    w += t2.chars().map(|c| {
+                                        let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied()) };
+                                        tw + extra
+                                    }).sum::<usize>();
+                                }
+                                _ => break,
+                            }
+                        }
+                        if col + w > width && w <= width {
+                            rows.push(DRow::default());
+                            col = 0;
+                        }
+                    }
                     let bid = push_btn(button, &mut self.buttons);
                     for ch in text.chars() {
                         let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied()) };
@@ -942,6 +967,7 @@ impl Tty {
             self.cell = ((xp / cols as u32).max(1), (yp / rows as u32).max(1));
         }
         con.width = cols.saturating_sub(1).max(20);
+        self.button_wrap = con.button_wrap;
         let scale = self.cell.1 as f32 / con.line_height.max(1.0);
         let view_h = self.rows - 1;
         self.buttons.clear();

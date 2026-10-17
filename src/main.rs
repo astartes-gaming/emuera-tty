@@ -8,6 +8,7 @@
 
 mod archive;
 mod ast;
+mod config_names;
 mod console;
 mod csvdata;
 mod expr;
@@ -196,8 +197,16 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
                 let n: Vec<u8> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
                 if n.len() == 3 { Some(console::Rgb(n[0], n[1], n[2])) } else { None }
             };
-            match k.trim() {
+            // keys may be written in Japanese or English (WINDOW WIDTH…)
+            let k = line.trim_start_matches('\u{feff}').split_once(':').map(|x| x.0).unwrap_or(k);
+            match config_names::canonical(k) {
                 "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
+                "PRINTCを並べる数" => con.printc_per_line = v.parse().unwrap_or(con.printc_per_line),
+                "フォント名" => {
+                    con.default_font = v.to_string();
+                    con.font_name = v.to_string();
+                }
+                "ボタンの途中で行を折りかえさない" => con.button_wrap = yes(v),
                 "セーブデータをsavフォルダ内に作成する" => saves.in_folder = yes(v),
                 "セーブデータをバイナリ形式で保存する" => binary = yes(v),
                 "セーブデータを圧縮して保存する" => zip = yes(v),

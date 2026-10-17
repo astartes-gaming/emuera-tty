@@ -621,9 +621,25 @@ impl Retro {
                 }
             }
         };
-        for seg in &line.segs {
+        for (si, seg) in line.segs.iter().enumerate() {
             match seg {
-                Seg::Text { text, style, .. } => {
+                Seg::Text { text, style, button, .. } => {
+                    // a button that doesn't fit the rest of the row starts
+                    // the next one whole (the game's button wrapping setting)
+                    let starts = button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
+                    let used = rows.last().unwrap().len();
+                    if con.button_wrap && starts && used > 0 {
+                        let w: usize = line.segs[si..]
+                            .iter()
+                            .map_while(|s2| match s2 {
+                                Seg::Text { text: t2, button: b2, .. } if b2 == button => Some(t2.chars().map(|c| if c == '\t' { 4 } else { emu_width(c) }).sum::<usize>()),
+                                _ => None,
+                            })
+                            .sum();
+                        if used + w > width && w <= width {
+                            rows.push(Vec::new());
+                        }
+                    }
                     let mut attr = 0;
                     if self.attrs {
                         if style.bold {

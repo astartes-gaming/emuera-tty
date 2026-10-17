@@ -1458,7 +1458,10 @@ impl Vm {
         if fl.default_color {
             self.con.reset_style();
         }
+        // Emuera pads right-aligned items to PRINTCLENGTH and left-aligned
+        // ones (PRINTLC) to one more
         let text = match fl.column {
+            Some(Align::Left) => pad(s, self.con.printc_len + 1, Align::Left),
             Some(a) => pad(s, self.con.printc_len, a),
             None => s.to_string(),
         };
@@ -1475,7 +1478,10 @@ impl Vm {
             self.con.print_ex(&t, !fl.plain);
             self.con.newline();
         } else {
-            self.con.print_ex(&text, !fl.plain);
+            match fl.column {
+                Some(_) if !fl.plain && !text.contains('\n') => self.con.print_unit(&text),
+                _ => self.con.print_ex(&text, !fl.plain),
+            }
             if fl.newline {
                 self.con.newline();
             }

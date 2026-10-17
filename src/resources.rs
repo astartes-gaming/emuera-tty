@@ -187,8 +187,15 @@ fn font_for(name: &str) -> Option<std::sync::Arc<ab_glyph::FontVec>> {
     if let Some(f) = cache.lock().ok()?.get(name) {
         return f.clone();
     }
-    // prefer a face that covers Japanese, as Emuera games need
-    let query = if name.is_empty() { "sans-serif:lang=ja".to_string() } else { format!("{}:lang=ja", name) };
+    // prefer a face that covers Japanese, as Emuera games need; for the
+    // fixed-pitch Japanese fonts games are laid out in (MS Gothic, BIZ
+    // UDGothic) one whose half-width letters are half an em too, or Latin
+    // text comes out narrower than the game measured it
+    let query = match (name.is_empty(), fixed_pitch(name)) {
+        (true, _) => "monospace:lang=ja".to_string(),
+        (false, true) => format!("{}:spacing=mono:lang=ja", name),
+        (false, false) => format!("{}:lang=ja", name),
+    };
     let found = std::process::Command::new("fc-match")
         .args(["-f", "%{file}|%{index}", &query])
         .output()
@@ -204,12 +211,32 @@ fn font_for(name: &str) -> Option<std::sync::Arc<ab_glyph::FontVec>> {
     found
 }
 
+/// Is `name` a fixed-pitch Japanese font (or the default, MS Gothic)?
+/// There every half-width character is half the font size wide, which is
+/// what games assume when they centre text (`STRLENS(text) * size / 2`).
+pub fn fixed_pitch(name: &str) -> bool {
+    let n = name.to_lowercase().replace(' ', "");
+    if n.is_empty() {
+        return true;
+    }
+    let proportional = n.contains("pgothic") || n.contains("pmincho") || n.contains("ｐゴシック") || n.contains("ｐ明朝") || n.contains("pゴシック") || n.contains("p明朝");
+    let japanese_fixed = n.contains("gothic") || n.contains("ゴシック") || n.contains("mincho") || n.contains("明朝") || n.contains("mono");
+    japanese_fixed && !proportional
+}
+
+/// A character's advance in a fixed-pitch Japanese font: half the size per
+/// Shift_JIS byte (half-width 1, full-width 2).
+fn fixed_advance(c: char, size: f32) -> f32 {
+    let mut b = [0u8; 4];
+    crate::loader::sjis_len(c.encode_utf8(&mut b)).clamp(1, 2) as f32 * size / 2.0
+}
+
 /// Width and height in pixels of `text` in font `name` at `size` px.
 pub fn text_size(text: &str, name: &str, size: f32) -> (i64, i64) {
     use ab_glyph::{Font, ScaleFont};
     let Some(font) = font_for(name) else { return ((crate::loader::sjis_len(text) as f32 * size / 2.0) as i64, size as i64) };
     let sf = font.as_scaled(em_scale(&*font, size));
-    let w: f32 = text.chars().map(|c| sf.h_advance(font.glyph_id(c))).sum();
+    let w: f32 = if fixed_pitch(name) { text.chars().map(|c| fixed_advance(c, size)).sum() } else { text.chars().map(|c| sf.h_advance(font.glyph_id(c))).sum() };
     (w.ceil() as i64, sf.height().ceil() as i64)
 }
 
@@ -237,10 +264,18 @@ pub fn draw_text(img: &mut RgbaImage, text: &str, (x, y): (i32, i32), name: &str
     let mut pen_x = x as f32;
     let base = y as f32 + sf.ascent();
     let (by, bq) = (base.floor(), ((base - base.floor()) * 4.0).round().min(3.0));
+    let fixed = fixed_pitch(name);
     for ch in text.chars() {
         let id = font.glyph_id(ch);
-        let (px0, xq) = (pen_x.floor(), ((pen_x - pen_x.floor()) * 4.0).round().min(3.0));
-        pen_x += sf.h_advance(id);
+        // fixed pitch: the game's grid, each glyph centred in its cell
+        let (glyph_x, adv) = if fixed {
+            let adv = fixed_advance(ch, size);
+            (pen_x + (adv - sf.h_advance(id)) / 2.0, adv)
+        } else {
+            (pen_x, sf.h_advance(id))
+        };
+        let (px0, xq) = (glyph_x.floor(), ((glyph_x - glyph_x.floor()) * 4.0).round().min(3.0));
+        pen_x += adv;
         let key = (name.to_string(), size.to_bits(), id.0, xq as u8, bq as u8);
         let mask = GLYPHS.with(|g| g.borrow().get(&key).cloned()).or_else(|| {
             let g = id.with_scale_and_position(scale, ab_glyph::point(xq / 4.0, bq / 4.0));

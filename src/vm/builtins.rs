@@ -167,20 +167,64 @@ fn to_full(s: &str) -> String {
 
 /// Substring by Shift_JIS byte positions (Emuera's SUBSTRING).
 fn substring_sjis(s: &str, start: i64, len: i64) -> String {
-    let mut out = String::new();
-    let mut pos = 0i64;
-    let start = start.max(0);
-    for c in s.chars() {
-        let w = sjis_len(&c.to_string()) as i64;
-        if pos >= start && (len < 0 || pos + w <= start + len) {
-            out.push(c);
+    // Emuera's LangManager.GetSubStringLang, in Shift_JIS bytes: skip
+    // characters until `start` bytes are covered (a start inside a
+    // two-byte character skips it), then take characters until at least
+    // `len` bytes are taken (a length ending inside one includes it)
+    let total = sjis_len(s) as i64;
+    if start >= total || len == 0 {
+        return String::new();
+    }
+    let len = if len < 0 || len > total { total } else { len };
+    let chars: Vec<char> = s.chars().collect();
+    let w = |c: char| sjis_len(c.encode_utf8(&mut [0u8; 4])) as i64;
+    let mut i = 0;
+    if start > 0 {
+        let mut got = 0;
+        while i < chars.len() {
+            got += w(chars[i]);
+            i += 1;
+            if got >= start {
+                break;
+            }
         }
-        pos += w;
-        if len >= 0 && pos >= start + len {
+        if i >= chars.len() {
+            return String::new();
+        }
+    } else if len == total {
+        return s.to_string();
+    }
+    let mut out = String::new();
+    let mut taken = 0;
+    while i < chars.len() {
+        out.push(chars[i]);
+        taken += w(chars[i]);
+        i += 1;
+        if taken >= len {
             break;
         }
     }
     out
+}
+
+#[cfg(test)]
+mod substring_tests {
+    use super::substring_sjis as sub;
+
+    #[test]
+    fn emuera_substring() {
+        assert_eq!(sub("abcdef", 2, 3), "cde");
+        assert_eq!(sub("abcdef", 0, -1), "abcdef");
+        assert_eq!(sub("abcdef", 4, 99), "ef");
+        assert_eq!(sub("abcdef", 6, 1), "");
+        assert_eq!(sub("abcdef", 1, 0), "");
+        // inside two-byte characters
+        assert_eq!(sub("あいう", 0, 1), "あ");
+        assert_eq!(sub("あいう", 1, 2), "い");
+        assert_eq!(sub("あいう", 2, 2), "い");
+        assert_eq!(sub("aあb", 1, 1), "あ");
+        assert_eq!(sub("あいう", 3, -1), "う");
+    }
 }
 
 /// .NET KnownColor / CSS named colours (what Color.FromName accepts).
@@ -522,7 +566,7 @@ impl Vm {
             }
             "SETFONT" => {
                 let s = self.as_(a, 0, "")?;
-                self.con.font_name = s;
+                self.con.font_name = if s.is_empty() { self.con.default_font.clone() } else { s };
             }
             "ALIGNMENT" => {
                 if let Args::Raw(s) = args {
@@ -538,7 +582,7 @@ impl Vm {
                 let v = self.arg(a, 1)?.unwrap_or(Value::Int(0));
                 let text = match name {
                     "PRINTBUTTONC" => pad(&text, self.con.printc_len, Align::Right),
-                    "PRINTBUTTONLC" => pad(&text, self.con.printc_len, Align::Left),
+                    "PRINTBUTTONLC" => pad(&text, self.con.printc_len + 1, Align::Left),
                     _ => text,
                 };
                 self.con.print_button(&text, v);
@@ -1531,7 +1575,7 @@ impl Vm {
         } else if names("ウィンドウ幅", "Window width", "WindowX") {
             int((self.con.width as f32 * self.con.font_size / 2.0) as i64)
         } else if names("PRINTCを並べる数", "Items per line for PRINTC", "PrintCPerLine") {
-            int(3)
+            int(self.con.printc_per_line as i64)
         } else if names("PRINTCの文字数", "Number of Item characters for PRINTC", "PrintCLength") {
             int(self.con.printc_len as i64)
         } else if names("表示するセーブデータ数", "Save data count per page", "SaveDataNos") {
@@ -1559,7 +1603,7 @@ impl Vm {
         } else if names("お金の単位", "Currency symbol", "MoneyLabel") {
             Some(Value::Str(self.csv.gamebase.get("お金の単位").cloned().or_else(|| rep("お金の単位")).unwrap_or_else(|| "$".into())))
         } else if names("フォント名", "Font name", "FontName") {
-            Some(Value::Str(if self.con.font_name.is_empty() { "ＭＳ ゴシック".into() } else { self.con.font_name.clone() }))
+            Some(Value::Str(if self.con.default_font.is_empty() { "ＭＳ ゴシック".into() } else { self.con.default_font.clone() }))
         } else if names("描画インターフェース", "Drawing interface", "TextDrawingMode") {
             // Emuera's default; games check it isn't WINAPI
             Some(Value::Str("TEXTRENDERER".into()))
@@ -2993,7 +3037,7 @@ impl Vm {
                 let st = &self.con.style;
                 i(st.bold as i64 | (st.italic as i64) << 1 | (st.strike as i64) << 2 | (st.underline as i64) << 3)
             }
-            "GETFONT" => s(self.con.font_name.clone()),
+            "GETFONT" => s(if self.con.font_name.is_empty() { if self.con.default_font.is_empty() { "ＭＳ ゴシック".into() } else { self.con.default_font.clone() } } else { self.con.font_name.clone() }),
             "CURRENTALIGN" => i(match self.con.align {
                 Align::Left => 0,
                 Align::Center => 1,
@@ -3009,7 +3053,7 @@ impl Vm {
             }
             "ISSKIP" | "MOUSESKIP" | "GETKEY" | "GETKEYTRIGGERED" | "MOUSEB" => i(0),
             "ISACTIVE" => i(1),
-            "PRINTCPERLINE" => i(3),
+            "PRINTCPERLINE" => i(self.con.printc_per_line as i64),
             "PRINTCLENGTH" => i(self.con.printc_len as i64),
             "SAVENOS" => i(20),
             "GETNUM" => {

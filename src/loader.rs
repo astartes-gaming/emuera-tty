@@ -89,14 +89,35 @@ pub fn csv_fields(line: &str) -> Vec<String> {
     line.split(',').map(|s| s.trim().to_string()).collect()
 }
 
-/// Shift_JIS byte length, which is what Emuera's STRLENS/alignment use.
+/// Shift_JIS byte length, which is what Emuera's STRLENS / alignment use
+/// (`LangManager.GetByteCountLang`): per UTF-16 unit, a character code page
+/// 932 can't encode becomes `?`, one byte, so an unencodable character
+/// counts 1 and an emoji (two UTF-16 units) 2.
 pub fn sjis_len(s: &str) -> usize {
     s.chars()
         .map(|c| {
+            if c.is_ascii() {
+                return 1;
+            }
             let mut buf = [0u8; 4];
             let enc = c.encode_utf8(&mut buf);
             let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(enc);
-            if unmappable { 2 } else { bytes.len() }
+            if unmappable { c.len_utf16() } else { bytes.len() }
         })
         .sum()
+}
+
+#[cfg(test)]
+mod sjis_tests {
+    use super::sjis_len;
+
+    #[test]
+    fn emuera_byte_counts() {
+        assert_eq!(sjis_len("abc"), 3);
+        assert_eq!(sjis_len("あい"), 4);
+        assert_eq!(sjis_len("ｱｲ"), 2); // half-width kana
+        assert_eq!(sjis_len("♂"), 2); // in JIS X 0208
+        assert_eq!(sjis_len("한"), 1); // not in code page 932: "?"
+        assert_eq!(sjis_len("😀"), 2); // two UTF-16 units, two "?"
+    }
 }

@@ -99,6 +99,11 @@ pub struct Console {
     pub width: usize,
     /// Column width of PRINTC / PRINTLC.
     pub printc_len: usize,
+    /// PRINTCPERLINE (config "PRINTCを並べる数")
+    pub printc_per_line: usize,
+    /// "ボタンの途中で行を折りかえさない": a button that doesn't fit the
+    /// rest of the line moves to the next one whole
+    pub button_wrap: bool,
     /// Generation stamped on new lines (Emuera's `newButtonGeneration`).
     pub gen: u64,
     /// Buttons on lines of this generation are clickable
@@ -120,6 +125,8 @@ pub struct Console {
     /// SKIPDISP: output is discarded.
     pub skip_disp: bool,
     pub font_name: String,
+    /// the game's configured font ("フォント名"), what SETFONT "" restores
+    pub default_font: String,
     /// WINDOW_TITLE
     pub title: String,
     /// The last line is a REUSELASTLINE line.
@@ -148,6 +155,8 @@ impl Console {
             line_height: 19.0,
             width: 80,
             printc_len: 25,
+            printc_per_line: 3,
+            button_wrap: false,
             gen: 0,
             valid_gen: 0,
             buttons_since_input: false,
@@ -159,6 +168,7 @@ impl Console {
             dirty: true,
             skip_disp: false,
             font_name: String::new(),
+            default_font: String::new(),
             title: String::new(),
             last_temp: false,
             low_water: usize::MAX,
@@ -198,6 +208,28 @@ impl Console {
                 self.push_text(part, None, auto);
             }
         }
+    }
+
+    /// One PRINTC item: Emuera makes it a unit of its own (`force_button`),
+    /// so its `[N]` turns the whole padded item into one button, whatever
+    /// the items around it hold.
+    pub fn print_unit(&mut self, text: &str) {
+        if self.skip_disp {
+            return;
+        }
+        self.drop_temp();
+        if self.cur_align.is_none() {
+            self.cur_align = Some(self.align);
+        }
+        let segs = auto_buttons(vec![Seg::Text { text: text.to_string(), style: self.style.clone(), button: None, auto: true }]);
+        for s in segs {
+            match s {
+                // (marked done: the line's own pass must not regroup it)
+                Seg::Text { text, style, button, .. } => self.cur.push(Seg::Text { text, style, button, auto: false }),
+                other => self.cur.push(other),
+            }
+        }
+        self.dirty = true;
     }
 
     fn push_text(&mut self, s: &str, button: Option<Value>, auto: bool) {

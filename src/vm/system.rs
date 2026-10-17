@@ -413,7 +413,7 @@ impl Vm {
             if self.get_global_i("ITEMSALES", i.max(0) as usize) != 0 {
                 let price = self.get_global_i("ITEMPRICE", i.max(0) as usize);
                 let label = self.csv.gamebase.get("お金の単位").cloned().unwrap_or_else(|| "$".into());
-                let s = crate::vm::pad(&format!("[{}] {}({}{})", i, name, price, label), self.con.printc_len, crate::ast::Align::Left);
+                let s = crate::vm::pad(&format!("[{}] {}({}{})", i, name, price, label), self.con.printc_len + 1, crate::ast::Align::Left);
                 self.con.print(&s);
                 shown += 1;
                 if shown % 3 == 0 {

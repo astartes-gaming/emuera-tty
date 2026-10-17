@@ -440,6 +440,10 @@ checked.
   expressions as in Emuera (groups, `$1`, lookaround).
 - EMEE `.als` name aliases.
 - `DAY.csv` / `TIME.csv` / `MONEY.csv` names (`DAYNAME`, `TIMENAME`).
+- Config files with Emuera's Japanese or English keys (`ウィンドウ幅` or
+  `WINDOW WIDTH`), including PRINTC items per line and width, the font,
+  and button wrapping (a button that doesn't fit moves to the next line
+  whole, as in Emuera).
 - SAVEGAME/LOADGAME menus, SAVEDATA/LOADDATA, SAVEGLOBAL/LOADGLOBAL, @SAVEINFO.
 - Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
   per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
