@@ -1,0 +1,171 @@
+;=== language self test: prints OK/NG lines ===
+@SELFTEST
+#DIM LOCALCOUNT
+#DIMS LOCALSTR, 3
+LOCAL:1 = 0
+;--- arithmetic & precedence
+CALL CHECK, "arith", 1 + 2 * 3 == 7 && (1 + 2) * 3 == 9 && 7 / 2 == 3 && 7 % 3 == 1 && -3 + 5 == 2
+CALL CHECK, "bits", (5 & 3) == 1 && (5 | 3) == 7 && (5 ^ 3) == 6 && (1 << 4) == 16 && GETBIT(5, 2) == 1
+CALL CHECK, "ternary", (3 > 2 ? 10 # 20) == 10
+;--- strings
+LOCALS = abc
+LOCALS += def
+CALL CHECKS, "strasg", LOCALS, "abcdef"
+LOCALS '= "x" + "y" * 3
+CALL CHECKS, "strexpr", LOCALS, "xyyy"
+CALL CHECK, "strlens", STRLENS("あいu") == 5 && STRLENSU("あいu") == 3
+CALL CHECKS, "substring", SUBSTRING("あいうえお", 2, 4), "いう"
+CALL CHECKS, "tostr", TOSTR(42, "0000"), "0042"
+CALL CHECKS, "replace", REPLACE("a-b-c", "-", "+"), "a+b+c"
+CALL CHECK, "strfind", STRFIND("hello world", "wor") == 6
+;--- FORM
+A = 7
+LOCALS = 値は{A}で%"文字"%です
+CALL CHECKS, "form", LOCALS, "値は7で文字です"
+LOCALS = [{A,4}][%"x",3,LEFT%]
+CALL CHECKS, "formpad", LOCALS, "[   7][x  ]"
+LOCALS = \@ A > 5 ? 大 # 小 \@
+CALL CHECKS, "formcond", LOCALS, "大"
+LOCALS '= @"A={A}"
+CALL CHECKS, "atform", LOCALS, "A=7"
+;--- loops
+LOCAL = 0
+FOR LOCAL:2, 0, 10
+	SIF LOCAL:2 == 5
+		CONTINUE
+	SIF LOCAL:2 == 8
+		BREAK
+	LOCAL += LOCAL:2
+NEXT
+CALL CHECK, "for", LOCAL == 0+1+2+3+4+6+7
+LOCAL = 0
+WHILE LOCAL < 5
+	LOCAL ++
+WEND
+CALL CHECK, "while", LOCAL == 5
+LOCAL = 0
+DO
+	LOCAL += 2
+LOOP LOCAL < 9
+CALL CHECK, "doloop", LOCAL == 10
+LOCAL = 0
+REPEAT 4
+	LOCAL += COUNT
+REND
+CALL CHECK, "repeat", LOCAL == 6
+FOR LOCAL, 10, 0, -3
+NEXT
+CALL CHECK, "fordown", LOCAL == -2
+;--- select
+LOCAL = 0
+FOR LOCAL:3, 0, 6
+	SELECTCASE LOCAL:3
+		CASE 0
+			LOCAL += 1
+		CASE 1, 2
+			LOCAL += 10
+		CASE 3 TO 4
+			LOCAL += 100
+		CASE IS >= 5
+			LOCAL += 1000
+	ENDSELECT
+NEXT
+CALL CHECK, "select", LOCAL == 1 + 20 + 200 + 1000
+;--- if / elseif
+LOCAL = 3
+IF LOCAL == 1
+	LOCAL = 10
+ELSEIF LOCAL == 3
+	LOCAL = 30
+ELSE
+	LOCAL = 99
+ENDIF
+CALL CHECK, "ifelse", LOCAL == 30
+;--- goto
+LOCAL = 0
+$LOOPTOP
+LOCAL ++
+SIF LOCAL < 3
+	GOTO LOOPTOP
+CALL CHECK, "goto", LOCAL == 3
+;--- functions
+CALL CHECK, "userfunc", SQUARE(9) == 81 && FACT(5) == 120
+CALL CHECKS, "funcs", GREET("霊夢"), "こんにちは、霊夢"
+CALL ADDTWO, 3, 4
+CALL CHECK, "callret", RESULT == 7
+TRYCALL NOSUCHFUNC
+CALL CHECK, "trycall", 1
+LOCAL = 0
+TRYCCALL NOSUCHFUNC2
+	LOCAL = 1
+CATCH
+	LOCAL = 2
+ENDCATCH
+CALL CHECK, "trycatch", LOCAL == 2
+CALLFORM ADD{"TWO"}, 10, 5
+CALL CHECK, "callform", RESULT == 15
+;--- csv names & chara vars
+CALL CHECK, "csvname", ABL:1:技巧 == 3 && ABL:2:技巧 == 5 && TALENT:1:処女 == 1
+CALL CHECKS, "charname", NAME:1, "博麗霊夢"
+CALL CHECKS, "callname", CALLNAME:2, "魔理沙"
+CALL CHECK, "sjiscsv", CFLAG:1:好感度 == 10 && BASE:1:体力 == 2000 && MAXBASE:1:体力 == 2000
+CALL CHECK, "charanum", CHARANUM == 3 && GETCHARA(2) == 2 && FINDCHARA(NAME, "霧雨魔理沙") == 2
+CALL CHECKS, "ablname", ABLNAME:1, "技巧"
+CALL CHECK, "define", MAXCHARA == 10
+CALL CHECK, "constarr", 定数表:2 == 4 && SUMARRAY(定数表) == 14
+親密度:2 = 77
+CALL CHECK, "charadata", 親密度:2 == 77
+;--- arrays
+VARSET LOCALSTR, "z"
+CALL CHECKS, "varset", LOCALSTR:2, "z"
+LOCAL:10 = 5, 3, 9, 1
+CALL CHECK, "multiasg", LOCAL:12 == 9 && MAXARRAY(LOCAL, 10, 14) == 9 && MINARRAY(LOCAL, 10, 14) == 1
+SPLIT "a,b,c", ",", LOCALS:5
+CALL CHECKS, "split", LOCALS:6, "b"
+CALL CHECK, "splitcnt", RESULT == 3
+CALL CHECK, "minmax", MAX(1, 9, 4) == 9 && MIN(3, -2) == -2 && LIMIT(50, 0, 10) == 10
+CALL CHECK, "inrange", INRANGE(5, 1, 5) && !INRANGE(6, 1, 5)
+;--- printdata
+PRINTDATAL
+	DATA (printdata ok)
+ENDDATA
+;--- increments in expressions
+LOCAL = 5
+LOCAL:1 = LOCAL++ + ++LOCAL
+CALL CHECK, "incdec", LOCAL == 7 && LOCAL:1 == 12
+PRINTFORML selftest: {LOCALCOUNT} checks done
+RETURN 0
+
+@CHECK, ARGS, ARG
+SIF ARG
+	PRINTFORML OK  %ARGS%
+SIF !ARG
+	PRINTFORML NG  %ARGS%  <------
+RETURN 0
+
+@CHECKS, ARGS, ARGS:1, ARGS:2
+IF ARGS:1 == ARGS:2
+	PRINTFORML OK  %ARGS%
+ELSE
+	PRINTFORML NG  %ARGS%  got [%ARGS:1%] want [%ARGS:2%] <------
+ENDIF
+
+@SQUARE(X)
+#FUNCTION
+#DIM X
+RETURNF X * X
+
+@FACT(N)
+#FUNCTION
+#DIM N
+SIF N <= 1
+	RETURNF 1
+RETURNF N * FACT(N - 1)
+
+@GREET(WHO)
+#FUNCTIONS
+#DIMS WHO
+RETURNF GREETING + "、" + WHO
+
+@ADDTWO, ARG, ARG:1
+RETURN ARG + ARG:1

@@ -1,0 +1,49 @@
+//! Inline image backends: kitty graphics protocol, DEC sixel, and direct
+//! Linux framebuffer blitting (for the fbcon VT / fbterm).
+
+pub mod fb;
+pub mod kitty;
+pub mod sixel;
+
+use image::RgbaImage;
+use std::rc::Rc;
+
+/// An image to show on screen, already scaled to its pixel size.
+pub struct Placement {
+    pub key: String,
+    pub img: Rc<RgbaImage>,
+    /// top-left cell (0-based); row may be negative if scrolled partly off
+    pub col: i32,
+    pub row: i32,
+    /// vertical pixel offset inside the first cell (ypos)
+    pub y_off: i32,
+    /// visible pixel rows of the image: [crop_top, crop_top + crop_h)
+    pub crop_top: u32,
+    pub crop_h: u32,
+}
+
+pub trait Backend {
+    fn name(&self) -> &'static str;
+    /// Called before text is written for a frame (e.g. delete old placements).
+    fn begin(&mut self, _out: &mut Vec<u8>) {}
+    /// Emit escape sequences for placements (written after text).
+    fn draw(&mut self, _out: &mut Vec<u8>, _p: &[Placement], _cell: (u32, u32)) {}
+    /// Called after the frame has been written and drained to the tty.
+    fn after_flush(&mut self, _p: &[Placement], _cell: (u32, u32)) {}
+    /// Leaving: clean up anything on screen.
+    fn shutdown(&mut self, _out: &mut Vec<u8>) {}
+}
+
+pub struct NoGfx;
+impl Backend for NoGfx {
+    fn name(&self) -> &'static str {
+        "none"
+    }
+}
+
+/// Crop helper shared by sixel and fb backends.
+pub fn crop_rows(img: &RgbaImage, top: u32, h: u32) -> RgbaImage {
+    let top = top.min(img.height());
+    let h = h.min(img.height() - top);
+    image::imageops::crop_imm(img, 0, top, img.width(), h.max(1)).to_image()
+}
