@@ -29,12 +29,22 @@ impl Backend for Sixel {
             if p.crop_h == 0 || p.row < 0 {
                 continue;
             }
-            let key = (p.key.clone(), p.crop_top, p.crop_h);
+            // sixels start at a cell's top: an offset inside the cell
+            // becomes transparent rows above the picture
+            let pad = p.y_off.max(0) as u32;
+            let key = (format!("{}+{}", p.key, pad), p.crop_top, p.crop_h);
             if !self.cache.contains_key(&key) {
                 if self.cache.len() > 128 {
                     self.cache.clear();
                 }
                 let img = if p.crop_top == 0 && p.crop_h >= p.img.height() { (*p.img).clone() } else { crop_rows(&p.img, p.crop_top, p.crop_h) };
+                let img = if pad == 0 {
+                    img
+                } else {
+                    let mut t = RgbaImage::new(img.width(), img.height() + pad);
+                    image::imageops::replace(&mut t, &img, 0, pad as i64);
+                    t
+                };
                 self.cache.insert(key.clone(), encode(&img));
             }
             let _ = write!(out, "\x1b[{};{}H", p.row + 1, p.col + 1);
