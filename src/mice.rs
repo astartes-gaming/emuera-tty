@@ -231,7 +231,7 @@ mod tests {
     fn piped(wheel: bool) -> (Mice, i32) {
         let mut fds = [0i32; 2];
         assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK) }, 0);
-        (Mice { fd: fds[0], wheel, buf: Vec::new(), px: (0, 0), buttons: 0, last_cell: (1, 1) }, fds[1])
+        (Mice { fd: fds[0], gpm: false, wheel, buf: Vec::new(), px: (0, 0), buttons: 0, last_cell: (1, 1) }, fds[1])
     }
 
     fn send(w: i32, b: &[u8]) {
