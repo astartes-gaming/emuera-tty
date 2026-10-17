@@ -256,7 +256,7 @@ fn form_arg_cmd(cmd: &str) -> bool {
     matches!(
         cmd,
         "DATAFORM" | "THROW" | "DRAWLINEFORM" | "STRLENFORM" | "STRLENFORMU" | "PUTFORM" | "REUSELASTLINE"
-            | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "ENCODETOUNI_" | "SAVENOS_"
+            | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "ENCODETOUNI" | "SAVENOS_"
     )
 }
 

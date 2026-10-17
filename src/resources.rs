@@ -289,9 +289,12 @@ impl Resources {
         r
     }
 
+    /// A sprite cut from a graphics buffer exists only while the buffer
+    /// does (Emuera's SpriteG.IsCreated); it comes back if the buffer is
+    /// created again under the same id.
     pub fn exists(&self, name: &str) -> bool {
         let k = name.to_uppercase();
-        self.sprites.contains_key(&k) || self.g_sprites.contains_key(&k)
+        self.sprites.contains_key(&k) || self.g_sprites.get(&k).is_some_and(|s| self.graphics.contains_key(&s.0))
     }
 
     /// A buffer or SPRITECREATE sprite changed: drop cached renderings.
@@ -318,6 +321,8 @@ impl Resources {
             return false;
         }
         let Some(g) = self.graphics.get(&gid) else { return false };
+        // (replacing one whose buffer was disposed)
+        self.cropped.remove(&name.to_uppercase());
         let r = rect.unwrap_or((0, 0, g.img.width() as i32, g.img.height() as i32));
         self.g_sprites.insert(name.to_uppercase(), (gid, r.0, r.1, r.2, r.3));
         self.changed();
@@ -391,8 +396,8 @@ impl Resources {
 
     pub fn sprite_size(&mut self, name: &str) -> Option<(u32, u32)> {
         let key = name.to_uppercase();
-        if let Some(&(_, _, _, w, h)) = self.g_sprites.get(&key) {
-            return Some((w.unsigned_abs(), h.unsigned_abs()));
+        if let Some(&(gid, _, _, w, h)) = self.g_sprites.get(&key) {
+            return self.graphics.contains_key(&gid).then_some((w.unsigned_abs(), h.unsigned_abs()));
         }
         if let Some(Sprite { rect: Some((_, _, w, h)), .. }) = self.sprites.get(&key) {
             return Some((*w, *h));

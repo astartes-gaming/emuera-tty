@@ -26,6 +26,15 @@ impl NameTable {
             self.by_index.insert(idx, name.to_string());
         }
     }
+
+    /// Another name for a row (EMEE `.als` files): found by lookups,
+    /// never shown.
+    pub fn add_alias(&mut self, idx: i64, name: &str) {
+        if !name.is_empty() {
+            self.by_name.entry(name.to_string()).or_insert(idx);
+            self.by_name.entry(name.to_uppercase()).or_insert(idx);
+        }
+    }
 }
 
 /// A `Chara*.csv` file: the initial values ADDCHARA copies into a new
@@ -160,6 +169,20 @@ impl GameCsv {
                             if let Some(price) = f.get(2).and_then(|s| parse_i64(s)) {
                                 g.item_price.insert(idx, price);
                             }
+                        }
+                    }
+                }
+            }
+            // EMEE aliases: `ALS/<table>.als` (next to CSV/) gives the same
+            // rows more names; lookups only, the CSV names stay the shown ones
+            let als_dir = csv_dir.parent().and_then(|d| crate::loader::find_dir_ci(d, "ALS"));
+            let als_name = format!("{}.ALS", file.trim_end_matches(".CSV"));
+            if let Some(p) = als_dir.as_deref().and_then(|d| find_file_ci(d, &als_name)) {
+                if let Ok(text) = read_text(&p) {
+                    for line in text.lines() {
+                        let f = csv_fields(line);
+                        if let (Some(idx), Some(name)) = (f.first().and_then(|s| parse_i64(s)), f.get(1)) {
+                            t.add_alias(idx, name);
                         }
                     }
                 }

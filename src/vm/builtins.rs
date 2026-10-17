@@ -1136,6 +1136,18 @@ impl Vm {
                     self.set_result(n as i64);
                 }
             }
+            // the statement form: FORM text in, RESULT:0 = length and
+            // RESULT:1… = the character codes (the function form differs)
+            "ENCODETOUNI" if matches!(args, Args::Form(_)) => {
+                if let Args::Form(f) = args {
+                    let s = self.eval_form(f)?;
+                    let codes: Vec<i64> = s.chars().map(|c| c as i64).collect();
+                    self.set_global_i("RESULT", 0, codes.len() as i64);
+                    for (k, c) in codes.iter().enumerate() {
+                        self.set_global_i("RESULT", k + 1, *c);
+                    }
+                }
+            }
             "STRLENFORM" | "STRLENFORMU" => {
                 if let Args::Form(f) = args {
                     let s = self.eval_form(f)?;
@@ -2451,7 +2463,7 @@ impl Vm {
                             if exact {
                                 a == b
                             } else {
-                                regex_lite_match(b, a)
+                                crate::regex::get(b).is_ok_and(|re| crate::regex::is_match(&re, a))
                             }
                         }
                         _ => x.as_int() == target.as_int(),
@@ -2589,11 +2601,29 @@ impl Vm {
                 let sub = self.as_(a, 1, "")?;
                 i(if sub.is_empty() { 0 } else { x.matches(&sub).count() as i64 })
             }
+            // Emuera: a .NET regular expression replace; the 4th argument
+            // 1 takes the replacements from a string array (one per match),
+            // 2 replaces plain text
             "REPLACE" => {
                 let x = self.as_(a, 0, "")?;
                 let from = self.as_(a, 1, "")?;
+                let mode = if a.len() >= 4 { self.ai(a, 3, 0)? } else { 0 };
+                if mode == 2 {
+                    let to = self.as_(a, 2, "")?;
+                    return s(if from.is_empty() { x } else { x.replace(&from, &to) });
+                }
+                let re = crate::regex::get(&from).or_else(|e| err(format!("REPLACE: {}", e)))?;
+                if mode == 1 {
+                    let Some(Expr::Var(v)) = a.get(2) else { return err("REPLACE: the 3rd argument must be a string array") };
+                    let (_, _, items) = self.arr_vals(&v.clone(), 0, None)?;
+                    let mut k = 0;
+                    return s(crate::regex::replace_with(&re, &x, |_| {
+                        k += 1;
+                        items.get(k - 1).map(|v| v.as_string()).unwrap_or_default()
+                    }));
+                }
                 let to = self.as_(a, 2, "")?;
-                s(if from.is_empty() { x } else { x.replace(&from, &to) })
+                s(crate::regex::replace(&re, &x, &to))
             }
             "TOSTR" => {
                 let v = self.ai(a, 0, 0)?;
@@ -3264,10 +3294,35 @@ impl Vm {
                 let x = self.as_(a, 0, "-")?;
                 s(crate::console::repeat_to_width(&x, self.con.width))
             }
+            // the number of matches; with a 3rd argument != 0 the group
+            // count goes to RESULT:1 and every match's groups to RESULTS,
+            // with two variables after the pattern to those instead
             "REGEXPMATCH" => {
                 let x = self.as_(a, 0, "")?;
                 let p = self.as_(a, 1, "")?;
-                i(regex_lite_match(&p, &x) as i64)
+                let re = crate::regex::get(&p).or_else(|e| err(format!("REGEXPMATCH: {}", e)))?;
+                let n = crate::regex::count(&re, &x) as i64;
+                if a.len() == 3 && self.ai(a, 2, 0)? != 0 {
+                    let (groups, vals) = crate::regex::match_groups(&re, &x);
+                    self.set_global_i("RESULT", 1, groups as i64);
+                    for (k, v) in vals.into_iter().enumerate() {
+                        self.global_arr("RESULTS").set(k, Value::Str(v));
+                    }
+                } else if a.len() >= 4 {
+                    let (groups, vals) = crate::regex::match_groups(&re, &x);
+                    if let Some(Expr::Var(v)) = a.get(2) {
+                        self.set_var(&v.clone(), Value::Int(groups as i64))?;
+                    }
+                    if let Some(Expr::Var(v)) = a.get(3) {
+                        let v = v.clone();
+                        for (k, val) in vals.into_iter().enumerate() {
+                            let mut idx = v.idx.clone();
+                            idx.push(Expr::Int(k as i64));
+                            self.set_var(&VarRef { name: v.name.clone(), idx }, Value::Str(val))?;
+                        }
+                    }
+                }
+                i(n)
             }
             "GETMEMORYUSAGE" | "CLEARMEMORY" => i(0),
             "EXISTSOUND" | "PLAYSOUND" | "STOPSOUND" | "PLAYBGM" | "STOPBGM" | "SETSOUNDVOLUME" | "SETBGMVOLUME" => i(0),
@@ -3712,97 +3767,6 @@ mod format_tests {
     }
 }
 
-/// A small backtracking regex matcher (literals, `.`, `[...]`, `* + ?`,
-/// `^ $`, `\d \s \w` and their negations, escapes) for REGEXPMATCH /
-/// FINDELEMENT, avoiding a regex crate. No groups or `|` alternation.
-/// Unanchored: true if the pattern matches anywhere in `text`.
-pub fn regex_lite_match(pat: &str, text: &str) -> bool {
-    let p: Vec<char> = pat.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-    if p.first() == Some(&'^') {
-        return m_here(&p[1..], &t);
-    }
-    for i in 0..=t.len() {
-        if m_here(&p, &t[i..]) {
-            return true;
-        }
-    }
-    false
-}
-
-fn atom_len(p: &[char]) -> usize {
-    match p.first() {
-        Some('\\') => 2.min(p.len()),
-        Some('[') => p.iter().position(|c| *c == ']').map(|i| i + 1).unwrap_or(p.len()),
-        Some(_) => 1,
-        None => 0,
-    }
-}
-
-fn atom_match(a: &[char], c: char) -> bool {
-    match a.first() {
-        Some('.') => true,
-        Some('\\') => match a.get(1) {
-            Some('d') => c.is_ascii_digit(),
-            Some('D') => !c.is_ascii_digit(),
-            Some('s') => c.is_whitespace(),
-            Some('S') => !c.is_whitespace(),
-            Some('w') => c.is_alphanumeric() || c == '_',
-            Some('W') => !(c.is_alphanumeric() || c == '_'),
-            Some('n') => c == '\n',
-            Some('t') => c == '\t',
-            x => x == Some(&c),
-        },
-        Some('[') => {
-            let inner = &a[1..a.len().saturating_sub(1)];
-            let (neg, inner) = if inner.first() == Some(&'^') { (true, &inner[1..]) } else { (false, inner) };
-            let mut hit = false;
-            let mut k = 0;
-            while k < inner.len() {
-                if k + 2 < inner.len() && inner[k + 1] == '-' {
-                    if c >= inner[k] && c <= inner[k + 2] {
-                        hit = true;
-                    }
-                    k += 3;
-                } else {
-                    if inner[k] == c {
-                        hit = true;
-                    }
-                    k += 1;
-                }
-            }
-            hit != neg
-        }
-        Some(x) => *x == c,
-        None => false,
-    }
-}
-
-fn m_here(p: &[char], t: &[char]) -> bool {
-    if p.is_empty() {
-        return true;
-    }
-    if p == ['$'] {
-        return t.is_empty();
-    }
-    let al = atom_len(p);
-    let atom = &p[..al];
-    match p.get(al) {
-        Some('*') | Some('+') | Some('?') => {
-            let q = p[al];
-            let rest = &p[al + 1..];
-            let mut n = 0;
-            while n < t.len() && atom_match(atom, t[n]) {
-                n += 1;
-            }
-            let min = if q == '+' { 1 } else { 0 };
-            let max = if q == '?' { n.min(1) } else { n };
-            (min..=max).rev().any(|k| k >= min && m_here(rest, &t[k..]))
-        }
-        _ => !t.is_empty() && atom_match(atom, t[0]) && m_here(&p[al..], &t[1..]),
-    }
-}
-
 /// Emuera's HtmlManager.HtmlTagSplit: alternating text runs and `<...>` tags;
 /// None if a tag is unterminated.
 fn html_tag_split(s: &str) -> Option<Vec<String>> {
@@ -3823,11 +3787,8 @@ fn html_tag_split(s: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::regex_lite_match as m;
-
     #[test]
     fn dotnet_number_formats() {
         use super::format_number as f;
@@ -3839,16 +3800,6 @@ mod tests {
         assert_eq!(f(5, "F2"), "5.00");
         assert_eq!(f(42, "0000"), "0042");
         assert_eq!(f(1234567, "#,0"), "1,234,567");
-    }
-
-    #[test]
-    fn regex_lite_basics() {
-        assert!(m("a.c", "xxabcxx"));
-        assert!(m("^ab+c$", "abbbc") && !m("^ab+c$", "ac"));
-        assert!(m("[0-9]+", "x42") && !m("^[^0-9]+$", "x42"));
-        assert!(m("\\s", "two words") && !m("\\s", "oneword"));
-        assert!(m("^\\d\\d$", "42") && !m("^\\d\\d$", "4a"));
-        assert!(m("\\.", "a.b") && !m("\\.", "ab"));
     }
 }
 

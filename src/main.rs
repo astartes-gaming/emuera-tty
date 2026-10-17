@@ -19,6 +19,7 @@ mod loader;
 mod mice;
 mod parser;
 mod picker;
+mod regex;
 mod resources;
 mod retro;
 mod settings;

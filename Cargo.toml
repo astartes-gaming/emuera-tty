@@ -7,6 +7,7 @@ edition = "2021"
 ab_glyph = "0.2"
 base64 = "0.23.1"
 encoding_rs = "0.8.42"
+fancy-regex = "0.19.2"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "bmp", "jpeg", "webp"] }
 libc = "0.2.191"
