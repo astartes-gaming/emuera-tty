@@ -242,9 +242,12 @@ impl Vm {
         self.call_name(&format!("COM{}", n), vec![])?;
         if self.get_global_i("RESULT", 0) != 0 {
             self.call_opt("SOURCE_CHECK")?;
-            self.call_opt("EVENTCOMEND")?;
+            // like Emuera: wait after @EVENTCOMEND so its text can be read.
+            // PREVCOM is the script's business (games set it in EVENTCOMEND).
+            if self.call_opt("EVENTCOMEND")? {
+                self.wait()?;
+            }
         }
-        self.set_global_i("PREVCOM", 0, n);
         Ok(())
     }
 

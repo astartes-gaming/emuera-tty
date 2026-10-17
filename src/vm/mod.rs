@@ -1360,6 +1360,11 @@ impl Vm {
     /// frontend becomes `Ctrl::Quit`.
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
         self.con.width = self.fe.cols().saturating_sub(1).max(20);
+        // Emuera flushes an unfinished line when the script stops for input
+        // (RunEmueraProgram → PrintFlush), so later output starts afresh.
+        if !self.con.cur.is_empty() {
+            self.con.newline();
+        }
         let r = self.fe.input(&mut self.con, &mut self.res, req);
         self.con.next_gen();
         match r {
