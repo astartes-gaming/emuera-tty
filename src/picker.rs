@@ -476,7 +476,7 @@ fn source_dir() -> Option<PathBuf> {
     Some(base.join("emuera-tty").join("src"))
 }
 
-pub const REPO_URL: &str = "https://github.com/diegosace2000/emuera-tty.git";
+pub const REPO_URL: &str = "https://github.com/astartes-gaming/emuera-tty.git";
 
 /// Run a command, showing its output; error text if it fails.
 fn run_cmd(cmd: &mut std::process::Command) -> Result<(), String> {
