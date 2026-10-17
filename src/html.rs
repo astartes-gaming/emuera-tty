@@ -295,3 +295,69 @@ fn mixed_num(v: &str) -> Option<(f32, bool)> {
         None => t.parse().ok().map(|x| (x, false)),
     }
 }
+
+/// Emuera's `HtmlSubString`: split HTML text at `cols` half-width columns
+/// (or at the first `<br>`). The first part closes the tags still open,
+/// the rest reopens them. Images and shapes count two columns.
+pub fn html_substring(src: &str, cols: usize) -> (String, String) {
+    let mut open: Vec<(String, String)> = Vec::new(); // (opening tag, name)
+    let mut used = 0usize;
+    let mut i = 0usize;
+    let mut cut = src.len();
+    let mut skip_br = 0;
+    let mut content = false;
+    while i < src.len() {
+        let rest = &src[i..];
+        if rest.starts_with('<') {
+            let Some(end) = rest.find('>') else { break };
+            let tag = &rest[1..end];
+            let name = tag.trim_start_matches('/').split(|c: char| c.is_whitespace()).next().unwrap_or("").to_lowercase();
+            if name == "br" {
+                cut = i;
+                skip_br = end + 1;
+                break;
+            }
+            if name == "img" || name == "shape" {
+                if used + 2 > cols && content {
+                    cut = i;
+                    break;
+                }
+                used += 2;
+                content = true;
+            } else if tag.starts_with('/') {
+                open.pop();
+            } else {
+                open.push((rest[..=end].to_string(), name));
+            }
+            i += end + 1;
+            continue;
+        }
+        let c = rest.chars().next().unwrap();
+        // entities count as one character
+        let (w, len) = if c == '&' {
+            match rest.find(';') {
+                Some(e) if e < 10 => (1, e + 1),
+                _ => (1, 1),
+            }
+        } else {
+            (crate::loader::sjis_len(&c.to_string()), c.len_utf8())
+        };
+        if used + w > cols && content {
+            cut = i;
+            break;
+        }
+        used += w;
+        content = true;
+        i += len;
+    }
+    let mut first = src[..cut].to_string();
+    for (_, n) in open.iter().rev() {
+        first.push_str(&format!("</{}>", n));
+    }
+    let mut second: String = open.iter().map(|(t, _)| t.as_str()).collect();
+    second.push_str(&src[(cut + skip_br).min(src.len())..]);
+    if second.chars().all(|c| c.is_whitespace()) || cut + skip_br >= src.len() {
+        second = if cut + skip_br >= src.len() { String::new() } else { second };
+    }
+    (first, second)
+}

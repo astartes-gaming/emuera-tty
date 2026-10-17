@@ -186,7 +186,22 @@ impl Vm {
             self.call_opt("SHOW_SHOP")?;
             // like Emuera, the item list is only shown by PRINT_SHOPITEM
             let items = self.shop_items();
-            let v = self.input_int(None, None, false)?;
+            // FLOWINPUT can give the shop input a default, make it a
+            // string input or skip it
+            let (fdef, fon, fstr, fdef_s, fskip) = self.flow_input.clone();
+            let v = if fskip {
+                if fstr {
+                    self.set_results(fdef_s);
+                }
+                fdef
+            } else if fstr {
+                let s = self.input_str(fon.then_some(fdef_s), None, false)?;
+                let n = s.trim().parse().unwrap_or(fdef);
+                self.set_results(s);
+                n
+            } else {
+                self.input_int(fon.then_some(fdef), None, false)?
+            };
             let max_item = self.csv.replace.get("販売アイテム数").and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(100);
             let is_item = v >= 0 && v < max_item && items.iter().any(|(i, _, _)| *i == v) && self.get_global_i("ITEMSALES", v as usize) != 0;
             if is_item {

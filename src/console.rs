@@ -309,6 +309,34 @@ impl Console {
         self.newline();
     }
 
+    /// BREAKBUTTON: every button on screen stops being clickable
+    /// (Emuera's forceUpdateGeneration).
+    pub fn break_buttons(&mut self) {
+        self.gen += 1;
+        self.valid_gen = self.gen;
+        self.buttons_since_input = true;
+    }
+
+    /// Values of the buttons an input can be answered with now: those on
+    /// lines printed since the last input or still valid from before
+    /// (BINPUT's check).
+    pub fn button_values(&self) -> Vec<Value> {
+        let mut out = Vec::new();
+        for l in self.lines.iter().rev() {
+            if l.gen != self.gen && l.gen != self.valid_gen {
+                break;
+            }
+            for s in &l.segs {
+                if let Seg::Text { button: Some(v), .. } | Seg::Image { button: Some(v), .. } | Seg::Rect { button: Some(v), .. } = s {
+                    if !out.contains(v) {
+                        out.push(v.clone());
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The script asks for a value (INPUT…, not WAIT) at `site`. Emuera's
     /// `newGeneration`: the buttons on screen stay clickable while the same
     /// input is asked again (a rejected or empty answer, a timeout) and

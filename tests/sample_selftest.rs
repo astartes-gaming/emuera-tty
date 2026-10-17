@@ -50,7 +50,7 @@ fn sample_selftest_passes() {
     // every CHECK/CHECKS call must have run and printed OK
     let oks = text.lines().filter(|l| l.starts_with("OK  ")).count();
     assert!(text.contains(&format!("selftest: {} checks done", oks)), "{}", text);
-    assert!(oks >= 92, "only {} checks ran\n{}", oks, text);
+    assert!(oks >= 102, "only {} checks ran\n{}", oks, text);
     assert!(text.contains("1日目"), "{}", text);
     assert!(!text.contains("script error"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);

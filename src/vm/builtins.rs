@@ -33,16 +33,19 @@ pub const COMMANDS: &[&str] = &[
     "ALIGNMENT", "PRINTBUTTON", "PRINTBUTTONC", "PRINTBUTTONLC", "PRINT_IMG", "PRINT_RECT", "PRINT_SPACE", "HTML_PRINT",
     "BAR", "BARL", "REUSELASTLINE", "SKIPDISP", "OUTPUTLOG", "DEBUGPRINT", "DEBUGPRINTL", "DEBUGPRINTFORM",
     "DEBUGPRINTFORML", "DEBUGCLEAR", "ASSERT", "TOOLTIP_SETCOLOR", "TOOLTIP_SETDELAY", "TOOLTIP_SETDURATION",
-    "TOOLTIP_SETFONT", "TOOLTIP_SETFONTSIZE", "TOOLTIP_CUSTOM", "TOOLTIP_SETFORMAT", "TOOLTIP_IMG", "SETANIMETIMER",
+    "TOOLTIP_SETFONT", "TOOLTIP_SETFONTSIZE", "TOOLTIP_CUSTOM", "TOOLTIP_SETFORMAT", "TOOLTIP_FORMAT", "TOOLTIP_IMG", "SETANIMETIMER",
     "CLEARTEXTBOX", "UPDATECHECK", "INPUT", "INPUTS", "TINPUT", "TINPUTS", "ONEINPUT", "ONEINPUTS", "TONEINPUT",
-    "TONEINPUTS", "WAIT", "FORCEWAIT", "TWAIT", "WAITANYKEY", "INPUTMOUSEKEY", "DOTRAIN", "CALLTRAIN", "STOPCALLTRAIN",
+    "TONEINPUTS", "BINPUT", "BINPUTS", "ONEBINPUT", "ONEBINPUTS", "INPUTANY", "BREAKBUTTON", "SKIPLOG", "FORCE_QUIT",
+    "PRINT_ABL", "PRINT_TALENT", "PRINT_MARK", "PRINT_EXP", "PRINT_PALAM", "PRINT_ITEM", "HTML_PRINT_ISLAND",
+    "HTML_PRINT_ISLAND_CLEAR", "MOVETEXTBOX", "RESUMETEXTBOX", "SETBGIMAGE", "REMOVEBGIMAGE", "CLEARBGIMAGE",
+    "FORCE_QUIT_AND_RESTART", "CALLSHARP", "REF", "REFBYNAME", "SAVEVAR", "LOADVAR", "WAIT", "FORCEWAIT", "TWAIT", "WAITANYKEY", "INPUTMOUSEKEY", "DOTRAIN", "CALLTRAIN", "STOPCALLTRAIN",
     "SAVEGAME", "LOADGAME", "SAVEDATA", "LOADDATA", "DELDATA", "SAVEGLOBAL", "LOADGLOBAL", "RESETDATA", "RESETGLOBAL",
     "VARSET", "CVARSET", "ARRAYSHIFT", "ARRAYREMOVE", "ARRAYSORT", "ARRAYCOPY", "SWAP", "TIMES",
     "SETBIT", "CLEARBIT", "INVERTBIT", "SPLIT", "RANDOMIZE", "INITRAND", "DUMPRAND", "STRLEN", "STRLENU", "STRLENFORM",
     "STRLENFORMU", "PUTFORM", "ADDCHARA", "ADDSPCHARA", "ADDDEFCHARA", "ADDVOIDCHARA", "DELCHARA", "DELALLCHARA",
     "PICKUPCHARA", "SWAPCHARA", "COPYCHARA", "ADDCOPYCHARA", "SORTCHARA", "RESET_STAIN", "UPCHECK", "CUPCHECK",
     "CALLEVENT", "CLEARBUTTON", "SAVECHARA", "LOADCHARA", "MOUSESKIP_", "BITMAP_CACHE_ENABLE", "FORCEKANA",
-    "SETCOLOR_", "GSETFONT", "GSETPEN", "SPRITEMOVE", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
+    "SETCOLOR_", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
     "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_",
     "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM", "AWAIT", "VARSETEX", "SPRITEANIMECREATE", "SPRITEANIMEADDFRAME",
 ];
@@ -75,8 +78,17 @@ pub const FUNCTIONS: &[&str] = &[
     "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
     // graphics buffers (methods, usable as statements: result in RESULT)
     "GCREATE", "GCREATEFROMFILE", "GDISPOSE", "GCLEAR", "GFILLRECTANGLE", "GDRAWSPRITE", "GDRAWG", "GDRAWGWITHMASK",
-    "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE", "ARRAYMSORT",
+    "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE", "ARRAYMSORT", "GDRAWLINE", "GDRAWTEXT",
+    "GDASHSTYLE", "GDRAWGWITHROTATE", "GSETPEN", "GSETFONT", "GGETBRUSH", "GGETPEN", "GGETPENWIDTH", "GGETFONT",
+    "GGETFONTSIZE", "GGETFONTSTYLE", "GGETTEXTSIZE", "SPRITEDISPOSEALL", "SPRITEGETCOLOR", "SPRITEMOVE", "SPRITESETPOS",
+    "FLOWINPUT", "FLOWINPUTS", "GETNUMB", "HOTKEY_STATE", "HOTKEY_STATE_INIT", "ERDNAME", "EXISTMETH", "UNICODEBYTE",
+    "ENUMFUNCWITH", "ENUMFUNCENDSWITH", "ENUMVARBEGINSWITH", "ENUMVARWITH", "ENUMVARENDSWITH", "ENUMMACROBEGINSWITH",
+    "ENUMMACROWITH", "ENUMMACROENDSWITH", "ENUMFILES", "HTML_SUBSTRING", "HTML_STRINGLINES", "GETDISPLAYLINE", "MAP_FROMXML",
 ];
+
+/// Built-in functions that return a string (Emuera's ReturnType), for
+/// EXISTMETH.
+const STR_FUNCTIONS: &[&str] = &["CSVNAME", "CSVCALLNAME", "CSVNICKNAME", "CSVMASTERNAME", "CSVCSTR", "GETFONT", "BARSTR", "CURRENTALIGN", "MONEYSTR", "GETTIMES", "SUBSTRING", "SUBSTRINGU", "TOSTR", "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "REPLACE", "UNICODE", "CONVERT", "ESCAPE", "CHARATU", "GETLINESTR", "STRFORM", "STRJOIN", "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TOPLAINTEXT", "HTML_ESCAPE", "MOUSEB", "LOADTEXT", "HTML_SUBSTRING", "GETVARS", "XML_TOSTR", "MAP_GET", "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS"];
 
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
 /// every statement while parsing)
@@ -594,6 +606,160 @@ impl Vm {
                 let v = self.input_str(default, timeout, one)?;
                 self.set_results(v);
             }
+            "BINPUT" | "BINPUTS" | "ONEBINPUT" | "ONEBINPUTS" => {
+                // like INPUT / INPUTS, but only a button on screen answers
+                let strs = name.ends_with('S');
+                let one = name.starts_with("ONE");
+                let def = self.arg(a, 0)?;
+                if !self.con.cur.is_empty() {
+                    self.con.newline();
+                }
+                let buttons: Vec<Value> = self.con.button_values().into_iter().filter(|v| strs || matches!(v, Value::Int(_))).collect();
+                if buttons.is_empty() {
+                    let Some(d) = def else { return err(format!("{}: there are no buttons to choose", name)) };
+                    if strs {
+                        self.set_results(d.into_string());
+                    } else {
+                        self.set_result(d.as_int());
+                    }
+                    return Ok(());
+                }
+                loop {
+                    if strs {
+                        let v = self.input_str(def.clone().map(|d| d.into_string()), None, one)?;
+                        if buttons.iter().any(|b| b.as_string() == v) {
+                            self.set_results(v);
+                            break;
+                        }
+                    } else {
+                        let v = self.input_int(def.as_ref().map(|d| d.as_int()), None, one)?;
+                        if buttons.contains(&Value::Int(v)) || def.as_ref().is_some_and(|d| d.as_int() == v) {
+                            self.set_result(v);
+                            break;
+                        }
+                    }
+                }
+            }
+            "INPUTANY" => {
+                // a number goes to RESULT, anything else to RESULTS
+                let v = self.input_str(None, None, false)?;
+                match v.trim().parse::<i64>() {
+                    Ok(n) => self.set_result(n),
+                    Err(_) => self.set_results(v),
+                }
+            }
+            "BREAKBUTTON" => self.con.break_buttons(),
+            "SKIPLOG" => self.mes_skip = self.ai(a, 0, 0)? != 0,
+            "PRINT_ABL" | "PRINT_TALENT" | "PRINT_MARK" | "PRINT_EXP" => {
+                // eramaker's one-line summaries of a character
+                let c = self.ai(a, 0, 0)?;
+                let ci = self.chara_index(c, name)?;
+                let (var, table) = match name {
+                    "PRINT_ABL" => ("ABL", "ABL"),
+                    "PRINT_TALENT" => ("TALENT", "TALENT"),
+                    "PRINT_MARK" => ("MARK", "MARK"),
+                    _ => ("EXP", "EXP"),
+                };
+                let arr = self.chara_arr(ci, var).clone();
+                let mut out = String::new();
+                for k in 0..arr.len() {
+                    let v = arr.get_i(k);
+                    let Some(n) = self.csv.name_of(table, k as i64).filter(|n| !n.is_empty()) else { continue };
+                    if v == 0 {
+                        continue;
+                    }
+                    match name {
+                        "PRINT_TALENT" => out.push_str(&format!("[{}]", n)),
+                        "PRINT_EXP" => out.push_str(&format!("{}{} ", n, v)),
+                        _ => out.push_str(&format!("{}LV{} ", n, v)),
+                    }
+                }
+                self.con.print(&out);
+                self.con.newline();
+            }
+            "PRINT_PALAM" => {
+                // PALAM bars in PRINTC columns: name[====......]  value
+                let c = self.ai(a, 0, 0)?;
+                let ci = self.chara_index(c, name)?;
+                let arr = self.chara_arr(ci, "PALAM").clone();
+                let lv: Vec<i64> = (0..5).map(|k| self.get_global_i("PALAMLV", k)).collect();
+                let per_line = 3;
+                let mut count = 0;
+                for k in 0..100.min(arr.len()) {
+                    let p = arr.get_i(k);
+                    let n = self.csv.name_of("PALAM", k as i64).unwrap_or("").to_string();
+                    if p == 0 && n.is_empty() {
+                        continue;
+                    }
+                    let (mut c, mut border) = ('-', lv[1]);
+                    for (ch, next) in [('=', 2), ('>', 3), ('*', 4)] {
+                        if p >= border {
+                            c = ch;
+                            border = lv[next];
+                        }
+                    }
+                    let bar = if border <= 0 || border <= p {
+                        c.to_string().repeat(10)
+                    } else if p <= 0 {
+                        ".".repeat(10)
+                    } else {
+                        let k = (p * 10 / border) as usize;
+                        format!("{}{}", c.to_string().repeat(k), ".".repeat(10 - k))
+                    };
+                    let text = format!("{}[{}]{:>6}", n, bar, p);
+                    let padded = super::pad(&text, self.con.printc_len, crate::ast::Align::Right);
+                    self.con.print(&padded);
+                    count += 1;
+                    if count % per_line == 0 {
+                        self.con.newline();
+                    }
+                }
+                if !self.con.cur.is_empty() {
+                    self.con.newline();
+                }
+            }
+            "PRINT_ITEM" => {
+                let mut out = String::from("所持アイテム：");
+                let mut any = false;
+                let n = self.global_arr("ITEM").len();
+                for k in 0..n {
+                    let v = self.get_global_i("ITEM", k);
+                    if v == 0 {
+                        continue;
+                    }
+                    any = true;
+                    out.push_str(&format!("{}({}) ", self.csv.name_of("ITEM", k as i64).unwrap_or(""), v));
+                }
+                if !any {
+                    out.push_str("なし");
+                }
+                self.con.print(&out);
+                self.con.newline();
+            }
+            // Emuera-EM's fixed overlay; the terminal prints it in the log
+            "HTML_PRINT_ISLAND" => {
+                let s = self.as_(a, 0, "")?;
+                self.html_print(&s);
+            }
+            // window chrome a terminal doesn't have: tooltips, the input
+            // box's position, background images and layers
+            "HTML_PRINT_ISLAND_CLEAR" | "MOVETEXTBOX" | "RESUMETEXTBOX" | "SETBGIMAGE" | "REMOVEBGIMAGE" | "CLEARBGIMAGE"
+            | "SETTEXTBOX" | "TOOLTIP_SETCOLOR" | "TOOLTIP_SETDELAY" | "TOOLTIP_SETDURATION" | "TOOLTIP_SETFONT"
+            | "TOOLTIP_SETFONTSIZE" | "TOOLTIP_CUSTOM" | "TOOLTIP_SETFORMAT" | "TOOLTIP_FORMAT" | "TOOLTIP_IMG" | "CBGSETG"
+            | "CBGSETSPRITE" | "CBGCLEAR" | "CBGCLEARBUTTON" | "CBGSETBUTTONSPRITE" | "CBGREMOVERANGE" | "CBGREMOVEBMAP"
+            | "CBGSETBMAPG" => self.set_result(1),
+            "FORCE_QUIT" => return Err(Ctrl::Quit),
+            "QUIT_AND_RESTART" | "FORCE_QUIT_AND_RESTART" => {
+                // start the game again from scratch: run this program anew
+                self.fe.shutdown();
+                use std::os::unix::process::CommandExt;
+                let exe = std::env::current_exe().map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+                let e = std::process::Command::new(exe).args(std::env::args_os().skip(1)).exec();
+                return err(format!("{}: {}", name, e));
+            }
+            // as in Emuera, which doesn't implement these either
+            "REF" | "REFBYNAME" | "SAVEVAR" | "LOADVAR" => return err(format!("{} is not implemented (in Emuera neither)", name)),
+            "CALLSHARP" => return err("CALLSHARP: C# plugins can't run in emuera-tty"),
             "WAIT" | "FORCEWAIT" | "WAITANYKEY" => self.wait()?,
             "AWAIT" => {
                 // Emuera-EE: show what's printed so far and pause (no input);
@@ -1212,6 +1378,24 @@ impl Vm {
         let s = |v: String| Ok(Some(Value::Str(v)));
         let map = self.as_(a, 0, "")?;
         match name {
+            "MAP_FROMXML" => {
+                // <map><p><k>key</k><v>value</v></p>…</map> into an existing map
+                let m = self.as_(a, 0, "")?;
+                let x = self.as_(a, 1, "")?;
+                if !self.maps.contains_key(&m) {
+                    return i(0);
+                }
+                let doc = crate::xml::parse(&x).map_err(|e| Ctrl::Error(format!("MAP_FROMXML: {}", e), false))?;
+                let map = self.maps.get_mut(&m).unwrap();
+                for p in doc.elems().filter(|e| e.name == "p") {
+                    let ks: Vec<_> = p.elems().filter(|e| e.name == "k").collect();
+                    let vs: Vec<_> = p.elems().filter(|e| e.name == "v").collect();
+                    if ks.len() == 1 && vs.len() == 1 {
+                        map.set(ks[0].text(), vs[0].text());
+                    }
+                }
+                i(1)
+            }
             "MAP_CREATE" => {
                 if self.maps.contains_key(&map) {
                     return i(0);
@@ -1479,7 +1663,7 @@ impl Vm {
                 if !(1..=MAX).contains(&w) || !(1..=MAX).contains(&h) {
                     return err(format!("GCREATE: bad size {}x{}", w, h));
                 }
-                self.res.graphics.insert(gid, Graphic { img: RgbaImage::new(w as u32, h as u32), brush: [0, 0, 0, 255] });
+                self.res.graphics.insert(gid, Graphic::new(RgbaImage::new(w as u32, h as u32)));
                 1
             }
             "GCREATEFROMFILE" => {
@@ -1492,7 +1676,7 @@ impl Vm {
                 let p = if p.is_absolute() || rel { p } else { self.game_dir.join("resources").join(&p) };
                 match image::open(&p) {
                     Ok(img) if img.width() as i64 <= MAX && img.height() as i64 <= MAX => {
-                        self.res.graphics.insert(gid, Graphic { img: img.to_rgba8(), brush: [0, 0, 0, 255] });
+                        self.res.graphics.insert(gid, Graphic::new(img.to_rgba8()));
                         1
                     }
                     _ => 0,
@@ -1505,7 +1689,7 @@ impl Vm {
                 let k = self.ai(a, 1, 0)?;
                 match image::open(self.save_dir().join(format!("img{:04}.png", k))) {
                     Ok(img) => {
-                        self.res.graphics.insert(gid, Graphic { img: img.to_rgba8(), brush: [0, 0, 0, 255] });
+                        self.res.graphics.insert(gid, Graphic::new(img.to_rgba8()));
                         1
                     }
                     Err(_) => 0,
@@ -1528,7 +1712,9 @@ impl Vm {
                     }
                     "GSETBRUSH" => {
                         let c = color(self.ai(a, 1, 0)?)?;
-                        self.res.graphics.get_mut(&gid).unwrap().brush = c;
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        g.brush = c;
+                        g.brush_set = true;
                         1
                     }
                     "GCLEAR" => {
@@ -1599,6 +1785,57 @@ impl Vm {
                         draw_image(&mut g.img, &s, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
                         1
                     }
+                    "GSETPEN" => {
+                        let c = color(self.ai(a, 1, 0)?)?;
+                        let w = self.ai(a, 2, 1)?;
+                        self.res.graphics.get_mut(&gid).unwrap().pen = (c, w);
+                        1
+                    }
+                    "GSETFONT" => {
+                        let f = self.as_(a, 1, "")?;
+                        let sz = self.ai(a, 2, 100)?;
+                        let st = self.ai(a, 3, 0)?;
+                        self.res.graphics.get_mut(&gid).unwrap().font = (f, sz, st);
+                        1
+                    }
+                    "GDASHSTYLE" => {
+                        let (st, cap) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
+                        self.res.graphics.get_mut(&gid).unwrap().dash = (st, cap);
+                        1
+                    }
+                    "GDRAWLINE" => {
+                        let r = ints(self, 1, 4)?;
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        let (c, w, d) = (g.pen.0, g.pen.1, g.dash.0);
+                        crate::resources::draw_line(&mut g.img, (r[0], r[1]), (r[2], r[3]), w, c, d);
+                        1
+                    }
+                    "GDRAWTEXT" => {
+                        // GDRAWTEXT id, text[, x, y]: in the buffer's font,
+                        // filled with its brush (else the text colour)
+                        let t = self.as_(a, 1, "")?;
+                        let p = if a.len() >= 4 { ints(self, 2, 2)? } else { vec![0, 0] };
+                        let fg = self.con.default_fg;
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        let c = if g.brush_set { g.brush } else { [fg.0, fg.1, fg.2, 255] };
+                        let (f, sz) = (g.font.0.clone(), g.font.1.max(1) as f32);
+                        crate::resources::draw_text(&mut g.img, &t, (p[0], p[1]), &f, sz, c);
+                        let (w, h) = crate::resources::text_size(&t, &f, sz);
+                        self.global_arr("RESULT").set_i(1, w);
+                        self.global_arr("RESULT").set_i(2, h);
+                        1
+                    }
+                    "GDRAWGWITHROTATE" => {
+                        // GDRAWGWITHROTATE dest, src, angle[, x, y]: rotate
+                        // about (x, y) of src (default its middle)
+                        let src = self.ai(a, 1, 0)?;
+                        let ang = self.ai(a, 2, 0)? as f32;
+                        let Some(s) = self.res.graphics.get(&src).map(|g| g.img.clone()) else { return i(0) };
+                        let p = if a.len() >= 5 { ints(self, 3, 2)? } else { vec![s.width() as i32 / 2, s.height() as i32 / 2] };
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        crate::resources::draw_rotated(&mut g.img, &s, ang, (p[0] as f32, p[1] as f32));
+                        1
+                    }
                     "GDRAWGWITHMASK" => {
                         // the mask's blue channel is the source's opacity
                         let (src, mask) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
@@ -1627,7 +1864,7 @@ impl Vm {
                 }
             }
         };
-        if r != 0 && !matches!(name, "GSAVE" | "GSETBRUSH") {
+        if r != 0 && !matches!(name, "GSAVE" | "GSETBRUSH" | "GSETPEN" | "GSETFONT" | "GDASHSTYLE") {
             self.res.changed();
         }
         i(r)
@@ -2542,7 +2779,8 @@ impl Vm {
             }),
             "CURRENTREDRAW" => i(self.con.redraw as i64),
             "CHKFONT" => i(1),
-            "ISSKIP" | "MOUSESKIP" | "MESSKIP" | "GETKEY" | "GETKEYTRIGGERED" | "MOUSEX" | "MOUSEY" | "MOUSEB" => i(0),
+            "MESSKIP" => i(self.mes_skip as i64),
+            "ISSKIP" | "MOUSESKIP" | "GETKEY" | "GETKEYTRIGGERED" | "MOUSEX" | "MOUSEY" | "MOUSEB" => i(0),
             "ISACTIVE" => i(1),
             "PRINTCPERLINE" => i(3),
             "PRINTCLENGTH" => i(self.con.printc_len as i64),
@@ -2611,6 +2849,178 @@ impl Vm {
                 i(if name == "SPRITEWIDTH" { sz.0 } else { sz.1 } as i64)
             }
             "ARRAYMSORT" | "ARRAYMSORTEX" => self.array_msort(name, a),
+            "FLOWINPUT" => {
+                self.flow_input.0 = self.ai(a, 0, 0)?;
+                if a.len() > 1 {
+                    self.flow_input.1 = self.ai(a, 1, 0)? != 0;
+                }
+                if a.len() > 3 {
+                    self.flow_input.4 = self.ai(a, 3, 0)? != 0;
+                }
+                i(0)
+            }
+            "FLOWINPUTS" => {
+                self.flow_input.2 = self.ai(a, 0, 0)? != 0;
+                if a.len() > 1 {
+                    self.flow_input.3 = self.as_(a, 1, "")?;
+                }
+                i(0)
+            }
+            "GETNUMB" => {
+                // GETNUMB "VAR", "name": the name's number in VAR's CSV table
+                let v = self.as_(a, 0, "")?.to_uppercase();
+                let n = self.as_(a, 1, "")?;
+                if !self.var_exists(&v) {
+                    return err(format!("GETNUMB: '{}' is not a variable", v));
+                }
+                let t = crate::csvdata::table_for_var(&v).unwrap_or(&v).to_string();
+                i(self.csv.lookup(&t, &n).or_else(|| self.csv.lookup(&t, &n.to_uppercase())).unwrap_or(-1))
+            }
+            "ERDNAME" => {
+                // ERDNAME var, value[, dimension]: the name for a number
+                let v = self.avar(a, 0)?;
+                let n = self.ai(a, 1, 0)?;
+                let table = match a.get(2) {
+                    Some(e) if !matches!(e, Expr::Empty) => format!("{}@{}", v.name, self.eval(e)?.as_int()),
+                    _ => crate::csvdata::table_for_var(&v.name).unwrap_or(&v.name).to_string(),
+                };
+                s(self.csv.name_of(&table, n).unwrap_or("").to_string())
+            }
+            "EXISTMETH" => {
+                // 1: returns a number, 2: a string, 0: no such function
+                let n = self.as_(a, 0, "")?.to_uppercase();
+                i(match self.prog.funcs.get(&n) {
+                    Some(f) if f[0].is_function => if f[0].returns_str { 2 } else { 1 },
+                    Some(_) => 0,
+                    None if is_builtin_function(&n) => if STR_FUNCTIONS.contains(&n.as_str()) { 2 } else { 1 },
+                    None => 0,
+                })
+            }
+            "ENUMFUNCBEGINSWITH" | "ENUMFUNCWITH" | "ENUMFUNCENDSWITH" | "ENUMVARBEGINSWITH" | "ENUMVARWITH" | "ENUMVARENDSWITH"
+            | "ENUMMACROBEGINSWITH" | "ENUMMACROWITH" | "ENUMMACROENDSWITH" => {
+                // ENUM{FUNC,VAR,MACRO}{BEGINSWITH,WITH,ENDSWITH} text[, ARRAY]:
+                // matching names (case-insensitive) into ARRAY or RESULTS
+                let key = self.as_(a, 0, "")?.to_uppercase();
+                let mut names: Vec<String> = if name.starts_with("ENUMFUNC") {
+                    self.prog.funcs.iter().filter(|(_, fs)| fs.len() == 1 && !fs[0].single && !fs[0].only).map(|(k, _)| k.clone()).collect()
+                } else if name.starts_with("ENUMVAR") {
+                    let mut v: Vec<String> = super::vars::SYSTEM_VARS.iter().map(|d| d.name.to_string()).collect();
+                    v.extend(self.prog.global_dims.iter().map(|d| d.name.clone()));
+                    v
+                } else {
+                    self.prog.defines.keys().cloned().collect()
+                };
+                names.sort();
+                let hit = |n: &str| {
+                    !key.is_empty()
+                        && if name.ends_with("BEGINSWITH") {
+                            n.starts_with(&key)
+                        } else if name.ends_with("ENDSWITH") {
+                            n.ends_with(&key)
+                        } else {
+                            n.contains(&key)
+                        }
+                };
+                let found: Vec<Value> = names.into_iter().filter(|n| hit(n)).map(Value::Str).collect();
+                let target = match a.get(1) {
+                    Some(Expr::Var(v)) => VarRef { name: v.name.clone(), idx: vec![] },
+                    _ => VarRef { name: "RESULTS".into(), idx: vec![] },
+                };
+                let (loc, base, len) = self.array_row(&target)?;
+                let n = found.len().min(len);
+                let arr = self.arr_at(&loc).unwrap();
+                for (k, v) in found.into_iter().take(len).enumerate() {
+                    arr.set(base + k, v);
+                }
+                i(n as i64)
+            }
+            "ENUMFILES" => {
+                // ENUMFILES dir[, pattern = "*"[, subfolders[, ARRAY]]]:
+                // paths relative to the game folder
+                let dir = self.as_(a, 0, "")?.replace('\\', "/");
+                let pat: Vec<char> = self.as_(a, 1, "*")?.to_lowercase().chars().collect();
+                let deep = self.ai(a, 2, 0)? != 0;
+                let root = self.game_dir.join(&dir);
+                if !root.is_dir() {
+                    return i(-1);
+                }
+                fn walk(d: &std::path::Path, deep: bool, out: &mut Vec<std::path::PathBuf>) {
+                    let Ok(rd) = std::fs::read_dir(d) else { return };
+                    let mut es: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+                    es.sort();
+                    for p in es {
+                        if p.is_dir() {
+                            if deep {
+                                walk(&p, deep, out);
+                            }
+                        } else {
+                            out.push(p);
+                        }
+                    }
+                }
+                fn wild(p: &[char], s: &[char]) -> bool {
+                    match (p.first(), s.first()) {
+                        (None, None) => true,
+                        (Some('*'), _) => wild(&p[1..], s) || (!s.is_empty() && wild(p, &s[1..])),
+                        (Some('?'), Some(_)) => wild(&p[1..], &s[1..]),
+                        (Some(x), Some(y)) if x == y => wild(&p[1..], &s[1..]),
+                        _ => false,
+                    }
+                }
+                let mut files = Vec::new();
+                walk(&root, deep, &mut files);
+                let found: Vec<Value> = files
+                    .into_iter()
+                    .filter(|p| p.file_name().is_some_and(|n| wild(&pat, &n.to_string_lossy().to_lowercase().chars().collect::<Vec<_>>())))
+                    .filter_map(|p| p.strip_prefix(&self.game_dir).ok().map(|r| Value::Str(r.to_string_lossy().into_owned())))
+                    .collect();
+                let target = match a.get(3) {
+                    Some(Expr::Var(v)) => VarRef { name: v.name.clone(), idx: vec![] },
+                    _ => VarRef { name: "RESULTS".into(), idx: vec![] },
+                };
+                let (loc, base, len) = self.array_row(&target)?;
+                let n = found.len().min(len);
+                let arr = self.arr_at(&loc).unwrap();
+                for (k, v) in found.into_iter().take(len).enumerate() {
+                    arr.set(base + k, v);
+                }
+                i(n as i64)
+            }
+            "HTML_SUBSTRING" => {
+                // first part (fitting the width) and rest into RESULTS:0/1
+                let t = self.as_(a, 0, "")?;
+                let w = self.ai(a, 1, 0)?.max(0) as usize;
+                let (x, y) = crate::html::html_substring(&t, w);
+                let r = self.global_arr("RESULTS");
+                r.set(0, Value::Str(x.clone()));
+                r.set(1, Value::Str(y));
+                s(x)
+            }
+            "HTML_STRINGLINES" => {
+                // how many lines of `width` the HTML text takes
+                let mut t = self.as_(a, 0, "")?;
+                let w = self.ai(a, 1, 0)?.max(1) as usize;
+                let mut n = 0;
+                while !t.is_empty() && n < 100_000 {
+                    let (_, rest) = crate::html::html_substring(&t, w);
+                    n += 1;
+                    if rest.len() >= t.len() {
+                        break;
+                    }
+                    t = rest;
+                }
+                i(n)
+            }
+            "GETDISPLAYLINE" => {
+                let n = self.ai(a, 0, 0)?;
+                s(if n >= 0 && (n as usize) < self.con.lines.len() { crate::console::Console::line_text(&self.con.lines[n as usize]) } else { String::new() })
+            }
+            "UNICODEBYTE" => {
+                let t = self.as_(a, 0, "")?;
+                i(t.chars().next().map_or(0, |c| c as i64))
+            }
+            // window hotkeys / state: nothing to do in a terminal
+            "HOTKEY_STATE" | "HOTKEY_STATE_INIT" => i(0),
             "GCREATED" | "GWIDTH" | "GHEIGHT" => {
                 let id = self.ai(a, 0, 0)?;
                 i(match self.res.graphics.get(&id) {
@@ -2621,7 +3031,54 @@ impl Vm {
                 })
             }
             "GCREATE" | "GCREATEFROMFILE" | "GDISPOSE" | "GCLEAR" | "GFILLRECTANGLE" | "GDRAWSPRITE" | "GDRAWG" | "GDRAWGWITHMASK"
-            | "GSETCOLOR" | "GSETBRUSH" | "GSAVE" | "GLOAD" | "SPRITECREATE" | "SPRITEDISPOSE" => self.graphics_fn(name, a),
+            | "GSETCOLOR" | "GSETBRUSH" | "GSAVE" | "GLOAD" | "SPRITECREATE" | "SPRITEDISPOSE" | "GDRAWLINE" | "GDRAWTEXT"
+            | "GDASHSTYLE" | "GDRAWGWITHROTATE" | "GSETPEN" | "GSETFONT" => self.graphics_fn(name, a),
+            "GGETBRUSH" | "GGETPEN" | "GGETPENWIDTH" | "GGETFONTSIZE" | "GGETFONTSTYLE" => {
+                let id = self.ai(a, 0, 0)?;
+                let Some(g) = self.res.graphics.get(&id) else { return i(-1) };
+                i(match name {
+                    "GGETBRUSH" => crate::resources::to_argb(g.brush),
+                    "GGETPEN" => crate::resources::to_argb(g.pen.0),
+                    "GGETPENWIDTH" => g.pen.1,
+                    "GGETFONTSIZE" => g.font.1,
+                    _ => g.font.2,
+                })
+            }
+            "GGETFONT" => {
+                let id = self.ai(a, 0, 0)?;
+                s(self.res.graphics.get(&id).map(|g| g.font.0.clone()).unwrap_or_default())
+            }
+            "GGETTEXTSIZE" => {
+                // GGETTEXTSIZE text, font, size[, style]: width; RESULT:1 height
+                let t = self.as_(a, 0, "")?;
+                let f = self.as_(a, 1, "")?;
+                let sz = self.ai(a, 2, 18)?.max(1) as f32;
+                let (w, h) = crate::resources::text_size(&t, &f, sz);
+                self.global_arr("RESULT").set_i(1, h);
+                i(w)
+            }
+            "SPRITEDISPOSEALL" => i(self.res.dispose_all_sprites()),
+            "SPRITEGETCOLOR" => {
+                let n = self.as_(a, 0, "")?;
+                let (x, y) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
+                i(match self.res.sprite(&n) {
+                    Some(img) if (0..img.width() as i64).contains(&x) && (0..img.height() as i64).contains(&y) => {
+                        crate::resources::to_argb(img.get_pixel(x as u32, y as u32).0)
+                    }
+                    _ => -1,
+                })
+            }
+            "SPRITEMOVE" | "SPRITESETPOS" => {
+                // a sprite's drawing offset (SPRITEPOSX / SPRITEPOSY)
+                let n = self.as_(a, 0, "")?.to_uppercase();
+                if !self.res.exists(&n) {
+                    return i(0);
+                }
+                let (x, y) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
+                let p = self.sprite_pos.entry(n).or_insert((0, 0));
+                *p = if name == "SPRITEMOVE" { (p.0 + x, p.1 + y) } else { (x, y) };
+                i(1)
+            }
             "GETCONFIG" | "GETCONFIGS" => {
                 let k = self.as_(a, 0, "")?;
                 match self.config_value(&k) {
@@ -2686,7 +3143,11 @@ impl Vm {
                 i(ok as i64)
             }
             // no graphics surfaces / sprite positions / text box in this frontend
-            "SPRITEPOSX" | "SPRITEPOSY" => i(0),
+            "SPRITEPOSX" | "SPRITEPOSY" => {
+                let n = self.as_(a, 0, "")?.to_uppercase();
+                let p = self.sprite_pos.get(&n).copied().unwrap_or((0, 0));
+                i(if name == "SPRITEPOSX" { p.0 } else { p.1 })
+            }
             "GGETCOLOR" => {
                 let (id, x, y) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
                 i(match self.res.graphics.get(&id) {

@@ -35,10 +35,153 @@ pub struct Resources {
     pub gen: u64,
 }
 
-/// A graphics buffer and its brush (GSETBRUSH).
+/// A graphics buffer and its drawing state.
 pub struct Graphic {
     pub img: RgbaImage,
+    /// GSETBRUSH (fills, text); None: the console's text colour for text
     pub brush: [u8; 4],
+    pub brush_set: bool,
+    /// GSETPEN (lines, text outline): colour, width
+    pub pen: ([u8; 4], i64),
+    /// GSETFONT: name, size in px, style bits (1 bold 2 italic 4 strike 8 underline)
+    pub font: (String, i64, i64),
+    /// GDASHSTYLE: (style, cap)
+    pub dash: (i64, i64),
+}
+
+impl Graphic {
+    pub fn new(img: RgbaImage) -> Graphic {
+        Graphic { img, brush: [0, 0, 0, 255], brush_set: false, pen: ([0, 0, 0, 255], 1), font: (String::new(), 100, 0), dash: (0, 0) }
+    }
+}
+
+/// A line from (x0, y0) to (x1, y1), `w` pixels wide, blended over `img`.
+pub fn draw_line(img: &mut RgbaImage, (x0, y0): (i32, i32), (x1, y1): (i32, i32), w: i64, c: [u8; 4], dash: i64) {
+    let (dx, dy) = ((x1 - x0) as f32, (y1 - y0) as f32);
+    let len = (dx * dx + dy * dy).sqrt().max(1.0);
+    let steps = len.ceil() as i32;
+    let r = (w.max(1) as f32) / 2.0;
+    // GDI+ dash styles 1 dash, 2 dot, 3 dash-dot, 4 dash-dot-dot (in pen widths)
+    let pattern: &[f32] = match dash {
+        1 => &[3.0, 1.0],
+        2 => &[1.0, 1.0],
+        3 => &[3.0, 1.0, 1.0, 1.0],
+        4 => &[3.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        _ => &[],
+    };
+    let period: f32 = pattern.iter().sum::<f32>() * w.max(1) as f32;
+    for k in 0..=steps {
+        let t = k as f32 / steps as f32;
+        if period > 0.0 {
+            // skip the gaps of the dash pattern
+            let mut pos = (t * len) % period;
+            let mut on = true;
+            for seg in pattern.iter().map(|s| s * w.max(1) as f32) {
+                if pos < seg {
+                    break;
+                }
+                pos -= seg;
+                on = !on;
+            }
+            if !on {
+                continue;
+            }
+        }
+        let (cx, cy) = (x0 as f32 + dx * t, y0 as f32 + dy * t);
+        let (lo_x, hi_x) = ((cx - r).floor() as i32, (cx + r).ceil() as i32);
+        let (lo_y, hi_y) = ((cy - r).floor() as i32, (cy + r).ceil() as i32);
+        for y in lo_y..hi_y.max(lo_y + 1) {
+            for x in lo_x..hi_x.max(lo_x + 1) {
+                if x >= 0 && y >= 0 && (x as u32) < img.width() && (y as u32) < img.height() {
+                    over(&mut img.get_pixel_mut(x as u32, y as u32).0, c);
+                }
+            }
+        }
+    }
+}
+
+/// `src` rotated by `deg` degrees about its point (px, py), drawn so that
+/// point lands on the middle of `dst` (Emuera's GDRAWGWITHROTATE).
+pub fn draw_rotated(dst: &mut RgbaImage, src: &RgbaImage, deg: f32, (px, py): (f32, f32)) {
+    let (s, c) = deg.to_radians().sin_cos();
+    let (cx, cy) = (dst.width() as f32 / 2.0, dst.height() as f32 / 2.0);
+    for y in 0..dst.height() {
+        for x in 0..dst.width() {
+            // inverse rotation: where in `src` this pixel comes from
+            let (rx, ry) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let sx = rx * c + ry * s + px;
+            let sy = -rx * s + ry * c + py;
+            if sx >= 0.0 && sy >= 0.0 && (sx as u32) < src.width() && (sy as u32) < src.height() {
+                let p = src.get_pixel(sx as u32, sy as u32).0;
+                over(&mut dst.get_pixel_mut(x, y).0, p);
+            }
+        }
+    }
+}
+
+/// System fonts by name (looked up through fontconfig once each).
+fn font_for(name: &str) -> Option<std::sync::Arc<ab_glyph::FontVec>> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<ab_glyph::FontVec>>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(f) = cache.lock().ok()?.get(name) {
+        return f.clone();
+    }
+    // prefer a face that covers Japanese, as Emuera games need
+    let query = if name.is_empty() { "sans-serif:lang=ja".to_string() } else { format!("{}:lang=ja", name) };
+    let found = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}|%{index}", &query])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| {
+            let (f, i) = s.split_once('|')?;
+            let data = std::fs::read(f).ok()?;
+            ab_glyph::FontVec::try_from_vec_and_index(data, i.trim().parse().unwrap_or(0)).ok()
+        })
+        .map(Arc::new);
+    cache.lock().ok()?.insert(name.to_string(), found.clone());
+    found
+}
+
+/// Width and height in pixels of `text` in font `name` at `size` px.
+pub fn text_size(text: &str, name: &str, size: f32) -> (i64, i64) {
+    use ab_glyph::{Font, ScaleFont};
+    let Some(font) = font_for(name) else { return ((crate::loader::sjis_len(text) as f32 * size / 2.0) as i64, size as i64) };
+    let sf = font.as_scaled(em_scale(&*font, size));
+    let w: f32 = text.chars().map(|c| sf.h_advance(font.glyph_id(c))).sum();
+    (w.ceil() as i64, sf.height().ceil() as i64)
+}
+
+/// The scale that makes the em square `size` pixels (GDI+'s font size).
+fn em_scale(font: &impl ab_glyph::Font, size: f32) -> ab_glyph::PxScale {
+    let upm = font.units_per_em().unwrap_or(1000.0);
+    ab_glyph::PxScale::from(size * font.height_unscaled() / upm)
+}
+
+/// GDRAWTEXT: `text` with its top-left at (x, y), filled with `c`.
+pub fn draw_text(img: &mut RgbaImage, text: &str, (x, y): (i32, i32), name: &str, size: f32, c: [u8; 4]) {
+    use ab_glyph::{Font, ScaleFont};
+    let Some(font) = font_for(name) else { return };
+    let scale = em_scale(&*font, size);
+    let sf = font.as_scaled(scale);
+    let mut pen_x = x as f32;
+    let base = y as f32 + sf.ascent();
+    for ch in text.chars() {
+        let id = font.glyph_id(ch);
+        let g = id.with_scale_and_position(scale, ab_glyph::point(pen_x, base));
+        pen_x += sf.h_advance(id);
+        let Some(o) = font.outline_glyph(g) else { continue };
+        let b = o.px_bounds();
+        o.draw(|gx, gy, cov| {
+            let (px, py) = (b.min.x as i32 + gx as i32, b.min.y as i32 + gy as i32);
+            if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
+                let mut col = c;
+                col[3] = (c[3] as f32 * cov.min(1.0)) as u8;
+                over(&mut img.get_pixel_mut(px as u32, py as u32).0, col);
+            }
+        });
+    }
 }
 
 /// Emuera's ARGB integer → RGBA bytes.
@@ -183,6 +326,14 @@ impl Resources {
 
     /// SPRITEDISPOSE: only SPRITECREATE sprites go away (resource-file
     /// ones stay, as in Emuera where they'd be reloaded).
+    /// SPRITEDISPOSEALL: drop every SPRITECREATE sprite; how many.
+    pub fn dispose_all_sprites(&mut self) -> i64 {
+        let n = self.g_sprites.len() as i64;
+        self.g_sprites.clear();
+        self.changed();
+        n
+    }
+
     pub fn dispose_sprite(&mut self, name: &str) -> bool {
         let gone = self.g_sprites.remove(&name.to_uppercase()).is_some();
         if gone {

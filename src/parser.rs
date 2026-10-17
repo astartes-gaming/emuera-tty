@@ -1007,7 +1007,64 @@ impl<'a> Parser<'a> {
                 b.emit(Instr::ReturnF(v));
                 Self::after_stmt(b);
             }
-            "BEGIN" => {
+            "VARI" | "VARS" => {
+                // Emuera-EE: `VARI X[, sizes] [= value]` / `VARS S[, sizes]
+                // [= "text"]` declare a dynamic local and set it here
+                let is_str = cmd == "VARS";
+                let text = strip_comment(rest);
+                let (left, right) = match text.find('=') {
+                    Some(k) => (&text[..k], Some(text[k + 1..].trim())),
+                    None => (text, None),
+                };
+                let mut parts = left.split(',').map(|x| x.trim());
+                let decl = parts.next().unwrap_or("").to_string();
+                if decl.is_empty() {
+                    return Err(format!("{}: missing variable name", cmd));
+                }
+                let sizes: Vec<i64> = parts.map(|x| x.parse::<i64>().map_err(|_| format!("{}: bad size '{}'", cmd, x))).collect::<Result<_, _>>()?;
+                let name = decl.to_uppercase();
+                let is_array = !sizes.is_empty();
+                if !b.f.dims.iter().any(|d| d.name == name) {
+                    if is_str {
+                        b.str_locals.insert(name.clone());
+                    }
+                    b.f.dims.push(DimDecl {
+                        name: name.clone(),
+                        decl_name: decl,
+                        is_str,
+                        dims: if is_array { sizes.iter().map(|&n| Expr::Int(n)).collect() } else { vec![Expr::Int(1)] },
+                        init: vec![],
+                        is_const: false,
+                        is_static: false,
+                        is_global: false,
+                        is_savedata: false,
+                        is_chara: false,
+                        is_ref: false,
+                        is_dynamic: true,
+                    });
+                }
+                let var = Rc::new(VarRef { name: name.clone().into(), idx: vec![] });
+                if is_array {
+                    // a fresh, empty array each time the line runs
+                    b.emit(Instr::Command(Box::new(("VARSET".into(), Args::Exprs(vec![Expr::Var(var)])))));
+                } else {
+                    let value = match (is_str, right) {
+                        (false, Some(r)) if !r.is_empty() => self.expr(r)?,
+                        (false, _) => Expr::Int(0),
+                        (true, Some(r)) => {
+                            let lit = match (r.find('"'), r.rfind('"')) {
+                                (Some(x), Some(y)) if y > x => &r[x + 1..y],
+                                _ => "",
+                            };
+                            Expr::Str(lit.to_string())
+                        }
+                        (true, None) => Expr::Str(String::new()),
+                    };
+                    b.emit(Instr::Assign(var, AsgOp::SetExpr, vec![value]));
+                }
+                Self::after_stmt(b);
+            }
+            "BEGIN" | "FORCE_BEGIN" => {
                 b.emit(Instr::Begin(arg_c.to_uppercase()));
                 Self::after_stmt(b);
             }

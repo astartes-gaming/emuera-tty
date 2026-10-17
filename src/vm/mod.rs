@@ -136,6 +136,14 @@ pub struct Vm {
     pub game_dir: PathBuf,
     /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
+    /// FLOWINPUT / FLOWINPUTS settings for the shop's own input:
+    /// (default, use it on empty input, string input, default string,
+    /// skip the input and take the default)
+    pub flow_input: (i64, bool, bool, String, bool),
+    /// SPRITEMOVE / SPRITESETPOS offsets, by sprite
+    pub sprite_pos: HashMap<String, (i64, i64)>,
+    /// SKIPLOG: message skipping on (MESSKIP)
+    pub mes_skip: bool,
     /// instructions run, for the periodic screen update (`tick`)
     ticks: u32,
     last_draw: std::time::Instant,
@@ -193,6 +201,9 @@ impl Vm {
             warned: HashSet::default(),
             game_dir,
             strict: false,
+            flow_input: (0, false, false, String::new(), false),
+            mes_skip: false,
+            sprite_pos: HashMap::default(),
             ticks: 0,
             last_draw: std::time::Instant::now(),
             is_timeout: false,

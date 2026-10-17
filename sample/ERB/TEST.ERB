@@ -237,6 +237,7 @@ CFLAG:1:3 = 0
 CALL CHECK, "getconfig", GETCONFIG("LINE HEIGHT") == GETCONFIG("一行の高さ") && GETCONFIG("Font Size") > 0 && GETCONFIG("fontsize") == GETCONFIG("フォントサイズ")
 CALL GTEST
 CALL MSORTTEST
+CALL NEWFNTEST
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 
@@ -329,3 +330,23 @@ MV:2 = b
 MV:3 = z
 ARRAYMSORT MK, MV
 CALL CHECK, "arraymsort", RESULT == 1 && MK:0 == 10 && MK:2 == 30 && MV:0 == "a" && MV:1 == "b" && MV:2 == "c" && MV:3 == "z"
+
+;functions added to cover all of Emuera / Emuera-EM
+@NEWFNTEST
+VARI VX = 5
+VARS VS = "hi"
+CALL CHECK, "vari", VX == 5 && VS == "hi"
+CALL CHECK, "unicodebyte", UNICODEBYTE("A") == 65
+CALL CHECK, "existmeth", EXISTMETH("TOSTR") == 2 && EXISTMETH("SQUARE") == 1 && EXISTMETH("NOPE_X") == 0
+CALL CHECK, "enumfunc", ENUMFUNCBEGINSWITH("SQUA") >= 1 && RESULTS:0 == "SQUARE"
+CALL CHECKS, "html_substring", HTML_SUBSTRING("<b>abcdef</b>", 3) + "|" + RESULTS:1, "<b>abc</b>|<b>def</b>"
+CALL CHECK, "html_stringlines", HTML_STRINGLINES("abcdefgh", 3) == 3
+CALL CHECK, "getnumb", GETNUMB("ABL", "技巧") == GETNUM(ABL, "技巧")
+MAP_CREATE "NFT"
+CALL CHECK, "map_fromxml", MAP_FROMXML("NFT", "<map><p><k>a</k><v>1</v></p></map>") == 1 && MAP_GET("NFT", "a") == "1"
+GCREATE 5, 10, 10
+GSETPEN 5, 0xFF00FF00, 1
+GDRAWLINE 5, 0, 5, 9, 5
+CALL CHECK, "gdrawline", GGETCOLOR(5, 4, 5) == 0xFF00FF00 && GGETPEN(5) == 0xFF00FF00 && GGETCOLOR(5, 4, 0) == 0
+CALL CHECK, "ggettextsize", GGETTEXTSIZE("abc", "", 20) > 0
+GDISPOSE 5
