@@ -235,6 +235,13 @@ fn print_data_flags(cmd: &str) -> Option<PrintFlags> {
     Some(fl)
 }
 
+/// Lines whose text is shown as written, trailing spaces included: the
+/// PRINT family and PRINTDATA's DATA / DATAFORM entries.
+fn keeps_line_end(line: &str) -> bool {
+    let word: String = line.chars().take_while(|c| crate::expr::is_ident_char(*c)).collect::<String>().to_uppercase();
+    word.starts_with("PRINT") || word == "DATA" || word == "DATAFORM"
+}
+
 /// Commands whose argument is a raw string (no expression parsing).
 fn raw_arg_cmd(cmd: &str) -> bool {
     matches!(
@@ -279,6 +286,12 @@ impl<'a> Parser<'a> {
                 }
             }
             let mut line = trimmed.to_string();
+            // Emuera never trims line ends: text a PRINT / DATA line shows
+            // keeps its trailing spaces (`PRINTFORM … Return　　` pads a
+            // menu with full-width ones). Other statements stay trimmed.
+            if raw.len() != trimmed.len() && keeps_line_end(trimmed) {
+                line = raw.trim_start().to_string();
+            }
             if line.starts_with(";!;") {
                 line = line[3..].trim().to_string();
             } else if line.starts_with(";#;") {
