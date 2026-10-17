@@ -170,8 +170,9 @@ impl Vm {
     }
 
     /// SHOP: @EVENTSHOP once, then repeat @SHOW_SHOP + number input.
-    /// Item numbers that are on sale buy the item (@EVENTBUY); any other
-    /// number goes to @USERSHOP with RESULT set.
+    /// Numbers below 販売アイテム数 (_Replace.csv, default 100) that are on
+    /// sale buy the item (@EVENTBUY); any other number goes to @USERSHOP
+    /// with RESULT set (so menus can use 100+ freely, as in Emuera).
     fn shop(&mut self, skip_event: bool) -> VmResult<String> {
         if !skip_event {
             self.call_opt("EVENTSHOP")?;
@@ -181,7 +182,8 @@ impl Vm {
             // like Emuera, the item list is only shown by PRINT_SHOPITEM
             let items = self.shop_items();
             let v = self.input_int(None, None, false)?;
-            let is_item = v >= 0 && items.iter().any(|(i, _, _)| *i == v) && self.get_global_i("ITEMSALES", v as usize) != 0;
+            let max_item = self.csv.replace.get("販売アイテム数").and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(100);
+            let is_item = v >= 0 && v < max_item && items.iter().any(|(i, _, _)| *i == v) && self.get_global_i("ITEMSALES", v as usize) != 0;
             if is_item {
                 let price = self.get_global_i("ITEMPRICE", v as usize);
                 let money = self.get_global_i("MONEY", 0);

@@ -53,6 +53,9 @@ pub struct GameCsv {
     pub charas: Vec<CharaTemplate>,
     /// GAMEBASE.csv `key,value` (タイトル, 作者, バージョン…).
     pub gamebase: HashMap<String, String>,
+    /// _Replace.csv `key,value`: game-specific engine settings
+    /// (販売アイテム数 = how many item numbers the SHOP sells, …).
+    pub replace: HashMap<String, String>,
     /// VariableSize.csv: array sizes overriding the built-in defaults.
     pub varsize: HashMap<String, Vec<usize>>,
     /// _Rename.csv `(name, replacement)` for `[[name]]` in scripts.
@@ -188,6 +191,16 @@ impl GameCsv {
                         let dims: Vec<usize> =
                             f[1..].iter().filter_map(|s| s.parse::<i64>().ok()).map(|v| v.max(0) as usize).collect();
                         g.varsize.insert(f[0].to_uppercase(), dims);
+                    }
+                }
+            }
+        }
+        if let Some(p) = find_file_ci(csv_dir, "_Replace.CSV") {
+            if let Ok(text) = read_text(&p) {
+                for line in text.lines() {
+                    let f = csv_fields(line);
+                    if f.len() >= 2 {
+                        g.replace.insert(f[0].clone(), f[1..].join(","));
                     }
                 }
             }

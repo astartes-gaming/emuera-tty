@@ -92,6 +92,9 @@ pub struct Tty {
     /// pointer on the Linux console via /dev/input/mice (no terminal reports)
     mice: Option<crate::mice::Mice>,
     mouse: Option<(usize, usize)>,
+    /// The terminal draws East Asian ambiguous characters two cells wide
+    /// (detected at startup), so they need no filler (see `char_cells`).
+    ambi_wide: bool,
     /// per screen row: (col_start, col_end, button id)
     btn_map: Vec<Vec<(usize, usize, usize)>>,
     buttons: Vec<Value>,
@@ -118,6 +121,34 @@ fn winsize() -> (usize, usize, u32, u32) {
 fn x10_mouse(cb: u16, x: u16, y: u16) -> Key {
     let release = cb & 3 == 3 && cb & (32 | 64) == 0;
     Key::Mouse { btn: if release { cb & !3 } else { cb }, x, y, press: !release }
+}
+
+/// How to draw one character so the screen matches Emuera's layout:
+/// (cells the terminal draws it in, filler cells to add, filler char).
+///
+/// Emuera games are laid out for a Japanese font where every Shift_JIS
+/// double-byte character is two columns wide, including box drawing
+/// (`━┃┏`), blocks (`■□`) and symbols (`※○→`). Most terminals draw those
+/// "East Asian ambiguous" characters one column wide, which skews ASCII
+/// maps. The missing column is filled: line and block characters continue
+/// themselves (`━━`, `┏━`, `■■`) so walls stay solid; others get a space.
+/// `ambi_wide`: the terminal already draws ambiguous characters wide.
+fn char_cells(ch: char, ambi_wide: bool) -> (usize, usize, char) {
+    let tw = if ambi_wide { UnicodeWidthChar::width_cjk(ch) } else { UnicodeWidthChar::width(ch) }.unwrap_or(0);
+    if tw == 0 || ch.is_ascii() {
+        return (tw, 0, ' ');
+    }
+    let mut buf = [0u8; 4];
+    let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(ch.encode_utf8(&mut buf));
+    let emuera = if unmappable { tw } else { bytes.len() };
+    let fill = match ch {
+        '━' | '┏' | '┗' | '┣' | '┳' | '┻' | '╋' | '┯' | '┷' | '┿' | '┝' | '┍' | '┕' => '━',
+        '─' | '┌' | '└' | '├' | '┬' | '┴' | '┼' | '┠' | '┰' | '┸' | '╂' | '┎' | '┖' => '─',
+        '═' | '╔' | '╚' | '╠' | '╦' | '╩' | '╬' => '═',
+        '┄' | '┅' | '┈' | '┉' | '╌' | '╍' | '■' | '█' | '▓' | '▒' | '░' => ch,
+        _ => ' ',
+    };
+    (tw, emuera.saturating_sub(tw), fill)
 }
 
 /// Write to the terminal and flush.
@@ -169,6 +200,7 @@ impl Tty {
             queued: std::collections::VecDeque::new(),
             mice: None,
             mouse: None,
+            ambi_wide: false,
             btn_map: Vec::new(),
             buttons: Vec::new(),
             hover: None,
@@ -179,6 +211,7 @@ impl Tty {
             t.cell = (xp / cols as u32, yp / rows as u32);
         }
         t.setup_gfx(gfx_pref, &term);
+        t.ambi_wide = t.detect_ambiguous_wide();
         let is_vt = term == "linux" || term.starts_with("fbterm");
         if crate::mice::Mice::wanted(is_vt) {
             match crate::mice::Mice::open() {
@@ -236,6 +269,22 @@ impl Tty {
             }
         }
         std::mem::take(&mut self.pending)
+    }
+
+    /// Print an ambiguous-width character and ask where the cursor went
+    /// (CSI 6n): column 3 means the terminal drew it two cells wide.
+    /// `EMUERA_AMBIGUOUS=wide|narrow` overrides the check.
+    fn detect_ambiguous_wide(&mut self) -> bool {
+        match std::env::var("EMUERA_AMBIGUOUS").as_deref() {
+            Ok("wide") => return true,
+            Ok("narrow") => return false,
+            _ => {}
+        }
+        let r = self.query("\r\x1b[K■\x1b[6n".as_bytes(), |b| b.contains(&b'R'), 300);
+        write_all(b"\r\x1b[K");
+        let s = String::from_utf8_lossy(&r).to_string();
+        let col = s.rfind("\x1b[").and_then(|i| s[i + 2..].trim_end_matches('R').split(';').nth(1).and_then(|c| c.parse::<u32>().ok()));
+        col == Some(3)
     }
 
     /// Choose the image backend: framebuffer on a VT, otherwise probe for
@@ -452,8 +501,9 @@ impl Tty {
                 Seg::Text { text, style, button, .. } => {
                     let bid = push_btn(button, &mut self.buttons);
                     for ch in text.chars() {
-                        let w = if ch == '\t' { 4 } else { UnicodeWidthChar::width(ch).unwrap_or(0) };
-                        if w == 0 {
+                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi_wide) };
+                        let w = tw + extra;
+                        if tw == 0 {
                             continue;
                         }
                         if col + w > width {
@@ -466,7 +516,10 @@ impl Tty {
                                 r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid });
                             }
                         } else {
-                            r.cells.push(Cell { ch, w: w as u8, style: style.clone(), button: bid });
+                            r.cells.push(Cell { ch, w: tw as u8, style: style.clone(), button: bid });
+                            for _ in 0..extra {
+                                r.cells.push(Cell { ch: fill, w: 1, style: style.clone(), button: bid });
+                            }
                         }
                         col += w;
                     }
@@ -926,5 +979,28 @@ impl Frontend for Tty {
 impl Drop for Tty {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::char_cells;
+
+    #[test]
+    fn emuera_widths_on_a_narrow_terminal() {
+        assert_eq!(char_cells('a', false), (1, 0, ' '));
+        assert_eq!(char_cells('林', false), (2, 0, ' ')); // already wide
+        assert_eq!(char_cells('━', false), (1, 1, '━')); // line continues
+        assert_eq!(char_cells('┏', false), (1, 1, '━'));
+        assert_eq!(char_cells('┃', false), (1, 1, ' ')); // no rightward stroke
+        assert_eq!(char_cells('■', false), (1, 1, '■'));
+        assert_eq!(char_cells('※', false), (1, 1, ' '));
+        assert_eq!(char_cells('ｱ', false), (1, 0, ' ')); // half-width kana: 1 in Emuera too
+    }
+
+    #[test]
+    fn no_filler_when_terminal_draws_ambiguous_wide() {
+        assert_eq!(char_cells('━', true), (2, 0, '━'));
+        assert_eq!(char_cells('■', true), (2, 0, '■'));
     }
 }
