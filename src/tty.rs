@@ -95,6 +95,10 @@ pub struct Tty {
     /// How characters Emuera draws two columns wide but the terminal draws
     /// one column wide are handled (detected at startup, see `char_cells`).
     ambi: Ambi,
+    /// Widths this terminal actually draws, for characters where tables
+    /// disagree (measured at startup; only entries that differ from
+    /// unicode-width are kept).
+    widths: std::collections::HashMap<char, u8>,
     /// per screen row: (col_start, col_end, button id)
     btn_map: Vec<Vec<(usize, usize, usize)>>,
     buttons: Vec<Value>,
@@ -134,8 +138,13 @@ fn x10_mouse(cb: u16, x: u16, y: u16) -> Key {
 /// themselves (`━━`, `┏━`, `■■`) so walls stay solid; others get a space.
 /// With [`Ambi::Osc66`] such a character is instead drawn as one 2-cell
 /// glyph (no filler); with [`Ambi::Wide`] the terminal already draws it wide.
-fn char_cells(ch: char, ambi: Ambi) -> (usize, usize, char) {
-    let tw = if ambi == Ambi::Wide { UnicodeWidthChar::width_cjk(ch) } else { UnicodeWidthChar::width(ch) }.unwrap_or(0);
+/// `measured`: the width this terminal was seen to draw `ch` at (see
+/// `Tty::measure_widths`), which beats any table.
+fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>) -> (usize, usize, char) {
+    let tw = match measured {
+        Some(w) => w as usize,
+        None => if ambi == Ambi::Wide { UnicodeWidthChar::width_cjk(ch) } else { UnicodeWidthChar::width(ch) }.unwrap_or(0),
+    };
     if tw == 0 || ch.is_ascii() {
         return (tw, 0, ' ');
     }
@@ -219,6 +228,7 @@ impl Tty {
             mice: None,
             mouse: None,
             ambi: Ambi::Pad,
+            widths: std::collections::HashMap::new(),
             btn_map: Vec::new(),
             buttons: Vec::new(),
             hover: None,
@@ -230,6 +240,7 @@ impl Tty {
         }
         t.setup_gfx(gfx_pref, &term);
         t.ambi = t.detect_ambiguous();
+        t.widths = t.measure_widths();
         let is_vt = term == "linux" || term.starts_with("fbterm");
         if crate::mice::Mice::wanted(is_vt) {
             match crate::mice::Mice::open() {
@@ -287,6 +298,60 @@ impl Tty {
             }
         }
         std::mem::take(&mut self.pending)
+    }
+
+    /// Ask the terminal how wide it draws each character that is two columns
+    /// in Emuera but whose width terminals disagree on (Shift_JIS
+    /// double-byte symbols, box drawing, Greek/Cyrillic, kana; ~800). All
+    /// probes go out in one write — `\r ch CSI 6n` each — and the replies'
+    /// cursor columns give the widths. Terminals that don't answer leave the
+    /// table empty. `EMUERA_MEASURE=0` skips this.
+    fn measure_widths(&mut self) -> std::collections::HashMap<char, u8> {
+        let mut out = std::collections::HashMap::new();
+        if std::env::var("EMUERA_MEASURE").as_deref() == Ok("0") {
+            return out;
+        }
+        let chars: Vec<char> = (0xA0u32..0x3400)
+            .chain(0xFF00..0xFFF0)
+            .filter_map(char::from_u32)
+            .filter(|c| {
+                let mut b = [0u8; 4];
+                let (bytes, _, bad) = encoding_rs::SHIFT_JIS.encode(c.encode_utf8(&mut b));
+                !bad && bytes.len() == 2
+            })
+            .collect();
+        let mut q = String::with_capacity(chars.len() * 8);
+        for c in &chars {
+            q.push('\r');
+            q.push(*c);
+            q.push_str("\x1b[6n");
+        }
+        q.push_str("\r\x1b[K");
+        self.pending.clear();
+        write_all(q.as_bytes());
+        // collect replies until all arrived or the terminal goes quiet
+        let count = |b: &[u8]| b.iter().filter(|&&x| x == b'R').count();
+        let start = Instant::now();
+        while count(&self.pending) < chars.len() && start.elapsed() < Duration::from_millis(1500) {
+            if !self.read_bytes(150) && count(&self.pending) == 0 && start.elapsed() > Duration::from_millis(400) {
+                break; // no replies at all: terminal doesn't answer
+            }
+        }
+        let text = String::from_utf8_lossy(&std::mem::take(&mut self.pending)).to_string();
+        let cols: Vec<u32> = text
+            .split('R')
+            .filter_map(|r| r.rfind("\x1b[").and_then(|i| r[i + 2..].split(';').nth(1)).and_then(|c| c.parse().ok()))
+            .collect();
+        if cols.len() == chars.len() {
+            for (c, col) in chars.iter().zip(cols) {
+                let w = col.saturating_sub(1).min(2) as u8;
+                // 0 = drew nothing / unknown: keep the table's answer
+                if w > 0 && UnicodeWidthChar::width(*c) != Some(w as usize) {
+                    out.insert(*c, w);
+                }
+            }
+        }
+        out
     }
 
     /// Pick the [`Ambi`] strategy: print `■` and ask where the cursor went
@@ -528,7 +593,7 @@ impl Tty {
                 Seg::Text { text, style, button, .. } => {
                     let bid = push_btn(button, &mut self.buttons);
                     for ch in text.chars() {
-                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi) };
+                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied()) };
                         let w = tw + extra;
                         if tw == 0 {
                             continue;
@@ -1020,27 +1085,35 @@ mod tests {
 
     #[test]
     fn osc66_draws_one_two_cell_glyph() {
-        assert_eq!(char_cells('━', Ambi::Osc66), (2, 0, ' '));
-        assert_eq!(char_cells('林', Ambi::Osc66), (2, 0, ' '));
-        assert_eq!(char_cells('a', Ambi::Osc66), (1, 0, ' '));
+        assert_eq!(char_cells('━', Ambi::Osc66, None), (2, 0, ' '));
+        assert_eq!(char_cells('林', Ambi::Osc66, None), (2, 0, ' '));
+        assert_eq!(char_cells('a', Ambi::Osc66, None), (1, 0, ' '));
     }
 
     #[test]
     fn emuera_widths_on_a_narrow_terminal() {
-        assert_eq!(char_cells('a', Ambi::Pad), (1, 0, ' '));
-        assert_eq!(char_cells('林', Ambi::Pad), (2, 0, ' ')); // already wide
-        assert_eq!(char_cells('━', Ambi::Pad), (1, 1, '━')); // line continues
-        assert_eq!(char_cells('┏', Ambi::Pad), (1, 1, '━'));
-        assert_eq!(char_cells('┃', Ambi::Pad), (1, 1, ' ')); // no rightward stroke
-        assert_eq!(char_cells('■', Ambi::Pad), (1, 1, '■'));
-        assert_eq!(char_cells('※', Ambi::Pad), (1, 1, ' '));
-        assert_eq!(char_cells('―', Ambi::Pad), (1, 1, '―')); // horizontal bar continues
-        assert_eq!(char_cells('ｱ', Ambi::Pad), (1, 0, ' ')); // half-width kana: 1 in Emuera too
+        assert_eq!(char_cells('a', Ambi::Pad, None), (1, 0, ' '));
+        assert_eq!(char_cells('林', Ambi::Pad, None), (2, 0, ' ')); // already wide
+        assert_eq!(char_cells('━', Ambi::Pad, None), (1, 1, '━')); // line continues
+        assert_eq!(char_cells('┏', Ambi::Pad, None), (1, 1, '━'));
+        assert_eq!(char_cells('┃', Ambi::Pad, None), (1, 1, ' ')); // no rightward stroke
+        assert_eq!(char_cells('■', Ambi::Pad, None), (1, 1, '■'));
+        assert_eq!(char_cells('※', Ambi::Pad, None), (1, 1, ' '));
+        assert_eq!(char_cells('―', Ambi::Pad, None), (1, 1, '―')); // horizontal bar continues
+        assert_eq!(char_cells('ｱ', Ambi::Pad, None), (1, 0, ' ')); // half-width kana: 1 in Emuera too
+    }
+
+    #[test]
+    fn measured_width_wins() {
+        // a terminal seen drawing ━ two cells wide needs no filler
+        assert_eq!(char_cells('━', Ambi::Pad, Some(2)), (2, 0, '━'));
+        // one that draws ￤ narrow (tables say 2) gets a filler instead
+        assert_eq!(char_cells('￤', Ambi::Pad, Some(1)), (1, 1, ' '));
     }
 
     #[test]
     fn no_filler_when_terminal_draws_ambiguous_wide() {
-        assert_eq!(char_cells('━', Ambi::Wide), (2, 0, '━'));
-        assert_eq!(char_cells('■', Ambi::Wide), (2, 0, '■'));
+        assert_eq!(char_cells('━', Ambi::Wide, None), (2, 0, '━'));
+        assert_eq!(char_cells('■', Ambi::Wide, None), (2, 0, '■'));
     }
 }

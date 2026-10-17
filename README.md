@@ -212,7 +212,10 @@ Environment: `FRAMEBUFFER=/dev/fbN` picks another framebuffer,
 `EMUERA_AMBIGUOUS=wide|narrow|osc66` overrides how box-drawing and symbol
 characters are fitted to Emuera's two columns (detected at startup:
 terminals that draw them wide need nothing, others are padded; `osc66`
-tries kitty's text-sizing protocol instead, which some may prefer),
+tries kitty's text-sizing protocol instead, which some may prefer).
+At startup emuera-tty also measures how wide the terminal really draws
+those characters (terminals' width tables differ), which keeps maps
+aligned in Konsole, kitty and others; `EMUERA_MEASURE=0` skips that,
 `EMUERA_TRACE` as above.
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
