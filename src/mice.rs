@@ -1,8 +1,13 @@
 //! Pointer input on the Linux text console (fbcon / fbterm), where the
-//! terminal sends no mouse reports unless gpm is running: read relative
-//! motion from `/dev/input/mice` (ImPS/2, so the wheel works) and turn it
-//! into the same events the terminal mouse protocols produce.
-//! Needs read access to the device (root or the `input` group).
+//! terminal itself sends no mouse reports. Two sources, both turned into
+//! the same events the terminal mouse protocols produce:
+//!
+//! - **gpm**: connect to its socket (`/dev/gpmctl`) as a client, like mc
+//!   or links do, and get moves, clicks and the wheel in cells. gpm keeps
+//!   drawing its pointer. Needs nothing but a running gpm.
+//! - **`/dev/input/mice`**: relative motion (ImPS/2, so the wheel works),
+//!   tracked into a pointer we draw ourselves. Needs read access to the
+//!   device (root or the `input` group).
 
 use std::ffi::CString;
 
@@ -10,8 +15,16 @@ use std::ffi::CString;
 /// +32 motion, 64/65 wheel up/down), 1-based cell, press or release.
 pub type Event = (u16, u16, u16, bool);
 
+// Gpm_Event types
+const GPM_MOVE: u16 = 1;
+const GPM_DRAG: u16 = 2;
+const GPM_DOWN: u16 = 4;
+const GPM_UP: u16 = 8;
+
 pub struct Mice {
     fd: i32,
+    /// a gpm client connection rather than the raw device
+    gpm: bool,
     wheel: bool,
     buf: Vec<u8>,
     /// pointer position in pixels
@@ -21,13 +34,13 @@ pub struct Mice {
 }
 
 impl Mice {
-    /// Use the console mouse? On a VT unless gpm already feeds the
-    /// terminal; `EMUERA_MOUSE=mice` forces it, `=off` disables it.
+    /// Use the console mouse (gpm or the raw device)? On a VT;
+    /// `EMUERA_MOUSE=mice` forces it, `=off` / `=term` disables it.
     pub fn wanted(is_vt: bool) -> bool {
         match std::env::var("EMUERA_MOUSE").as_deref() {
             Ok("off") | Ok("term") => false,
             Ok("mice") => true,
-            _ => is_vt && !std::path::Path::new("/dev/gpmctl").exists(),
+            _ => is_vt,
         }
     }
 
@@ -41,7 +54,7 @@ impl Mice {
         if fd < 0 {
             return Err(format!("/dev/input/mice: {}", std::io::Error::last_os_error()));
         }
-        let mut m = Mice { fd, wheel: false, buf: Vec::new(), px: (0, 0), buttons: 0, last_cell: (1, 1) };
+        let mut m = Mice { fd, gpm: false, wheel: false, buf: Vec::new(), px: (0, 0), buttons: 0, last_cell: (1, 1) };
         if writable {
             m.wheel = m.enable_wheel();
         }
@@ -75,8 +88,77 @@ impl Mice {
         reply.iter().rposition(|&c| c == 0xfa).and_then(|i| reply.get(i + 1)).is_some_and(|&id| id == 3)
     }
 
+    /// Connect to gpm (`EMUERA_GPMCTL` overrides the socket path, for
+    /// tests) for the virtual console we run on: `Gpm_Connect` asks for
+    /// every event, and leaves plain moves to gpm too so it still draws its
+    /// pointer.
+    pub fn open_gpm() -> Result<Mice, String> {
+        // our VT number: stdin is /dev/ttyN on the console
+        let vc: i32 = std::fs::read_link("/proc/self/fd/0")
+            .ok()
+            .and_then(|p| p.to_string_lossy().strip_prefix("/dev/tty").and_then(|n| n.parse().ok()))
+            .or_else(|| std::env::var("EMUERA_GPM_VC").ok().and_then(|v| v.parse().ok()))
+            .ok_or("not on a virtual console")?;
+        let path = std::env::var("EMUERA_GPMCTL").unwrap_or_else(|_| "/dev/gpmctl".into());
+        let sock = std::os::unix::net::UnixStream::connect(&path).map_err(|e| format!("{}: {}", path, e))?;
+        // struct Gpm_Connect { u16 eventMask, defaultMask, minMod, maxMod; i32 pid, vc; }
+        let mut c = Vec::with_capacity(16);
+        c.extend_from_slice(&0xffffu16.to_ne_bytes()); // every event
+        c.extend_from_slice(&GPM_MOVE.to_ne_bytes()); // gpm draws the pointer on moves
+        c.extend_from_slice(&0u16.to_ne_bytes());
+        c.extend_from_slice(&0xffffu16.to_ne_bytes()); // any modifiers
+        c.extend_from_slice(&(std::process::id() as i32).to_ne_bytes());
+        c.extend_from_slice(&vc.to_ne_bytes());
+        use std::io::Write;
+        (&sock).write_all(&c).map_err(|e| format!("gpm: {}", e))?;
+        sock.set_nonblocking(true).map_err(|e| format!("gpm: {}", e))?;
+        use std::os::unix::io::IntoRawFd;
+        let fd = sock.into_raw_fd();
+        Ok(Mice { fd, gpm: true, wheel: true, buf: Vec::new(), px: (0, 0), buttons: 0, last_cell: (1, 1) })
+    }
+
+    /// gpm draws its own pointer; the raw device needs ours.
+    pub fn is_gpm(&self) -> bool {
+        self.gpm
+    }
+
     pub fn fd(&self) -> i32 {
         self.fd
+    }
+
+    /// gpm's `Gpm_Event` records (28 bytes) → events.
+    fn read_gpm(&mut self) -> Vec<Event> {
+        let mut out = Vec::new();
+        while self.buf.len() >= 28 {
+            let b: Vec<u8> = self.buf.drain(..28).collect();
+            let i16_at = |k: usize| i16::from_ne_bytes([b[k], b[k + 1]]);
+            let buttons = b[0];
+            let (x, y) = (i16_at(8).max(1) as u16, i16_at(10).max(1) as u16);
+            let ty = i32::from_ne_bytes([b[12], b[13], b[14], b[15]]);
+            let wdy = i16_at(26);
+            // Gpm_Event buttons: 4 left, 2 middle, 1 right, 16 / 32 wheel
+            let code = if buttons & 4 != 0 {
+                0
+            } else if buttons & 2 != 0 {
+                1
+            } else if buttons & 1 != 0 {
+                2
+            } else {
+                3
+            };
+            if wdy > 0 || (ty & GPM_DOWN as i32 != 0 && buttons & 16 != 0) {
+                out.push((64, x, y, true));
+            } else if wdy < 0 || (ty & GPM_DOWN as i32 != 0 && buttons & 32 != 0) {
+                out.push((65, x, y, true));
+            } else if ty & GPM_DOWN as i32 != 0 {
+                out.push((code, x, y, true));
+            } else if ty & GPM_UP as i32 != 0 {
+                out.push((code, x, y, false));
+            } else if ty & (GPM_MOVE | GPM_DRAG) as i32 != 0 {
+                out.push((32 | code, x, y, true));
+            }
+        }
+        out
     }
 
     /// Read pending packets and convert them for a `cols`×`rows` screen of
@@ -89,6 +171,9 @@ impl Mice {
                 break;
             }
             self.buf.extend_from_slice(&b[..n as usize]);
+        }
+        if self.gpm {
+            return self.read_gpm();
         }
         let (cw, ch) = (cell.0.max(1) as i32, cell.1.max(1) as i32);
         let (maxx, maxy) = (cols as i32 * cw - 1, rows as i32 * ch - 1);

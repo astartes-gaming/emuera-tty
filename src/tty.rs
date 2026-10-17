@@ -263,7 +263,9 @@ impl Tty {
         }
         let is_vt = term == "linux" || term.starts_with("fbterm");
         if crate::mice::Mice::wanted(is_vt) {
-            match crate::mice::Mice::open() {
+            // gpm first (works without extra permissions), else the device
+            let gpm = if std::env::var("EMUERA_MOUSE").as_deref() == Ok("mice") { Err(String::new()) } else { crate::mice::Mice::open_gpm() };
+            match gpm.or_else(|_| crate::mice::Mice::open()) {
                 Ok(m) => t.mice = Some(m),
                 Err(e) => {
                     // shown on the input line (and again on exit): the
@@ -824,7 +826,8 @@ impl Tty {
         self.hover = hover;
         self.btn_map = vec![Vec::new(); self.rows];
         let mut placements = Vec::new();
-        let pointer = if self.mice.is_some() { self.mouse } else { None };
+        // our own pointer only for the raw device (gpm draws its own)
+        let pointer = if self.mice.as_ref().is_some_and(|m| !m.is_gpm()) { self.mouse } else { None };
         let mut pointer_drawn = false;
         for (sr, row) in visible.iter().enumerate() {
             let _ = write!(out, "\x1b[{};1H", sr + 1);
@@ -1064,7 +1067,7 @@ impl Frontend for Tty {
                             // the console pointer is drawn by us: move it, but
                             // only once a burst of motion has been read
                             let more = self.queued.iter().any(|k| matches!(k, Key::Mouse { .. }));
-                            if (self.mice.is_some() && !more) || self.button_at(x, y) != self.hover {
+                            if (self.mice.as_ref().is_some_and(|m| !m.is_gpm()) && !more) || self.button_at(x, y) != self.hover {
                                 redraw = true;
                             }
                         }
