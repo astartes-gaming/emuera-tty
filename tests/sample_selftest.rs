@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 #[test]
 fn sample_selftest_passes() {
-    let exe = env!("CARGO_BIN_EXE_emuera-rs");
+    let exe = env!("CARGO_BIN_EXE_emuera-tty");
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/sample");
     let mut child = Command::new(exe)
         .args([dir, "--headless"])

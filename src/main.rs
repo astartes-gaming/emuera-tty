@@ -26,7 +26,7 @@ struct Opts {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: emuera-rs [GAME_DIR] [options]\n\
+        "usage: emuera-tty [GAME_DIR] [options]\n\
          \n\
          options:\n\
          \x20 --gfx auto|kitty|sixel|fb|none   image backend (default auto)\n\

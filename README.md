@@ -1,23 +1,42 @@
-# emuera-rs
+# emuera-tty
+
+> **⚠️ Read this first: this is a vibecoded proof of concept.**
+>
+> This project was made by a self-described dumbass who doesn't really know
+> what they're doing, by asking an AI (Claude) to write it. Nearly all of the
+> code was AI-generated, reviewed only by running the game and seeing what
+> breaks. It is not a serious or complete Emuera port, nobody has audited it,
+> and it will mis-render, misbehave or crash on plenty of scripts.
+>
+> - Expect bugs. Don't trust it with save files you care about.
+> - It is not affiliated with Emuera, Emuera-EM/EE, eratohoTW or AnonTW.
+>   Where behaviour was copied, it was by reading
+>   [EvilMask's emuera.em](https://gitlab.com/EvilMask/emuera.em) source for
+>   reference; no code from it is included.
+> - No game files are included. You need your own copy of the game.
+>
+> If it works for you anyway: nice. If it doesn't: that's the expected
+> outcome of a proof of concept.
 
 A from-scratch reimplementation of the **Emuera** ERB engine in Rust, aimed at
 running **eratohoTW** in a terminal: the Linux framebuffer console (fbcon /
 fbterm) and graphics-capable terminals (kitty, WezTerm, Ghostty, foot, xterm
 with sixel, yaft…).
 
-Status: **working skeleton**. The language core, game flow, save/load, the
-terminal UI and all three image backends run; large parts of the Emuera
-command set are still missing (see *Roadmap*). It has been tested only
-against the bundled `sample/` game so far, not eratohoTW itself.
+Status: **proof of concept**. The language core, game flow, save/load, the
+terminal UI and all three image backends run. AnonTW (eratohoTW, English)
+gets from its title screen through new-game setup to the main menu in
+headless mode; anything past that is untested. Large parts of the Emuera
+command set are still missing (see *Roadmap*).
 
 ## Build & run
 
 ```sh
 cargo build --release
-./target/release/emuera-rs /path/to/eratohoTW            # full-screen TUI
-./target/release/emuera-rs /path/to/eratohoTW --check    # parse only, list errors
-./target/release/emuera-rs sample --headless --echo      # stdin/stdout mode
-cargo test                                               # runs sample/ self-test
+./target/release/emuera-tty /path/to/eratohoTW            # full-screen TUI
+./target/release/emuera-tty /path/to/eratohoTW --check    # parse only, list errors
+./target/release/emuera-tty sample --headless --echo      # stdin/stdout mode
+cargo test                                               # runs unit tests + sample/ self-test
 ```
 
 Options: `--gfx auto|kitty|sixel|fb|none` (or `EMUERA_GFX`), `--headless`,
@@ -93,14 +112,24 @@ checked.
 - Characters: ADD/DEL/SWAP/COPY/SORT/PICKUP, CSV* lookups, FINDCHARA.
 - Strings, math, arrays (VARSET, ARRAYSHIFT/REMOVE/SORT/COPY, SPLIT, …).
 - SAVEGAME/LOADGAME menus, SAVEDATA/LOADDATA, SAVEGLOBAL/LOADGLOBAL, @SAVEINFO.
+- Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
+  per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
+- Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
+  filters and XML), `LOADTEXT`/`SAVETEXT`, `HTML_TAGSPLIT`,
+  `HTML_POPPRINTINGSTR`.
 
-## Roadmap (to get eratohoTW booting)
+Debugging: `EMUERA_TRACE=<part of a function name>` logs matching calls and
+their return values to stderr.
 
-1. Run `--check` on eratohoTW and burn down parse errors / unknown commands.
+## Roadmap
+
+1. Burn down the remaining AnonTW parse errors / unknown commands
+   (`XML_*`, `VARSETEX`, `AWAIT`, `SAVECHARA`, …) and play past the main menu.
 2. Emuera graphics API (`GCREATE`, `GDRAWSPRITE`, `SPRITE*`, `CBG*`) — eratohoTW's
    newer UI uses these; currently ignored with a warning.
 3. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.
-4. `REF` parameters, `LOCAL@FUNC`, `DYNAMIC` arrays, `#LOCALSIZE`.
+4. `LOCAL@FUNC`, `#LOCALSIZE`; saving `SAVE_MAPS` / `SAVE_DTS` (VarExt.csv)
+   maps and data tables with the game.
 5. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
    the shop item table layout.
 6. Emuera `.sav` compatibility (read existing saves).
