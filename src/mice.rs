@@ -3,8 +3,8 @@
 //! the same events the terminal mouse protocols produce:
 //!
 //! - **gpm**: connect to its socket (`/dev/gpmctl`) as a client, like mc
-//!   or links do, and get moves, clicks and the wheel in cells. gpm keeps
-//!   drawing its pointer. Needs nothing but a running gpm.
+//!   or links do, and get moves, clicks and the wheel in cells. Needs
+//!   nothing but a running gpm.
 //! - **`/dev/input/mice`**: relative motion (ImPS/2, so the wheel works),
 //!   tracked into a pointer we draw ourselves. Needs read access to the
 //!   device (root or the `input` group).
@@ -90,8 +90,7 @@ impl Mice {
 
     /// Connect to gpm (`EMUERA_GPMCTL` overrides the socket path, for
     /// tests) for the virtual console we run on: `Gpm_Connect` asks for
-    /// every event, and leaves plain moves to gpm too so it still draws its
-    /// pointer.
+    /// every event (we draw the pointer, as for the raw device).
     pub fn open_gpm() -> Result<Mice, String> {
         // our VT number: stdin is /dev/ttyN on the console
         let vc: i32 = std::fs::read_link("/proc/self/fd/0")
@@ -104,7 +103,9 @@ impl Mice {
         // struct Gpm_Connect { u16 eventMask, defaultMask, minMod, maxMod; i32 pid, vc; }
         let mut c = Vec::with_capacity(16);
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // every event
-        c.extend_from_slice(&GPM_MOVE.to_ne_bytes()); // gpm draws the pointer on moves
+        // nothing left to gpm's default handler: its pointer is an inverted
+        // cell that our redraws wipe out, so we draw the pointer ourselves
+        c.extend_from_slice(&0u16.to_ne_bytes());
         c.extend_from_slice(&0u16.to_ne_bytes());
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // any modifiers
         c.extend_from_slice(&(std::process::id() as i32).to_ne_bytes());
@@ -115,11 +116,6 @@ impl Mice {
         use std::os::unix::io::IntoRawFd;
         let fd = sock.into_raw_fd();
         Ok(Mice { fd, gpm: true, wheel: true, buf: Vec::new(), px: (0, 0), buttons: 0, last_cell: (1, 1) })
-    }
-
-    /// gpm draws its own pointer; the raw device needs ours.
-    pub fn is_gpm(&self) -> bool {
-        self.gpm
     }
 
     pub fn fd(&self) -> i32 {

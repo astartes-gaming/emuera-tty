@@ -826,8 +826,9 @@ impl Tty {
         self.hover = hover;
         self.btn_map = vec![Vec::new(); self.rows];
         let mut placements = Vec::new();
-        // our own pointer only for the raw device (gpm draws its own)
-        let pointer = if self.mice.as_ref().is_some_and(|m| !m.is_gpm()) { self.mouse } else { None };
+        // the console mouse (gpm or the raw device) has no pointer of its
+        // own on screen: draw one
+        let pointer = if self.mice.is_some() { self.mouse } else { None };
         let mut pointer_drawn = false;
         for (sr, row) in visible.iter().enumerate() {
             let _ = write!(out, "\x1b[{};1H", sr + 1);
@@ -1067,7 +1068,7 @@ impl Frontend for Tty {
                             // the console pointer is drawn by us: move it, but
                             // only once a burst of motion has been read
                             let more = self.queued.iter().any(|k| matches!(k, Key::Mouse { .. }));
-                            if (self.mice.as_ref().is_some_and(|m| !m.is_gpm()) && !more) || self.button_at(x, y) != self.hover {
+                            if (self.mice.is_some() && !more) || self.button_at(x, y) != self.hover {
                                 redraw = true;
                             }
                         }
