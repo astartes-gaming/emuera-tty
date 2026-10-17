@@ -43,6 +43,28 @@ Options: `--gfx auto|kitty|sixel|fb|none` (or `EMUERA_GFX`), `--headless`,
 `--echo`, `--check`, `--strict` (unknown commands become errors), `--debug`
 (enables `[IF_DEBUG]` / `;#;` lines). `FRAMEBUFFER=/dev/fbN` picks another fb.
 
+### Install, upgrade, remove
+
+```sh
+./target/release/emuera-tty --install     # copy to ~/.local/bin/emuera-tty
+emuera-tty --upgrade                      # git clone/pull + cargo build + reinstall
+emuera-tty --uninstall                    # remove ~/.local/bin/emuera-tty
+emuera-tty --reset-data                   # forget settings (saves are kept)
+```
+
+`--install` tells you if `~/.local/bin` isn't on your `PATH` yet.
+`--upgrade` keeps its checkout in `~/.local/share/emuera-tty/src` and
+needs `git` and `cargo`.
+
+### Choosing a game
+
+Run `emuera-tty` with no folder and it uses, in order: the current folder
+if it is a game, the game you picked last time, or a **folder picker**
+(first run). The picker marks Emuera games (folders with `CSV/` and `ERB/`)
+with ★ and their title; Enter plays one, arrows / mouse move around, `q`
+cancels. `emuera-tty --choose` opens it again. The choice is stored in
+`~/.config/emuera-tty/config`; `--reset-data` clears it.
+
 ## Controls
 
 Type a number + Enter, or **click** any `[N]` / HTML button (mouse hover

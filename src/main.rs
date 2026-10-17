@@ -16,6 +16,7 @@ mod html;
 mod loader;
 mod mice;
 mod parser;
+mod picker;
 mod resources;
 mod tty;
 mod xml;
@@ -25,7 +26,10 @@ use std::path::PathBuf;
 
 /// Command-line options.
 struct Opts {
-    game: PathBuf,
+    /// None: use the current folder, the remembered game, or the picker
+    game: Option<PathBuf>,
+    /// --choose: open the picker even if a game is remembered
+    choose: bool,
     headless: bool,
     gfx: String,
     strict: bool,
@@ -34,24 +38,39 @@ struct Opts {
     echo: bool,
 }
 
-fn usage() -> ! {
+/// Print help; exit 0 when asked for (--help), 2 on bad options.
+fn usage_exit(code: i32) -> ! {
     eprintln!(
         "usage: emuera-tty [GAME_DIR] [options]\n\
          \n\
+         Without GAME_DIR: the current folder if it is a game, else the game\n\
+         chosen last time, else a folder picker opens.\n\
+         \n\
          options:\n\
+         \x20 --choose                         pick a game folder (even if one is remembered)\n\
          \x20 --gfx auto|kitty|sixel|fb|none   image backend (default auto)\n\
          \x20 --headless                       plain stdin/stdout mode (scripts, tests)\n\
          \x20 --echo                           echo inputs in headless mode\n\
          \x20 --check                          parse the game and report errors only\n\
          \x20 --strict                         unknown commands are errors\n\
-         \x20 --debug                          enable [IF_DEBUG] / ;#; lines"
+         \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
+         \n\
+         setup:\n\
+         \x20 --install                        copy this program to ~/.local/bin\n\
+         \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
+         \x20 --uninstall                      remove ~/.local/bin/emuera-tty\n\
+         \x20 --reset-data                     forget settings (remembered game folder); saves are kept"
     );
-    std::process::exit(2)
+    std::process::exit(code)
+}
+
+fn usage() -> ! {
+    usage_exit(2)
 }
 
 /// Parse `std::env::args` (exits with usage on unknown options).
 fn parse_args() -> Opts {
-    let mut o = Opts { game: PathBuf::from("."), headless: false, gfx: "auto".into(), strict: false, check: false, debug: false, echo: false };
+    let mut o = Opts { game: None, choose: false, headless: false, gfx: "auto".into(), strict: false, check: false, debug: false, echo: false };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -60,11 +79,30 @@ fn parse_args() -> Opts {
             "--check" => o.check = true,
             "--debug" => o.debug = true,
             "--echo" => o.echo = true,
+            "--choose" => o.choose = true,
+            "--install" | "--uninstall" | "--upgrade" | "--reset-data" => {
+                let r = match a.as_str() {
+                    "--install" => picker::install(),
+                    "--uninstall" => picker::uninstall(),
+                    "--upgrade" => picker::upgrade(),
+                    _ => picker::reset_data(),
+                };
+                match r {
+                    Ok(m) => {
+                        println!("{}", m);
+                        std::process::exit(0)
+                    }
+                    Err(e) => {
+                        eprintln!("emuera-tty: {}", e);
+                        std::process::exit(1)
+                    }
+                }
+            }
             "--gfx" => o.gfx = it.next().unwrap_or_else(|| usage()),
-            "-h" | "--help" => usage(),
+            "-h" | "--help" => usage_exit(0),
             s if s.starts_with("--gfx=") => o.gfx = s[6..].to_string(),
             s if s.starts_with('-') => usage(),
-            s => o.game = PathBuf::from(s),
+            s => o.game = Some(PathBuf::from(s)),
         }
     }
     if let Ok(g) = std::env::var("EMUERA_GFX") {
@@ -137,7 +175,7 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
 
 /// Load the game and run it; returns the process exit code.
 fn run(o: Opts) -> i32 {
-    let game = o.game.clone();
+    let Some(game) = choose_game(&o) else { return 0 };
     let Some(csv_dir) = loader::find_dir_ci(&game, "CSV") else {
         eprintln!("{}: no CSV directory found", game.display());
         return 1;
@@ -223,6 +261,38 @@ fn run(o: Opts) -> i32 {
             1
         }
     }
+}
+
+/// Decide which game folder to run (see `usage`). None: the user cancelled
+/// the picker (or there is nothing to run, already reported).
+fn choose_game(o: &Opts) -> Option<PathBuf> {
+    let interactive = !o.headless && !o.check && unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 };
+    if let Some(g) = &o.game {
+        if interactive && picker::is_game_dir(g) {
+            picker::remember(g);
+        }
+        return Some(g.clone());
+    }
+    if !o.choose {
+        if picker::is_game_dir(std::path::Path::new(".")) {
+            return Some(PathBuf::from("."));
+        }
+        if let Some(g) = picker::last_game() {
+            return Some(g);
+        }
+    }
+    if !interactive {
+        eprintln!("emuera-tty: no game folder given (pass GAME_DIR, or run in a terminal to pick one)");
+        return None;
+    }
+    // start where the last game was, else in the home folder
+    let start = picker::last_game()
+        .and_then(|g| g.parent().map(|p| p.to_path_buf()))
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let g = picker::pick(&start)?;
+    picker::remember(&g);
+    Some(g)
 }
 
 fn main() {
