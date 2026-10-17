@@ -42,9 +42,7 @@ pub const COMMANDS: &[&str] = &[
     "STRLENFORMU", "PUTFORM", "ADDCHARA", "ADDSPCHARA", "ADDDEFCHARA", "ADDVOIDCHARA", "DELCHARA", "DELALLCHARA",
     "PICKUPCHARA", "SWAPCHARA", "COPYCHARA", "ADDCOPYCHARA", "SORTCHARA", "RESET_STAIN", "UPCHECK", "CUPCHECK",
     "CALLEVENT", "CLEARBUTTON", "SAVECHARA", "LOADCHARA", "MOUSESKIP_", "BITMAP_CACHE_ENABLE", "FORCEKANA",
-    "SETCOLOR_", "GCREATE", "GCREATEFROMFILE", "GDISPOSE", "GCLEAR", "GFILLRECTANGLE", "GDRAWSPRITE", "GDRAWG",
-    "GDRAWGWITHMASK", "GSETCOLOR", "GSETBRUSH", "GSETFONT", "GSETPEN", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE",
-    "SPRITEMOVE", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
+    "SETCOLOR_", "GSETFONT", "GSETPEN", "SPRITEMOVE", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
     "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_",
     "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM", "AWAIT", "VARSETEX", "SPRITEANIMECREATE", "SPRITEANIMEADDFRAME",
 ];
@@ -75,6 +73,9 @@ pub const FUNCTIONS: &[&str] = &[
     "XML_DOCUMENT", "XML_RELEASE", "XML_EXIST", "XML_TOSTR", "XML_GET", "XML_GET_BYNAME", "XML_SET", "XML_SET_BYNAME",
     "XML_ADDNODE", "XML_ADDNODE_BYNAME", "XML_REMOVENODE", "XML_REMOVENODE_BYNAME", "XML_REPLACE", "XML_REPLACE_BYNAME",
     "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
+    // graphics buffers (methods, usable as statements: result in RESULT)
+    "GCREATE", "GCREATEFROMFILE", "GDISPOSE", "GCLEAR", "GFILLRECTANGLE", "GDRAWSPRITE", "GDRAWG", "GDRAWGWITHMASK",
+    "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE",
 ];
 
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
@@ -1338,6 +1339,232 @@ impl Vm {
         }
     }
 
+    /// Emuera's graphics buffers (`G*`) and SPRITECREATE: drawn in memory
+    /// and shown through sprites, so composed portraits work. Return values
+    /// as in Emuera: 1 done, 0 not (missing buffer / sprite, already
+    /// exists…).
+    fn graphics_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        use crate::resources::{argb, draw_image, Graphic};
+        use image::RgbaImage;
+        let i = |v: i64| Ok(Some(Value::Int(v)));
+        let n = a.iter().rposition(|e| !matches!(e, Expr::Empty)).map_or(0, |p| p + 1);
+        let a = &a[..n];
+        let ints = |vm: &mut Self, from: usize, k: usize| -> VmResult<Vec<i32>> {
+            (from..from + k).map(|j| vm.ai(a, j, 0).map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)).collect()
+        };
+        let color = |c: i64| -> VmResult<[u8; 4]> {
+            if !(0..=0xFFFF_FFFF).contains(&c) {
+                return err(format!("{}: bad colour {}", name, c));
+            }
+            Ok(argb(c))
+        };
+        const MAX: i64 = 8192;
+        match name {
+            "SPRITECREATE" => {
+                let sname = self.as_(a, 0, "")?;
+                let gid = self.ai(a, 1, 0)?;
+                let rect = if a.len() >= 6 {
+                    let r = ints(self, 2, 4)?;
+                    Some((r[0], r[1], r[2], r[3]))
+                } else {
+                    None
+                };
+                return i(self.res.create_g_sprite(&sname, gid, rect) as i64);
+            }
+            "SPRITEDISPOSE" => {
+                let sname = self.as_(a, 0, "")?;
+                return i(self.res.dispose_sprite(&sname) as i64);
+            }
+            _ => {}
+        }
+        let gid = self.ai(a, 0, 0)?;
+        let r = match name {
+            "GCREATE" => {
+                if self.res.graphics.contains_key(&gid) {
+                    return i(0);
+                }
+                let (w, h) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
+                if !(1..=MAX).contains(&w) || !(1..=MAX).contains(&h) {
+                    return err(format!("GCREATE: bad size {}x{}", w, h));
+                }
+                self.res.graphics.insert(gid, Graphic { img: RgbaImage::new(w as u32, h as u32), brush: [0, 0, 0, 255] });
+                1
+            }
+            "GCREATEFROMFILE" => {
+                if self.res.graphics.contains_key(&gid) {
+                    return i(0);
+                }
+                let f = self.as_(a, 1, "")?;
+                let rel = self.ai(a, 2, 0)? != 0;
+                let p = std::path::PathBuf::from(f.replace('\\', "/"));
+                let p = if p.is_absolute() || rel { p } else { self.game_dir.join("resources").join(&p) };
+                match image::open(&p) {
+                    Ok(img) if img.width() as i64 <= MAX && img.height() as i64 <= MAX => {
+                        self.res.graphics.insert(gid, Graphic { img: img.to_rgba8(), brush: [0, 0, 0, 255] });
+                        1
+                    }
+                    _ => 0,
+                }
+            }
+            "GLOAD" => {
+                if self.res.graphics.contains_key(&gid) {
+                    return i(0);
+                }
+                let k = self.ai(a, 1, 0)?;
+                match image::open(self.save_dir().join(format!("img{:04}.png", k))) {
+                    Ok(img) => {
+                        self.res.graphics.insert(gid, Graphic { img: img.to_rgba8(), brush: [0, 0, 0, 255] });
+                        1
+                    }
+                    Err(_) => 0,
+                }
+            }
+            _ => {
+                if !self.res.graphics.contains_key(&gid) {
+                    return i(0);
+                }
+                match name {
+                    "GDISPOSE" => {
+                        self.res.graphics.remove(&gid);
+                        1
+                    }
+                    "GSAVE" => {
+                        let k = self.ai(a, 1, 0)?;
+                        let dir = self.save_dir();
+                        let _ = std::fs::create_dir_all(&dir);
+                        self.res.graphics[&gid].img.save(dir.join(format!("img{:04}.png", k))).is_ok() as i64
+                    }
+                    "GSETBRUSH" => {
+                        let c = color(self.ai(a, 1, 0)?)?;
+                        self.res.graphics.get_mut(&gid).unwrap().brush = c;
+                        1
+                    }
+                    "GCLEAR" => {
+                        let c = color(self.ai(a, 1, 0)?)?;
+                        let rect = if a.len() >= 6 { Some(ints(self, 2, 4)?) } else { None };
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        let (w, h) = (g.img.width() as i32, g.img.height() as i32);
+                        let (x0, y0, x1, y1) = match rect {
+                            Some(r) => (r[0].max(0), r[1].max(0), (r[0] + r[2]).min(w), (r[1] + r[3]).min(h)),
+                            None => (0, 0, w, h),
+                        };
+                        for y in y0..y1 {
+                            for x in x0..x1 {
+                                g.img.put_pixel(x as u32, y as u32, image::Rgba(c));
+                            }
+                        }
+                        1
+                    }
+                    "GFILLRECTANGLE" => {
+                        let r = ints(self, 1, 4)?;
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        let mut tile = RgbaImage::new(r[2].unsigned_abs().max(1), r[3].unsigned_abs().max(1));
+                        for p in tile.pixels_mut() {
+                            *p = image::Rgba(g.brush);
+                        }
+                        draw_image(&mut g.img, &tile, (r[0], r[1], r[2], r[3]), (0, 0, tile.width() as i32, tile.height() as i32), None);
+                        1
+                    }
+                    "GSETCOLOR" => {
+                        let c = color(self.ai(a, 1, 0)?)?;
+                        let (x, y) = (self.ai(a, 2, 0)?, self.ai(a, 3, 0)?);
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        if (0..g.img.width() as i64).contains(&x) && (0..g.img.height() as i64).contains(&y) {
+                            g.img.put_pixel(x as u32, y as u32, image::Rgba(c));
+                            1
+                        } else {
+                            0
+                        }
+                    }
+                    "GDRAWSPRITE" => {
+                        // GDRAWSPRITE id, sprite[, x, y[, w, h[, colour matrix]]]
+                        let sname = self.as_(a, 1, "")?;
+                        let Some(img) = self.res.sprite(&sname) else { return i(0) };
+                        let (sw, sh) = (img.width() as i32, img.height() as i32);
+                        let dest = match a.len() {
+                            0..=2 => (0, 0, sw, sh),
+                            3 | 4 => {
+                                let p = ints(self, 2, 2)?;
+                                (p[0], p[1], sw, sh)
+                            }
+                            _ => {
+                                let r = ints(self, 2, 4)?;
+                                (r[0], r[1], r[2], r[3])
+                            }
+                        };
+                        let cm = if a.len() >= 7 { Some(self.color_matrix_arg(&a[6])?) } else { None };
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        draw_image(&mut g.img, &img, dest, (0, 0, sw, sh), cm.as_ref());
+                        1
+                    }
+                    "GDRAWG" => {
+                        // GDRAWG dest, src, dx, dy, dw, dh, sx, sy, sw, sh[, colour matrix]
+                        let src = self.ai(a, 1, 0)?;
+                        let r = ints(self, 2, 8)?;
+                        let cm = if a.len() >= 11 { Some(self.color_matrix_arg(&a[10])?) } else { None };
+                        let Some(s) = self.res.graphics.get(&src).map(|g| g.img.clone()) else { return i(0) };
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        draw_image(&mut g.img, &s, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
+                        1
+                    }
+                    "GDRAWGWITHMASK" => {
+                        // the mask's blue channel is the source's opacity
+                        let (src, mask) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
+                        let p = ints(self, 3, 2)?;
+                        let (Some(s), Some(m)) = (self.res.graphics.get(&src).map(|g| g.img.clone()), self.res.graphics.get(&mask).map(|g| g.img.clone())) else {
+                            return i(0);
+                        };
+                        let g = self.res.graphics.get_mut(&gid).unwrap();
+                        if s.dimensions() != m.dimensions() || p[0] < 0 || p[1] < 0 || p[0] as u32 + s.width() > g.img.width() || p[1] as u32 + s.height() > g.img.height() {
+                            return i(0);
+                        }
+                        for (x, y, sp) in s.enumerate_pixels() {
+                            let k = m.get_pixel(x, y).0[2] as u32 + 1;
+                            let d = g.img.get_pixel_mut(p[0] as u32 + x, p[1] as u32 + y);
+                            if k == 256 {
+                                *d = *sp;
+                            } else if k > 1 {
+                                for c in 0..4 {
+                                    d.0[c] = ((sp.0[c] as u32 * k + d.0[c] as u32 * (256 - k)) >> 8) as u8;
+                                }
+                            }
+                        }
+                        1
+                    }
+                    _ => 0,
+                }
+            }
+        };
+        if r != 0 && !matches!(name, "GSAVE" | "GSETBRUSH") {
+            self.res.changed();
+        }
+        i(r)
+    }
+
+    /// A colour matrix argument: 5x5 integers (/256) starting at the given
+    /// element of a 2D or 3D integer array (`CM:0:0`).
+    fn color_matrix_arg(&mut self, e: &Expr) -> VmResult<[[f32; 5]; 5]> {
+        let Expr::Var(v) = e else { return err("colour matrix: not an array variable") };
+        let p = self.locate(v)?;
+        let arr = self.arr_at(&p.loc).ok_or_else(|| Ctrl::Error("colour matrix: not an array".into(), false))?;
+        if arr.dims.len() < 2 || arr.is_str() {
+            return err(format!("colour matrix: {} must be a 2D or 3D integer array", v.name));
+        }
+        let cols = *arr.dims.last().unwrap();
+        let rows = arr.dims[arr.dims.len() - 2];
+        let (r0, c0) = ((p.flat / cols) % rows, p.flat % cols);
+        if r0 + 5 > rows || c0 + 5 > cols {
+            return err(format!("colour matrix: {} has no 5x5 block at ({}, {})", v.name, r0, c0));
+        }
+        let mut m = [[0f32; 5]; 5];
+        for (x, row) in m.iter_mut().enumerate() {
+            for (y, cell) in row.iter_mut().enumerate() {
+                *cell = arr.get_i(p.flat + x * cols + y) as f32 / 256.0;
+            }
+        }
+        Ok(m)
+    }
+
     /// Emuera-EM's XML_* functions (return codes as in emuera.em). The first
     /// argument is either XML text, edited copies of which go back into it
     /// when it is a variable, or the key of a document XML_DOCUMENT holds
@@ -2291,7 +2518,17 @@ impl Vm {
                 let sz = self.res.sprite_size(&n).unwrap_or((0, 0));
                 i(if name == "SPRITEWIDTH" { sz.0 } else { sz.1 } as i64)
             }
-            "GCREATED" | "GWIDTH" | "GHEIGHT" => i(0),
+            "GCREATED" | "GWIDTH" | "GHEIGHT" => {
+                let id = self.ai(a, 0, 0)?;
+                i(match self.res.graphics.get(&id) {
+                    None => 0,
+                    Some(g) if name == "GWIDTH" => g.img.width() as i64,
+                    Some(g) if name == "GHEIGHT" => g.img.height() as i64,
+                    Some(_) => 1,
+                })
+            }
+            "GCREATE" | "GCREATEFROMFILE" | "GDISPOSE" | "GCLEAR" | "GFILLRECTANGLE" | "GDRAWSPRITE" | "GDRAWG" | "GDRAWGWITHMASK"
+            | "GSETCOLOR" | "GSETBRUSH" | "GSAVE" | "GLOAD" | "SPRITECREATE" | "SPRITEDISPOSE" => self.graphics_fn(name, a),
             "GETCONFIG" | "GETCONFIGS" => {
                 let k = self.as_(a, 0, "")?;
                 match self.config_value(&k) {
@@ -2357,7 +2594,15 @@ impl Vm {
             }
             // no graphics surfaces / sprite positions / text box in this frontend
             "SPRITEPOSX" | "SPRITEPOSY" => i(0),
-            "GGETCOLOR" => i(-1),
+            "GGETCOLOR" => {
+                let (id, x, y) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
+                i(match self.res.graphics.get(&id) {
+                    Some(g) if (0..g.img.width() as i64).contains(&x) && (0..g.img.height() as i64).contains(&y) => {
+                        crate::resources::to_argb(g.img.get_pixel(x as u32, y as u32).0)
+                    }
+                    _ => -1,
+                })
+            }
             "GETTEXTBOX" => s(String::new()),
             "HTML_TOPLAINTEXT" => {
                 let x = self.as_(a, 0, "")?;

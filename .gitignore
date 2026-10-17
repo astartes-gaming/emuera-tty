@@ -1,1 +1,4 @@
 /target
+/sample/*.sav
+/sample/sav/
+/sample/dat/

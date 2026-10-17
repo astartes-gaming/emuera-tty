@@ -863,7 +863,7 @@ impl Tty {
                 }
                 if let Some(img) = res.scaled(&im.name, pw, ph) {
                     placements.push(Placement {
-                        key: format!("{}@{}x{}", im.name, pw, ph),
+                        key: format!("{}@{}x{}#{}", im.name, pw, ph, res.version(&im.name)),
                         img,
                         col: im.col as i32,
                         row: sr as i32,
