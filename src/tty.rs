@@ -164,7 +164,8 @@ enum Ambi {
     /// the terminal already draws them two cells wide
     Wide,
     /// kitty's text sizing protocol: `OSC 66 ; w=2 ; ch` draws the glyph
-    /// across two cells, centred / stretched like Emuera's font
+    /// across two cells (opt-in: kitty's rendering of it doesn't match
+    /// Emuera's font well)
     Osc66,
 }
 
@@ -289,9 +290,10 @@ impl Tty {
     }
 
     /// Pick the [`Ambi`] strategy: print `■` and ask where the cursor went
-    /// (CSI 6n). Column 3 means the terminal already draws it wide; else try
-    /// it as `OSC 66 ; w=2` (kitty ≥ 0.40), which terminals without the
-    /// protocol ignore. `EMUERA_AMBIGUOUS=wide|narrow|osc66` overrides.
+    /// (CSI 6n). Column 3 means the terminal already draws it wide; else pad.
+    /// `EMUERA_AMBIGUOUS=wide|narrow|osc66` overrides. OSC 66 is opt-in only:
+    /// kitty draws box drawing stretched (lines look doubled) and blocks
+    /// small with a gap, so padding looks closer to Emuera.
     fn detect_ambiguous(&mut self) -> Ambi {
         match std::env::var("EMUERA_AMBIGUOUS").as_deref() {
             Ok("wide") => return Ambi::Wide,
@@ -307,8 +309,6 @@ impl Tty {
         };
         if cursor_col(self, "■") == Some(3) {
             Ambi::Wide
-        } else if cursor_col(self, "\x1b]66;w=2;■\x1b\\") == Some(3) {
-            Ambi::Osc66
         } else {
             Ambi::Pad
         }
