@@ -244,11 +244,8 @@ mod imp {
 mod imp {
     use super::{DateTime, Ready};
     use std::collections::VecDeque;
-    use std::sync::mpsc::{Receiver, RecvTimeoutError};
-    use std::sync::{Mutex, OnceLock};
-    use std::time::Duration;
+    use std::sync::Mutex;
     use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::ReadFile;
     use windows_sys::Win32::System::Console::*;
 
     fn handle(which: STD_HANDLE) -> HANDLE {
@@ -324,100 +321,96 @@ mod imp {
         }
     }
 
-    /// Console input can't be polled for bytes, so a thread reads it
-    /// (blocking) and hands over UTF-8; `None` marks the end of input.
+    /// Console input as UTF-8 bytes: with VT input on, every key, mouse
+    /// report and query reply arrives as key-down records carrying the
+    /// characters of its escape sequence. No thread reads ahead, so a
+    /// program we start in our place gets the console's input to itself.
     struct Input {
-        rx: Receiver<Option<Vec<u8>>>,
         buf: VecDeque<u8>,
-        eof: bool,
+        /// first half of a surrogate pair
+        high: Option<u16>,
     }
 
-    static INPUT: OnceLock<Mutex<Input>> = OnceLock::new();
+    static INPUT: Mutex<Input> = Mutex::new(Input { buf: VecDeque::new(), high: None });
 
-    fn input() -> &'static Mutex<Input> {
-        INPUT.get_or_init(|| {
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let h = handle(STD_INPUT_HANDLE) as usize;
-                let console = console_mode(h as HANDLE).is_some();
-                let mut high: Option<u16> = None;
-                loop {
-                    let mut out = Vec::new();
-                    if console {
-                        let mut w = [0u16; 512];
-                        let mut n = 0u32;
-                        if unsafe { ReadConsoleW(h as HANDLE, w.as_mut_ptr() as *mut _, w.len() as u32, &mut n, std::ptr::null()) } == 0 {
-                            let _ = tx.send(None);
-                            return;
+    /// Move the console's pending key characters into `i.buf`; false if the
+    /// console is gone.
+    fn drain_events(i: &mut Input) -> bool {
+        let h = handle(STD_INPUT_HANDLE);
+        loop {
+            let mut n = 0u32;
+            if unsafe { GetNumberOfConsoleInputEvents(h, &mut n) } == 0 {
+                return false;
+            }
+            if n == 0 {
+                return true;
+            }
+            let mut recs: [INPUT_RECORD; 64] = unsafe { std::mem::zeroed() };
+            let mut got = 0u32;
+            if unsafe { ReadConsoleInputW(h, recs.as_mut_ptr(), recs.len() as u32, &mut got) } == 0 {
+                return false;
+            }
+            for r in &recs[..got as usize] {
+                if r.EventType as u32 != KEY_EVENT as u32 {
+                    continue;
+                }
+                let k = unsafe { r.Event.KeyEvent };
+                let u = unsafe { k.uChar.UnicodeChar };
+                if k.bKeyDown == 0 || u == 0 {
+                    continue;
+                }
+                for _ in 0..k.wRepeatCount.max(1) {
+                    let units: Vec<u16> = match i.high.take() {
+                        Some(hi) => vec![hi, u],
+                        None if (0xD800..0xDC00).contains(&u) => {
+                            i.high = Some(u);
+                            continue;
                         }
-                        // UTF-16 to UTF-8, a surrogate pair may span reads
-                        let mut units: Vec<u16> = high.take().into_iter().collect();
-                        units.extend_from_slice(&w[..n as usize]);
-                        if units.last().is_some_and(|&u| (0xD800..0xDC00).contains(&u)) {
-                            high = units.pop();
-                        }
-                        for c in char::decode_utf16(units) {
-                            let mut b = [0u8; 4];
-                            out.extend_from_slice(c.unwrap_or('\u{FFFD}').encode_utf8(&mut b).as_bytes());
-                        }
-                    } else {
-                        let mut b = [0u8; 4096];
-                        let mut n = 0u32;
-                        if unsafe { ReadFile(h as HANDLE, b.as_mut_ptr(), b.len() as u32, &mut n, std::ptr::null_mut()) } == 0 || n == 0 {
-                            let _ = tx.send(None);
-                            return;
-                        }
-                        out.extend_from_slice(&b[..n as usize]);
-                    }
-                    if !out.is_empty() && tx.send(Some(out)).is_err() {
-                        return;
+                        None => vec![u],
+                    };
+                    for c in char::decode_utf16(units) {
+                        let mut b = [0u8; 4];
+                        i.buf.extend(c.unwrap_or('\u{FFFD}').encode_utf8(&mut b).as_bytes());
                     }
                 }
-            });
-            Mutex::new(Input { rx, buf: VecDeque::new(), eof: false })
-        })
+            }
+        }
     }
 
     /// Wait up to `timeout_ms` (-1: forever) for input. There is no Linux
     /// console mouse here: `extra` is ignored.
     pub fn poll(timeout_ms: i32, _extra: i32) -> Ready {
-        let mut i = input().lock().unwrap();
-        if !i.buf.is_empty() {
-            return Ready { input: true, ..Ready::default() };
-        }
-        if i.eof {
-            return Ready { hangup: true, ..Ready::default() };
-        }
-        let r = if timeout_ms < 0 { i.rx.recv().map_err(|_| RecvTimeoutError::Disconnected) } else { i.rx.recv_timeout(Duration::from_millis(timeout_ms as u64)) };
-        match r {
-            Ok(Some(b)) => {
-                i.buf.extend(b);
-                Ready { input: true, ..Ready::default() }
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+        let start = std::time::Instant::now();
+        let mut i = INPUT.lock().unwrap();
+        loop {
+            if !drain_events(&mut i) {
+                return Ready { hangup: true, ..Ready::default() };
             }
-            Ok(None) | Err(RecvTimeoutError::Disconnected) => {
-                i.eof = true;
-                Ready { hangup: true, ..Ready::default() }
+            if !i.buf.is_empty() {
+                return Ready { input: true, ..Ready::default() };
             }
-            Err(RecvTimeoutError::Timeout) => Ready::default(),
+            // other records (focus, resize, key releases) wake us too
+            let left = if timeout_ms < 0 { u32::MAX } else { (timeout_ms as u128).saturating_sub(start.elapsed().as_millis()) as u32 };
+            if timeout_ms >= 0 && left == 0 {
+                return Ready::default();
+            }
+            if unsafe { WaitForSingleObject(handle(STD_INPUT_HANDLE), left) } != WAIT_OBJECT_0 {
+                return Ready::default();
+            }
         }
     }
 
-    /// Bytes [`poll`] has collected; Ok(0) at the end of input.
+    /// Bytes [`poll`] has collected (Ok(0): the console is gone).
     pub fn read_stdin(b: &mut [u8]) -> std::io::Result<usize> {
-        let mut i = input().lock().unwrap();
+        let mut i = INPUT.lock().unwrap();
         if i.buf.is_empty() {
-            if i.eof {
+            if !drain_events(&mut i) {
                 return Ok(0);
             }
-            // nothing yet: take whatever the reader has without waiting
-            while let Ok(m) = i.rx.try_recv() {
-                match m {
-                    Some(v) => i.buf.extend(v),
-                    None => i.eof = true,
-                }
-            }
             if i.buf.is_empty() {
-                return if i.eof { Ok(0) } else { Err(std::io::ErrorKind::WouldBlock.into()) };
+                return Err(std::io::ErrorKind::WouldBlock.into());
             }
         }
         let n = b.len().min(i.buf.len());
