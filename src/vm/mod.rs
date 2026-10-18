@@ -31,6 +31,7 @@ pub mod builtins;
 pub mod datatable;
 pub mod erasav;
 pub mod save;
+pub mod textsav;
 pub mod system;
 pub mod value;
 pub mod vars;

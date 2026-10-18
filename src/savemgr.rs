@@ -33,7 +33,10 @@ impl SaveFile {
 /// The comment of an Emuera binary save, if it is one.
 pub fn comment_of(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
-    let mut r = crate::vm::erasav::Reader::open(&bytes)?;
+    let Some(mut r) = crate::vm::erasav::Reader::open(&bytes) else {
+        // Emuera's text format
+        return crate::vm::textsav::looks_like(&bytes).then(|| crate::vm::textsav::header(&bytes).ok().map(|h| h.2)).flatten();
+    };
     r.file_type().ok()?;
     r.raw_i64().ok()?;
     r.raw_i64().ok()?;
@@ -64,7 +67,7 @@ pub fn list(dir: &Path) -> Vec<SaveFile> {
         }
         let meta = e.metadata().ok();
         let path = e.path();
-        let comment = comment_of(&path).unwrap_or_else(|| "(not an Emuera binary save)".into());
+        let comment = comment_of(&path).unwrap_or_else(|| "(not an Emuera save)".into());
         v.push(SaveFile { slot, size: meta.as_ref().map_or(0, |m| m.len()), modified: meta.and_then(|m| m.modified().ok()), comment, path });
     }
     v.sort_by_key(|s| s.slot.unwrap_or(u32::MAX));

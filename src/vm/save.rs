@@ -168,6 +168,15 @@ fn wildcard(pat: &[char], s: &[char]) -> bool {
 /// Copy a saved array into `a`: cleared first (Emuera's `needInit`), then
 /// the saved elements that fit into `a`'s shape. A saved type or shape that
 /// doesn't match is skipped, as in Emuera.
+/// [`fill`] from a text save's values.
+fn fill_vals(a: &mut Arr, v: &super::textsav::Vals) {
+    use super::textsav::Vals;
+    match v {
+        Vals::I(d, x) => fill(a, d, &x.iter().copied().enumerate().filter(|p| p.1 != 0).collect::<Vec<_>>(), &[], false),
+        Vals::S(d, x) => fill(a, d, &[], &x.iter().cloned().enumerate().filter(|p| !p.1.is_empty()).collect::<Vec<_>>(), true),
+    }
+}
+
 fn fill(a: &mut Arr, dims: &[usize], ints: &[(usize, i64)], strs: &[(usize, String)], is_str: bool) {
     if is_str != a.is_str() {
         return;
@@ -268,7 +277,18 @@ impl Vm {
     fn open_save(&self, path: &Path, ft: FileType) -> (SaveCheck, Option<Reader>) {
         let Ok(bytes) = fs::read(path) else { return (SaveCheck::missing(), None) };
         let Some(mut r) = Reader::open(&bytes) else {
-            return (SaveCheck::broken("not an Emuera binary save (text-format saves aren't supported)"), None);
+            // Emuera's text format (games that don't save in binary)
+            if !super::textsav::looks_like(&bytes) {
+                return (SaveCheck::broken("セーブデータが壊れています"), None);
+            }
+            let Ok((code, version, text)) = super::textsav::header(&bytes) else { return (SaveCheck::broken("セーブデータが壊れています"), None) };
+            if code != 0 && code != self.game_code() {
+                return (SaveCheck { state: 2, mes: "異なるゲームのセーブデータです".into(), version }, None);
+            }
+            if !self.version_ok(version) {
+                return (SaveCheck { state: 3, mes: "セーブデータのバーションが異なります".into(), version }, None);
+            }
+            return (SaveCheck { state: 0, mes: text, version }, None);
         };
         let head = (|| -> Result<(FileType, i64, i64, String), String> { Ok((r.file_type()?, r.raw_i64()?, r.raw_i64()?, r.string()?)) })();
         let Ok((t, code, version, text)) = head else { return (SaveCheck::broken("セーブデータが壊れています"), None) };
@@ -535,6 +555,9 @@ impl Vm {
         }
         let (chk, r) = self.open_save(&path, FileType::Normal);
         let Some(mut r) = r else {
+            if chk.state == 0 {
+                return self.load_text_slot(n, &path, chk);
+            }
             if chk.state != 1 {
                 self.warn(&format!("save {}: {}", n, chk.mes));
             }
@@ -565,6 +588,31 @@ impl Vm {
         Ok(true)
     }
 
+    /// Load slot `n` from an Emuera text-format save.
+    fn load_text_slot(&mut self, n: i64, path: &Path, chk: SaveCheck) -> VmResult<bool> {
+        let bytes = fs::read(path).map_err(|e| Ctrl::Error(format!("{}: {}", path.display(), e), false))?;
+        let s = super::textsav::parse(&bytes).map_err(|e| Ctrl::Error(format!("loading {}: {}", path.display(), e), false))?;
+        self.init_data();
+        self.charas.clear();
+        self.clear_em(false);
+        for (c, vars) in s.charas.into_iter().enumerate() {
+            self.charas.push(Chara::default());
+            for (k, v) in vars {
+                if system_var(&k).is_some_and(|d| d.chara) {
+                    fill_vals(self.chara_arr(c, &k), &v);
+                }
+            }
+        }
+        for (k, v) in s.vars {
+            let known = SAVED_GLOBALS.contains(&k.as_str()) || self.user_dims.get(&k).is_some_and(|d| !d.is_chara && !d.is_global && d.is_savedata && !d.is_const);
+            if known {
+                fill_vals(self.global_arr(&k), &v);
+            }
+        }
+        self.set_lastload(n, chk.mes, chk.version);
+        Ok(true)
+    }
+
     fn set_lastload(&mut self, n: i64, text: String, version: i64) {
         self.globals.entry("LASTLOAD_TEXT".into()).or_insert_with(|| Arr::new(true, &[1])).set(0, Value::Str(text));
         self.globals.entry("LASTLOAD_NO".into()).or_insert_with(|| Arr::new(false, &[1])).set(0, Value::Int(n));
@@ -584,8 +632,20 @@ impl Vm {
                 _ => Ok(false),
             };
         }
-        let (_, r) = self.open_save(&path, FileType::Global);
-        let Some(mut r) = r else { return Ok(false) };
+        let (chk, r) = self.open_save(&path, FileType::Global);
+        let Some(mut r) = r else {
+            if chk.state != 0 {
+                return Ok(false);
+            }
+            // a text-format global.sav
+            let Ok(s) = fs::read(&path).map_err(|e| e.to_string()).and_then(|b| super::textsav::parse_global(&b)) else { return Ok(false) };
+            for (k, v) in s.vars {
+                if k == "GLOBAL" || k == "GLOBALS" || self.user_dims.get(&k).is_some_and(|d| !d.is_chara && d.is_global && d.is_savedata) {
+                    fill_vals(self.global_arr(&k), &v);
+                }
+            }
+            return Ok(true);
+        };
         self.clear_em(true);
         let res = (|| -> Result<(), String> {
             self.read_section(&mut r, true)?;
