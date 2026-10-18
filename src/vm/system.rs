@@ -226,14 +226,49 @@ impl Vm {
         }
     }
 
-    /// Clear the per-training temporaries at the start of TRAIN.
+    /// STAIN's starting values: `_Replace.csv` 汚れの初期値 (`a/b/c…`),
+    /// else Emuera's 0/0/2/1/8.
+    pub fn stain_default(&self) -> Vec<i64> {
+        match self.csv.replace.get("汚れの初期値") {
+            Some(s) => s.split('/').filter_map(|x| x.trim().parse().ok()).collect(),
+            None => vec![0, 0, 2, 1, 8],
+        }
+    }
+
+    /// Character `c`'s STAIN back to the defaults (RESET_STAIN, TRAIN start).
+    pub fn set_default_stain(&mut self, c: usize) {
+        let d = self.stain_default();
+        let a = self.chara_arr(c, "STAIN");
+        a.clear();
+        for (i, v) in d.into_iter().enumerate().take(a.len()) {
+            a.set_i(i, v);
+        }
+    }
+
+    /// The start of TRAIN (Emuera's UpdateInBeginTrain): every character's
+    /// training temporaries, not just TARGET's.
     fn train_reset(&mut self) {
         self.set_global_i("ASSIPLAY", 0, 0);
         self.set_global_i("PREVCOM", 0, -1);
         self.set_global_i("NEXTCOM", 0, -1);
         self.global_arr("TFLAG").clear();
+        self.global_arr("TSTR").clear();
         for c in 0..self.charas.len() {
-            for v in ["TEQUIP", "PALAM", "SOURCE", "GOTJUEL", "NOWEX", "EX"] {
+            for v in ["GOTJUEL", "TEQUIP", "EX", "PALAM", "SOURCE", "TCVAR"] {
+                self.chara_arr(c, v).clear();
+            }
+            self.set_default_stain(c);
+        }
+    }
+
+    /// After SHOW_USERCOM (and before DOTRAIN): UP, DOWN, LOSEBASE and the
+    /// characters' DOWNBASE, CUP, CDOWN start from zero.
+    pub fn train_after_usercom(&mut self) {
+        for v in ["UP", "DOWN", "LOSEBASE"] {
+            self.global_arr(v).clear();
+        }
+        for c in 0..self.charas.len() {
+            for v in ["DOWNBASE", "CUP", "CDOWN"] {
                 self.chara_arr(c, v).clear();
             }
         }
@@ -251,39 +286,42 @@ impl Vm {
         }
     }
 
-    /// Run training command `n`: @EVENTCOM, @COMn, @SOURCE_CHECK, @EVENTCOMEND.
+    /// Run training command `n` as Emuera does: NOWEX cleared, @EVENTCOM,
+    /// @COMn; if that succeeded (RESULT ≠ 0) @SOURCE_CHECK, SOURCE cleared,
+    /// @EVENTCOMEND and a WAIT so its text can be read. PREVCOM is the
+    /// script's business.
     pub fn do_train_command(&mut self, n: i64) -> VmResult<()> {
-        self.set_global_i("SELECTCOM", 0, n);
-        self.global_arr("UP").clear();
-        self.global_arr("DOWN").clear();
-        self.global_arr("LOSEBASE").clear();
-        let t = self.target();
-        if t >= 0 && (t as usize) < self.charas.len() {
-            self.chara_arr(t as usize, "SOURCE").clear();
+        for c in 0..self.charas.len() {
+            self.chara_arr(c, "NOWEX").clear();
         }
+        self.set_global_i("SELECTCOM", 0, n);
         self.call_opt("EVENTCOM")?;
         self.set_result(1);
         self.call_name(&format!("COM{}", n), vec![])?;
         if self.get_global_i("RESULT", 0) != 0 {
             self.call_opt("SOURCE_CHECK")?;
-            // like Emuera: wait after @EVENTCOMEND so its text can be read.
-            // PREVCOM is the script's business (games set it in EVENTCOMEND).
-            if self.call_opt("EVENTCOMEND")? {
-                self.con.skip_disp = false;
-                self.wait()?;
+            for c in 0..self.charas.len() {
+                self.chara_arr(c, "SOURCE").clear();
             }
+            self.call_opt("EVENTCOMEND")?;
+            self.con.skip_disp = false;
+            self.wait()?;
         }
         Ok(())
     }
 
-    /// TRAIN: list the available commands, run the chosen one, repeat.
+    /// TRAIN: the commands TRAIN.csv defines that @COM_ABLEn allows, listed
+    /// with their position among TRAIN.csv's entries (that is the number
+    /// typed, as in Emuera); any other number goes to @USERCOM. NEXTCOM ≥ 0
+    /// runs that command first and is set to 0 (eramaker's rule: a script
+    /// that doesn't reset it repeats it).
     fn train(&mut self) -> VmResult<String> {
         self.train_reset();
         self.call_opt("EVENTTRAIN")?;
         loop {
             let next = self.get_global_i("NEXTCOM", 0);
             if next >= 0 {
-                self.set_global_i("NEXTCOM", 0, -1);
+                self.set_global_i("NEXTCOM", 0, 0);
                 self.do_train_command(next)?;
                 continue;
             }
@@ -295,17 +333,19 @@ impl Vm {
                 .map(|t| t.by_index.iter().map(|(k, v)| (*k, v.clone())).collect())
                 .unwrap_or_default();
             coms.sort();
-            let mut avail = Vec::new();
-            let mut col = 0;
-            for (i, name) in coms {
-                if self.com_able(i)? {
-                    let s = crate::vm::pad(&format!("{}[{:3}]", name, i), self.con.printc_len, crate::ast::Align::Right);
+            // position in TRAIN.csv → command number, for the allowed ones
+            let mut avail: Vec<Option<i64>> = vec![None; coms.len()];
+            let per_line = self.con.printc_per_line.max(1);
+            let mut shown = 0;
+            for (k, (id, name)) in coms.into_iter().enumerate() {
+                if self.com_able(id)? {
+                    avail[k] = Some(id);
+                    let s = crate::vm::pad(&format!("{}[{:3}]", name, k), self.con.printc_len, crate::ast::Align::Right);
                     self.con.print(&s);
-                    col += 1;
-                    if col % 3 == 0 {
+                    shown += 1;
+                    if shown % per_line == 0 {
                         self.con.newline();
                     }
-                    avail.push(i);
                 }
             }
             if !self.con.cur.is_empty() {
@@ -313,12 +353,14 @@ impl Vm {
             }
             self.call_opt("SHOW_USERCOM")?;
             self.con.skip_disp = false;
+            self.train_after_usercom();
             let v = self.input_int(None, None, false)?;
-            if avail.contains(&v) {
-                self.do_train_command(v)?;
-            } else {
-                self.set_result(v);
-                self.call_opt("USERCOM")?;
+            match usize::try_from(v).ok().and_then(|k| avail.get(k).copied().flatten()) {
+                Some(id) => self.do_train_command(id)?,
+                None => {
+                    self.set_result(v);
+                    self.call_opt("USERCOM")?;
+                }
             }
         }
     }

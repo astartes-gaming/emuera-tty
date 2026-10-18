@@ -943,6 +943,7 @@ impl Vm {
             }
             "DOTRAIN" => {
                 let n = self.ai(a, 0, 0)?;
+                self.train_after_usercom();
                 self.do_train_command(n)?;
             }
             "CALLTRAIN" | "STOPCALLTRAIN" => self.warn(&format!("{} not implemented", name)),
@@ -1356,8 +1357,9 @@ impl Vm {
             }
             "RESET_STAIN" => {
                 let c = self.ai(a, 0, 0)?;
+                // back to _Replace.csv's 汚れの初期値, as Emuera
                 if c >= 0 && (c as usize) < self.charas.len() {
-                    self.chara_arr(c as usize, "STAIN").clear();
+                    self.set_default_stain(c as usize);
                 }
             }
             "UPCHECK" | "CUPCHECK" => self.upcheck(name == "CUPCHECK", a)?,
