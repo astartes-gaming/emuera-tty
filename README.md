@@ -412,12 +412,19 @@ core (AnonTW loads in about a second instead of five, and takes about
 `EMUERA_THREADS=N` caps the thread count, and `EMUERA_TIMING=1` prints
 how long each loading phase took. Running the script itself is one
 thread by nature (every line may read what the previous one wrote), but
-pictures a screen needs are decoded and scaled on all cores, and the
-interpreter caches how each variable name resolves in each function. `EMUERA_SEED=N` fixes the random
+pictures a screen needs are decoded and scaled on all cores. The
+interpreter resolves each variable once (a reference remembers its global
+or per-function slot), jumps straight to the matching CASE of a
+SELECTCASE made of constants, and avoids copying strings when comparing,
+calling functions or querying DataTables: on AnonTW's shop screens it runs
+about three times faster than the first versions. `EMUERA_SEED=N` fixes the random
 number seed, so a run can be repeated exactly (tests, bug reports).
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
-self-test; `emuera-tty sample --headless --echo` plays the sample in plain
+self-test; `cargo build --profile fastbuild --features profile` makes a
+quick-to-build optimised binary whose `EMUERA_PPROF=<file>` writes a
+sampling profile of the engine itself (time per Rust function and caller
+→ callee pairs); `emuera-tty sample --headless --echo` plays the sample in plain
 text.
 
 ### Mouse
@@ -566,9 +573,10 @@ statements as a function `@__INJECT` just before the n-th input.
 2. Play deeper into AnonTW and pops-tw. AnonTW's 5 remaining parse errors
    and pops-tw's 16 are mistakes in the games' own scripts (Emuera reports
    them too).
-3. Speed of script-heavy games: pops-tw's new game takes about half a
-   minute of CPU (its own object system makes many thousands of dynamic
-   calls).
+3. Speed of script-heavy games: pops-tw's new game takes about 20 seconds
+   of CPU (its own object system looks names up in 1000-entry arrays
+   hundreds of thousands of times); compiling variables to slots ahead of
+   time would be the next step.
 4. `DOTRAIN` jumping back into the TRAIN loop as in Emuera (it runs the
    command in place here).
 5. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
