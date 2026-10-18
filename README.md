@@ -228,6 +228,11 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   under the mouse are highlighted.
 - **Continue** (when the game waits after text, `▼ (Enter)` at the
   bottom): Enter, any key, or a click.
+- **Skip to the next choice**: right-click (or Tab) where the game waits:
+  the text that follows runs by without stopping until the game asks for
+  a number or a choice, as Emuera's right click does. Right-clicking a
+  choice picks it and skips the text after it. (A `FORCEWAIT` still
+  stops, and the EE `INPUT default, mouse, canskip` takes its default.)
 - **Scroll back** through earlier text: PgUp / PgDn, ↑ / ↓, Home / End or
   the mouse wheel. A `[scroll -N]` tag shows you're looking at history;
   End jumps back.
@@ -272,8 +277,26 @@ running game:
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
 | Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
 
-The overlay also has *Manage saves…* (below), *Switch game…* and *Quit*.
-Command-line options and `EMUERA_*` variables override saved settings.
+The overlay also has *Game settings…* and *Manage saves…* (below),
+*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
+override saved settings.
+
+### Game settings (Emuera's settings window)
+
+*Game settings…* in the F1 overlay lists the options of Emuera's own
+settings window, as the game has them: window width, font, font size,
+line height, the colours, history lines, PRINTC layout, button wrapping,
+autosaves, the save folder and compression, the clipboard options, and
+the ones only Emuera.exe uses (window height, FPS, the menu bar,
+keyboard macros, …, marked *Emuera.exe*). Each shows where its value
+comes from: Emuera's default, the game's (`CSV/_default.config`),
+*changed* (yours) or *fixed* (`CSV/_fixed.config`, which the game doesn't
+let you change). Enter toggles YES / NO or asks for a number, a colour
+(`R,G,B` or `#RRGGBB`) or text; an empty answer puts the game's value
+back. Changes go into the game's `emuera.config`, as Emuera's settings
+window writes them (UTF-8, in the game's choice of Japanese or English
+keys, other lines kept), so Emuera.exe sees them too; the running game
+takes them at once.
 
 ### Copying text to the clipboard
 
@@ -566,6 +589,15 @@ Images are sized in Emuera's coordinate space (font-size–relative, as in
 `HTML_PRINT <img height=…>`) and scaled by `terminal cell height / Emuera
 line height`, so layouts keep their proportions. `emuera.config` font size /
 line height / colours are honoured.
+
+Pictures that overlap, like a portrait's layers (body, face, blush, a
+frame, the tint while time is stopped, each printed on its own line and
+moved onto the first with `ypos`), are blended into one picture before
+they are sent, back to front as Emuera draws them. Terminals stack
+separate pictures by rules of their own (kitty by image id, Konsole by
+which was placed last), so a re-sent layer could land on top of the
+others; one picture can't. It also helps sixel and iTerm2, which can't
+stack transparent pictures at all.
 
 **fbcon caveat:** the in-kernel console can't draw CJK glyphs. For
 eratohoTW's Japanese/Chinese text on a bare VT, run under **fbterm** (still

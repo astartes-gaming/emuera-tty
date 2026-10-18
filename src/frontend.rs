@@ -31,6 +31,8 @@ pub struct InputReq {
     /// it like an ordinary input for now.
     #[allow(dead_code)]
     pub mouse: bool,
+    /// FORCEWAIT: a wait message skipping stops at
+    pub stop_skip: bool,
 }
 
 /// What INPUTMOUSEKEY reports (Emuera's RESULT:0 = 1 click, 2 wheel,
@@ -66,6 +68,10 @@ pub fn char_keycode(c: char) -> (i64, i64) {
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputResult {
     Text(String),
+    /// the input, given with a right click (or Tab): from here on the WAIT
+    /// family passes by itself until an input needs a value (Emuera's
+    /// message skip)
+    Skip(String),
     Timeout,
     Quit,
     /// the player pressed an Emuera-Anchor hotkey the VM acts on
@@ -79,6 +85,8 @@ pub enum Hotkey {
     Title,
     /// F5 / Ctrl-E: read the ERB files again, keeping the game's state
     Reload,
+    /// the game's settings (emuera.config) were changed: read them again
+    Config,
 }
 
 pub trait Frontend {
@@ -115,12 +123,12 @@ pub trait Frontend {
     /// timeout. Without a mouse: a typed number counts as clicking that
     /// button, Enter / other text as key presses.
     fn input_raw(&mut self, con: &mut Console, res: &mut Resources, timeout_ms: Option<u64>) -> RawInput {
-        let req = InputReq { kind: InputKind::Str, one: false, timeout_ms, mouse: true };
+        let req = InputReq { kind: InputKind::Str, one: false, timeout_ms, mouse: true, stop_skip: false };
         match self.input(con, res, &req) {
             InputResult::Quit => RawInput::Quit,
             InputResult::Hotkey(h) => RawInput::Hotkey(h),
             InputResult::Timeout => RawInput::Timeout,
-            InputResult::Text(t) => match t.trim().parse::<i64>() {
+            InputResult::Text(t) | InputResult::Skip(t) => match t.trim().parse::<i64>() {
                 Ok(v) => RawInput::Click { btn: 0, cell: (0, 0), button: Some(crate::vm::value::Value::Int(v)) },
                 Err(_) => {
                     let (code, data) = t.chars().next().map(char_keycode).unwrap_or((13, 13));

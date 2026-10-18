@@ -635,6 +635,8 @@ enum Key {
     PageDown,
     Home,
     End,
+    /// Tab: continue and skip messages up to the next choice
+    Skip,
     Other,
 }
 
@@ -1233,6 +1235,7 @@ impl Retro {
             }
             b'\n' => Key::Enter,
             0x08 | 0x7f => Key::Backspace,
+            0x09 => Key::Skip,
             0x03 => Key::CtrlC,
             0x0c => Key::CtrlL,
             0x15 => Key::CtrlU,
@@ -1301,6 +1304,7 @@ impl Retro {
             let Some(k) = self.next_key(wait) else { continue };
             match k {
                 Key::CtrlC => return done(self, InputResult::Quit),
+                Key::Skip if req.kind == InputKind::Wait => return done(self, InputResult::Skip(String::new())),
                 _ if req.kind == InputKind::Wait => return done(self, InputResult::Text(String::new())),
                 Key::Enter => {
                     let s = std::mem::take(&mut self.buf);
@@ -1385,6 +1389,7 @@ impl Frontend for Retro {
                 Key::Down => self.scroll = self.scroll.saturating_sub(1),
                 Key::Home => self.scroll = usize::MAX / 2,
                 Key::End => self.scroll = 0,
+                Key::Skip if req.kind == InputKind::Wait => return InputResult::Skip(String::new()),
                 _ if req.kind == InputKind::Wait => {
                     if k != Key::Other {
                         return InputResult::Text(String::new());
@@ -1402,7 +1407,7 @@ impl Frontend for Retro {
                     }
                     self.buf.push(c);
                 }
-                Key::Other => redraw = false,
+                Key::Other | Key::Skip => redraw = false,
             }
             // a burst of typing is drawn once it has all been read
             if redraw && self.pending.is_empty() {

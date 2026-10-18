@@ -285,6 +285,17 @@ impl Vm {
                 self.reload_erb();
                 Ok(())
             }
+            crate::frontend::Hotkey::Config => {
+                self.reload_config();
+                Ok(())
+            }
+        }
+    }
+
+    /// Read the game's settings again (changed on the settings page).
+    pub fn reload_config(&mut self) {
+        if let Some(csv) = crate::loader::find_dir_ci(&self.game_dir, "CSV") {
+            crate::emuconfig::load(&self.game_dir, &csv, &mut self.con, &mut self.text_exts, &mut self.save_opts);
         }
     }
 
@@ -1848,6 +1859,14 @@ impl Vm {
                 return err("input was requested while SKIPDISP is on");
             }
         }
+        // message skip (a right click, SKIPLOG 1): the WAIT family passes
+        // by itself until an input needs a value or a FORCEWAIT, as in Emuera
+        if self.mes_skip {
+            if req.kind == InputKind::Wait && !req.stop_skip {
+                return Ok(Some(String::new()));
+            }
+            self.mes_skip = false;
+        }
         // debugging aid (see main.rs): run @__INJECT at input number N
         self.inputs_seen += 1;
         if let Some(n) = self.inject_at {
@@ -1885,6 +1904,11 @@ impl Vm {
                 self.last_input = s.clone();
                 Ok(Some(s))
             }
+            InputResult::Skip(s) => {
+                self.mes_skip = true;
+                self.last_input = s.clone();
+                Ok(Some(s))
+            }
             InputResult::Timeout => Ok(None),
             InputResult::Quit => Err(Ctrl::Quit),
             InputResult::Hotkey(h) => {
@@ -1896,10 +1920,15 @@ impl Vm {
 
     /// WAIT: show everything, continue on any key / click.
     pub fn wait(&mut self) -> VmResult<()> {
+        self.wait_ex(false)
+    }
+
+    /// WAIT, or FORCEWAIT (`force`: message skipping stops here).
+    pub fn wait_ex(&mut self, force: bool) -> VmResult<()> {
         if !self.con.cur.is_empty() {
             self.con.newline();
         }
-        self.raw_input(&InputReq { kind: InputKind::Wait, one: true, timeout_ms: None, mouse: false })?;
+        self.raw_input(&InputReq { kind: InputKind::Wait, one: true, timeout_ms: None, mouse: false, stop_skip: force })?;
         Ok(())
     }
 
@@ -1907,7 +1936,7 @@ impl Vm {
     /// the default; full-width digits are accepted. Callers store RESULT.
     pub fn input_int(&mut self, default: Option<i64>, timeout: Option<u64>, one: bool) -> VmResult<i64> {
         loop {
-            let r = self.raw_input(&InputReq { kind: InputKind::Int, one, timeout_ms: timeout, mouse: false })?;
+            let r = self.raw_input(&InputReq { kind: InputKind::Int, one, timeout_ms: timeout, mouse: false, stop_skip: false })?;
             self.is_timeout = r.is_none();
             let s = match r {
                 None => return Ok(default.unwrap_or(0)),
@@ -1937,7 +1966,7 @@ impl Vm {
     /// INPUTS-style string input; empty input gives the default. Callers
     /// store RESULTS.
     pub fn input_str(&mut self, default: Option<String>, timeout: Option<u64>, one: bool) -> VmResult<String> {
-        let r = self.raw_input(&InputReq { kind: InputKind::Str, one, timeout_ms: timeout, mouse: false })?;
+        let r = self.raw_input(&InputReq { kind: InputKind::Str, one, timeout_ms: timeout, mouse: false, stop_skip: false })?;
         self.is_timeout = r.is_none();
         Ok(match r {
             None => default.unwrap_or_default(),

@@ -64,20 +64,37 @@ impl Backend for Kitty {
     }
     fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
         let (cw, ch) = (cell.0.max(1), cell.1.max(1));
-        // this frame's placements, per image
-        let mut want: HashMap<u32, Vec<String>> = HashMap::new();
+        // this frame's placements, per image, in the order given (back to
+        // front: overlapping pictures arrive merged, see `Merger`)
+        let mut want: Vec<(u32, Vec<String>)> = Vec::new();
+        let n_below = ps.iter().filter(|p| p.below).count() as i64;
+        let mut below_k = 0i64;
         for p in ps {
             if p.crop_h == 0 || p.row < 0 {
                 continue;
             }
+            // background layers stack in their order, all under the text
+            let z = if p.below {
+                below_k += 1;
+                format!(",z={}", below_k - 1 - n_below)
+            } else {
+                String::new()
+            };
             let id = self.transmit(out, p);
+            let at = match want.iter().position(|w| w.0 == id) {
+                Some(k) => k,
+                None => {
+                    want.push((id, Vec::new()));
+                    want.len() - 1
+                }
+            };
             // `c`/`r`: the box (in cells) the layout reserved; the terminal
             // scales the picture into it, so its size doesn't depend on our
             // guess of the cell size in pixels (Konsole on scaled displays,
             // terminals that report no pixel size)
             let cols = p.img.width().div_ceil(cw).max(1);
             let rows = p.crop_h.div_ceil(ch).max(1);
-            want.entry(id).or_default().push(format!(
+            want[at].1.push(format!(
                 "\x1b[{};{}H\x1b_Ga=p,i={},q=2,C=1,y={},h={},c={},r={},Y={}{}\x1b\\",
                 p.row + 1,
                 p.col + 1,
@@ -88,11 +105,11 @@ impl Backend for Kitty {
                 rows,
                 p.y_off.max(0),
                 // under the text (above cell backgrounds): z < 0
-                if p.below { ",z=-1" } else { "" }
+                z
             ));
         }
         // images no longer shown
-        let gone: Vec<u32> = self.shown.keys().filter(|id| !want.contains_key(id)).copied().collect();
+        let gone: Vec<u32> = self.shown.keys().filter(|id| !want.iter().any(|w| w.0 == **id)).copied().collect();
         for id in gone {
             let _ = write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", id);
             self.shown.remove(&id);

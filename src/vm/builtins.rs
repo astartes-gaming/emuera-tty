@@ -643,6 +643,17 @@ impl Vm {
             "INPUT" | "TINPUT" | "ONEINPUT" | "TONEINPUT" => {
                 let timed = name.starts_with('T');
                 let one = name.contains("ONE");
+                // EE: `INPUT default, mouse, canskip` takes the default
+                // while messages are being skipped
+                if !timed && self.mes_skip && a.len() >= 3 && self.ai(a, 2, 0)? != 0 {
+                    let d = self.ai(a, 0, 0)?;
+                    if self.ai(a, 1, 0)? == 0 {
+                        self.set_result(d);
+                    } else {
+                        self.set_global_i("RESULT", 1, d);
+                    }
+                    return Ok(());
+                }
                 let (timeout, default) = if timed {
                     (Some(self.ai(a, 0, 1000)?.max(0) as u64), Some(self.ai(a, 1, 0)?))
                 } else {
@@ -659,6 +670,15 @@ impl Vm {
             "INPUTS" | "TINPUTS" | "ONEINPUTS" | "TONEINPUTS" => {
                 let timed = name.starts_with('T');
                 let one = name.contains("ONE");
+                if !timed && self.mes_skip && a.len() >= 3 && self.ai(a, 2, 0)? != 0 {
+                    let d = self.as_(a, 0, "")?;
+                    if self.ai(a, 1, 0)? == 0 {
+                        self.set_results(d);
+                    } else {
+                        self.global_arr("RESULTS").set(1, Value::Str(d));
+                    }
+                    return Ok(());
+                }
                 let (timeout, default) = if timed {
                     (Some(self.ai(a, 0, 1000)?.max(0) as u64), self.arg(a, 1)?.map(|v| v.into_string()))
                 } else {
@@ -817,7 +837,7 @@ impl Vm {
             // as in Emuera, which doesn't implement these either
             "REF" | "REFBYNAME" | "SAVEVAR" | "LOADVAR" => return err(format!("{} is not implemented (in Emuera neither)", name)),
             "CALLSHARP" => return err("CALLSHARP: C# plugins can't run in emuera-tty"),
-            "WAIT" | "FORCEWAIT" | "WAITANYKEY" => self.wait()?,
+            "WAIT" | "FORCEWAIT" | "WAITANYKEY" => self.wait_ex(name == "FORCEWAIT")?,
             "AWAIT" => {
                 // Emuera-EE: show what's printed so far and pause (no input);
                 // at most 10 s. Headless runs don't sleep.
@@ -898,6 +918,7 @@ impl Vm {
                     one: true,
                     timeout_ms: Some(t),
                     mouse: false,
+                    stop_skip: false,
                 })?;
             }
             // RESULT:0 = 1 click (1: button 0x100000 left / 0x200000 right /
@@ -906,6 +927,8 @@ impl Vm {
             // (1: ±120, 2-3: x, y), 3 key (1: KeyCode, 2: KeyData), 4 timeout
             "INPUTMOUSEKEY" => {
                 use crate::frontend::RawInput;
+                // (an input that needs a value: message skipping ends)
+                self.mes_skip = false;
                 let to = self.arg(a, 0)?.map(|v| v.as_int()).filter(|&t| t > 0).map(|t| t as u64);
                 self.fe.flush(&mut self.con, &mut self.res);
                 let r = loop {

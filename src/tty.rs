@@ -24,6 +24,7 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
+mod gamecfg;
 mod saves;
 
 /// How many rows above / below the view are searched for images that
@@ -205,6 +206,8 @@ enum Key {
     Title,
     Restart,
     Reload,
+    /// Tab: continue and skip messages until a choice (as a right click)
+    Skip,
     Mouse { btn: u16, x: u16, y: u16, press: bool },
     Other,
 }
@@ -212,6 +215,8 @@ enum Key {
 /// What the settings overlay asks the input loop to do next.
 enum OverlayExit {
     Close,
+    /// the game's settings (emuera.config) changed
+    Config,
     Title,
     Restart,
     Reload,
@@ -257,6 +262,8 @@ pub struct Tty {
     /// hover colour), the images, the pointer cell and the input cursor
     frame: Vec<Vec<(usize, Cell, Option<Rgb>)>>,
     frame_imgs: Vec<Placement>,
+    /// makes overlapping pictures into one (see `gfx::Merger`)
+    merger: crate::gfx::Merger,
     drawn_pointer: Option<(usize, usize)>,
     frame_cursor: Option<(usize, usize)>,
     /// the window background for this frame (None: the terminal's own)
@@ -427,6 +434,7 @@ impl Tty {
             fb_cell_fixed: false,
             frame: Vec::new(),
             frame_imgs: Vec::new(),
+            merger: Default::default(),
             drawn_pointer: None,
             frame_cursor: None,
             screen_bg: None,
@@ -801,6 +809,9 @@ impl Tty {
             0x14 => (Key::Title, 1),
             0x12 => (Key::Restart, 1),
             0x05 => (Key::Reload, 1),
+            0x09 => (Key::Skip, 1),
+            // Ctrl-U: clear the line being typed
+            0x15 => (Key::Char('\u{15}'), 1),
             c if c < 0x20 => (Key::Other, 1),
             c => {
                 let len = if c >= 0xf0 {
@@ -1300,6 +1311,8 @@ impl Tty {
             let tag = format!(" [scroll -{}] ", self.scroll);
             let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
         }
+        // overlapping layers (portraits) go to the terminal as one picture
+        let placements = self.merger.merge(placements, self.cell);
         if self.force_frame {
             self.gfx.reset(&mut out);
         }
@@ -1737,6 +1750,7 @@ impl Tty {
         use crate::settings::{Settings, ITEMS};
         let mut st = Settings::load();
         let extra = [
+            "Game settings…  (Emuera's settings window: emuera.config)",
             "Manage saves…  (copy, export, back up, restore)",
             "Back to the title  (Ctrl-T)",
             "Restart the game  (Ctrl-R)",
@@ -1799,15 +1813,26 @@ impl Tty {
                     0 => {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
+                        } else {
+                            match self.game_settings(con, res, req) {
+                                (_, true) => break OverlayExit::Quit,
+                                (true, false) => break OverlayExit::Config,
+                                _ => {}
+                            }
+                        }
+                    }
+                    1 => {
+                        if self.game.is_none() {
+                            note = "no game folder known here".into();
                         } else if self.save_manager(con, res, req) {
                             break OverlayExit::Quit;
                         }
                     }
-                    1 => break OverlayExit::Title,
-                    2 => break OverlayExit::Restart,
-                    3 => break OverlayExit::Reload,
-                    4 => break OverlayExit::SwitchGame,
-                    5 => break OverlayExit::Quit,
+                    2 => break OverlayExit::Title,
+                    3 => break OverlayExit::Restart,
+                    4 => break OverlayExit::Reload,
+                    5 => break OverlayExit::SwitchGame,
+                    6 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }
@@ -2139,6 +2164,7 @@ impl Frontend for Tty {
                         redraw = true;
                     }
                     OverlayExit::Reload => return InputResult::Hotkey(crate::frontend::Hotkey::Reload),
+                    OverlayExit::Config => return InputResult::Hotkey(crate::frontend::Hotkey::Config),
                     OverlayExit::Quit => return InputResult::Quit,
                     OverlayExit::SwitchGame => {
                         // start over on the launcher (this game's unsaved
@@ -2198,9 +2224,25 @@ impl Frontend for Tty {
                                 return InputResult::Text(v.to_string());
                             }
                         }
-                        2 if press && req.kind == InputKind::Wait => return InputResult::Text(String::new()),
+                        // a right click: as Emuera, continue and skip the
+                        // following waits up to the next choice; on a
+                        // button, choose it and skip after it
+                        2 if press => {
+                            if req.kind == InputKind::Wait {
+                                self.scroll = 0;
+                                return InputResult::Skip(String::new());
+                            }
+                            if let Some(b) = self.button_at(x, y) {
+                                let v = self.buttons[b].clone();
+                                return InputResult::Skip(v.to_string());
+                            }
+                        }
                         _ => {}
                     }
+                }
+                Key::Skip if req.kind == InputKind::Wait => {
+                    self.scroll = 0;
+                    return InputResult::Skip(String::new());
                 }
                 _ if req.kind == InputKind::Wait => {
                     if !matches!(k, Key::Other | Key::Left | Key::Right) {
@@ -2216,6 +2258,10 @@ impl Frontend for Tty {
                     redraw = true;
                 }
                 Key::Esc => {
+                    self.buf.clear();
+                    redraw = true;
+                }
+                Key::Char('\u{15}') => {
                     self.buf.clear();
                     redraw = true;
                 }
@@ -2274,7 +2320,7 @@ impl Frontend for Tty {
             match k {
                 Key::CtrlC => return RawInput::Quit,
                 Key::Title | Key::Restart | Key::Reload => {
-                    let req = InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true };
+                    let req = InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true, stop_skip: false };
                     let r = self.anchor_hotkey(con, res, &req, &k);
                     self.force_frame = true;
                     self.render(con, res, None);
@@ -2285,8 +2331,9 @@ impl Frontend for Tty {
                     }
                 }
                 Key::Settings => {
-                    match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true }) {
+                    match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true, stop_skip: false }) {
                         OverlayExit::Quit => return RawInput::Quit,
+                        OverlayExit::Config => return RawInput::Hotkey(crate::frontend::Hotkey::Config),
                         _ => {
                             self.force_frame = true;
                             self.render(con, res, None);
@@ -2329,6 +2376,7 @@ impl Frontend for Tty {
                 Key::Up => return key(38),
                 Key::Right => return key(39),
                 Key::Down => return key(40),
+                Key::Skip => return key(9),
                 Key::Char(c) => {
                     let (code, data) = char_keycode(c);
                     return RawInput::Key { code, data };

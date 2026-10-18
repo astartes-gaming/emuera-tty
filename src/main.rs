@@ -12,6 +12,7 @@ mod atomic64;
 mod clipboard;
 mod config_names;
 mod console;
+mod emuconfig;
 mod csvdata;
 mod expr;
 mod frontend;
@@ -196,88 +197,6 @@ fn parse_args() -> Opts {
         }
     }
     o
-}
-
-/// Read a few keys from the config files (key:value lines), in Emuera's
-/// order: CSV/_default.config, emuera.config, CSV/_fixed.config (wins).
-/// Returns the configured window width in pixels, if any.
-fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut console::Console, text_exts: &mut Vec<String>, saves: &mut vm::save::SaveOpts) -> Option<f32> {
-    let mut paths = vec![loader::find_file_ci(csv_dir, "_default.config"), loader::find_file_ci(game, "emuera.config")];
-    if let Some(d) = loader::find_dir_ci(game, "config") {
-        paths.push(loader::find_file_ci(&d, "emuera.config"));
-    }
-    paths.push(loader::find_file_ci(csv_dir, "_fixed.config"));
-    let mut window_px = None;
-    let yes = |v: &str| v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE");
-    let mut zip = false;
-    let mut binary = false;
-    for p in paths.into_iter().flatten() {
-        let Ok(text) = loader::read_text(&p) else { continue };
-        for line in text.lines() {
-            let Some((k, v)) = line.split_once(':') else { continue };
-            let v = v.trim();
-            let rgb = |v: &str| -> Option<console::Rgb> {
-                let n: Vec<u8> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-                if n.len() == 3 { Some(console::Rgb(n[0], n[1], n[2])) } else { None }
-            };
-            // keys may be written in Japanese or English (WINDOW WIDTH…)
-            let k = line.trim_start_matches('\u{feff}').split_once(':').map(|x| x.0).unwrap_or(k);
-            match config_names::canonical(k) {
-                "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
-                "PRINTCを並べる数" => con.printc_per_line = v.parse().unwrap_or(con.printc_per_line),
-                "フォント名" => {
-                    con.default_font = v.to_string();
-                    con.font_name = v.to_string();
-                }
-                "ボタンの途中で行を折りかえさない" => con.button_wrap = yes(v),
-                "セーブデータをsavフォルダ内に作成する" => saves.in_folder = yes(v),
-                "セーブデータをバイナリ形式で保存する" => binary = yes(v),
-                "セーブデータを圧縮して保存する" => zip = yes(v),
-                "オートセーブを行なう" => saves.autosave = yes(v),
-                "LOADTEXTとSAVETEXTで使える拡張子" => {
-                    for e in v.split(',').map(|e| e.trim().trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()) {
-                        if !text_exts.contains(&e) {
-                            text_exts.push(e);
-                        }
-                    }
-                }
-                "フォントサイズ" => con.font_size = v.parse().unwrap_or(con.font_size),
-                "一行の高さ" => con.line_height = v.parse().unwrap_or(con.line_height),
-                "文字色" => {
-                    if let Some(c) = rgb(v) {
-                        con.default_fg = c;
-                        con.style.fg = c;
-                    }
-                }
-                "背景色" => {
-                    if let Some(c) = rgb(v) {
-                        con.default_bg = c;
-                        con.screen_bg = c;
-                    }
-                }
-                "選択中文字色" => {
-                    if let Some(c) = rgb(v) {
-                        con.focus_fg = c
-                    }
-                }
-                "履歴文字色" => {
-                    if let Some(c) = rgb(v) {
-                        con.log_fg = c
-                    }
-                }
-                "PRINTCを並べる文字数" | "PRINTCの文字数" => con.printc_len = v.parse().unwrap_or(con.printc_len),
-                "表示するログの最大行数" | "履歴ログの行数" => con.max_lines = v.parse().unwrap_or(con.max_lines),
-                // Emuera-EE's clipboard options
-                other => {
-                    con.clip.set(other, v);
-                }
-            }
-        }
-    }
-    // Emuera compresses only binary saves; emuera-tty always writes binary
-    // (Emuera reads it whatever its config says)
-    saves.zip = zip && binary;
-    window_px
 }
 
 /// Read and parse the game's ERH / ERB files (on all cores): the program
@@ -501,7 +420,7 @@ fn run(o: Opts) -> i32 {
     if timing {
         eprintln!("timing: {:<12} {:>8.2?}{} (resources, terminal, data init)", "vm ready", lap.elapsed(), rss());
     }
-    if let Some(px) = load_config(&game, &csv_dir, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
+    if let Some(px) = emuconfig::load(&game, &csv_dir, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
         // no real terminal to fit: use Emuera's width (half-width cells are font_size/2 px)
         if o.headless {
             vm.fe.set_cols((px / (vm.con.font_size / 2.0).max(1.0)) as usize);

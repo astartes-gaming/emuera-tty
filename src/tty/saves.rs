@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthChar;
 
 /// What a list box returned.
-enum Pick {
+pub(super) enum Pick {
     Row(usize),
     Back,
     Quit,
@@ -206,7 +206,7 @@ impl Tty {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn list_box(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, rows: &[String], first_action: usize, sel: &mut usize, help: &str) -> Pick {
+    pub(super) fn list_box(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, rows: &[String], first_action: usize, sel: &mut usize, help: &str) -> Pick {
         let n = rows.len();
         if n == 0 {
             return Pick::Back;
@@ -250,8 +250,10 @@ impl Tty {
     }
 
     /// Ask for a line of text in a box (Enter accepts, Esc cancels).
-    fn prompt(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, label: &str, default: &str) -> Option<String> {
+    pub(super) fn prompt(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, label: &str, default: &str) -> Option<String> {
         let mut text = default.to_string();
+        // the suggested text is replaced by typing, edited by Backspace
+        let mut fresh = true;
         loop {
             self.no_images = true;
             self.render(con, res, Some(req));
@@ -298,9 +300,15 @@ impl Tty {
                 Key::Esc | Key::CtrlC | Key::Settings => return None,
                 Key::Backspace => {
                     text.pop();
+                    fresh = false;
                 }
                 Key::Char('\u{15}') => text.clear(),
-                Key::Char(c) if !c.is_control() => text.push(c),
+                Key::Char(c) if !c.is_control() => {
+                    if std::mem::take(&mut fresh) {
+                        text.clear();
+                    }
+                    text.push(c);
+                }
                 _ => {}
             }
         }
