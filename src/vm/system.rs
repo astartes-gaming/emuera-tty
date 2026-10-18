@@ -436,13 +436,32 @@ impl Vm {
 
     /// Built-in save/load menu. Returns true if something was saved/loaded.
     pub fn save_menu(&mut self, save: bool) -> VmResult<bool> {
+        // as Emuera: the configured number of slots, 20 a page, the other
+        // pages as buttons; loading also offers the autosave (99)
+        let slots = self.save_opts.slots.clamp(20, 80);
+        let mut page = 0;
         loop {
             self.con.drawline();
             self.con.print(if save { "どこにセーブしますか？" } else { "どれをロードしますか？" });
             self.con.newline();
-            for n in 0..20 {
+            let page_button = |vm: &mut Vm, p: i64| {
+                vm.con.print_button(&format!("[{:2}] セーブデータ{:2}～{:2}を表示", p * 20, p * 20, p * 20 + 19), Value::Int(p * 20));
+                vm.con.newline();
+            };
+            for p in 0..page {
+                page_button(self, p);
+            }
+            for n in page * 20..(page * 20 + 20).min(slots) {
                 let label = format!("[{:2}] {}", n, self.check_save(n).mes);
                 self.con.print_button(&label, Value::Int(n));
+                self.con.newline();
+            }
+            for p in page + 1..(slots + 19) / 20 {
+                page_button(self, p);
+            }
+            if !save {
+                let label = format!("[{:2}] {}", 99, self.check_save(99).mes);
+                self.con.print_button(&label, Value::Int(99));
                 self.con.newline();
             }
             self.con.print_button("[100] 戻る", Value::Int(100));
@@ -451,7 +470,12 @@ impl Vm {
             if v == 100 {
                 return Ok(false);
             }
-            if !(0..20).contains(&v) {
+            let autosave = !save && v == 99;
+            if !(0..slots).contains(&v) && !autosave {
+                continue;
+            }
+            if !autosave && v / 20 != page {
+                page = v / 20;
                 continue;
             }
             if save {

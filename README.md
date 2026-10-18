@@ -283,20 +283,35 @@ override saved settings.
 
 ### Game settings (Emuera's settings window)
 
-*Game settings…* in the F1 overlay lists the options of Emuera's own
-settings window, as the game has them: window width, font, font size,
-line height, the colours, history lines, PRINTC layout, button wrapping,
-autosaves, the save folder and compression, the clipboard options, and
-the ones only Emuera.exe uses (window height, FPS, the menu bar,
-keyboard macros, …, marked *Emuera.exe*). Each shows where its value
-comes from: Emuera's default, the game's (`CSV/_default.config`),
-*changed* (yours) or *fixed* (`CSV/_fixed.config`, which the game doesn't
-let you change). Enter toggles YES / NO or asks for a number, a colour
-(`R,G,B` or `#RRGGBB`) or text; an empty answer puts the game's value
-back. Changes go into the game's `emuera.config`, as Emuera's settings
-window writes them (UTF-8, in the game's choice of Japanese or English
-keys, other lines kept), so Emuera.exe sees them too; the running game
-takes them at once.
+*Game settings…* in the F1 overlay is a copy of Emuera's own settings
+window, with the settings that do something in a terminal and can't
+break a game, on Emuera's tabs:
+
+| Tab | Settings |
+|---|---|
+| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`) |
+| Display | PRINTC items per line and width, don't break lines inside a button |
+| Font | text colour, selected button colour, the font for text drawn into pictures |
+| System2 | compress save data (Emuera reads compressed saves too) |
+| Clipboard | all of the clipboard options (see below) |
+
+Left out: what only a window has (size, position, FPS, menu bar,
+keyboard macros), what changes how the scripts are read (the System,
+Compatibility and Debug tabs), the font size and line height (games work
+out where pictures go from them), the save folder (existing saves would
+seem to vanish), the background and history colours (the terminal's own
+are used) and Rikai.
+
+← / → (or Tab, or a click) switch tabs, ↑ / ↓ choose, Enter or a click
+toggles a check box or asks for a number, a colour (`R,G,B` or `#RRGGBB`)
+or text, `+` / `-` step a number, `d` puts back the game's value. Each
+setting shows where its value comes from: nothing for Emuera's default,
+*game* for the game's (`CSV/_default.config`), *changed* for yours,
+*fixed* when `CSV/_fixed.config` doesn't let it change. Changes go into
+the game's `emuera.config` as Emuera's settings window writes them
+(UTF-8, Japanese or English keys as the game's files use, other lines
+kept), so Emuera.exe sees them too; the running game takes them when the
+page closes.
 
 ### Copying text to the clipboard
 

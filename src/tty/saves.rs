@@ -207,6 +207,13 @@ impl Tty {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn list_box(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, rows: &[String], first_action: usize, sel: &mut usize, help: &str) -> Pick {
+        let r = self.list_box_in(con, res, req, title, rows, first_action, sel, help);
+        self.box_closed.set(true);
+        r
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn list_box_in(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, rows: &[String], first_action: usize, sel: &mut usize, help: &str) -> Pick {
         let n = rows.len();
         if n == 0 {
             return Pick::Back;
@@ -251,6 +258,12 @@ impl Tty {
 
     /// Ask for a line of text in a box (Enter accepts, Esc cancels).
     pub(super) fn prompt(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, label: &str, default: &str) -> Option<String> {
+        let r = self.prompt_in(con, res, req, title, label, default);
+        self.box_closed.set(true);
+        r
+    }
+
+    fn prompt_in(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, label: &str, default: &str) -> Option<String> {
         let mut text = default.to_string();
         // the suggested text is replaced by typing, edited by Backspace
         let mut fresh = true;

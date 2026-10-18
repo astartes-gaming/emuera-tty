@@ -1647,7 +1647,7 @@ impl Vm {
         } else if names("PRINTCの文字数", "Number of Item characters for PRINTC", "PrintCLength") {
             int(self.con.printc_len as i64)
         } else if names("表示するセーブデータ数", "Save data count per page", "SaveDataNos") {
-            int(20)
+            int(self.save_opts.slots)
         } else if names("オートセーブを行なう", "Make autosaves", "AutoSave") {
             int(self.save_opts.autosave as i64)
         } else if names("文字色", "Text color", "ForeColor") {
@@ -3179,7 +3179,7 @@ impl Vm {
             "ISACTIVE" => i(1),
             "PRINTCPERLINE" => i(self.con.printc_per_line as i64),
             "PRINTCLENGTH" => i(self.con.printc_len as i64),
-            "SAVENOS" => i(20),
+            "SAVENOS" => i(self.save_opts.slots),
             "GETNUM" => {
                 let v = self.avar(a, 0)?;
                 let n = self.as_(a, 1, "")?;

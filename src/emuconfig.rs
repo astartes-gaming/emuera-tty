@@ -46,6 +46,8 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
                 "セーブデータをバイナリ形式で保存する" => binary = yes(v),
                 "セーブデータを圧縮して保存する" => zip = yes(v),
                 "オートセーブを行なう" => saves.autosave = yes(v),
+                // Emuera keeps it within 20..80
+                "表示するセーブデータ数" => saves.slots = v.parse::<i64>().map_or(saves.slots, |n| n.clamp(20, 80)),
                 "LOADTEXTとSAVETEXTで使える拡張子" => {
                     for e in v.split(',').map(|e| e.trim().trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()) {
                         if !text_exts.contains(&e) {
@@ -109,58 +111,51 @@ pub struct Item {
     /// the key (Japanese, as Emuera names it)
     pub jp: &'static str,
     pub label: &'static str,
-    pub group: &'static str,
+    /// the tab of Emuera's settings window it is on
+    pub tab: &'static str,
     pub kind: Kind,
     /// Emuera's own default
     pub default: &'static str,
-    /// emuera-tty uses it (else only Emuera.exe does)
-    pub here: bool,
 }
 
-const fn item(jp: &'static str, label: &'static str, group: &'static str, kind: Kind, default: &'static str, here: bool) -> Item {
-    Item { jp, label, group, kind, default, here }
+const fn item(tab: &'static str, jp: &'static str, label: &'static str, kind: Kind, default: &'static str) -> Item {
+    Item { jp, label, tab, kind, default }
 }
 
-/// The settings shown, grouped as in Emuera's settings window.
+/// The tabs, in the order of Emuera's settings window.
+pub const TABS: &[&str] = &["Environment", "Display", "Font", "System2", "Clipboard"];
+
+/// The settings on the page: those of Emuera's settings window that do
+/// something in emuera-tty and can't break a game. Left out: what only
+/// a window has (size, position, FPS, the menu bar, macros), what changes
+/// how scripts are read (the System, Compatibility and Debug tabs), the
+/// font size and line height (games compute picture positions from
+/// them), the save folder (existing saves would seem to vanish) and the
+/// background and history colours (the terminal's own are used).
 pub const ITEMS: &[Item] = &[
-    item("ウィンドウ幅", "Window width (px)", "Display", Kind::Int(200, 8000), "760", true),
-    item("ウィンドウ高さ", "Window height (px)", "Display", Kind::Int(200, 8000), "480", false),
-    item("フォント名", "Font", "Display", Kind::Text, "ＭＳ ゴシック", true),
-    item("フォントサイズ", "Font size (px)", "Display", Kind::Int(6, 200), "18", true),
-    item("一行の高さ", "Line height (px)", "Display", Kind::Int(6, 400), "19", true),
-    item("文字色", "Text colour", "Display", Kind::Color, "192,192,192", true),
-    item("背景色", "Background colour", "Display", Kind::Color, "0,0,0", true),
-    item("選択中文字色", "Selected button colour", "Display", Kind::Color, "255,255,0", true),
-    item("履歴文字色", "History text colour", "Display", Kind::Color, "192,192,192", true),
-    item("履歴ログの行数", "History lines kept", "Display", Kind::Int(100, 1000000), "5000", true),
-    item("PRINTCを並べる数", "PRINTC items per line", "Display", Kind::Int(1, 100), "3", true),
-    item("PRINTCの文字数", "PRINTC item width", "Display", Kind::Int(1, 400), "25", true),
-    item("ボタンの途中で行を折りかえさない", "Don't break lines inside a button", "Display", Kind::Bool, "NO", true),
-    item("フレーム毎秒", "Frames per second", "Display", Kind::Int(1, 240), "5", false),
-    item("オートセーブを行なう", "Make autosaves", "System", Kind::Bool, "YES", true),
-    item("セーブデータをsavフォルダ内に作成する", "Saves in the sav folder", "System", Kind::Bool, "NO", true),
-    item("セーブデータを圧縮して保存する", "Compress saves", "System", Kind::Bool, "NO", true),
-    item("セーブデータをバイナリ形式で保存する", "Binary saves (emuera-tty always writes them)", "System", Kind::Bool, "NO", false),
-    item("表示するセーブデータ数", "Saves per page", "System", Kind::Int(1, 100), "20", false),
-    item("マウスを使用する", "Use the mouse", "System", Kind::Bool, "YES", false),
-    item("スクロール行数", "Lines per wheel step", "System", Kind::Int(1, 100), "1", false),
-    item("メニューを使用する", "Show the menu bar", "System", Kind::Bool, "YES", false),
-    item("キーボードマクロを使用する", "Keyboard macros", "System", Kind::Bool, "YES", false),
-    item("デバッグコマンドを使用する", "Debug commands", "System", Kind::Bool, "NO", false),
-    item("無限ループ警告までのミリ秒数", "Infinite loop warning after (ms)", "System", Kind::Int(0, 600000), "5000", false),
-    item("表示したテキストをクリップボードにコピーする", "Copy printed text to the clipboard", "Clipboard", Kind::Bool, "NO", true),
-    item("新しい行のみコピーする", "Only new lines", "Clipboard", Kind::Bool, "YES", true),
-    item("クリップボードに貼り付ける行数", "Lines copied (when not only new)", "Clipboard", Kind::Int(1, 10000), "25", true),
-    item("総バッファサイズ", "Lines remembered", "Clipboard", Kind::Int(1, 100000), "300", true),
-    item("クリップボードの更新間隔(ミリ秒)", "Minimum time between copies (ms)", "Clipboard", Kind::Int(0, 60000), "800", true),
-    item("テキスト中の<>タグを無視する", "Replace pictures (<> tags)", "Clipboard", Kind::Bool, "NO", true),
-    item("<>を次の文で置き換える", "... with this text", "Clipboard", Kind::Text, ".", true),
-    item("画面のリフレッシュ時にクリップボードとバッファを消去する", "Forget lines when the game clears the screen", "Clipboard", Kind::Bool, "NO", true),
-    item("左クリックをトリガーにする", "Copy on a left click", "Clipboard", Kind::Bool, "YES", true),
-    item("ホイールクリックをトリガーにする", "Copy on a middle click", "Clipboard", Kind::Bool, "NO", true),
-    item("ダブルクリックをトリガーにする", "Copy on a double click", "Clipboard", Kind::Bool, "NO", true),
-    item("WAITをトリガーにする", "Copy at a WAIT", "Clipboard", Kind::Bool, "NO", true),
-    item("INPUTをトリガーにする", "Copy at an input", "Clipboard", Kind::Bool, "YES", true),
+    item("Environment", "オートセーブを行なう", "Make autosaves", Kind::Bool, "YES"),
+    item("Environment", "履歴ログの行数", "Lines in history log", Kind::Int(100, 1000000), "5000"),
+    item("Environment", "表示するセーブデータ数", "Number of save slots", Kind::Int(20, 80), "20"),
+    item("Display", "PRINTCを並べる数", "PRINTC items per line", Kind::Int(1, 100), "3"),
+    item("Display", "PRINTCの文字数", "PRINTC item width", Kind::Int(1, 400), "25"),
+    item("Display", "ボタンの途中で行を折りかえさない", "Don't break lines inside a button", Kind::Bool, "NO"),
+    item("Font", "文字色", "Text colour", Kind::Color, "192,192,192"),
+    item("Font", "選択中文字色", "Selected button colour", Kind::Color, "255,255,0"),
+    item("Font", "フォント名", "Font (for text drawn into pictures)", Kind::Text, "ＭＳ ゴシック"),
+    item("System2", "セーブデータを圧縮して保存する", "Compress save data", Kind::Bool, "NO"),
+    item("Clipboard", "表示したテキストをクリップボードにコピーする", "Copy printed text to the clipboard", Kind::Bool, "NO"),
+    item("Clipboard", "新しい行のみコピーする", "Only new lines", Kind::Bool, "YES"),
+    item("Clipboard", "クリップボードに貼り付ける行数", "Lines copied (when not only new ones)", Kind::Int(1, 10000), "25"),
+    item("Clipboard", "総バッファサイズ", "Lines remembered", Kind::Int(1, 100000), "300"),
+    item("Clipboard", "クリップボードの更新間隔(ミリ秒)", "Minimum time between copies (ms)", Kind::Int(0, 60000), "800"),
+    item("Clipboard", "テキスト中の<>タグを無視する", "Replace pictures (<> tags) …", Kind::Bool, "NO"),
+    item("Clipboard", "<>を次の文で置き換える", "… with this text", Kind::Text, "."),
+    item("Clipboard", "画面のリフレッシュ時にクリップボードとバッファを消去する", "Forget lines when the game clears the screen", Kind::Bool, "NO"),
+    item("Clipboard", "左クリックをトリガーにする", "Copy on a left click", Kind::Bool, "YES"),
+    item("Clipboard", "ホイールクリックをトリガーにする", "Copy on a middle click", Kind::Bool, "NO"),
+    item("Clipboard", "ダブルクリックをトリガーにする", "Copy on a double click", Kind::Bool, "NO"),
+    item("Clipboard", "WAITをトリガーにする", "Copy at a WAIT", Kind::Bool, "NO"),
+    item("Clipboard", "INPUTをトリガーにする", "Copy at an input", Kind::Bool, "YES"),
 ];
 
 /// Where a setting's value comes from.
@@ -314,30 +309,31 @@ mod tests {
     fn edit_keeps_the_file() {
         let d = std::env::temp_dir().join(format!("emuera-cfg-{}", std::process::id()));
         std::fs::create_dir_all(d.join("CSV")).unwrap();
-        std::fs::write(d.join("CSV/_default.config"), "WINDOW WIDTH:1536\nFONT SIZE:16\n").unwrap();
-        std::fs::write(d.join("CSV/_fixed.config"), "LINE HEIGHT:16\n").unwrap();
+        std::fs::write(d.join("CSV/_default.config"), "ITEMS PER LINE FOR PRINTC:5\nFONT SIZE:16\nSAVE DATA COUNT PER PAGE:200\n").unwrap();
+        std::fs::write(d.join("CSV/_fixed.config"), "NUMBER OF ITEM CHARACTERS FOR PRINTC:16\n").unwrap();
         let it = |jp: &str| ITEMS.iter().find(|i| i.jp == jp).unwrap();
         let mut v = Values::read(&d);
-        assert_eq!(v.get(it("ウィンドウ幅")), ("1536".to_string(), Source::Game));
-        assert_eq!(v.get(it("一行の高さ")).1, Source::Fixed);
-        assert_eq!(v.get(it("背景色")), ("0,0,0".to_string(), Source::Emuera));
+        assert_eq!(v.get(it("PRINTCを並べる数")), ("5".to_string(), Source::Game));
+        assert_eq!(v.get(it("PRINTCの文字数")).1, Source::Fixed);
+        assert_eq!(v.get(it("文字色")), ("192,192,192".to_string(), Source::Emuera));
         // the game writes English keys: so does a new emuera.config
-        v.set(it("ウィンドウ幅"), Some("1000")).unwrap();
-        v.set(it("背景色"), Some(&normalize(it("背景色"), "#102030").unwrap())).unwrap();
+        v.set(it("PRINTCを並べる数"), Some("4")).unwrap();
+        v.set(it("文字色"), Some(&normalize(it("文字色"), "#102030").unwrap())).unwrap();
         let raw = std::fs::read(&v.path).unwrap();
         assert!(raw.starts_with(&[0xEF, 0xBB, 0xBF]));
         let text = String::from_utf8_lossy(&raw[3..]).to_string();
-        assert_eq!(text, "WINDOW WIDTH:1000\r\nBACKGROUND COLOR:16,32,48\r\n");
-        assert_eq!(v.get(it("ウィンドウ幅")), ("1000".to_string(), Source::Player));
+        assert_eq!(text, "ITEMS PER LINE FOR PRINTC:4\r\nTEXT COLOR:16,32,48\r\n");
+        assert_eq!(v.get(it("PRINTCを並べる数")), ("4".to_string(), Source::Player));
         // back to the game's value
-        v.set(it("ウィンドウ幅"), None).unwrap();
-        assert_eq!(v.get(it("ウィンドウ幅")), ("1536".to_string(), Source::Game));
+        v.set(it("PRINTCを並べる数"), None).unwrap();
+        assert_eq!(v.get(it("PRINTCを並べる数")), ("5".to_string(), Source::Game));
         // and what the game loads
         let mut con = Console::new();
         let (mut ext, mut so) = (Vec::new(), SaveOpts::default());
         load(&d, &d.join("CSV"), &mut con, &mut ext, &mut so);
-        assert_eq!((con.default_bg.0, con.default_bg.1, con.default_bg.2), (16, 32, 48));
-        assert!(normalize(it("フォントサイズ"), "500").is_err());
+        assert_eq!((con.default_fg.0, con.default_fg.1, con.default_fg.2), (16, 32, 48));
+        assert_eq!(so.slots, 80, "clamped as Emuera does");
+        assert!(normalize(it("表示するセーブデータ数"), "100").is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -302,6 +302,9 @@ pub struct Tty {
     hash_cols: usize,
     /// something drew over the rows outside `render` (overlay boxes)
     redraw_all: std::cell::Cell<bool>,
+    /// an overlay box (list, prompt, page) closed or changed size: the
+    /// next frame is drawn in full even if the game's screen is the same
+    box_closed: std::cell::Cell<bool>,
     /// buttons with a `srcb` hover picture (their hover needs a full redraw)
     hover_imgs: std::collections::HashSet<usize>,
 }
@@ -456,6 +459,7 @@ impl Tty {
             row_hash: Vec::new(),
             hash_cols: 0,
             redraw_all: std::cell::Cell::new(true),
+            box_closed: std::cell::Cell::new(false),
             hover_imgs: std::collections::HashSet::new(),
             button_wrap: false,
         };
@@ -1349,7 +1353,9 @@ impl Tty {
             }
             h.finish()
         };
-        if fp == self.last_frame && !self.force_frame {
+        // (unless a box drawn over it has closed: what it covered must
+        // come back)
+        if fp == self.last_frame && !self.force_frame && !self.box_closed.get() {
             self.frame_imgs = placements;
             con.dirty = false;
             return;
@@ -1544,7 +1550,7 @@ impl Tty {
     #[allow(clippy::too_many_arguments)]
     fn skip_unchanged_rows(&mut self, out: Vec<u8>, span: (usize, usize), rows: &[(usize, usize)], placements: &[Placement], cols: usize, tip_rows: std::ops::Range<usize>) -> Vec<u8> {
         use std::hash::{Hash, Hasher};
-        let full = self.force_frame || self.redraw_all.replace(false) || self.row_hash.len() != rows.len() || self.hash_cols != cols;
+        let full = self.force_frame || self.redraw_all.replace(false) | self.box_closed.replace(false) || self.row_hash.len() != rows.len() || self.hash_cols != cols;
         let ch = self.cell.1.max(1) as i32;
         // rows under pictures, before and now, when the pictures changed
         let mut img_rows = vec![false; rows.len()];
@@ -1814,7 +1820,9 @@ impl Tty {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
                         } else {
-                            match self.game_settings(con, res, req) {
+                            let r = self.game_settings(con, res, req);
+                            self.box_closed.set(true);
+                            match r {
                                 (_, true) => break OverlayExit::Quit,
                                 (true, false) => break OverlayExit::Config,
                                 _ => {}
@@ -1824,8 +1832,12 @@ impl Tty {
                     1 => {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
-                        } else if self.save_manager(con, res, req) {
-                            break OverlayExit::Quit;
+                        } else {
+                            let quit = self.save_manager(con, res, req);
+                            self.box_closed.set(true);
+                            if quit {
+                                break OverlayExit::Quit;
+                            }
                         }
                     }
                     2 => break OverlayExit::Title,

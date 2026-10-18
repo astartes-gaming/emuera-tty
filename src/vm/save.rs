@@ -34,11 +34,13 @@ pub struct SaveOpts {
     pub zip: bool,
     /// `オートセーブを行なう` (default on): save on entering SHOP
     pub autosave: bool,
+    /// `表示するセーブデータ数` (20..80): slots in the save menu, SAVENOS
+    pub slots: i64,
 }
 
 impl Default for SaveOpts {
     fn default() -> SaveOpts {
-        SaveOpts { in_folder: false, zip: false, autosave: true }
+        SaveOpts { in_folder: false, zip: false, autosave: true, slots: 20 }
     }
 }
 
