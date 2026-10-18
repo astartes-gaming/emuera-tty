@@ -327,9 +327,50 @@ fn build_program(game: &std::path::Path, erb_dir: Option<&std::path::Path>, rena
     (p.prog, files.len())
 }
 
+/// Write the sampling profile: time per Rust function, by itself and with
+/// what it calls.
+#[cfg(feature = "profile")]
+fn write_pprof(path: &str, g: &pprof::ProfilerGuard) {
+    let Ok(r) = g.report().build() else { return };
+    let mut own: std::collections::HashMap<String, isize> = Default::default();
+    let mut incl: std::collections::HashMap<String, isize> = Default::default();
+    let mut edges: std::collections::HashMap<String, isize> = Default::default();
+    let mut total = 0isize;
+    for (frames, n) in &r.data {
+        total += n;
+        let names: Vec<String> = frames.frames.iter().flat_map(|f| f.iter().map(|s| s.name())).collect();
+        if let Some(l) = names.first() {
+            *own.entry(l.clone()).or_default() += n;
+        }
+        // caller → callee edges (frames run innermost first)
+        let mut seen_e = std::collections::HashSet::new();
+        for w in names.windows(2) {
+            let e = format!("{}  <-  {}", w[0], w[1]);
+            if seen_e.insert(e.clone()) {
+                *edges.entry(e).or_default() += n;
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        for nm in names {
+            if seen.insert(nm.clone()) {
+                *incl.entry(nm).or_default() += n;
+            }
+        }
+    }
+    let top = |m: &std::collections::HashMap<String, isize>| {
+        let mut v: Vec<_> = m.iter().collect();
+        v.sort_by(|a, b| b.1.cmp(a.1));
+        v.into_iter().take(80).map(|(k, n)| format!("{:6.2}% {:7} {}\n", *n as f64 * 100.0 / total.max(1) as f64, n, k)).collect::<String>()
+    };
+    let _ = std::fs::write(path, format!("{} samples\n== self\n{}\n== inclusive\n{}\n== calls\n{}", total, top(&own), top(&incl), top(&edges)));
+}
+
 /// Load the game and run it; returns the process exit code.
 fn run(o: Opts) -> i32 {
     let Some(game) = choose_game(&o) else { return 0 };
+    // development builds (--features profile): EMUERA_PPROF=<file>
+    #[cfg(feature = "profile")]
+    let _pprof = std::env::var("EMUERA_PPROF").ok().map(|f| (f, pprof::ProfilerGuardBuilder::default().frequency(4000).blocklist(&["libc", "libgcc", "pthread", "vdso"]).build().unwrap()));
     if let Some(cmd) = o.saves {
         return saves_cmd(cmd, &game);
     }
@@ -446,6 +487,10 @@ fn run(o: Opts) -> i32 {
     vm.fe.set_game(&game, &sd);
     let r = vm.run();
     vm.fe.shutdown();
+    #[cfg(feature = "profile")]
+    if let Some((f, g)) = &_pprof {
+        write_pprof(f, g);
+    }
     if vm.defer_warnings {
         for w in &vm.log {
             eprintln!("warning: {}", w);

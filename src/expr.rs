@@ -32,9 +32,29 @@ pub struct ExprParser<'a> {
 /// Can `c` appear in an identifier? Anything that isn't whitespace or an
 /// operator/punctuation character — so Japanese names like `好感度` work.
 pub fn is_ident_char(c: char) -> bool {
-    !(c.is_whitespace()
-        || c == '\u{3000}'
-        || "+-*/%=!<>&|^~?#:,()[]{}\"'@\\$;.".contains(c))
+    if c.is_ascii() {
+        // a lookup table for ASCII (the lexer asks this for every character)
+        const fn table() -> [bool; 128] {
+            let mut t = [true; 128];
+            let mut i = 0;
+            while i < 128 {
+                if (i as u8).is_ascii_whitespace() || i == 0x0b {
+                    t[i] = false;
+                }
+                i += 1;
+            }
+            let ops = b"+-*/%=!<>&|^~?#:,()[]{}\"'@\\$;.";
+            let mut k = 0;
+            while k < ops.len() {
+                t[ops[k] as usize] = false;
+                k += 1;
+            }
+            t
+        }
+        static T: [bool; 128] = table();
+        return T[c as usize];
+    }
+    !(c.is_whitespace() || c == '\u{3000}')
 }
 
 impl<'a> ExprParser<'a> {
@@ -424,7 +444,7 @@ impl<'a> ExprParser<'a> {
                 idx.push(self.primary(false)?);
             }
         }
-        Ok(Expr::Var(Rc::new(VarRef { name: name.into(), idx })))
+        Ok(Expr::Var(Rc::new(VarRef::new(name.into(), idx))))
     }
 
     /// Parse a variable reference (assignment target).
@@ -686,4 +706,17 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
     flush(&mut lit, &mut parts);
     parts.shrink_to_fit();
     Ok(Form { parts })
+}
+
+#[cfg(test)]
+mod ident_tests {
+    #[test]
+    fn ident_chars() {
+        for c in "+-*/%=!<>&|^~?#:,()[]{}\"'@\\$;. \t\n\r\u{3000}\u{0b}\u{0c}".chars() {
+            assert!(!super::is_ident_char(c), "{:?}", c);
+        }
+        for c in "aZ09_あ漢ｱ".chars() {
+            assert!(super::is_ident_char(c), "{:?}", c);
+        }
+    }
 }

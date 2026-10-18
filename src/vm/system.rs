@@ -424,7 +424,7 @@ impl Vm {
             return Ok(());
         }
         let stamp = super::builtins::save_timestamp();
-        self.globals.entry("SAVEDATA_TEXT".into()).or_insert_with(|| super::vars::Arr::new(true, &[1])).set(0, Value::Str(stamp));
+        self.globals.get_or_insert_with("SAVEDATA_TEXT", || super::vars::Arr::new(true, &[1])).set(0, Value::Str(stamp));
         self.call_opt("SAVEINFO")?;
         let text = self.globals.get("SAVEDATA_TEXT").map(|a| a.get(0).into_string()).unwrap_or_default();
         if let Err(Ctrl::Error(e, _)) = self.save_slot(99, &text) {
@@ -457,7 +457,7 @@ impl Vm {
             if save {
                 // as Emuera: a timestamp, then whatever @SAVEINFO PUTFORMs
                 let stamp = super::builtins::save_timestamp();
-                self.globals.entry("SAVEDATA_TEXT".into()).or_insert_with(|| super::vars::Arr::new(true, &[1])).set(0, Value::Str(stamp));
+                self.globals.get_or_insert_with("SAVEDATA_TEXT", || super::vars::Arr::new(true, &[1])).set(0, Value::Str(stamp));
                 if self.has_func("SAVEINFO") {
                     self.call_name("SAVEINFO", vec![])?;
                 }

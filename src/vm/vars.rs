@@ -259,3 +259,70 @@ pub fn system_var(name: &str) -> Option<&'static VarDef> {
     static MAP: std::sync::OnceLock<crate::fxhash::HashMap<&'static str, &'static VarDef>> = std::sync::OnceLock::new();
     MAP.get_or_init(|| SYSTEM_VARS.iter().map(|d| (d.name, d)).collect()).get(name).copied()
 }
+
+/// The global variables: one slot per name, kept for the program's life
+/// (clearing empties the slots, it doesn't renumber them), so a variable
+/// reference can remember its slot and skip the lookup by name.
+#[derive(Default)]
+pub struct Globals {
+    slots: crate::fxhash::HashMap<String, usize>,
+    arrs: Vec<Option<Arr>>,
+}
+
+impl Globals {
+    /// The slot for `name` (made if new).
+    pub fn slot_of(&mut self, name: &str) -> usize {
+        if let Some(&s) = self.slots.get(name) {
+            return s;
+        }
+        let s = self.arrs.len();
+        self.arrs.push(None);
+        self.slots.insert(name.to_string(), s);
+        s
+    }
+    pub fn at(&mut self, slot: usize) -> Option<&mut Arr> {
+        self.arrs.get_mut(slot).and_then(|a| a.as_mut())
+    }
+    pub fn at_ref(&self, slot: usize) -> Option<&Arr> {
+        self.arrs.get(slot).and_then(|a| a.as_ref())
+    }
+    pub fn get(&self, name: &str) -> Option<&Arr> {
+        self.slots.get(name).and_then(|&s| self.arrs[s].as_ref())
+    }
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Arr> {
+        match self.slots.get(name) {
+            Some(&s) => self.arrs[s].as_mut(),
+            None => None,
+        }
+    }
+    pub fn contains_key(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+    pub fn insert(&mut self, name: String, a: Arr) -> Option<Arr> {
+        let s = self.slot_of(&name);
+        self.arrs[s].replace(a)
+    }
+    pub fn remove(&mut self, name: &str) -> Option<Arr> {
+        let s = *self.slots.get(name)?;
+        self.arrs[s].take()
+    }
+    pub fn clear(&mut self) {
+        for a in &mut self.arrs {
+            *a = None;
+        }
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Arr)> {
+        self.slots.iter().filter_map(|(k, &s)| self.arrs[s].as_ref().map(|a| (k, a)))
+    }
+    pub fn get_or_insert_with(&mut self, name: &str, f: impl FnOnce() -> Arr) -> &mut Arr {
+        let s = self.slot_of(name);
+        self.arrs[s].get_or_insert_with(f)
+    }
+}
+
+impl std::ops::Index<&str> for Globals {
+    type Output = Arr;
+    fn index(&self, name: &str) -> &Arr {
+        self.get(name).expect("no such global")
+    }
+}

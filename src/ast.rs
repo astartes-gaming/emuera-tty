@@ -45,10 +45,32 @@ pub enum Expr {
 /// A variable with its index chain: `CFLAG:TARGET:好感度` is
 /// `name = "CFLAG"`, `idx = [TARGET, 好感度]`. A bare name used as an index
 /// may be a CSV name (`好感度`), resolved against the variable's name table.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VarRef {
     pub name: Name,
     pub idx: Vec<Expr>,
+    /// the global variable slot it names, plus one (0: not known yet)
+    pub gslot: std::sync::atomic::AtomicU32,
+    /// what the name means apart from the function using it (see
+    /// `Vm::var_info`), worked out on first use
+    pub cache: std::sync::OnceLock<crate::vm::NameInfo>,
+}
+
+impl VarRef {
+    pub fn new(name: Name, idx: Vec<Expr>) -> VarRef {
+        VarRef { name, idx, cache: std::sync::OnceLock::new(), gslot: Default::default() }
+    }
+}
+
+impl Clone for VarRef {
+    fn clone(&self) -> VarRef {
+        VarRef {
+            name: self.name.clone(),
+            idx: self.idx.clone(),
+            cache: self.cache.clone(),
+            gslot: std::sync::atomic::AtomicU32::new(self.gslot.load(std::sync::atomic::Ordering::Relaxed)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -198,6 +220,51 @@ pub enum Args {
 /// owning function's `code`. "Slots" are per-call scratch cells (see
 /// `vm::Slot`) holding loop bounds and the SELECTCASE value, so nested
 /// constructs don't clash.
+/// A SELECTCASE whose CASEs are all literals: value → the first CASE body
+/// that matches it, else `default` (CASEELSE or past ENDSELECT).
+#[derive(Debug, Clone, Default)]
+pub struct CaseTable {
+    pub strs: crate::fxhash::HashMap<String, usize>,
+    pub ints: crate::fxhash::HashMap<i64, usize>,
+    pub default: usize,
+}
+
+impl CaseTable {
+    /// The table for the SELECTCASE at `at` (whose value is in `slot`), if
+    /// every CASE is a constant (`lit` gives its value: literals and
+    /// `#DIM CONST` names) and there are enough of them to be worth it.
+    pub fn build(code: &[Instr], at: usize, slot: usize, lit: &mut dyn FnMut(&Expr) -> Option<crate::vm::value::Value>) -> Option<CaseTable> {
+        let mut t = CaseTable::default();
+        let mut p = at + 1;
+        let mut n = 0;
+        loop {
+            match code.get(p) {
+                Some(Instr::CaseTest(s, conds, next)) if *s == slot => {
+                    for c in conds {
+                        let CaseCond::Eq(e) = c else { return None };
+                        match lit(e)? {
+                            crate::vm::value::Value::Str(x) => {
+                                t.strs.entry(x).or_insert(p + 1);
+                            }
+                            crate::vm::value::Value::Int(i) => {
+                                t.ints.entry(i).or_insert(p + 1);
+                            }
+                        }
+                        n += 1;
+                    }
+                    if *next <= p {
+                        return None;
+                    }
+                    p = *next;
+                }
+                _ => break,
+            }
+        }
+        t.default = p;
+        (n >= 8).then_some(t)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Instr {
     /// a line that failed to parse: (message, fatal). Unknown commands are
@@ -222,8 +289,9 @@ pub enum Instr {
     ForBegin(Box<ForBegin>),
     /// NEXT/REND: `var += step`; jump back to `body` while still in range.
     ForNext { var: Rc<VarRef>, slot: usize, body: usize },
-    /// SELECTCASE: evaluate once into `slot`.
-    SelectEval(Expr, usize),
+    /// SELECTCASE: evaluate once into `slot`. The third field caches a jump
+    /// table for selects made of literal CASEs (built on first use).
+    SelectEval(Expr, usize, Box<std::sync::OnceLock<Option<CaseTable>>>),
     /// CASE: test the value in `slot` against the conditions; on a miss
     /// jump to the next CASE (third field).
     CaseTest(usize, Vec<CaseCond>, usize),

@@ -102,6 +102,11 @@ pub trait Frontend {
     fn poll_interrupt(&mut self) -> bool {
         false
     }
+    /// Show output while a script computes (every 150 ms)? Headless runs
+    /// don't, so what they print doesn't depend on how fast the machine is.
+    fn live_updates(&self) -> bool {
+        true
+    }
     /// Show the console now even with REDRAW off (AWAIT).
     fn refresh(&mut self, con: &mut Console, res: &mut Resources) {
         self.flush(con, res);
@@ -165,6 +170,9 @@ impl Headless {
 }
 
 impl Frontend for Headless {
+    fn live_updates(&self) -> bool {
+        false
+    }
     fn flush(&mut self, con: &mut Console, _res: &mut Resources) {
         // Lines can be removed (CLEARLINE, REUSELASTLINE, history limit)
         // and new ones added since the last flush: rewind past removals.

@@ -1116,8 +1116,8 @@ impl Vm {
             "ARRAYCOPY" => {
                 let src = self.as_(a, 0, "")?.to_uppercase();
                 let dst = self.as_(a, 1, "")?.to_uppercase();
-                let sv = VarRef { name: src.into(), idx: vec![] };
-                let dv = VarRef { name: dst.into(), idx: vec![] };
+                let sv = VarRef::new(src.into(), vec![]);
+                let dv = VarRef::new(dst.into(), vec![]);
                 let sp = self.locate(&sv)?;
                 let data = self.arr_at(&sp.loc).cloned();
                 let dp = self.locate(&dv)?;
@@ -1216,7 +1216,7 @@ impl Vm {
             "HTML_TAGSPLIT" => {
                 // HTML_TAGSPLIT html{, ARR{, COUNT}} : pieces are tags or text runs
                 let html = self.as_(a, 0, "")?;
-                let target = if a.len() >= 2 { self.avar(a, 1)? } else { Rc::new(VarRef { name: "RESULTS".into(), idx: vec![] }) };
+                let target = if a.len() >= 2 { self.avar(a, 1)? } else { Rc::new(VarRef::new("RESULTS".into(), vec![])) };
                 let pieces = html_tag_split(&html);
                 let n = pieces.as_ref().map_or(-1, |p| p.len() as i64);
                 if let Some(pieces) = pieces {
@@ -1269,7 +1269,7 @@ impl Vm {
                     let s = self.eval_form(f)?;
                     let mut cur = self.globals.get("SAVEDATA_TEXT").map(|a| a.get(0).into_string()).unwrap_or_default();
                     cur.push_str(&s);
-                    self.globals.entry("SAVEDATA_TEXT".into()).or_insert_with(|| Arr::new(true, &[1])).set(0, Value::Str(cur));
+                    self.globals.get_or_insert_with("SAVEDATA_TEXT", || Arr::new(true, &[1])).set(0, Value::Str(cur));
                 }
             }
             "ADDCHARA" | "ADDSPCHARA" => {
@@ -1566,7 +1566,7 @@ impl Vm {
                 let (target, flag) = if a.len() >= 3 {
                     (self.avar(a, 1)?, 2)
                 } else {
-                    (Rc::new(VarRef { name: "RESULTS".into(), idx: vec![] }), 1)
+                    (Rc::new(VarRef::new("RESULTS".into(), vec![])), 1)
                 };
                 if self.ai(a, flag, 0)? == 0 {
                     return s(String::new());
@@ -1661,7 +1661,7 @@ impl Vm {
     /// entries in the same order. 1 done, 0 if an array is too short.
     fn array_msort(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         let ex = name == "ARRAYMSORTEX";
-        let whole = |v: &VarRef| VarRef { name: v.name.clone(), idx: vec![] };
+        let whole = |v: &VarRef| VarRef::new(v.name.clone(), vec![]);
         let by_name = |vm: &mut Self, n: &str| -> VmResult<VarRef> {
             match crate::parser::upper_expr(crate::expr::parse_expr(n, &vm.prog.defines).map_err(|e| Ctrl::Error(e, false))?) {
                 Expr::Var(v) => Ok(whole(&v)),
@@ -2285,7 +2285,7 @@ impl Vm {
                 match a.get(2) {
                     Some(Expr::Var(v)) if self.var_is_str(v)? => self.fill_array(v, vals)?,
                     Some(_) if self.ai(a, 2, 0)? != 0 => {
-                        self.fill_array(&VarRef { name: "RESULTS".into(), idx: vec![] }, vals)?;
+                        self.fill_array(&VarRef::new("RESULTS".into(), vec![]), vals)?;
                     }
                     _ => {}
                 }
@@ -2431,7 +2431,7 @@ impl Vm {
                 let Some(names) = self.dts.get(&key).map(|dt| dt.columns.iter().map(|c| Value::Str(c.name.clone())).collect::<Vec<_>>()) else {
                     return i(-1);
                 };
-                let target = if present(1) { self.avar(a, 1)? } else { Rc::new(VarRef { name: "RESULTS".into(), idx: vec![] }) };
+                let target = if present(1) { self.avar(a, 1)? } else { Rc::new(VarRef::new("RESULTS".into(), vec![])) };
                 let n = names.len() as i64;
                 self.fill_array(&target, names)?;
                 i(n)
@@ -2858,7 +2858,7 @@ impl Vm {
                         v
                     }
                     _ => {
-                        let vr = VarRef { name: n.into(), idx: vec![] };
+                        let vr = VarRef::new(n.into(), vec![]);
                         let p = self.locate(&vr)?;
                         let arr = self.arr_at(&p.loc);
                         arr.map(|a| a.dims.clone()).unwrap_or_default()
@@ -3280,8 +3280,8 @@ impl Vm {
                 };
                 let found: Vec<Value> = names.into_iter().filter(|n| hit(n)).map(Value::Str).collect();
                 let target = match a.get(1) {
-                    Some(Expr::Var(v)) => VarRef { name: v.name.clone(), idx: vec![] },
-                    _ => VarRef { name: "RESULTS".into(), idx: vec![] },
+                    Some(Expr::Var(v)) => VarRef::new(v.name.clone(), vec![]),
+                    _ => VarRef::new("RESULTS".into(), vec![]),
                 };
                 let (loc, base, len) = self.array_row(&target)?;
                 let n = found.len().min(len);
@@ -3332,8 +3332,8 @@ impl Vm {
                     .filter_map(|p| p.strip_prefix(&self.game_dir).ok().map(|r| Value::Str(r.to_string_lossy().into_owned())))
                     .collect();
                 let target = match a.get(3) {
-                    Some(Expr::Var(v)) => VarRef { name: v.name.clone(), idx: vec![] },
-                    _ => VarRef { name: "RESULTS".into(), idx: vec![] },
+                    Some(Expr::Var(v)) => VarRef::new(v.name.clone(), vec![]),
+                    _ => VarRef::new("RESULTS".into(), vec![]),
                 };
                 let (loc, base, len) = self.array_row(&target)?;
                 let n = found.len().min(len);
@@ -3640,7 +3640,7 @@ impl Vm {
                         for (k, val) in vals.into_iter().enumerate() {
                             let mut idx = v.idx.clone();
                             idx.push(Expr::Int(k as i64));
-                            self.set_var(&VarRef { name: v.name.clone(), idx }, Value::Str(val))?;
+                            self.set_var(&VarRef::new(v.name.clone(), idx), Value::Str(val))?;
                         }
                     }
                 }

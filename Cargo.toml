@@ -14,8 +14,28 @@ tar = "0.4"
 unicode-width = "0.2.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+# `cargo build --features profile`: EMUERA_PPROF=<file> samples where the
+# interpreter spends its time (development only)
+pprof = { version = "0.15", optional = true }
+
+[features]
+profile = ["dep:pprof"]
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_Devices_Communication"] }
+
+[profile.release]
+# whole-program optimisation: the interpreter's hot paths inline across
+# modules (about 10–20% faster than the default 16 codegen units)
+lto = "fat"
+codegen-units = 1
+
+# development builds with release speed but a quicker compile
+[profile.fastbuild]
+inherits = "release"
+lto = false
+codegen-units = 16
+debug = "line-tables-only"

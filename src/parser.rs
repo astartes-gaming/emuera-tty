@@ -811,7 +811,7 @@ impl<'a> Parser<'a> {
             "SELECTCASE" => {
                 let e = self.block_expr(b, arg_c, line);
                 let slot = b.slot();
-                b.emit(Instr::SelectEval(e, slot));
+                b.emit(Instr::SelectEval(e, slot, Default::default()));
                 b.ctl.push(Ctl::Select { slot, test: None, ends: vec![], first: true });
             }
             "CASE" | "CASEELSE" => {
@@ -864,7 +864,7 @@ impl<'a> Parser<'a> {
                     let step = if parts.len() > 3 && !parts[3].trim().is_empty() { Some(self.expr(parts[3].trim())?) } else { None };
                     (var, start, end, step)
                 } else {
-                    (Rc::new(VarRef { name: "COUNT".into(), idx: vec![] }), Expr::Int(0), self.expr(arg_c)?, None)
+                    (Rc::new(VarRef::new("COUNT".into(), vec![])), Expr::Int(0), self.expr(arg_c)?, None)
                 };
                 let slot = b.slot();
                 let begin = b.emit(Instr::ForBegin(Box::new(ForBegin { var: var.clone(), start, end, step, slot, exit: 0 })));
@@ -1046,7 +1046,7 @@ impl<'a> Parser<'a> {
                         is_dynamic: true,
                     });
                 }
-                let var = Rc::new(VarRef { name: name.clone().into(), idx: vec![] });
+                let var = Rc::new(VarRef::new(name.clone().into(), vec![]));
                 if is_array {
                     // a fresh, empty array each time the line runs
                     b.emit(Instr::Command(Box::new(("VARSET".into(), Args::Exprs(vec![Expr::Var(var)])))));

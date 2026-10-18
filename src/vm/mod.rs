@@ -60,6 +60,21 @@ pub enum Slot {
     Sel(Value),
 }
 
+/// A variable's evaluated indices, without a heap allocation (Emuera
+/// arrays have at most three dimensions, plus a character index).
+#[derive(Default, Clone, Copy)]
+pub struct Idx {
+    n: u8,
+    v: [i64; 4],
+}
+
+impl std::ops::Deref for Idx {
+    type Target = [i64];
+    fn deref(&self) -> &[i64] {
+        &self.v[..self.n as usize]
+    }
+}
+
 /// One active function call.
 pub struct Frame {
     pub func: Rc<Function>,
@@ -82,7 +97,8 @@ pub struct Chara {
 /// Which array a [`Place`] is in.
 #[derive(Clone)]
 pub enum Loc {
-    Global(Name),
+    /// a slot in `Vm::globals`
+    Global(usize),
     /// `#DIM DYNAMIC` in the current frame
     Frame(Name),
     /// a variable in a specific (caller's) frame, for REF parameters
@@ -108,7 +124,7 @@ pub struct Vm {
     pub con: Console,
     pub fe: Box<dyn Frontend>,
     pub res: Resources,
-    pub globals: HashMap<String, Arr>,
+    pub globals: vars::Globals,
     pub statics: Vec<Arr>,
     /// (function name, variable) → slot in `statics`
     static_index: HashMap<(String, String), usize>,
@@ -126,8 +142,6 @@ pub struct Vm {
     pub ctrain: Option<(Vec<i64>, usize)>,
     /// reads and parses the ERB files again (the reload hotkey)
     pub reloader: Option<Box<dyn FnMut() -> Program>>,
-    /// `var_info` results by (function, name) pointers
-    var_cache: HashMap<(usize, usize), (Name, VarInfo)>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
     pub maps: HashMap<String, StrMap>,
     /// Emuera-EM DT_* data tables, by (case-sensitive) name
@@ -199,14 +213,13 @@ impl Vm {
             con: Console::new(),
             fe,
             res,
-            globals: HashMap::default(),
+            globals: Default::default(),
             statics: Vec::new(),
             static_index: HashMap::default(),
             static_slot: HashMap::default(),
             charas: Vec::new(),
             frames: Vec::new(),
             user_dims: HashMap::default(),
-            var_cache: HashMap::default(),
             inputs_seen: 0,
             inject_at: std::env::var("EMUERA_INJECT_AT").ok().and_then(|n| n.parse().ok()),
             ctrain: None,
@@ -261,6 +274,16 @@ impl Vm {
         }
     }
 
+    /// Is `name` a `#DIM CONST` without indices, here (the function's own
+    /// or a global one)?
+    fn is_const_scalar(&self, name: &str) -> bool {
+        let own = self.frames.last().and_then(|fr| fr.func.dims.iter().find(|d| d.name == name));
+        match own {
+            Some(d) => d.is_const && d.dims.is_empty(),
+            None => self.user_dims.get(name).is_some_and(|d| d.is_const && !d.is_chara && d.dims.is_empty()),
+        }
+    }
+
     /// The reload hotkey (Emuera's ReloadErb): parse the ERB files again
     /// and carry on with the game as it is. Functions already running
     /// finish in their old version; `#DIM`s new in the ERH files are
@@ -276,7 +299,6 @@ impl Vm {
         let errors = prog.errors.len();
         self.prog = prog;
         // caches keyed by the old functions' addresses
-        self.var_cache.clear();
         self.static_slot.clear();
         let dims = self.prog.global_dims.clone();
         for d in &dims {
@@ -422,10 +444,25 @@ impl Vm {
     }
 
     /// A global array, created with its default size on first use.
+    /// The global slot `v` names (remembered in the reference).
+    fn global_slot(&mut self, v: &VarRef) -> usize {
+        use std::sync::atomic::Ordering::Relaxed;
+        match v.gslot.load(Relaxed) {
+            0 => {
+                let s = self.globals.slot_of(&v.name);
+                v.gslot.store(s as u32 + 1, Relaxed);
+                s
+            }
+            s => s as usize - 1,
+        }
+    }
+
     pub fn global_arr(&mut self, name: &str) -> &mut Arr {
-        // (one lookup when it exists: the borrow checker wants it this way)
-        if self.globals.contains_key(name) {
-            return self.globals.get_mut(name).unwrap();
+        // one lookup when it exists (the raw pointer only works around the
+        // borrow checker's conditional-return limitation)
+        if let Some(a) = self.globals.get_mut(name) {
+            let a: *mut Arr = a;
+            return unsafe { &mut *a };
         }
         {
             let a = match system_var(name) {
@@ -523,14 +560,25 @@ impl Vm {
     }
 
     /// All indices of `v` from position `from` (1 skips a character index).
-    fn eval_indices(&mut self, v: &VarRef, from: usize, table: Option<&str>) -> VmResult<Vec<i64>> {
-        let mut out = Vec::with_capacity(v.idx.len());
+    fn eval_indices(&mut self, v: &VarRef, from: usize, table: Option<&str>) -> VmResult<Idx> {
+        let mut out = Idx::default();
         let n = v.idx.len();
         for (k, e) in v.idx.iter().enumerate().skip(from) {
-            // CSV names apply to the last index (and to every index of ERD vars)
-            let t = if k + 1 == n { table } else { None };
-            let dim = (n - from > 1).then_some(k - from + 1);
-            out.push(self.eval_index_dim(e, t, &v.name, dim)?);
+            // the usual case: a number or a plain counter
+            let i = match e {
+                Expr::Int(i) => *i,
+                _ => {
+                    // CSV names apply to the last index (and to every index of ERD vars)
+                    let t = if k + 1 == n { table } else { None };
+                    let dim = (n - from > 1).then_some(k - from + 1);
+                    self.eval_index_dim(e, t, &v.name, dim)?
+                }
+            };
+            if out.n as usize == out.v.len() {
+                return err(format!("{}: too many indices", v.name));
+            }
+            out.v[out.n as usize] = i;
+            out.n += 1;
         }
         Ok(out)
     }
@@ -554,43 +602,39 @@ impl Vm {
     /// How `v`'s name resolves in the running function (cached: the same
     /// name in the same function always means the same kind of variable).
     fn var_info(&mut self, v: &VarRef) -> VarInfo {
-        let func = self.frames.last().map(|f| Rc::as_ptr(&f.func) as *const u8 as usize).unwrap_or(0);
-        let key = (func, Rc::as_ptr(&v.name) as *const u8 as usize);
-        if let Some((n, info)) = self.var_cache.get(&key) {
-            // (the pointer may have been reused by another name since)
-            if Rc::ptr_eq(n, &v.name) || **n == *v.name {
-                return *info;
-            }
-        }
         let name = &*v.name;
-        let table = match table_for_var(name) {
-            Some(t) => Tbl::Static(t),
-            None if self.csv.tables.contains_key(name) => Tbl::Own,
-            None => Tbl::None,
+        let ni = match v.cache.get() {
+            Some(n) => *n,
+            None => {
+                let table = match table_for_var(name) {
+                    Some(t) => Tbl::Static(t),
+                    None if self.csv.tables.contains_key(name) => Tbl::Own,
+                    None => Tbl::None,
+                };
+                let n = NameInfo {
+                    table,
+                    // Emuera's LOCAL/ARG family is per-function storage that
+                    // persists across calls (reset by RESETDATA / load)
+                    local_family: matches!(name, "LOCAL" | "LOCALS" | "ARG" | "ARGS"),
+                    user: self.user_dims.get(name).map(|d| (d.is_chara, d.dims.len())),
+                    csv_name: name.ends_with("NAME") && name != "NAME" && table_for_var(name).is_some(),
+                    pseudo: pseudo_var(name),
+                    system: system_var(name),
+                };
+                let _ = v.cache.set(n);
+                n
+            }
         };
+        // the function's own #DIMs win over everything else
         let (private, is_static) = match self.frames.last() {
-            Some(f) => match f.func.dims.iter().find(|d| d.name == name) {
+            Some(f) if !f.func.dims.is_empty() => match f.func.dims.iter().find(|d| d.name.len() == name.len() && d.name == name) {
                 Some(d) => (true, d.is_static),
-                // Emuera's LOCAL/ARG family is per-function storage that
-                // persists across calls (reset by RESETDATA / load)
-                None => (false, matches!(name, "LOCAL" | "LOCALS" | "ARG" | "ARGS")),
+                None => (false, ni.local_family),
             },
+            Some(_) => (false, ni.local_family),
             None => (false, false),
         };
-        let info = VarInfo {
-            table,
-            private,
-            is_static,
-            user: self.user_dims.get(name).map(|d| (d.is_chara, d.dims.len())),
-            csv_name: name.ends_with("NAME") && name != "NAME" && table_for_var(name).is_some(),
-            pseudo: pseudo_var(name),
-            system: system_var(name),
-        };
-        if self.var_cache.len() > 200_000 {
-            self.var_cache.clear();
-        }
-        self.var_cache.insert(key, (v.name.clone(), info));
-        info
+        VarInfo { table: ni.table, private, is_static, user: ni.user, csv_name: ni.csv_name, pseudo: ni.pseudo, system: ni.system }
     }
 
     pub fn locate(&mut self, v: &VarRef) -> VmResult<Place> {
@@ -662,9 +706,10 @@ impl Vm {
                 return self.locate_chara(v, nd, table);
             }
             let idx = self.eval_indices(v, 0, table)?;
-            let a = self.globals.get(name).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
+            let slot = self.global_slot(v);
+            let a = self.globals.at_ref(slot).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc: Loc::Global(v.name.clone()), flat });
+            return Ok(Place { loc: Loc::Global(slot), flat });
         }
         // 3a. CSV name tables (ABLNAME, BASENAME, …) as real string arrays,
         // so FINDELEMENT / VARSIZE / array builtins can take them
@@ -687,8 +732,9 @@ impl Vm {
                     self.globals.insert(name.to_string(), a);
                 }
                 let idx = self.eval_indices(v, 0, table)?;
+                let slot = self.global_slot(v);
                 let flat = self.globals[name].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-                return Ok(Place { loc: Loc::Global(v.name.clone()), flat });
+                return Ok(Place { loc: Loc::Global(slot), flat });
             }
         }
         // 3. pseudo variables
@@ -702,9 +748,13 @@ impl Vm {
                 return self.locate_chara(v, def.dims.len(), table);
             }
             let idx = self.eval_indices(v, 0, table)?;
-            let a = self.global_arr(name);
+            let slot = self.global_slot(v);
+            if self.globals.at_ref(slot).is_none() {
+                self.global_arr(name);
+            }
+            let a = self.globals.at_ref(slot).unwrap();
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-            return Ok(Place { loc: Loc::Global(v.name.clone()), flat });
+            return Ok(Place { loc: Loc::Global(slot), flat });
         }
         err(format!("undefined variable '{}'", name))
     }
@@ -727,7 +777,7 @@ impl Vm {
     /// The array a location refers to (None for read-only values).
     pub fn arr_at(&mut self, loc: &Loc) -> Option<&mut Arr> {
         match loc {
-            Loc::Global(n) => Some(self.global_arr(n)),
+            Loc::Global(s) => self.globals.at(*s),
             Loc::Frame(n) => self.frames.last_mut().and_then(|f| f.vars.get_mut(&**n)),
             Loc::FrameAt(d, n) => self.frames.get_mut(*d).and_then(|f| f.vars.get_mut(&**n)),
             Loc::Static(slot) => self.statics.get_mut(*slot),
@@ -772,7 +822,7 @@ impl Vm {
                 "WINDOW_TITLE" => self.con.title = s,
                 "DRAWLINESTR" => self.con.drawline_str = s,
                 _ => {
-                    self.globals.entry("SAVEDATA_TEXT".into()).or_insert_with(|| Arr::new(true, &[1])).set(0, Value::Str(s));
+                    self.globals.get_or_insert_with("SAVEDATA_TEXT", || Arr::new(true, &[1])).set(0, Value::Str(s));
                 }
             }
             return Ok(());
@@ -1052,7 +1102,7 @@ impl Vm {
             let is_ref = p.as_ref().is_some_and(|n| f.dims.iter().any(|d| d.is_ref && *d.name == **n));
             if let (true, Expr::Var(v)) = (is_ref, a) {
                 let top = self.frames.len().saturating_sub(1);
-                let loc = match self.locate(&VarRef { name: v.name.clone(), idx: vec![] })?.loc {
+                let loc = match self.locate(&VarRef::new(v.name.clone(), vec![]))?.loc {
                     Loc::Frame(n) => Loc::FrameAt(top, n),
                     l => l,
                 };
@@ -1300,23 +1350,60 @@ impl Vm {
                     self.set_pc(*body);
                 }
             }
-            Instr::SelectEval(e, slot) => {
+            Instr::SelectEval(e, slot, table) => {
                 let v = self.eval(e)?;
+                // literal CASEs: straight to the matching one (same result as
+                // testing them in order: the first match wins)
+                let at = self.frames.last().unwrap().pc.saturating_sub(1);
+                let jump = table
+                    .get_or_init(|| {
+                        let mut lit = |e: &Expr| -> Option<Value> {
+                            match e {
+                                Expr::Str(s) => Some(Value::Str(s.clone())),
+                                Expr::Int(i) => Some(Value::Int(*i)),
+                                // a CONST scalar: fixed for the program's life
+                                Expr::Var(v) if v.idx.is_empty() && self.is_const_scalar(&v.name) => self.get_var(v).ok(),
+                                _ => None,
+                            }
+                        };
+                        CaseTable::build(&f.code, at, *slot, &mut lit)
+                    })
+                    .as_ref()
+                    .and_then(|t| match &v {
+                        Value::Str(s) if t.ints.is_empty() => Some(t.strs.get(s.as_str()).copied().unwrap_or(t.default)),
+                        Value::Int(i) if t.strs.is_empty() => Some(t.ints.get(i).copied().unwrap_or(t.default)),
+                        _ => None,
+                    });
                 self.frames.last_mut().unwrap().slots[*slot] = Slot::Sel(v);
+                if let Some(pc) = jump {
+                    self.set_pc(pc);
+                }
             }
             Instr::CaseTest(slot, conds, next) => {
-                let v = match &self.frames.last().unwrap().slots[*slot] {
-                    Slot::Sel(v) => v.clone(),
-                    _ => Value::Int(0),
+                // the selector is taken out of its slot while the CASE
+                // values are evaluated (no copy of a string selector)
+                let sel = std::mem::replace(&mut self.frames.last_mut().unwrap().slots[*slot], Slot::None);
+                let v = match &sel {
+                    Slot::Sel(v) => v,
+                    _ => &Value::Int(0),
                 };
-                let mut hit = false;
+                let mut hit = Ok(false);
                 for c in conds {
-                    if self.case_match(&v, c)? {
-                        hit = true;
-                        break;
+                    match self.case_match(v, c) {
+                        Ok(false) => {}
+                        r => {
+                            hit = r;
+                            break;
+                        }
                     }
                 }
-                if !hit {
+                // (a CASE value that called a function may have left frames)
+                if let Some(f) = self.frames.last_mut() {
+                    if let Some(s) = f.slots.get_mut(*slot) {
+                        *s = sel;
+                    }
+                }
+                if !hit? {
                     self.set_pc(*next);
                 }
             }
@@ -1427,8 +1514,18 @@ impl Vm {
     fn case_match(&mut self, v: &Value, c: &CaseCond) -> VmResult<bool> {
         Ok(match c {
             CaseCond::Eq(e) => {
+                // literal CASEs compare in place
+                match (v, e) {
+                    (Value::Str(s), Expr::Str(lit)) => return Ok(s == lit),
+                    (Value::Int(i), Expr::Int(n)) => return Ok(i == n),
+                    _ => {}
+                }
                 let x = self.eval(e)?;
-                if v.is_str() || x.is_str() { v.as_string() == x.as_string() } else { v.as_int() == x.as_int() }
+                match (v, &x) {
+                    (Value::Int(a), Value::Int(b)) => a == b,
+                    (Value::Str(a), Value::Str(b)) => a == b,
+                    _ => v.as_string() == x.as_string(),
+                }
             }
             CaseCond::Range(a, b) => {
                 let a = self.eval(a)?;
@@ -1700,7 +1797,7 @@ impl Vm {
         if self.fe.poll_interrupt() {
             return Err(Ctrl::Quit);
         }
-        if self.con.dirty && self.con.redraw {
+        if self.con.dirty && self.con.redraw && self.fe.live_updates() {
             self.flush();
         }
         Ok(())
@@ -1751,17 +1848,29 @@ fn trace_clock() -> f64 {
 }
 
 /// Which CSV name table indexes a variable.
-#[derive(Clone, Copy)]
-enum Tbl {
+#[derive(Clone, Copy, Debug)]
+pub enum Tbl {
     None,
     Static(&'static str),
     /// the variable's own name (a table named like an ERH variable)
     Own,
 }
 
+/// What a variable name means whatever function uses it (cached in the
+/// `VarRef`; `Vm::var_info` adds the function's own #DIMs).
+#[derive(Clone, Copy)]
+pub struct NameInfo {
+    table: Tbl,
+    local_family: bool,
+    user: Option<(bool, usize)>,
+    csv_name: bool,
+    pseudo: bool,
+    system: Option<&'static VarDef>,
+}
+
 /// What a variable name means inside a function (see `Vm::var_info`).
 #[derive(Clone, Copy)]
-pub(crate) struct VarInfo {
+pub struct VarInfo {
     table: Tbl,
     private: bool,
     is_static: bool,
@@ -1770,6 +1879,18 @@ pub(crate) struct VarInfo {
     csv_name: bool,
     pseudo: bool,
     system: Option<&'static VarDef>,
+}
+
+impl std::fmt::Debug for NameInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("NameInfo")
+    }
+}
+
+impl std::fmt::Debug for VarInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("VarInfo")
+    }
 }
 
 /// `EMUERA_PROFILE=<file>`: which ERB functions the time goes to. A thread

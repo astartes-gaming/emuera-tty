@@ -614,9 +614,9 @@ impl Vm {
     }
 
     fn set_lastload(&mut self, n: i64, text: String, version: i64) {
-        self.globals.entry("LASTLOAD_TEXT".into()).or_insert_with(|| Arr::new(true, &[1])).set(0, Value::Str(text));
-        self.globals.entry("LASTLOAD_NO".into()).or_insert_with(|| Arr::new(false, &[1])).set(0, Value::Int(n));
-        self.globals.entry("LASTLOAD_VERSION".into()).or_insert_with(|| Arr::new(false, &[1])).set(0, Value::Int(version));
+        self.globals.get_or_insert_with("LASTLOAD_TEXT", || Arr::new(true, &[1])).set(0, Value::Str(text));
+        self.globals.get_or_insert_with("LASTLOAD_NO", || Arr::new(false, &[1])).set(0, Value::Int(n));
+        self.globals.get_or_insert_with("LASTLOAD_VERSION", || Arr::new(false, &[1])).set(0, Value::Int(version));
     }
 
     /// LOADGLOBAL.
