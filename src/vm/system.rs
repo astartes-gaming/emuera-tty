@@ -350,7 +350,7 @@ impl Vm {
                     if ctrain {
                         continue;
                     }
-                    let s = crate::vm::pad(&format!("{}[{:3}]", name, k), self.con.printc_len, crate::ast::Align::Right);
+                    let s = crate::vm::pad(&format!("{}[{:3}]", self.csv.tr.or_same("TRAIN", &name), k), self.con.printc_len, crate::ast::Align::Right);
                     self.con.print(&s);
                     shown += 1;
                     if shown % per_line == 0 {
@@ -513,7 +513,7 @@ impl Vm {
             let i = *i;
             if self.get_global_i("ITEMSALES", i.max(0) as usize) != 0 {
                 let price = self.get_global_i("ITEMPRICE", i.max(0) as usize);
-                let s = crate::vm::pad(&format!("[{}] {}({})", i, name, self.with_money_label(&price.to_string())), self.con.printc_len + 1, crate::ast::Align::Left);
+                let s = crate::vm::pad(&format!("[{}] {}({})", i, self.csv.tr.or_same("ITEM", name), self.with_money_label(&price.to_string())), self.con.printc_len + 1, crate::ast::Align::Left);
                 self.con.print(&s);
                 shown += 1;
                 if shown % self.con.printc_per_line.max(1) == 0 {

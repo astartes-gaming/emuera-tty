@@ -1043,17 +1043,48 @@ impl Vm {
             return Ok(s.clone());
         }
         let mut out = String::new();
-        self.eval_form_into(f, &mut out)?;
+        self.eval_form_into(f, &mut out, false)?;
         Ok(out)
     }
 
-    fn eval_form_into(&mut self, f: &Form, out: &mut String) -> VmResult<()> {
+    /// A FORM string that is printed (Emuera-Anchor translation).
+    pub(crate) fn eval_form_tr(&mut self, f: &Form) -> VmResult<String> {
+        let mut out = String::new();
+        self.eval_form_into(f, &mut out, true)?;
+        Ok(out)
+    }
+
+    /// Emuera-Anchor: a printed `%…%` value, translated — a CSV name
+    /// (`%ABLNAME:2%`) through its table's *_TR.csv, anything else
+    /// through ALL_TR.csv.
+    fn translated(&self, e: &Expr, s: String) -> String {
+        let tr = &self.csv.tr;
+        if tr.is_empty() {
+            return s;
+        }
+        if let Expr::Var(v) = e {
+            if v.name.ends_with("NAME") {
+                if let Some(t) = crate::csvdata::table_for_var(&v.name) {
+                    return tr.name(t, &s).map(str::to_string).unwrap_or(s);
+                }
+            }
+        }
+        tr.all(&s).cloned().unwrap_or(s)
+    }
+
+    /// Append a FORM string; `tr`: it is being printed (see `translated`).
+    fn eval_form_into(&mut self, f: &Form, out: &mut String, tr: bool) -> VmResult<()> {
         use std::fmt::Write as _;
         for p in &f.parts {
             match p {
                 FormPart::Lit(s) => out.push_str(s),
                 FormPart::Str(e, w, a) | FormPart::Int(e, w, a) => {
-                    let v = self.eval(e)?;
+                    let mut v = self.eval(e)?;
+                    if tr {
+                        if let Value::Str(s) = v {
+                            v = Value::Str(self.translated(e, s));
+                        }
+                    }
                     match w {
                         Some(w) => {
                             let w = self.eval_int(w)?.max(0) as usize;
@@ -1070,9 +1101,9 @@ impl Vm {
                 FormPart::Cond(cab) => {
                     let (c, a, b) = &**cab;
                     if self.eval(c)?.truthy() {
-                        self.eval_form_into(a, out)?;
+                        self.eval_form_into(a, out, tr)?;
                     } else {
-                        self.eval_form_into(b, out)?;
+                        self.eval_form_into(b, out, tr)?;
                     }
                 }
             }
@@ -1299,8 +1330,13 @@ impl Vm {
             Instr::Print(content, fl) => {
                 let s = match content {
                     PrintContent::Raw(s) => s.clone(),
+                    // (Emuera-Anchor: printed names are translated)
+                    PrintContent::Form(fm) if !self.csv.tr.is_empty() => self.eval_form_tr(fm)?,
                     PrintContent::Form(fm) => self.eval_form(fm)?,
-                    PrintContent::Expr(e) => self.eval_str(e)?,
+                    PrintContent::Expr(e) => {
+                        let s = self.eval_str(e)?;
+                        self.translated(e, s)
+                    }
                     PrintContent::Exprs(es) => {
                         let mut s = String::new();
                         for e in es {
@@ -1322,7 +1358,11 @@ impl Vm {
                             text.push('\n');
                         }
                         first = false;
-                        text.push_str(&self.eval_form(l)?);
+                        if self.csv.tr.is_empty() {
+                            text.push_str(&self.eval_form(l)?);
+                        } else {
+                            self.eval_form_into(l, &mut text, true)?;
+                        }
                     }
                     self.do_print(&text, *fl)?;
                 }

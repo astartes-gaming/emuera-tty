@@ -232,6 +232,23 @@ foot, Windows Terminal, iTerm2 and tmux (`set -g set-clipboard on`) pass to
 the system clipboard; Konsole and some others need it allowed in their
 settings.
 
+### Translated games (Emuera-Anchor)
+
+Games translated with Emuera-Anchor's system play translated here too:
+
+- `Abl_TR.csv`, `Talent_TR.csv`, `Item_TR.csv`… (any CSV name table, also
+  `Palam`/`Param`, `Str`, `CSTR`, `Flag`…): `original,translation` lines,
+  `;` starts a comment. A name is translated when it is printed
+  (`%ABLNAME:2%`, PRINTS, PRINT_ABL, the TRAIN command list, the shop),
+  not when a script stores or compares it, so the scripts keep working
+  on the original names and saves stay as Emuera writes them.
+- `ALL_TR.csv`: the same for any other `%…%` value a PRINTFORM shows.
+- `TRCHARA*.csv`: character names (`NAME`, `CALLNAME`, `NICKNAME`,
+  `MASTERNAME`, `CSTR,n,text`) in blocks from `NO,n` (or `番号,n`) to
+  `ENDCHR`; characters added in a new game come out translated.
+- `TR_NAME(ABL, 25)` / `TR_NAME("TALENT", "処女")`: a translated name for
+  scripts, the original when there is none.
+
 ### Managing saves
 
 F1 → *Manage saves…* lists the game's saves with their date and the
@@ -552,6 +569,8 @@ checked.
 - SAVEGAME/LOADGAME menus, SAVEDATA/LOADDATA, SAVEGLOBAL/LOADGLOBAL, @SAVEINFO.
 - Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
   per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
+- Emuera-Anchor: the `*_TR.csv` / `ALL_TR.csv` / `TRCHARA` translation
+  files and `TR_NAME`, the Ctrl-T / Ctrl-R / F5 hotkeys, the clipboard.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `AWAIT`, `LOADTEXT`/`SAVETEXT`,

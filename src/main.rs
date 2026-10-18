@@ -32,6 +32,7 @@ mod savemgr;
 mod settings;
 mod sys;
 mod terminfo;
+mod translate;
 mod tty;
 mod xml;
 mod vm;

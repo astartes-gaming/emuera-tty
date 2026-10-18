@@ -71,6 +71,8 @@ pub struct GameCsv {
     pub rename: Vec<(String, String)>,
     /// Str.csv: initial STR values.
     pub str_init: Vec<(i64, String)>,
+    /// Emuera-Anchor translations (*_TR.csv)
+    pub tr: crate::translate::Tr,
     pub warnings: Vec<String>,
 }
 
@@ -262,6 +264,10 @@ impl GameCsv {
             }
         }
         g.charas.sort_by_key(|c| c.no);
+        // Emuera-Anchor translations
+        g.tr = crate::translate::Tr::load(csv_dir);
+        let w = crate::translate::apply_trchara(csv_dir, &mut g.charas);
+        g.warnings.extend(w);
         // EmueraEE: *.ERD name tables for user variables.
         if let Some(erb) = erb_dir {
             for p in walk(erb, &["erd"]) {
@@ -292,6 +298,11 @@ impl GameCsv {
 
     pub fn name_of(&self, table: &str, idx: i64) -> Option<&str> {
         self.tables.get(table).and_then(|t| t.by_index.get(&idx)).map(|s| s.as_str())
+    }
+
+    /// A name as printed: translated when the game has *_TR.csv files.
+    pub fn shown_name(&self, table: &str, idx: i64) -> Option<&str> {
+        self.name_of(table, idx).map(|n| self.tr.or_same(table, n))
     }
 
     /// A Chara*.csv index column: a number or a name from `table`

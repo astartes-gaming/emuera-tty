@@ -69,7 +69,7 @@ pub const FUNCTIONS: &[&str] = &[
     "EXISTSOUND", "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH",
     "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE", "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE",
     "MAP_GETKEYS", "MAP_TOXML", "COLOR_FROMNAME", "COLOR_FROMRGB", "HTML_STRINGLEN", "GETMETH", "GETMETHS",
-    "GETDOINGFUNCTION", "CLIENTWIDTH", "CLIENTHEIGHT", "EXISTFILE", "SPRITEPOSX", "SPRITEPOSY", "GGETCOLOR", "GETTEXTBOX",
+    "GETDOINGFUNCTION", "TR_NAME", "CLIENTWIDTH", "CLIENTHEIGHT", "EXISTFILE", "SPRITEPOSX", "SPRITEPOSY", "GGETCOLOR", "GETTEXTBOX",
     "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES", "DT_COLUMN_EXIST",
     "DT_COLUMN_REMOVE", "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET",
     "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT",
@@ -88,7 +88,7 @@ pub const FUNCTIONS: &[&str] = &[
 
 /// Built-in functions that return a string (Emuera's ReturnType), for
 /// EXISTMETH.
-const STR_FUNCTIONS: &[&str] = &["CSVNAME", "CSVCALLNAME", "CSVNICKNAME", "CSVMASTERNAME", "CSVCSTR", "GETFONT", "BARSTR", "CURRENTALIGN", "MONEYSTR", "GETTIMES", "SUBSTRING", "SUBSTRINGU", "TOSTR", "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "REPLACE", "UNICODE", "CONVERT", "ESCAPE", "CHARATU", "GETLINESTR", "STRFORM", "STRJOIN", "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TOPLAINTEXT", "HTML_ESCAPE", "MOUSEB", "LOADTEXT", "HTML_SUBSTRING", "GETVARS", "XML_TOSTR", "MAP_GET", "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS"];
+const STR_FUNCTIONS: &[&str] = &["CSVNAME", "CSVCALLNAME", "CSVNICKNAME", "CSVMASTERNAME", "CSVCSTR", "GETFONT", "BARSTR", "CURRENTALIGN", "MONEYSTR", "GETTIMES", "SUBSTRING", "SUBSTRINGU", "TOSTR", "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "REPLACE", "UNICODE", "CONVERT", "ESCAPE", "CHARATU", "GETLINESTR", "STRFORM", "STRJOIN", "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TOPLAINTEXT", "HTML_ESCAPE", "MOUSEB", "LOADTEXT", "HTML_SUBSTRING", "GETVARS", "XML_TOSTR", "MAP_GET", "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS", "TR_NAME"];
 
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
 /// every statement while parsing)
@@ -612,7 +612,11 @@ impl Vm {
                 self.con.push_seg(Seg::Space { w: w * fs / 100.0 });
             }
             "HTML_PRINT" => {
-                let s = self.as_(a, 0, "")?;
+                // (Emuera-Anchor: a FORM string's %…% names are translated)
+                let s = match a.first() {
+                    Some(Expr::Form(f)) if !self.csv.tr.is_empty() => self.eval_form_tr(f)?,
+                    _ => self.as_(a, 0, "")?,
+                };
                 self.html_print(&s);
             }
             "BAR" | "BARL" => {
@@ -721,7 +725,7 @@ impl Vm {
                 let mut out = String::new();
                 for k in 0..arr.len() {
                     let v = arr.get_i(k);
-                    let Some(n) = self.csv.name_of(table, k as i64).filter(|n| !n.is_empty()) else { continue };
+                    let Some(n) = self.csv.shown_name(table, k as i64).filter(|n| !n.is_empty()) else { continue };
                     if v == 0 {
                         continue;
                     }
@@ -744,7 +748,7 @@ impl Vm {
                 let mut count = 0;
                 for k in 0..100.min(arr.len()) {
                     let p = arr.get_i(k);
-                    let n = self.csv.name_of("PALAM", k as i64).unwrap_or("").to_string();
+                    let n = self.csv.shown_name("PALAM", k as i64).unwrap_or("").to_string();
                     if p == 0 && n.is_empty() {
                         continue;
                     }
@@ -785,7 +789,7 @@ impl Vm {
                         continue;
                     }
                     any = true;
-                    out.push_str(&format!("{}({}) ", self.csv.name_of("ITEM", k as i64).unwrap_or(""), v));
+                    out.push_str(&format!("{}({}) ", self.csv.shown_name("ITEM", k as i64).unwrap_or(""), v));
                 }
                 if !any {
                     out.push_str("なし");
@@ -3242,6 +3246,21 @@ impl Vm {
                     _ => crate::csvdata::table_for_var(&v.name).unwrap_or(&v.name).to_string(),
                 };
                 s(self.csv.name_of(&table, n).unwrap_or("").to_string())
+            }
+            // Emuera-Anchor: TR_NAME(code, index or name): the translated name
+            // from the code's *_TR.csv (the original if there is none)
+            "TR_NAME" => {
+                let code = match a.first() {
+                    Some(Expr::Var(v)) if v.idx.is_empty() && (crate::csvdata::table_for_var(&v.name).is_some() || &*v.name == "ALL") => v.name.to_string(),
+                    _ => self.as_(a, 0, "")?.trim().to_uppercase(),
+                };
+                let table = crate::csvdata::table_for_var(&code).unwrap_or(&code).to_string();
+                let orig = match self.arg(a, 1)? {
+                    Some(Value::Int(i)) => self.csv.name_of(&table, i).unwrap_or("").to_string(),
+                    Some(Value::Str(s)) => s,
+                    None => String::new(),
+                };
+                s(self.csv.tr.or_same(&table, &orig).to_string())
             }
             "EXISTMETH" => {
                 // 1: returns a number, 2: a string, 0: no such function

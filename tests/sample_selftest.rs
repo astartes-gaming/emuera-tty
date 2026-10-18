@@ -50,8 +50,10 @@ fn sample_selftest_passes() {
     // every CHECK/CHECKS call must have run and printed OK
     let oks = text.lines().filter(|l| l.starts_with("OK  ")).count();
     assert!(text.contains(&format!("selftest: {} checks done", oks)), "{}", text);
-    assert!(oks >= 102, "only {} checks ran\n{}", oks, text);
+    assert!(oks >= 104, "only {} checks ran\n{}", oks, text);
     assert!(text.contains("1日目"), "{}", text);
+    // Emuera-Anchor: Abl_TR.csv applies when the name is printed
+    assert!(text.contains("printed: Technique"), "{}", text);
     assert!(!text.contains("script error"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);
 }
