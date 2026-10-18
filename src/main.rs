@@ -8,6 +8,7 @@
 
 mod archive;
 mod ast;
+mod clipboard;
 mod config_names;
 mod console;
 mod csvdata;
@@ -264,7 +265,10 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
                 }
                 "PRINTCを並べる文字数" | "PRINTCの文字数" => con.printc_len = v.parse().unwrap_or(con.printc_len),
                 "表示するログの最大行数" | "履歴ログの行数" => con.max_lines = v.parse().unwrap_or(con.max_lines),
-                _ => {}
+                // Emuera-EE's clipboard options
+                other => {
+                    con.clip.set(other, v);
+                }
             }
         }
     }
@@ -274,43 +278,20 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
     window_px
 }
 
-/// Load the game and run it; returns the process exit code.
-fn run(o: Opts) -> i32 {
-    let Some(game) = choose_game(&o) else { return 0 };
-    if let Some(cmd) = o.saves {
-        return saves_cmd(cmd, &game);
-    }
-    let Some(csv_dir) = loader::find_dir_ci(&game, "CSV") else {
-        eprintln!("{}: no CSV directory found", game.display());
-        return 1;
-    };
-    let erb_dir = loader::find_dir_ci(&game, "ERB");
-    let t0 = std::time::Instant::now();
-    // EMUERA_TIMING=1: report how long each startup phase takes
-    let timing = std::env::var_os("EMUERA_TIMING").is_some();
-    let mut lap = std::time::Instant::now();
-    let mut phase = |name: &str| {
-        if timing {
-            eprintln!("timing: {:<12} {:>8.2?}", name, lap.elapsed());
-        }
-        lap = std::time::Instant::now();
-    };
-    let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref());
-    phase("csv");
-    for w in &csv.warnings {
-        eprintln!("csv: {}", w);
-    }
-    let mut p = parser::Parser::new(&csv.rename, o.debug);
+/// Read and parse the game's ERH / ERB files (on all cores): the program
+/// and how many files there were. Also used by the reload-ERB hotkey.
+fn build_program(game: &std::path::Path, erb_dir: Option<&std::path::Path>, rename: &[(String, String)], debug: bool, phase: &mut dyn FnMut(&str)) -> (parser::Program, usize) {
+    let mut p = parser::Parser::new(rename, debug);
     // EMUERA_THREADS=n limits the worker threads (default: all cores)
     let cores = std::env::var("EMUERA_THREADS").ok().and_then(|n| n.parse().ok()).filter(|&n: &usize| n > 0).unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     let mut files = Vec::new();
-    if let Some(erb) = &erb_dir {
+    if let Some(erb) = erb_dir {
         let paths: Vec<std::path::PathBuf> = loader::walk(erb, &["erh"]).into_iter().chain(loader::walk(erb, &["erb"])).collect();
         // read + decode (Shift_JIS detection) in parallel, keeping order
         let read: Vec<Result<String, String>> = parallel_map(&paths, cores, |f| loader::read_text(f).map_err(|e| format!("{}: {}", f.display(), e)));
         for (f, r) in paths.iter().zip(read) {
             match r {
-                Ok(text) => files.push(parser::SourceFile { path: f.strip_prefix(&game).unwrap_or(f).display().to_string(), text }),
+                Ok(text) => files.push(parser::SourceFile { path: f.strip_prefix(game).unwrap_or(f).display().to_string(), text }),
                 Err(e) => eprintln!("{}", e),
             }
         }
@@ -343,11 +324,40 @@ fn run(o: Opts) -> i32 {
         p.absorb(prog);
     }
     phase("parse erb");
-    let prog = p.prog;
+    (p.prog, files.len())
+}
+
+/// Load the game and run it; returns the process exit code.
+fn run(o: Opts) -> i32 {
+    let Some(game) = choose_game(&o) else { return 0 };
+    if let Some(cmd) = o.saves {
+        return saves_cmd(cmd, &game);
+    }
+    let Some(csv_dir) = loader::find_dir_ci(&game, "CSV") else {
+        eprintln!("{}: no CSV directory found", game.display());
+        return 1;
+    };
+    let erb_dir = loader::find_dir_ci(&game, "ERB");
+    let t0 = std::time::Instant::now();
+    // EMUERA_TIMING=1: report how long each startup phase takes
+    let timing = std::env::var_os("EMUERA_TIMING").is_some();
+    let mut lap = std::time::Instant::now();
+    let mut phase = |name: &str| {
+        if timing {
+            eprintln!("timing: {:<12} {:>8.2?}", name, lap.elapsed());
+        }
+        lap = std::time::Instant::now();
+    };
+    let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref());
+    phase("csv");
+    for w in &csv.warnings {
+        eprintln!("csv: {}", w);
+    }
+    let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.debug, &mut phase);
     let n_funcs: usize = prog.funcs.values().map(|v| v.len()).sum();
     eprintln!(
         "loaded {} files, {} functions, {} chara templates in {:.2?} ({} parse errors)",
-        files.len(),
+        n_files,
         n_funcs,
         csv.charas.len(),
         t0.elapsed(),
@@ -365,7 +375,6 @@ fn run(o: Opts) -> i32 {
         std::mem::forget(prog);
         return code;
     }
-    drop(files);
     // the parse threads leave most of their scratch memory (source text,
     // line copies) cached in glibc's per-thread arenas: give it back
     sys::trim_memory();
@@ -406,6 +415,7 @@ fn run(o: Opts) -> i32 {
             Ok(mut t) => {
                 t.contrast = st.contrast_ratio();
                 t.wheel = st.get("wheel").parse().unwrap_or(3);
+                t.clip_mode = st.get("clipboard").to_string();
                 Box::new(t)
             }
             Err(e) => {
@@ -414,7 +424,13 @@ fn run(o: Opts) -> i32 {
             }
         }
     };
+    let rename = csv.rename.clone();
     let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone());
+    // the reload hotkey parses the ERB files again
+    {
+        let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.debug);
+        vm.reloader = Some(Box::new(move || build_program(&g, erb.as_deref(), &rename, debug, &mut |_| {}).0));
+    }
     if timing {
         eprintln!("timing: {:<12} {:>8.2?} (resources, terminal, data init)", "vm ready", lap.elapsed());
     }

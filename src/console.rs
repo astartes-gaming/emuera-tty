@@ -124,6 +124,8 @@ pub struct Console {
     pub printc_len: usize,
     /// PRINTCPERLINE (config "PRINTCを並べる数")
     pub printc_per_line: usize,
+    /// emuera.config's clipboard options (Emuera-EE / Emuera-Anchor)
+    pub clip: crate::clipboard::ClipConfig,
     /// "ボタンの途中で行を折りかえさない": a button that doesn't fit the
     /// rest of the line moves to the next one whole
     pub button_wrap: bool,
@@ -169,6 +171,7 @@ impl Console {
     pub fn new() -> Console {
         let fg = Rgb(192, 192, 192);
         Console {
+            clip: crate::clipboard::ClipConfig::default(),
             lines: Vec::new(),
             cur: Vec::new(),
             cur_align: None,

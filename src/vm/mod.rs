@@ -124,6 +124,8 @@ pub struct Vm {
     inject_at: Option<u64>,
     /// CALLTRAIN: the commands to run one after another, and how many ran
     pub ctrain: Option<(Vec<i64>, usize)>,
+    /// reads and parses the ERB files again (the reload hotkey)
+    pub reloader: Option<Box<dyn FnMut() -> Program>>,
     /// `var_info` results by (function, name) pointers
     var_cache: HashMap<(usize, usize), (Name, VarInfo)>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
@@ -208,6 +210,7 @@ impl Vm {
             inputs_seen: 0,
             inject_at: std::env::var("EMUERA_INJECT_AT").ok().and_then(|n| n.parse().ok()),
             ctrain: None,
+            reloader: None,
             maps: HashMap::default(),
             dts: HashMap::default(),
             xml_docs: HashMap::default(),
@@ -234,6 +237,63 @@ impl Vm {
         vm.con.width = vm.fe.cols().saturating_sub(1).max(20);
         vm.init_data();
         vm
+    }
+
+    /// An Emuera-Anchor hotkey: back to the title (Emuera's GotoTitle: a
+    /// clear screen, no SPRITECREATE sprites or client background, default
+    /// colours; unwinds as BEGIN TITLE), or reload the ERB files.
+    pub fn hotkey(&mut self, h: crate::frontend::Hotkey) -> VmResult<()> {
+        match h {
+            crate::frontend::Hotkey::Title => {
+                self.con.clear_lines(usize::MAX);
+                self.con.cur.clear();
+                self.res.dispose_all_sprites();
+                self.res.cbg.clear();
+                self.con.style.fg = self.con.default_fg;
+                self.con.skip_disp = false;
+                self.ctrain = None;
+                Err(Ctrl::Begin("TITLE".into()))
+            }
+            crate::frontend::Hotkey::Reload => {
+                self.reload_erb();
+                Ok(())
+            }
+        }
+    }
+
+    /// The reload hotkey (Emuera's ReloadErb): parse the ERB files again
+    /// and carry on with the game as it is. Functions already running
+    /// finish in their old version; `#DIM`s new in the ERH files are
+    /// added, changed ones keep their current size.
+    pub fn reload_erb(&mut self) {
+        let Some(mut f) = self.reloader.take() else { return };
+        self.con.print("Reloading ERB…");
+        self.con.newline();
+        self.fe.flush(&mut self.con, &mut self.res);
+        let t0 = std::time::Instant::now();
+        let prog = f();
+        self.reloader = Some(f);
+        let errors = prog.errors.len();
+        self.prog = prog;
+        // caches keyed by the old functions' addresses
+        self.var_cache.clear();
+        self.static_slot.clear();
+        let dims = self.prog.global_dims.clone();
+        for d in &dims {
+            self.user_dims.insert(d.name.clone(), d.clone());
+            if !d.is_chara && !self.globals.contains_key(&d.name) {
+                if let Ok(a) = self.make_dim(d) {
+                    self.globals.insert(d.name.clone(), a);
+                }
+            }
+        }
+        let n: usize = self.prog.funcs.values().map(|v| v.len()).sum();
+        self.con.print(&format!("Reloaded {} functions in {:.1?} ({} parse errors)", n, t0.elapsed(), errors));
+        self.con.newline();
+        for e in self.prog.errors.iter().take(10).cloned().collect::<Vec<_>>() {
+            self.con.print(&format!("  {}", e));
+            self.con.newline();
+        }
     }
 
     /// (Re)initialise all non-GLOBAL data: called at start and on RESETDATA.
@@ -1570,6 +1630,10 @@ impl Vm {
             }
             InputResult::Timeout => Ok(None),
             InputResult::Quit => Err(Ctrl::Quit),
+            InputResult::Hotkey(h) => {
+                self.hotkey(h)?;
+                self.raw_input(req)
+            }
         }
     }
 

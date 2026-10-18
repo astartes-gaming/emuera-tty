@@ -174,6 +174,10 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   the mouse wheel. A `[scroll -N]` tag shows you're looking at history;
   End jumps back.
 - **Settings**: F1 or Ctrl-O opens them over the game (see below).
+- **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask
+  first; unsaved progress is lost). **Reload the ERB files** after editing
+  them: F5 or Ctrl-E: the game carries on where it was with the new code
+  (Emuera-Anchor's hotkeys, as in Emuera-EE; also in the F1 overlay).
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.
@@ -205,12 +209,28 @@ running game:
 | Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
+| Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
 | Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
 
 The overlay also has *Manage saves…* (below), *Switch game…* and *Quit*.
 Command-line options and `EMUERA_*` variables override saved settings.
+
+### Copying text to the clipboard
+
+For translation tools and text hookers, as Emuera-EE's clipboard feature
+(from Emuera-Anchor): with `表示したテキストをクリップボードにコピーする:YES`
+in `emuera.config` (or *Copy to clipboard: on*), the lines the game printed
+since the last copy go to the clipboard when the game waits for input (and,
+as configured, on WAIT, a left, middle or double click). The other
+emuera.config options apply too: new lines only or the last *N*
+(`クリップボードに貼り付ける行数`), the buffer size, the minimum time between
+copies, and replacing pictures with a string (`テキスト中の<>タグを無視する`,
+`<>を次の文で置き換える`). The copy is an OSC 52 escape, which kitty, WezTerm,
+foot, Windows Terminal, iTerm2 and tmux (`set -g set-clipboard on`) pass to
+the system clipboard; Konsole and some others need it allowed in their
+settings.
 
 ### Managing saves
 

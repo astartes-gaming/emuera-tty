@@ -91,7 +91,7 @@ pub const NAMES: &[(&str, &str)] = &[
     ("左クリックをトリガーにする", "Clipboard- LeftClick Trigger"),
     ("ホイールクリックをトリガーにする", "Clipboard- MiddleClick Trigger"),
     ("ダブルクリックをトリガーにする", "Clipboard- Double Left Click Trigger"),
-    ("WAITをトリガーにする", "Clipboard- AnyKey Wait Trigger "),
+    ("WAITをトリガーにする", "Clipboard- AnyKey Wait Trigger"),
     ("INPUTをトリガーにする", "Clipboard- Wait for Input Trigger"),
     ("クリップボードに貼り付ける行数", "Clipboard- Length of Clipboard"),
     ("総バッファサイズ", "Clipboard- Buffer Size"),

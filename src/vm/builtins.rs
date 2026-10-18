@@ -904,16 +904,22 @@ impl Vm {
                 use crate::frontend::RawInput;
                 let to = self.arg(a, 0)?.map(|v| v.as_int()).filter(|&t| t > 0).map(|t| t as u64);
                 self.fe.flush(&mut self.con, &mut self.res);
-                let r = {
-                    let _wait = super::prof::Waiting::new();
-                    self.fe.input_raw(&mut self.con, &mut self.res, to)
+                let r = loop {
+                    let r = {
+                        let _wait = super::prof::Waiting::new();
+                        self.fe.input_raw(&mut self.con, &mut self.res, to)
+                    };
+                    match r {
+                        RawInput::Hotkey(h) => self.hotkey(h)?,
+                        r => break r,
+                    }
                 };
                 for k in 0..6 {
                     self.set_global_i("RESULT", k, 0);
                 }
                 match r {
                     RawInput::Quit => return Err(Ctrl::Quit),
-                    RawInput::Timeout => self.set_global_i("RESULT", 0, 4),
+                    RawInput::Timeout | RawInput::Hotkey(_) => self.set_global_i("RESULT", 0, 4),
                     RawInput::Key { code, data } => {
                         self.set_global_i("RESULT", 0, 3);
                         self.set_global_i("RESULT", 1, code);

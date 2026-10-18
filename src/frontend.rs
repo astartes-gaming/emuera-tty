@@ -47,6 +47,8 @@ pub enum RawInput {
     Key { code: i64, data: i64 },
     Timeout,
     Quit,
+    /// an Emuera-Anchor hotkey for the VM
+    Hotkey(Hotkey),
 }
 
 /// A typed character as a Windows key code (letters upper-case, Shift
@@ -66,6 +68,17 @@ pub enum InputResult {
     Text(String),
     Timeout,
     Quit,
+    /// the player pressed an Emuera-Anchor hotkey the VM acts on
+    Hotkey(Hotkey),
+}
+
+/// Hotkeys handled by the VM (restarting is the frontend's own business).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Hotkey {
+    /// Ctrl-T: back to the title screen
+    Title,
+    /// F5 / Ctrl-E: read the ERB files again, keeping the game's state
+    Reload,
 }
 
 pub trait Frontend {
@@ -100,6 +113,7 @@ pub trait Frontend {
         let req = InputReq { kind: InputKind::Str, one: false, timeout_ms, mouse: true };
         match self.input(con, res, &req) {
             InputResult::Quit => RawInput::Quit,
+            InputResult::Hotkey(h) => RawInput::Hotkey(h),
             InputResult::Timeout => RawInput::Timeout,
             InputResult::Text(t) => match t.trim().parse::<i64>() {
                 Ok(v) => RawInput::Click { btn: 0, cell: (0, 0), button: Some(crate::vm::value::Value::Int(v)) },

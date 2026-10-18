@@ -44,6 +44,13 @@ pub const ITEMS: &[Item] = &[
         live: true,
         help: "how box drawing / symbols get Emuera's two columns (auto: measured)",
     },
+    Item {
+        key: "clipboard",
+        label: "Copy to clipboard",
+        choices: &["game", "on", "off"],
+        live: true,
+        help: "put printed text on the clipboard (OSC 52); game: as emuera.config says",
+    },
     Item { key: "wheel", label: "Wheel scrolls", choices: &["3", "1", "5", "10"], live: true, help: "lines per mouse-wheel step" },
     Item { key: "mouse", label: "Console mouse", choices: &["auto", "off"], live: false, help: "gpm / /dev/input/mice on the Linux console" },
     Item {

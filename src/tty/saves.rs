@@ -157,9 +157,13 @@ impl Tty {
         }
     }
 
-    fn confirm(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, q: &str) -> bool {
+    pub(super) fn confirm(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, q: &str) -> bool {
         let mut s = 1;
-        matches!(self.list_box(con, res, req, q, &["Yes".to_string(), "No".to_string()], 0, &mut s, ""), Pick::Row(0))
+        // (the box hides pictures; put them back as they were)
+        let images = self.no_images;
+        let yes = matches!(self.list_box(con, res, req, q, &["Yes".to_string(), "No".to_string()], 0, &mut s, ""), Pick::Row(0));
+        self.no_images = images;
+        yes
     }
 
     /// The overlay frame: (left column, top row, inner width), 1-based.

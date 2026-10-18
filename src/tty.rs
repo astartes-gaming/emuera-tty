@@ -200,6 +200,11 @@ enum Key {
     Right,
     /// F1 or Ctrl-O: the settings overlay
     Settings,
+    /// Emuera-Anchor's hotkeys: Ctrl-T title, Ctrl-R restart, F5 / Ctrl-E
+    /// reload the ERB files
+    Title,
+    Restart,
+    Reload,
     Mouse { btn: u16, x: u16, y: u16, press: bool },
     Other,
 }
@@ -207,6 +212,9 @@ enum Key {
 /// What the settings overlay asks the input loop to do next.
 enum OverlayExit {
     Close,
+    Title,
+    Restart,
+    Reload,
     SwitchGame,
     Quit,
 }
@@ -257,6 +265,11 @@ pub struct Tty {
     pub contrast: f32,
     /// lines per mouse-wheel step
     pub wheel: usize,
+    /// the "Copy to clipboard" setting: game (emuera.config), on, off
+    pub clip_mode: String,
+    clip: crate::clipboard::Clipboard,
+    /// the last left click (time, cell), to tell double clicks
+    last_click: Option<(Instant, (u16, u16))>,
     /// frames drawn without images (under the settings overlay)
     no_images: bool,
     /// the colour mode detected at startup, for the "auto" setting
@@ -419,6 +432,9 @@ impl Tty {
             screen_bg: None,
             contrast: 3.0,
             wheel: 3,
+            clip_mode: "game".into(),
+            clip: crate::clipboard::Clipboard::default(),
+            last_click: None,
             no_images: false,
             auto_color: detected,
             gfx_pref: gfx_pref.to_string(),
@@ -745,6 +761,7 @@ impl Tty {
                                     }
                                     // F1: xterm-style, and the Linux console's ESC [ [ A
                                     (p, b'~') if p == b"11" => Key::Settings,
+                                    (p, b'~') if p == b"15" => Key::Reload,
                                     (p, b'A') if p == b"[" => Key::Settings,
                                     (_, b'A') => Key::Up,
                                     (_, b'B') => Key::Down,
@@ -781,6 +798,9 @@ impl Tty {
             0x03 => (Key::CtrlC, 1),
             0x0c => (Key::CtrlL, 1),
             0x0f => (Key::Settings, 1),
+            0x14 => (Key::Title, 1),
+            0x12 => (Key::Restart, 1),
+            0x05 => (Key::Reload, 1),
             c if c < 0x20 => (Key::Other, 1),
             c => {
                 let len = if c >= 0xf0 {
@@ -1552,6 +1572,65 @@ impl Tty {
         kept
     }
 
+    /// The clipboard options in force: emuera.config's, unless the
+    /// settings force the feature on or off.
+    fn clip_config(&self, con: &Console) -> crate::clipboard::ClipConfig {
+        let mut c = con.clip.clone();
+        match self.clip_mode.as_str() {
+            "on" => c.enabled = true,
+            "off" => c.enabled = false,
+            _ => {}
+        }
+        c
+    }
+
+    /// Copy the printed text to the clipboard if `t` is a trigger for it.
+    fn copy_text(&mut self, con: &Console, t: crate::clipboard::Trigger) {
+        let cfg = self.clip_config(con);
+        if let Some(seq) = self.clip.check(con, &cfg, t) {
+            write_all(&seq);
+        }
+    }
+
+    /// A mouse press may trigger a copy (left, middle or double click).
+    fn click_copies(&mut self, con: &Console, btn: u16, x: u16, y: u16) {
+        use crate::clipboard::Trigger;
+        match btn & !(4 | 8 | 16) {
+            0 => {
+                let double = self.last_click.is_some_and(|(t, p)| t.elapsed() < Duration::from_millis(400) && p == (x, y));
+                self.last_click = Some((Instant::now(), (x, y)));
+                self.copy_text(con, if double { Trigger::DoubleClick } else { Trigger::LeftClick });
+            }
+            1 => self.copy_text(con, Trigger::MiddleClick),
+            _ => {}
+        }
+    }
+
+    /// Emuera-Anchor's hotkeys (asking first, as Emuera does, for the two
+    /// that lose the game's progress). None: cancelled.
+    fn anchor_hotkey(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, k: &Key) -> Option<InputResult> {
+        match k {
+            Key::Title => {
+                if !self.confirm(con, res, req, "Back to the title screen? Unsaved progress is lost.") {
+                    return None;
+                }
+                let cfg = self.clip_config(con);
+                self.clip.reset(con, &cfg);
+                Some(InputResult::Hotkey(crate::frontend::Hotkey::Title))
+            }
+            Key::Restart => {
+                if !self.confirm(con, res, req, "Restart the game? Unsaved progress is lost.") {
+                    return None;
+                }
+                self.shutdown();
+                let e = crate::sys::exec_self(&std::env::args_os().skip(1).collect::<Vec<_>>());
+                eprintln!("emuera-tty: can't restart: {}", e);
+                Some(InputResult::Quit)
+            }
+            _ => Some(InputResult::Hotkey(crate::frontend::Hotkey::Reload)),
+        }
+    }
+
     /// Does the pointer's move change which hover picture (`srcb`) shows?
     fn hover_swaps_image(&self) -> bool {
         let new = self.mouse.and_then(|(x, y)| self.button_at(x, y));
@@ -1657,7 +1736,15 @@ impl Tty {
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ITEMS};
         let mut st = Settings::load();
-        let extra = ["Manage saves…  (copy, export, back up, restore)", "Switch game…  (unsaved progress is lost)", "Quit emuera-tty", "Close  (Esc)"];
+        let extra = [
+            "Manage saves…  (copy, export, back up, restore)",
+            "Back to the title  (Ctrl-T)",
+            "Restart the game  (Ctrl-R)",
+            "Reload ERB files  (F5 / Ctrl-E)",
+            "Switch game…  (unsaved progress is lost)",
+            "Quit emuera-tty",
+            "Close  (Esc)",
+        ];
         let n = ITEMS.len() + extra.len();
         let mut sel = 0usize;
         let mut note = String::new();
@@ -1716,8 +1803,11 @@ impl Tty {
                             break OverlayExit::Quit;
                         }
                     }
-                    1 => break OverlayExit::SwitchGame,
-                    2 => break OverlayExit::Quit,
+                    1 => break OverlayExit::Title,
+                    2 => break OverlayExit::Restart,
+                    3 => break OverlayExit::Reload,
+                    4 => break OverlayExit::SwitchGame,
+                    5 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }
@@ -1731,6 +1821,7 @@ impl Tty {
         match key {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
+            "clipboard" => self.clip_mode = v.to_string(),
             "colors" => {
                 self.color = match v {
                     "truecolor" => ColorMode::True,
@@ -1976,6 +2067,7 @@ impl Frontend for Tty {
         self.buf.clear();
         self.scroll = 0;
         self.render(con, res, Some(req));
+        self.copy_text(con, if req.kind == InputKind::Wait { crate::clipboard::Trigger::Wait } else { crate::clipboard::Trigger::Input });
         let deadline = req.timeout_ms.map(|t| Instant::now() + Duration::from_millis(t));
         let (mut last_cols, mut last_rows) = (self.cols, self.rows);
         // a redraw owed for input already handled: done once the burst of
@@ -2026,8 +2118,27 @@ impl Frontend for Tty {
                     self.force_frame = true;
                     redraw = true;
                 }
+                Key::Title | Key::Restart | Key::Reload => {
+                    if let Some(r) = self.anchor_hotkey(con, res, req, &k) {
+                        return r;
+                    }
+                    redraw = true;
+                }
                 Key::Settings => match self.settings_overlay(con, res, req) {
                     OverlayExit::Close => redraw = true,
+                    OverlayExit::Title => {
+                        if let Some(r) = self.anchor_hotkey(con, res, req, &Key::Title) {
+                            return r;
+                        }
+                        redraw = true;
+                    }
+                    OverlayExit::Restart => {
+                        if let Some(r) = self.anchor_hotkey(con, res, req, &Key::Restart) {
+                            return r;
+                        }
+                        redraw = true;
+                    }
+                    OverlayExit::Reload => return InputResult::Hotkey(crate::frontend::Hotkey::Reload),
                     OverlayExit::Quit => return InputResult::Quit,
                     OverlayExit::SwitchGame => {
                         // start over on the launcher (this game's unsaved
@@ -2055,6 +2166,9 @@ impl Frontend for Tty {
                     redraw = true;
                 }
                 Key::Mouse { btn, x, y, press } => {
+                    if press {
+                        self.click_copies(con, btn, x, y);
+                    }
                     let (x, y) = (x.saturating_sub(1) as usize, y.saturating_sub(1) as usize);
                     // ignore Shift / Alt / Ctrl so modified clicks still work
                     match btn & !(4 | 8 | 16) {
@@ -2159,6 +2273,17 @@ impl Frontend for Tty {
             let key = |code: i64| RawInput::Key { code, data: code };
             match k {
                 Key::CtrlC => return RawInput::Quit,
+                Key::Title | Key::Restart | Key::Reload => {
+                    let req = InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true };
+                    let r = self.anchor_hotkey(con, res, &req, &k);
+                    self.force_frame = true;
+                    self.render(con, res, None);
+                    match r {
+                        Some(InputResult::Hotkey(h)) => return RawInput::Hotkey(h),
+                        Some(_) => return RawInput::Quit,
+                        None => {}
+                    }
+                }
                 Key::Settings => {
                     match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true }) {
                         OverlayExit::Quit => return RawInput::Quit,
@@ -2173,6 +2298,9 @@ impl Frontend for Tty {
                     self.render(con, res, None);
                 }
                 Key::Mouse { btn, x, y, press } => {
+                    if press {
+                        self.click_copies(con, btn, x, y);
+                    }
                     let cell = (x.saturating_sub(1) as usize, y.saturating_sub(1) as usize);
                     match btn & !(4 | 8 | 16) {
                         64 => return RawInput::Wheel { up: true, cell },

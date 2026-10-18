@@ -53,11 +53,30 @@ Scroll back through earlier text; End returns.
 The options overlay: display settings, \fBManage saves\fR, switching game,
 quitting.
 .TP
+.B Ctrl\-T
+Back to the title screen (asks first).
+.TP
+.B Ctrl\-R
+Restart the game (asks first).
+.TP
+.BR F5 ", " Ctrl\-E
+Read the ERB files again and carry on with the game as it is.
+.TP
 .B Ctrl\-L
 Redraw the screen.
 .TP
 .B Ctrl\-C
 Quit (also while a script is busy). Save first.
+.SH CLIPBOARD
+With
+.B 表示したテキストをクリップボードにコピーする:YES
+in
+.I emuera.config
+(or \fBCopy to clipboard\fR set to \fBon\fR in the overlay), newly printed
+lines are put on the clipboard through the terminal (OSC 52) when the game
+waits for input, and on WAIT and clicks as the clipboard options in
+.I emuera.config
+say.
 .SH MANAGING SAVES
 \fBF1\fR \(-> \fBManage saves\fR lists the game's saves with their date and
 the comment Emuera shows. For one save: copy or move it to another slot,
