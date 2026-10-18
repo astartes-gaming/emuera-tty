@@ -475,7 +475,12 @@ impl Vm {
     /// Character `c`'s array for `name`, created on first use (system
     /// character variable or `#DIM CHARADATA`).
     pub fn chara_arr(&mut self, c: usize, name: &str) -> &mut Arr {
-        if !self.charas[c].vars.contains_key(name) {
+        // one lookup when it exists (see global_arr)
+        if let Some(a) = self.charas[c].vars.get_mut(name) {
+            let a: *mut Arr = a;
+            return unsafe { &mut *a };
+        }
+        {
             let a = if let Some(def) = system_var(name) {
                 Arr::new(def.is_str, &self.var_def_dims(name, def))
             } else if let Some(d) = self.user_dims.get(name).cloned() {
