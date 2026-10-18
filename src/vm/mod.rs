@@ -125,11 +125,11 @@ pub struct Vm {
     pub fe: Box<dyn Frontend>,
     pub res: Resources,
     pub globals: vars::Globals,
-    pub statics: Vec<Arr>,
+    /// function-owned storage; a slot keeps its number for good (emptied
+    /// on RESETDATA, made again on next use), so references cache it
+    pub statics: Vec<Option<Arr>>,
     /// (function name, variable) → slot in `statics`
     static_index: HashMap<(String, String), usize>,
-    /// the same by (function, name) pointers, for the hot path
-    static_slot: HashMap<(usize, usize), (Name, usize)>,
     pub charas: Vec<Chara>,
     /// The call stack, innermost last.
     pub frames: Vec<Frame>,
@@ -216,7 +216,6 @@ impl Vm {
             globals: Default::default(),
             statics: Vec::new(),
             static_index: HashMap::default(),
-            static_slot: HashMap::default(),
             charas: Vec::new(),
             frames: Vec::new(),
             user_dims: HashMap::default(),
@@ -299,7 +298,6 @@ impl Vm {
         let errors = prog.errors.len();
         self.prog = prog;
         // caches keyed by the old functions' addresses
-        self.static_slot.clear();
         let dims = self.prog.global_dims.clone();
         for d in &dims {
             self.user_dims.insert(d.name.clone(), d.clone());
@@ -329,9 +327,9 @@ impl Vm {
         self.globals.clear();
         self.charas.clear();
         // function-owned LOCAL/ARG and static #DIMs go back to defaults too
-        self.statics.clear();
-        self.static_index.clear();
-        self.static_slot.clear();
+        for a in &mut self.statics {
+            *a = None;
+        }
         for (k, v) in keep {
             self.globals.insert(k, v);
         }
@@ -615,7 +613,13 @@ impl Vm {
                     table,
                     // Emuera's LOCAL/ARG family is per-function storage that
                     // persists across calls (reset by RESETDATA / load)
-                    local_family: matches!(name, "LOCAL" | "LOCALS" | "ARG" | "ARGS"),
+                    local_family: match name {
+                        "LOCAL" => 1,
+                        "LOCALS" => 2,
+                        "ARG" => 3,
+                        "ARGS" => 4,
+                        _ => 0,
+                    },
                     user: self.user_dims.get(name).map(|d| (d.is_chara, d.dims.len())),
                     csv_name: name.ends_with("NAME") && name != "NAME" && table_for_var(name).is_some(),
                     pseudo: pseudo_var(name),
@@ -626,15 +630,16 @@ impl Vm {
             }
         };
         // the function's own #DIMs win over everything else
-        let (private, is_static) = match self.frames.last() {
-            Some(f) if !f.func.dims.is_empty() => match f.func.dims.iter().find(|d| d.name.len() == name.len() && d.name == name) {
-                Some(d) => (true, d.is_static),
-                None => (false, ni.local_family),
+        // skey: its entry in the function's static slot cache
+        let (private, is_static, skey) = match self.frames.last() {
+            Some(f) if !f.func.dims.is_empty() => match f.func.dims.iter().position(|d| d.name.len() == name.len() && d.name == name) {
+                Some(k) => (true, f.func.dims[k].is_static, 4 + k as u32),
+                None => (false, ni.local_family != 0, ni.local_family as u32 - (ni.local_family != 0) as u32),
             },
-            Some(_) => (false, ni.local_family),
-            None => (false, false),
+            Some(_) => (false, ni.local_family != 0, (ni.local_family as u32).saturating_sub(1)),
+            None => (false, false, 0),
         };
-        VarInfo { table: ni.table, private, is_static, user: ni.user, csv_name: ni.csv_name, pseudo: ni.pseudo, system: ni.system }
+        VarInfo { table: ni.table, private, is_static, skey, user: ni.user, csv_name: ni.csv_name, pseudo: ni.pseudo, system: ni.system }
     }
 
     pub fn locate(&mut self, v: &VarRef) -> VmResult<Place> {
@@ -655,41 +660,46 @@ impl Vm {
         // 1. frame-local
         let (is_private, is_static) = (info.private, info.is_static);
         if is_static {
-            let fptr = Rc::as_ptr(&self.frames.last().unwrap().func) as *const u8 as usize;
-            let key = (fptr, Rc::as_ptr(&v.name) as *const u8 as usize);
-            let slot = match self.static_slot.get(&key) {
-                Some((n, s)) if Rc::ptr_eq(n, &v.name) || **n == *v.name => *s,
-                _ => {
-                    // storage is per function name (event functions with one
-                    // name share it), found by name once, then by pointer
-                    let k = (self.frames.last().unwrap().func.name.to_string(), name.to_string());
-                    let s = match self.static_index.get(&k) {
-                        Some(&s) => s,
-                        None => {
-                            let a = match self.frame_private(name).cloned() {
-                                Some(d) => self.make_dim(&d)?,
-                                None => {
-                                    // #LOCALSIZE / #LOCALSSIZE (1-D arrays still grow on write)
-                                    let f = &self.frames.last().unwrap().func;
-                                    match name {
-                                        "LOCAL" => Arr::new(false, &[if f.local_size > 0 { f.local_size as usize } else { 1000 }]),
-                                        "LOCALS" => Arr::new(true, &[if f.locals_size > 0 { f.locals_size as usize } else { 100 }]),
-                                        "ARG" => Arr::new(false, &[1000]),
-                                        _ => Arr::new(true, &[100]),
-                                    }
-                                }
-                            };
-                            self.statics.push(a);
-                            self.static_index.insert(k, self.statics.len() - 1);
-                            self.statics.len() - 1
-                        }
-                    };
-                    self.static_slot.insert(key, (v.name.clone(), s));
-                    s
-                }
+            // the slot is remembered in the reference, tagged with the function
+            use std::sync::atomic::Ordering::Relaxed;
+            let func = self.frames.last().unwrap().func.clone();
+            let cache = func.static_cache.get_or_init(|| (0..4 + func.dims.len()).map(|_| std::sync::atomic::AtomicU32::new(0)).collect());
+            let cached = cache[info.skey as usize].load(Relaxed);
+            let slot = if cached != 0 {
+                cached as usize - 1
+            } else {
+                // storage is per function name (event functions with one
+                // name share it)
+                let k = (self.frames.last().unwrap().func.name.to_string(), name.to_string());
+                let s = match self.static_index.get(&k) {
+                    Some(&s) => s,
+                    None => {
+                        self.statics.push(None);
+                        self.static_index.insert(k, self.statics.len() - 1);
+                        self.statics.len() - 1
+                    }
+                };
+                cache[info.skey as usize].store(s as u32 + 1, Relaxed);
+                s
             };
+            if self.statics[slot].is_none() {
+                let a = match self.frame_private(name).cloned() {
+                    Some(d) => self.make_dim(&d)?,
+                    None => {
+                        // #LOCALSIZE / #LOCALSSIZE (1-D arrays still grow on write)
+                        let f = &self.frames.last().unwrap().func;
+                        match name {
+                            "LOCAL" => Arr::new(false, &[if f.local_size > 0 { f.local_size as usize } else { 1000 }]),
+                            "LOCALS" => Arr::new(true, &[if f.locals_size > 0 { f.locals_size as usize } else { 100 }]),
+                            "ARG" => Arr::new(false, &[1000]),
+                            _ => Arr::new(true, &[100]),
+                        }
+                    }
+                };
+                self.statics[slot] = Some(a);
+            }
             let idx = self.eval_indices(v, 0, table)?;
-            let flat = self.statics[slot].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
             return Ok(Place { loc: Loc::Static(slot), flat });
         }
         // DYNAMIC privates: allocated per call by `call_func`
@@ -715,7 +725,8 @@ impl Vm {
         // so FINDELEMENT / VARSIZE / array builtins can take them
         if info.csv_name {
             if let Some(t) = table_for_var(name) {
-                if !self.globals.contains_key(name) {
+                let slot = self.global_slot(v);
+                if self.globals.at_ref(slot).is_none() {
                     let tbl = self.csv.tables.get(t);
                     let max = tbl.and_then(|t| t.by_index.keys().max().copied()).unwrap_or(-1) + 1;
                     let size = match system_var(t) {
@@ -732,8 +743,7 @@ impl Vm {
                     self.globals.insert(name.to_string(), a);
                 }
                 let idx = self.eval_indices(v, 0, table)?;
-                let slot = self.global_slot(v);
-                let flat = self.globals[name].flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+                let flat = self.globals.at_ref(slot).unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
                 return Ok(Place { loc: Loc::Global(slot), flat });
             }
         }
@@ -780,7 +790,7 @@ impl Vm {
             Loc::Global(s) => self.globals.at(*s),
             Loc::Frame(n) => self.frames.last_mut().and_then(|f| f.vars.get_mut(&**n)),
             Loc::FrameAt(d, n) => self.frames.get_mut(*d).and_then(|f| f.vars.get_mut(&**n)),
-            Loc::Static(slot) => self.statics.get_mut(*slot),
+            Loc::Static(slot) => self.statics.get_mut(*slot).and_then(|a| a.as_mut()),
             Loc::Chara(c, n) => Some(self.chara_arr(*c, n)),
             Loc::Ro(_) => None,
         }
@@ -1070,11 +1080,15 @@ impl Vm {
 
     /// Call a function or event by name. Returns Ok(false) if it doesn't exist.
     pub fn call_name(&mut self, name: &str, args: Vec<Option<Value>>) -> VmResult<bool> {
-        let Some(fs) = self.prog.funcs.get(name).cloned() else { return Ok(false) };
-        if fs.len() == 1 {
-            self.call_func(fs[0].clone(), args)?;
-            return Ok(true);
-        }
+        let fs = match self.prog.funcs.get(name) {
+            None => return Ok(false),
+            Some(fs) if fs.len() == 1 => {
+                let f = fs[0].clone();
+                self.call_func(f, args)?;
+                return Ok(true);
+            }
+            Some(fs) => fs.clone(),
+        };
         // event function: #ONLY, then #PRI, normal, #LATER; #SINGLE stops
         if let Some(only) = fs.iter().find(|f| f.only) {
             self.call_func(only.clone(), args)?;
@@ -1098,8 +1112,8 @@ impl Vm {
         let mut vals = Vec::with_capacity(args.len());
         let mut refs = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let p = f.params.get(i).map(|p| p.target.name.clone());
-            let is_ref = p.as_ref().is_some_and(|n| f.dims.iter().any(|d| d.is_ref && *d.name == **n));
+            let p = f.params.get(i).map(|p| &p.target.name);
+            let is_ref = !f.dims.is_empty() && p.is_some_and(|n| f.dims.iter().any(|d| d.is_ref && *d.name == **n));
             if let (true, Expr::Var(v)) = (is_ref, a) {
                 let top = self.frames.len().saturating_sub(1);
                 let loc = match self.locate(&VarRef::new(v.name.clone(), vec![]))?.loc {
@@ -1121,8 +1135,8 @@ impl Vm {
     /// Run one function: set up its frame (DYNAMIC privates, REF aliases
     /// from `pending_refs`), bind parameters, execute, pop. Returns the
     /// RETURNF value, if any.
-    pub fn call_func(&mut self, f: Rc<Function>, args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
-        let refs: HashMap<String, Loc> = std::mem::take(&mut self.pending_refs).into_iter().collect();
+    pub fn call_func(&mut self, f: Rc<Function>, mut args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
+        let refs: HashMap<String, Loc> = if self.pending_refs.is_empty() { HashMap::default() } else { std::mem::take(&mut self.pending_refs).into_iter().collect() };
         if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
             prof::enter(&f);
         }
@@ -1146,7 +1160,8 @@ impl Vm {
         self.frames.push(Frame { func: f.clone(), pc: 0, vars, slots: vec![Slot::None; f.n_slots], refs });
         // bind parameters
         for (i, p) in f.params.iter().enumerate() {
-            let v = match args.get(i).cloned().flatten() {
+            // (moved out: the arguments aren't used again)
+            let v = match args.get_mut(i).and_then(|a| a.take()) {
                 Some(v) => Some(v),
                 None => match &p.default {
                     Some(e) => match self.eval(e) {
@@ -1409,12 +1424,16 @@ impl Vm {
             }
             Instr::Call(ci) => {
                 let CallInstr { target, args, kind, try_, catch } = &**ci;
-                let name = self.resolve_target(target)?;
-                let (vals, refs) = match self.prog.funcs.get(&name).map(|fs| fs[0].clone()) {
-                    Some(f) => self.call_args(&f, args)?,
-                    None => (Vec::new(), Vec::new()),
+                let formed;
+                let name: &str = match target {
+                    CallTarget::Static(s) => s,
+                    CallTarget::Form(_) => {
+                        formed = self.resolve_target(target)?;
+                        &formed
+                    }
                 };
-                if !self.has_func(&name) {
+                // one lookup: the function (the first one for event names)
+                let Some((f, single)) = self.prog.funcs.get(name).map(|fs| (fs[0].clone(), fs.len() == 1)) else {
                     if *try_ {
                         if let Some(c) = catch {
                             self.set_pc(*c);
@@ -1422,9 +1441,14 @@ impl Vm {
                         return Ok(None);
                     }
                     return err(format!("function @{} not found", name));
-                }
+                };
+                let (vals, refs) = self.call_args(&f, args)?;
                 self.pending_refs = refs;
-                self.call_name(&name, vals)?;
+                if single {
+                    self.call_func(f, vals)?;
+                } else {
+                    self.call_name(name, vals)?;
+                }
                 if *kind == CallKind::Jump {
                     return Ok(Some(None));
                 }
@@ -1861,7 +1885,8 @@ pub enum Tbl {
 #[derive(Clone, Copy)]
 pub struct NameInfo {
     table: Tbl,
-    local_family: bool,
+    /// LOCAL 1, LOCALS 2, ARG 3, ARGS 4, else 0
+    local_family: u8,
     user: Option<(bool, usize)>,
     csv_name: bool,
     pseudo: bool,
@@ -1874,6 +1899,8 @@ pub struct VarInfo {
     table: Tbl,
     private: bool,
     is_static: bool,
+    /// index in the function's `static_cache`
+    skey: u32,
     /// user `#DIM`: (CHARADATA, dimensions)
     user: Option<(bool, usize)>,
     csv_name: bool,

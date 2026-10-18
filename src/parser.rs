@@ -586,6 +586,7 @@ impl<'a> Parser<'a> {
                 n_slots: 0,
                 file: file_idx,
                 line,
+                static_cache: Default::default(),
             },
             ctl: vec![],
             sif: vec![],

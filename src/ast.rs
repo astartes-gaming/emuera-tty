@@ -405,7 +405,11 @@ pub struct Function {
     pub n_slots: usize,
     pub file: u32,
     pub line: u32,
+    /// `Vm::statics` slot + 1 of LOCAL, LOCALS, ARG, ARGS and then each
+    /// static `#DIM` (0: not known yet), made on first use
+    pub static_cache: std::sync::OnceLock<Box<[std::sync::atomic::AtomicU32]>>,
 }
+
 
 #[cfg(test)]
 mod tests {
