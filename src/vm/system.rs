@@ -325,6 +325,13 @@ impl Vm {
                 self.do_train_command(next)?;
                 continue;
             }
+            // CALLTRAIN: the screens are run without output, the next
+            // queued command instead of an input
+            let ctrain = self.ctrain.is_some();
+            if ctrain {
+                self.con.skip_disp = true;
+                self.con.skip_user = false;
+            }
             self.call_opt("SHOW_STATUS")?;
             let mut coms: Vec<(i64, String)> = self
                 .csv
@@ -340,6 +347,9 @@ impl Vm {
             for (k, (id, name)) in coms.into_iter().enumerate() {
                 if self.com_able(id)? {
                     avail[k] = Some(id);
+                    if ctrain {
+                        continue;
+                    }
                     let s = crate::vm::pad(&format!("{}[{:3}]", name, k), self.con.printc_len, crate::ast::Align::Right);
                     self.con.print(&s);
                     shown += 1;
@@ -354,6 +364,31 @@ impl Vm {
             self.call_opt("SHOW_USERCOM")?;
             self.con.skip_disp = false;
             self.train_after_usercom();
+            if let Some((list, done)) = self.ctrain.clone() {
+                if done >= list.len() {
+                    self.ctrain = None;
+                    self.call_opt("CALLTRAINEND")?;
+                    continue;
+                }
+                // queued commands are command numbers, not list positions
+                let id = list[done];
+                self.ctrain = Some((list.clone(), done + 1));
+                self.con.print(&format!("＜コマンド連続実行：{}/{}＞", done + 1, list.len()));
+                self.con.newline();
+                if avail.contains(&Some(id)) {
+                    self.do_train_command(id)?;
+                } else {
+                    self.con.print("コマンドを実行できませんでした");
+                    self.con.newline();
+                    self.set_result(id);
+                    self.call_opt("USERCOM")?;
+                }
+                if self.ctrain.as_ref().is_some_and(|(l, d)| *d >= l.len()) {
+                    self.ctrain = None;
+                    self.call_opt("CALLTRAINEND")?;
+                }
+                continue;
+            }
             let v = self.input_int(None, None, false)?;
             match usize::try_from(v).ok().and_then(|k| avail.get(k).copied().flatten()) {
                 Some(id) => self.do_train_command(id)?,

@@ -504,7 +504,9 @@ checked.
   (other numbers go to `@USERCOM`), NEXTCOM, the WAIT after a command,
   and the per-step resets (UP / DOWN / LOSEBASE, SOURCE, NOWEX, STAIN to
   `_Replace.csv`'s defaults). PRINT_SHOPITEM, MONEYSTR and MONEYLABEL use
-  `_Replace.csv`'s currency unit and its position.
+  `_Replace.csv`'s currency unit and its position. `CALLTRAIN` /
+  `STOPCALLTRAIN` / `@CALLTRAINEND` (continuous training; pops-tw forces
+  commands with it).
 - Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
   `SPRITECREATE`, `SPRITE*`), shown through the image backends.
 - Client background layers (`CBGSETG`, `CBGSETSPRITE`, `CBGSETBUTTONSPRITE`,
@@ -547,8 +549,7 @@ statements as a function `@__INJECT` just before the n-th input.
 3. Speed of script-heavy games: pops-tw's new game takes about half a
    minute of CPU (its own object system makes many thousands of dynamic
    calls).
-4. `CALLTRAIN` / `STOPCALLTRAIN` (continuous training), and `DOTRAIN`
-   jumping back into the TRAIN loop as in Emuera (it runs the command in
-   place here).
+4. `DOTRAIN` jumping back into the TRAIN loop as in Emuera (it runs the
+   command in place here).
 5. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
    (`radius`), tooltip delay and fonts (`TOOLTIP_*`).

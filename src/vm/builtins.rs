@@ -634,6 +634,7 @@ impl Vm {
             "SKIPDISP" => {
                 let n = self.ai(a, 0, 0)?;
                 self.con.skip_disp = n != 0;
+                self.con.skip_user = n != 0;
             }
             "INPUT" | "TINPUT" | "ONEINPUT" | "TONEINPUT" => {
                 let timed = name.starts_with('T');
@@ -946,7 +947,17 @@ impl Vm {
                 self.train_after_usercom();
                 self.do_train_command(n)?;
             }
-            "CALLTRAIN" | "STOPCALLTRAIN" => self.warn(&format!("{} not implemented", name)),
+            // continuous training: the TRAIN loop runs SELECTCOM:1..=n
+            "CALLTRAIN" => {
+                let n = self.ai(a, 0, 0)?.max(0) as usize;
+                let coms: Vec<i64> = (1..=n).map(|k| self.get_global_i("SELECTCOM", k)).collect();
+                self.ctrain = Some((coms, 0));
+            }
+            "STOPCALLTRAIN" => {
+                if self.ctrain.take().is_some() {
+                    self.con.skip_disp = false;
+                }
+            }
             "SAVEGAME" => {
                 self.save_menu(true)?;
             }

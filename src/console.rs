@@ -149,6 +149,9 @@ pub struct Console {
     pub dirty: bool,
     /// SKIPDISP: output is discarded.
     pub skip_disp: bool,
+    /// skip_disp came from the script's SKIPDISP (an INPUT under it is an
+    /// error), not from the engine (CALLTRAIN's screens, where it is skipped)
+    pub skip_user: bool,
     pub font_name: String,
     /// the game's configured font ("フォント名"), what SETFONT "" restores
     pub default_font: String,
@@ -193,6 +196,7 @@ impl Console {
             redraw: true,
             dirty: true,
             skip_disp: false,
+            skip_user: false,
             font_name: String::new(),
             default_font: String::new(),
             title: String::new(),

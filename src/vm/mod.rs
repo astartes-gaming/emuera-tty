@@ -122,6 +122,8 @@ pub struct Vm {
     /// inputs asked for so far, and when to run @__INJECT
     inputs_seen: u64,
     inject_at: Option<u64>,
+    /// CALLTRAIN: the commands to run one after another, and how many ran
+    pub ctrain: Option<(Vec<i64>, usize)>,
     /// `var_info` results by (function, name) pointers
     var_cache: HashMap<(usize, usize), (Name, VarInfo)>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
@@ -205,6 +207,7 @@ impl Vm {
             var_cache: HashMap::default(),
             inputs_seen: 0,
             inject_at: std::env::var("EMUERA_INJECT_AT").ok().and_then(|n| n.parse().ok()),
+            ctrain: None,
             maps: HashMap::default(),
             dts: HashMap::default(),
             xml_docs: HashMap::default(),
@@ -1526,6 +1529,10 @@ impl Vm {
         if self.con.skip_disp {
             if req.kind == InputKind::Wait {
                 return Ok(Some(String::new()));
+            }
+            if !self.con.skip_user {
+                // the engine's own skipping: the input is passed over
+                return Ok(None);
             }
             if !self.frames.is_empty() {
                 self.con.skip_disp = false;
