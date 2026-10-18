@@ -189,7 +189,31 @@ mod imp {
     /// Wait up to `timeout_ms` (-1: forever) for stdin or `extra` (a file
     /// descriptor, -1 for none).
     pub fn poll(timeout_ms: i32, extra: i32) -> Ready {
-        let mut pfd = [libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 }, libc::pollfd { fd: extra, events: libc::POLLIN, revents: 0 }];
+        poll_fd(0, timeout_ms, extra)
+    }
+
+    /// [`poll`] for any file descriptor `fd` (a serial line) in place of
+    /// stdin.
+    pub fn poll_fd(fd: i32, timeout_ms: i32, extra: i32) -> Ready {
+        // macOS's poll() doesn't handle terminal devices everywhere:
+        // select() does (the end of input shows up as a 0-byte read)
+        #[cfg(target_os = "macos")]
+        unsafe {
+            let mut set: libc::fd_set = std::mem::zeroed();
+            libc::FD_ZERO(&mut set);
+            libc::FD_SET(fd, &mut set);
+            if extra >= 0 {
+                libc::FD_SET(extra, &mut set);
+            }
+            let mut tv = libc::timeval { tv_sec: (timeout_ms.max(0) / 1000) as _, tv_usec: ((timeout_ms.max(0) % 1000) * 1000) as _ };
+            let tvp = if timeout_ms < 0 { std::ptr::null_mut() } else { &mut tv as *mut _ };
+            if libc::select(extra.max(fd) + 1, &mut set, std::ptr::null_mut(), std::ptr::null_mut(), tvp) <= 0 {
+                return Ready::default();
+            }
+            return Ready { input: libc::FD_ISSET(fd, &set), extra: extra >= 0 && libc::FD_ISSET(extra, &set), hangup: false };
+        }
+        #[allow(unreachable_code)]
+        let mut pfd = [libc::pollfd { fd, events: libc::POLLIN, revents: 0 }, libc::pollfd { fd: extra, events: libc::POLLIN, revents: 0 }];
         let r = unsafe { libc::poll(pfd.as_mut_ptr(), 2, timeout_ms) };
         if r <= 0 {
             return Ready::default();

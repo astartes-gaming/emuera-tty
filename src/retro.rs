@@ -181,13 +181,12 @@ impl Port {
 
     /// Bytes waiting within `timeout_ms`; None when the line is gone.
     fn read(&self, timeout_ms: i32) -> Option<Vec<u8>> {
-        let mut pfd = libc::pollfd { fd: self.in_fd, events: libc::POLLIN, revents: 0 };
-        let r = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
-        if r <= 0 {
-            return Some(Vec::new());
-        }
-        if pfd.revents & (libc::POLLHUP | libc::POLLERR) != 0 && pfd.revents & libc::POLLIN == 0 {
+        let r = crate::sys::poll_fd(self.in_fd, timeout_ms, -1);
+        if r.hangup {
             return None;
+        }
+        if !r.input {
+            return Some(Vec::new());
         }
         let mut b = [0u8; 256];
         let n = unsafe { libc::read(self.in_fd, b.as_mut_ptr() as *mut libc::c_void, b.len()) };

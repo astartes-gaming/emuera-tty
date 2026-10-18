@@ -426,12 +426,22 @@ impl Vm {
 
     /// One index value. A bare identifier that isn't a variable, or a
     /// string, is a CSV name looked up in `table` (or a table named after
-    /// the variable, for ERD files).
+    /// the variable, for ERD files: `NAME.ERD` for a 1-D array, `NAME@k.ERD`
+    /// for index k of a multi-dimensional one, given as `dim`).
     fn eval_index(&mut self, e: &Expr, table: Option<&str>, var: &str) -> VmResult<i64> {
+        self.eval_index_dim(e, table, var, None)
+    }
+
+    fn eval_index_dim(&mut self, e: &Expr, table: Option<&str>, var: &str, dim: Option<usize>) -> VmResult<i64> {
         match e {
             Expr::Var(v) if v.idx.is_empty() && !self.var_exists(&v.name) => {
                 if let Some(t) = table {
                     if let Some(i) = self.csv.lookup(t, &v.name) {
+                        return Ok(i);
+                    }
+                }
+                if let Some(d) = dim {
+                    if let Some(i) = self.csv.lookup(&format!("{}@{}", var.to_uppercase(), d), &v.name) {
                         return Ok(i);
                     }
                 }
@@ -455,7 +465,8 @@ impl Vm {
         for (k, e) in v.idx.iter().enumerate().skip(from) {
             // CSV names apply to the last index (and to every index of ERD vars)
             let t = if k + 1 == n { table } else { None };
-            out.push(self.eval_index(e, t, &v.name)?);
+            let dim = (n - from > 1).then_some(k - from + 1);
+            out.push(self.eval_index_dim(e, t, &v.name, dim)?);
         }
         Ok(out)
     }

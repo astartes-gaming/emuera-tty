@@ -350,3 +350,15 @@ GDRAWLINE 5, 0, 5, 9, 5
 CALL CHECK, "gdrawline", GGETCOLOR(5, 4, 5) == 0xFF00FF00 && GGETPEN(5) == 0xFF00FF00 && GGETCOLOR(5, 4, 0) == 0
 CALL CHECK, "ggettextsize", GGETTEXTSIZE("abc", "", 20) > 0
 GDISPOSE 5
+; ERD names per dimension (NAME@k.ERD)
+盤面:下:右 = 7
+CALL CHECK, "erd_dims", 盤面:2:3 == 7 && 盤面:上:左 == 盤面:0:1
+; FINDELEMENT: a regular expression; exact = the whole element matches it
+LOCALS:0 = a.b
+LOCALS:1 = axb
+LOCALS:2 = (x)
+CALL CHECK, "findelement", FINDELEMENT(LOCALS, ESCAPE("(x)"), 0, , 1) == 2 && FINDELEMENT(LOCALS, "a.b", 0, , 1) == 0 && FINDELEMENT(LOCALS, ESCAPE("a.b"), 1, , 1) == -1 && FINDELEMENT(LOCALS, "x", 0, , 0) == 1 && FINDLASTELEMENT(LOCALS, "^a", 0, , 0) == 1
+; sound statements leave RESULT alone
+RESULT = 42
+PLAYSOUND "none.wav"
+CALL CHECK, "playsound_result", RESULT == 42
