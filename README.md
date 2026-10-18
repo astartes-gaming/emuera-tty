@@ -38,9 +38,10 @@ untested. Large parts of the Emuera command set are still missing (see
   OpenBSD, DragonFly), **Windows 10/11**, **Termux** on Android, **illumos /
   Solaris**, **Haiku** and **Redox**, but **only Linux is tested: every
   other system is compile-checked only and untested.** Reports are
-  welcome. See [Other systems](#other-systems) for the differences, and
-  [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for the
-  Raspberry Pi Zero and other 512 MB boards.
+  welcome. See [Other systems](#other-systems) for the differences,
+  [Other CPUs](#other-cpus) for ARM, RISC-V, PowerPC, MIPS and the rest,
+  and [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for
+  the Raspberry Pi Zero and other 512 MB boards.
 - A **terminal**. Any modern one works for text; see
   [Picking a terminal](#5-picking-a-terminal) for pictures and Japanese text.
 - **Rust** to build it: install with [rustup](https://rustup.rs)
@@ -109,6 +110,33 @@ export PATH="$HOME/.local/bin:$PATH"
   only; on Haiku the fastest serial speeds (460800, 921600) aren't
   offered, on Redox there is no RTS/CTS flow control.
 
+### Other CPUs
+
+Everything above is about x86-64 PCs. emuera-tty is plain Rust with no
+CPU-specific code, so it builds for most processors Linux runs on. Saves
+are Emuera's little-endian format on every CPU: a save made on a
+big-endian machine is byte for byte the one a PC makes. **Tried only
+under emulation (`qemu-user`), not on real machines.**
+
+| | CPUs |
+|---|---|
+| **Run under emulation**: the sample game's self-test, a full 800-input AnonTW session with the same output as on a PC, saves loaded across | x86 32-bit (i586), ARMv5 / v6 / v7, AArch64, RISC-V 64, PowerPC 64 (big- and little-endian), LoongArch 64 |
+| **Compile-checked** (no C library here to link against) | RISC-V 32, PowerPC 32, IBM Z (s390x), SPARC 32 / 64, MIPS 32 / 64 (both byte orders), Motorola 68000, Hexagon, C-SKY, big-endian ARM / AArch64, x32 |
+| **Not possible**: Rust has no code generator for them | DEC Alpha, PA-RISC (HPPA), SuperH (SH-4), Itanium, OpenRISC, MicroBlaze, Xtensa |
+
+The emulated builds are static musl programs, made on a PC with Rust's
+own linker (no cross compiler needed): add the target with `rustup target
+add`, then build with
+`RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static" cargo build --release --target …`
+for `i586-unknown-linux-musl`, `arm-unknown-linux-musleabihf`,
+`armv5te-unknown-linux-musleabi`, `armv7-unknown-linux-musleabihf`,
+`aarch64-unknown-linux-musl`, `riscv64gc-unknown-linux-musl`,
+`powerpc64-unknown-linux-musl`, `powerpc64le-unknown-linux-musl` or
+`loongarch64-unknown-linux-musl`. The compile-checked ones need nightly
+Rust (`cargo +nightly build -Z build-std=std,panic_abort --target …`)
+for most, and the target's C library to link. On the machine itself,
+`cargo build --release` works wherever Rust is installed.
+
 ### Small machines (Raspberry Pi Zero and the like)
 
 emuera-tty keeps its memory low enough for a 512 MB board (see
@@ -127,7 +155,7 @@ rustup target add arm-unknown-linux-musleabihf
 ```
 
 ```bash
-RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes" cargo build --release --target arm-unknown-linux-musleabihf
+RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static" cargo build --release --target arm-unknown-linux-musleabihf
 ```
 
 then copy `target/arm-unknown-linux-musleabihf/release/emuera-tty` to the

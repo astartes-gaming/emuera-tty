@@ -54,7 +54,7 @@ pub struct VarRef {
     pub gslot: std::sync::atomic::AtomicU32,
     /// what the name means apart from the function using it, packed (see
     /// `vm::NameInfo`; 0: not worked out yet)
-    pub cache: std::sync::atomic::AtomicU64,
+    pub cache: crate::atomic64::AtomicU64,
 }
 
 impl VarRef {
@@ -68,7 +68,7 @@ impl Clone for VarRef {
         VarRef {
             name: self.name.clone(),
             idx: self.idx.clone(),
-            cache: std::sync::atomic::AtomicU64::new(self.cache.load(std::sync::atomic::Ordering::Relaxed)),
+            cache: crate::atomic64::AtomicU64::new(self.cache.load(std::sync::atomic::Ordering::Relaxed)),
             gslot: std::sync::atomic::AtomicU32::new(self.gslot.load(std::sync::atomic::Ordering::Relaxed)),
         }
     }
@@ -388,7 +388,7 @@ pub struct Body {
     pub static_cache: std::sync::OnceLock<Box<[std::sync::atomic::AtomicU32]>>,
     /// when the function was last called (the VM's call count; 0: not
     /// since it was compiled), to drop the least used bodies first
-    pub used: std::sync::atomic::AtomicU64,
+    pub used: crate::atomic64::AtomicU64,
     pub code: Vec<Instr>,
     /// (file index, line number) per instruction
     pub lines: Vec<(u32, u32)>,

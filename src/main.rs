@@ -8,6 +8,7 @@
 
 mod archive;
 mod ast;
+mod atomic64;
 mod clipboard;
 mod config_names;
 mod console;

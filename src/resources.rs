@@ -134,7 +134,7 @@ enum Pixels {
 
 /// Bumped on every use of a buffer's pixels: least recently used first
 /// when packing.
-static GBUF_CLOCK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static GBUF_CLOCK: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64::new(0);
 
 /// Run-length code pixels: a run of one value as `0x8000_0000 | n, value`,
 /// other pixels as `n, pixels…`. Exact; drawn portraits are mostly runs of

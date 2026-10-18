@@ -289,7 +289,9 @@ save options are honoured.
 Developed and tested on Linux. macOS, the BSDs, Windows, Termux (Android)
 and the other systems are compile-checked only and untested. Small boards
 such as the Raspberry Pi Zero (512 MB) have enough memory for big games;
-the ARM builds are tried under emulation only.
+the ARM builds are tried under emulation only, as are those for RISC-V,
+PowerPC (both byte orders) and LoongArch; MIPS, SPARC, s390x, m68k and
+others are compile-checked. Saves are the same files on every CPU.
 .SH SEE ALSO
 .BR terminfo (5),
 .BR kitty (1),

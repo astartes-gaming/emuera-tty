@@ -10,7 +10,9 @@ encoding_rs = "0.8.42"
 fancy-regex = "0.19.2"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "bmp", "jpeg", "webp"] }
-tar = "0.4"
+# no xattr: extended attributes aren't needed, and its rustix dependency
+# doesn't build for m68k, Hexagon, C-SKY or big-endian ARM
+tar = { version = "0.4", default-features = false }
 unicode-width = "0.2.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
