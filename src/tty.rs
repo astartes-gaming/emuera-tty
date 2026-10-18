@@ -50,6 +50,9 @@ struct Cell {
 /// An image anchored at a column of a screen row.
 struct ImgAt {
     name: String,
+    /// the button it belongs to and its `srcb` picture
+    button: Option<usize>,
+    hover: Option<String>,
     col: usize,
     w: f32,
     h: f32,
@@ -207,6 +210,10 @@ pub struct Tty {
     cbg_scaled: std::collections::HashMap<(u64, u32, u32), std::rc::Rc<image::RgbaImage>>,
     /// the game folder and its save folder, for the save manager
     game: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    /// an animated sprite was on the last frame
+    animating: bool,
+    /// buttons with a `srcb` hover picture (their hover needs a full redraw)
+    hover_imgs: std::collections::HashSet<usize>,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -347,6 +354,8 @@ impl Tty {
             force_frame: false,
             cbg_scaled: std::collections::HashMap::new(),
             game: None,
+            animating: false,
+            hover_imgs: std::collections::HashSet::new(),
             button_wrap: false,
         };
         if xp > 0 && yp > 0 {
@@ -799,15 +808,18 @@ impl Tty {
                         col += w;
                     }
                 }
-                Seg::Image { name, w, h, ypos, button } => {
+                Seg::Image { name, w, h, ypos, button, hover } => {
                     let bid = push_btn(button, &mut self.buttons);
+                    if let (Some(b), Some(_)) = (bid, hover) {
+                        self.hover_imgs.insert(b);
+                    }
                     let cells = ((w * scale) / cw).round().max(1.0) as usize;
                     if col + cells > width && col > 0 {
                         rows.push(DRow::default());
                         col = 0;
                     }
                     let r = rows.last_mut().unwrap();
-                    r.imgs.push(ImgAt { name: name.clone(), col, w: *w, h: *h, ypos: *ypos });
+                    r.imgs.push(ImgAt { name: name.clone(), button: bid, hover: hover.clone(), col, w: *w, h: *h, ypos: *ypos });
                     let st = Style { fg: Rgb(90, 90, 90), bg: None, bold: false, italic: false, underline: false, strike: false };
                     let fill = if self.gfx.name() == "none" { '░' } else { ' ' };
                     for _ in 0..cells.min(width) {
@@ -955,6 +967,7 @@ impl Tty {
         let scale = self.cell.1 as f32 / con.line_height.max(1.0);
         let view_h = self.rows - 1;
         self.buttons.clear();
+        self.hover_imgs.clear();
         // layout from the bottom up
         let mut all: Vec<DRow> = Vec::new();
         // (plus some rows above the view: images there can reach into it)
@@ -1110,12 +1123,19 @@ impl Tty {
                 if self.no_images {
                     continue;
                 }
-                pending.push((im.name.clone(), pw, ph, im.col as i32, top, crop_top, crop_h));
+                // srcb: the hover picture while the pointer is on its button
+                let name = match &im.hover {
+                    Some(h) if im.button.is_some() && im.button == self.hover => h,
+                    _ => &im.name,
+                };
+                pending.push((res.frame_name(name), pw, ph, im.col as i32, top, crop_top, crop_h));
             }
         }
         // pictures not scaled yet are scaled on all cores at once (a status
         // screen shows several large portrait layers)
         res.prescale(pending.iter().map(|p| (p.0.as_str(), p.1, p.2)).collect());
+        // an animated sprite on screen: the input wait redraws it
+        self.animating = res.take_anim_used();
         for (name, pw, ph, col, top, crop_top, crop_h) in pending {
             if let Some(img) = res.scaled(&name, pw, ph) {
                 placements.push(Placement {
@@ -1323,6 +1343,12 @@ impl Tty {
             }
         }
         v
+    }
+
+    /// Does the pointer's move change which hover picture (`srcb`) shows?
+    fn hover_swaps_image(&self) -> bool {
+        let new = self.mouse.and_then(|(x, y)| self.button_at(x, y));
+        new != self.hover && [new, self.hover].iter().flatten().any(|b| self.hover_imgs.contains(b))
     }
 
     /// After a mouse move, repaint only what changed from the last frame:
@@ -1748,7 +1774,7 @@ impl Frontend for Tty {
                 return InputResult::Quit;
             }
             if (owed || pointer_owed) && self.queued.is_empty() && self.pending.is_empty() && !self.input_waiting() {
-                if owed {
+                if owed || self.hover_swaps_image() {
                     self.render(con, res, Some(req));
                 } else {
                     self.repaint_hover(con.focus_fg);
@@ -1766,9 +1792,13 @@ impl Frontend for Tty {
                 }
                 None => 200,
             };
+            // SETANIMETIMER: redraw animated sprites that often (at most
+            // 10 times a second, terminals are slower than a window)
+            let anim = self.animating && res.anim_timer > 0;
+            let wait = if anim { wait.min(res.anim_timer.max(100) as i32) } else { wait };
             let Some(k) = self.next_key(wait) else {
                 let (c, r, _, _) = winsize();
-                if (c, r) != (last_cols, last_rows) {
+                if (c, r) != (last_cols, last_rows) || anim {
                     last_cols = c;
                     last_rows = r;
                     self.render(con, res, Some(req));
@@ -1894,7 +1924,7 @@ impl Frontend for Tty {
             }
             if moved && self.queued.is_empty() && self.pending.is_empty() && !self.input_waiting() {
                 // a picture button may light up under the pointer
-                if cbg_buttons {
+                if cbg_buttons || self.hover_swaps_image() {
                     self.render(con, res, None);
                 } else {
                     self.repaint_hover(con.focus_fg);

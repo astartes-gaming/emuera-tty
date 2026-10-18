@@ -73,7 +73,9 @@ fn baud_const(b: u32) -> Option<libc::speed_t> {
         57600 => libc::B57600,
         115200 => libc::B115200,
         230400 => libc::B230400,
+        #[cfg(not(target_os = "haiku"))]
         460800 => libc::B460800,
+        #[cfg(not(target_os = "haiku"))]
         921600 => libc::B921600,
         _ => return None,
     })

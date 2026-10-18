@@ -239,7 +239,8 @@ impl Vm {
                             let h = attrs.get("height").and_then(|v| mixed_num(v));
                             let w = attrs.get("width").and_then(|v| mixed_num(v));
                             let y = attrs.get("ypos").and_then(|v| mixed_num(v));
-                            self.print_img(&src, w, h, y, if clear { None } else { button.clone() });
+                            let srcb = attrs.get("srcb").cloned().filter(|s| !s.is_empty());
+                            self.print_img(&src, w, h, y, if clear { None } else { button.clone() }, srcb);
                             first_text = false;
                         }
                         ("shape", _) => {

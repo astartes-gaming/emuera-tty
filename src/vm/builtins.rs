@@ -579,7 +579,7 @@ impl Vm {
                     Some(Expr::Var(v)) if v.idx.is_empty() && !self.var_exists(&v.name) => v.name.to_string(),
                     _ => self.as_(a, 0, "")?,
                 };
-                self.print_img(&n, None, None, None, None);
+                self.print_img(&n, None, None, None, None, None);
             }
             "PRINT_RECT" => {
                 let w = self.ai(a, 0, 100)? as f32;
@@ -844,8 +844,24 @@ impl Vm {
                 }
                 self.set_result(1);
             }
-            // sprite animations: no animated sprites in a terminal
-            "SPRITEANIMECREATE" | "SPRITEANIMEADDFRAME" => self.set_result(0),
+            // animated sprites: SPRITEANIMECREATE name, w, h
+            "SPRITEANIMECREATE" => {
+                let n = self.as_(a, 0, "")?;
+                let (w, h) = (self.ai(a, 1, 0)?.max(1) as u32, self.ai(a, 2, 0)?.max(1) as u32);
+                let ok = self.res.anime_create(&n, w, h);
+                self.set_result(ok as i64);
+            }
+            // SPRITEANIMEADDFRAME name, gID, x, y, w, h, offset x, y, ms
+            "SPRITEANIMEADDFRAME" => {
+                let n = self.as_(a, 0, "")?;
+                let gid = self.ai(a, 1, 0)?;
+                let rect = (self.ai(a, 2, 0)? as i32, self.ai(a, 3, 0)? as i32, self.ai(a, 4, 0)? as i32, self.ai(a, 5, 0)? as i32);
+                let off = (self.ai(a, 6, 0)?, self.ai(a, 7, 0)?);
+                let ms = self.ai(a, 8, 100)?.clamp(1, u32::MAX as i64) as u32;
+                let ok = self.res.anime_add_frame(&n, gid, rect, off, ms);
+                self.set_result(ok as i64);
+            }
+            "SETANIMETIMER" => self.res.anim_timer = self.ai(a, 0, 0)?,
             "TWAIT" => {
                 let t = self.ai(a, 0, 1000)?.max(0) as u64;
                 let force = self.ai(a, 1, 0)?;
@@ -1331,7 +1347,7 @@ impl Vm {
                 self.call_name(&n, vec![])?;
             }
             "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG"
-            | "UPDATECHECK" | "SETANIMETIMER" | "CLEARTEXTBOX" | "BITMAP_CACHE_ENABLE" | "FORCEKANA" | "CLEARBUTTON" => {}
+            | "UPDATECHECK" | "CLEARTEXTBOX" | "BITMAP_CACHE_ENABLE" | "FORCEKANA" | "CLEARBUTTON" => {}
             n if n.starts_with("TOOLTIP_") => {}
             "GETTIME" => {
                 // as a statement: RESULT = number, RESULTS = text
@@ -1433,7 +1449,7 @@ impl Vm {
     /// Sizes are Emuera's "mixed numbers" `(value, is_px)`: pixels with
     /// `px`, else percent of the font size. No height (or 0) is one font
     /// size tall; no width keeps the sprite's aspect ratio.
-    pub fn print_img(&mut self, name: &str, w: Option<(f32, bool)>, h: Option<(f32, bool)>, ypos: Option<(f32, bool)>, button: Option<Value>) {
+    pub fn print_img(&mut self, name: &str, w: Option<(f32, bool)>, h: Option<(f32, bool)>, ypos: Option<(f32, bool)>, button: Option<Value>, hover: Option<String>) {
         let fs = self.con.font_size;
         let px = |(v, is_px): (f32, bool)| if is_px { v } else { fs * v / 100.0 };
         let (sw, sh) = self.res.sprite_size(name).unwrap_or((fs as u32, fs as u32));
@@ -1446,7 +1462,7 @@ impl Vm {
         if !self.res.exists(name) {
             self.warn(&format!("image resource '{}' not found", name));
         }
-        self.con.push_seg(Seg::Image { name: name.to_string(), w, h, ypos: ypos_px, button });
+        self.con.push_seg(Seg::Image { name: name.to_string(), w, h, ypos: ypos_px, button, hover });
     }
 
     /// Emuera-EM string maps. Mirrors MapManagementMethod / MapDataOperationMethod /

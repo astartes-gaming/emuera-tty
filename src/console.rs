@@ -41,7 +41,8 @@ pub enum Seg {
     /// turn into buttons when the line ends (see `auto_buttons`).
     Text { text: String, style: Style, button: Option<Value>, auto: bool },
     /// Image: sizes in Emuera pixels (font-size based).
-    Image { name: String, w: f32, h: f32, ypos: f32, button: Option<Value> },
+    /// `hover`: the `srcb` picture, shown while the button is under the pointer.
+    Image { name: String, w: f32, h: f32, ypos: f32, button: Option<Value>, hover: Option<String> },
     Space { w: f32 },
     /// PRINT_RECT / `<shape type='rect'>`. The terminal UI draws one cell
     /// row, so `h` is kept for frontends that can do better.

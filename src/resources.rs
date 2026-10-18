@@ -55,6 +55,26 @@ pub struct Resources {
     parts: HashMap<(String, u64, (i32, i32, i32, i32), i32, i32), Rc<RgbaImage>>,
     /// last fingerprint and copy of each buffer shown as a CBG layer
     cbg_cache: HashMap<i64, (u64, Rc<RgbaImage>)>,
+    /// animated sprites (`name,ANIME,w,h` in a resources CSV, or
+    /// SPRITEANIMECREATE): their frames are sprites of their own
+    pub anime: HashMap<String, Anime>,
+    /// SETANIMETIMER: how often the screen redraws for animations (ms, 0: off)
+    pub anim_timer: i64,
+    /// an animated sprite was drawn since the last [`Resources::take_anim_used`]
+    anim_used: bool,
+}
+
+/// An animated sprite: its size and frames (frame sprite name, ms shown).
+#[derive(Default, Clone)]
+pub struct Anime {
+    pub size: (u32, u32),
+    pub frames: Vec<(String, u32)>,
+}
+
+/// Milliseconds since the first animation frame was asked for.
+fn anim_clock() -> u128 {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    T0.get_or_init(std::time::Instant::now).elapsed().as_millis()
 }
 
 /// A fast hash of an image's pixels and size.
@@ -458,13 +478,24 @@ impl Resources {
         for csv in walk(dir, &["csv"]) {
             let base = csv.parent().unwrap_or(dir).to_path_buf();
             let Ok(text) = read_text(&csv) else { continue };
+            // the animated sprite whose frame lines follow
+            let mut cur_anime: Option<String> = None;
             for line in text.lines() {
                 let f = csv_fields(line);
                 if f.len() < 2 {
                     continue;
                 }
+                let key = f[0].to_uppercase();
                 if f[1].eq_ignore_ascii_case("ANIME") {
-                    continue; // animated sprites: not supported yet
+                    // name,ANIME,width,height; then name,file,x,y,w,h,offx,offy,ms per frame
+                    let n = |i: usize| f.get(i).and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0);
+                    r.anime.insert(key.clone(), Anime { size: (n(2), n(3)), frames: Vec::new() });
+                    cur_anime = Some(key);
+                    continue;
+                }
+                let frame = cur_anime.as_ref().is_some_and(|a| *a == key);
+                if !frame {
+                    cur_anime = None;
                 }
                 let file = find_ci(&base, &f[1]);
                 let rect = if f.len() >= 6 {
@@ -482,7 +513,15 @@ impl Resources {
                     (Some(w), Some(h)) if w > 0 && h > 0 => Some((w as u32, h as u32)),
                     _ => None,
                 };
-                r.sprites.insert(f[0].to_uppercase(), Sprite { file, rect, pos, dest });
+                if frame {
+                    let a = r.anime.get_mut(&key).unwrap();
+                    let fname = format!("{}#{}", key, a.frames.len());
+                    let ms = f.get(8).and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(100).max(1);
+                    a.frames.push((fname.clone(), ms));
+                    r.sprites.insert(fname, Sprite { file, rect, pos, dest: None });
+                    continue;
+                }
+                r.sprites.insert(key, Sprite { file, rect, pos, dest });
             }
         }
         r
@@ -537,9 +576,60 @@ impl Resources {
     /// A sprite cut from a graphics buffer exists only while the buffer
     /// does (Emuera's SpriteG.IsCreated); it comes back if the buffer is
     /// created again under the same id.
+    /// The sprite to show for `name` now: the current frame of an animated
+    /// sprite (by the clock, looping), else `name` itself.
+    pub fn frame_name(&mut self, name: &str) -> String {
+        let Some(a) = self.anime.get(&name.to_uppercase()) else { return name.to_string() };
+        let total: u128 = a.frames.iter().map(|f| f.1 as u128).sum();
+        if total == 0 {
+            return name.to_string();
+        }
+        let mut t = anim_clock() % total;
+        let mut pick = &a.frames[0].0;
+        for (n, ms) in &a.frames {
+            if t < *ms as u128 {
+                pick = n;
+                break;
+            }
+            t -= *ms as u128;
+        }
+        let pick = pick.clone();
+        self.anim_used = true;
+        pick
+    }
+
+    /// Was an animated sprite drawn since the last call?
+    pub fn take_anim_used(&mut self) -> bool {
+        std::mem::take(&mut self.anim_used)
+    }
+
+    /// SPRITEANIMECREATE name, w, h.
+    pub fn anime_create(&mut self, name: &str, w: u32, h: u32) -> bool {
+        let k = name.to_uppercase();
+        if self.exists(&k) {
+            return false;
+        }
+        self.anime.insert(k, Anime { size: (w, h), frames: Vec::new() });
+        true
+    }
+
+    /// SPRITEANIMEADDFRAME name, gID, x, y, w, h, offset x, y, ms.
+    #[allow(clippy::too_many_arguments)]
+    pub fn anime_add_frame(&mut self, name: &str, gid: i64, rect: (i32, i32, i32, i32), off: (i64, i64), ms: u32) -> bool {
+        let k = name.to_uppercase();
+        let Some(n) = self.anime.get(&k).map(|a| a.frames.len()) else { return false };
+        let fname = format!("{}#{}", k, n);
+        if !self.create_g_sprite(&fname, gid, Some(rect)) {
+            return false;
+        }
+        self.set_base_pos(&fname, off);
+        self.anime.get_mut(&k).unwrap().frames.push((fname, ms.max(1)));
+        true
+    }
+
     pub fn exists(&self, name: &str) -> bool {
         let k = name.to_uppercase();
-        self.sprites.contains_key(&k) || self.g_sprites.get(&k).is_some_and(|s| self.graphics.contains_key(&s.0))
+        self.anime.contains_key(&k) || self.sprites.contains_key(&k) || self.g_sprites.get(&k).is_some_and(|s| self.graphics.contains_key(&s.0))
     }
 
     /// The SPRITECREATE sprites changed (made / dropped): drop every cached
@@ -668,6 +758,10 @@ impl Resources {
 
     /// The sprite's pixels (cropped from its sheet).
     pub fn sprite(&mut self, name: &str) -> Option<Rc<RgbaImage>> {
+        if self.anime.contains_key(&name.to_uppercase()) {
+            let f = self.frame_name(name);
+            return self.sprite(&f);
+        }
         let key = name.to_uppercase();
         if let Some(v) = self.cropped.get(&key) {
             return v.clone();
@@ -699,6 +793,9 @@ impl Resources {
 
     pub fn sprite_size(&mut self, name: &str) -> Option<(u32, u32)> {
         let key = name.to_uppercase();
+        if let Some(a) = self.anime.get(&key) {
+            return Some(a.size);
+        }
         if let Some(&(gid, _, _, w, h)) = self.g_sprites.get(&key) {
             return self.graphics.contains_key(&gid).then_some((w.unsigned_abs(), h.unsigned_abs()));
         }
@@ -814,6 +911,7 @@ impl Resources {
 
     /// Sprite scaled to exactly w x h pixels (cached).
     pub fn scaled(&mut self, name: &str, w: u32, h: u32) -> Option<Rc<RgbaImage>> {
+        let name = &self.frame_name(name);
         let key = (name.to_uppercase(), w.max(1), h.max(1));
         if let Some(i) = self.scaled.get(&key) {
             return Some(i.clone());
@@ -847,4 +945,28 @@ fn find_ci(base: &Path, rel: &str) -> PathBuf {
         }
     }
     cur
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anime_csv() {
+        let d = std::env::temp_dir().join(format!("emuera-anime-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        RgbaImage::from_pixel(20, 10, image::Rgba([9, 9, 9, 255])).save(d.join("sheet.png")).unwrap();
+        std::fs::write(d.join("a.csv"), "HALO,ANIME,10,10\nHALO,sheet.png,0,0,10,10,0,0,1000000\nHALO,sheet.png,10,0,10,10,2,3,50\nSTILL,sheet.png,0,0,5,5\n").unwrap();
+        let mut r = Resources::load(Some(&d));
+        assert!(r.exists("halo"));
+        assert_eq!(r.anime["HALO"].frames.len(), 2);
+        assert_eq!(r.sprite_size("HALO"), Some((10, 10)));
+        // the first frame lasts long enough for the test
+        assert_eq!(r.frame_name("halo"), "HALO#0");
+        assert!(r.take_anim_used() && !r.take_anim_used());
+        assert_eq!(r.sprites["HALO#1"].pos, (2, 3));
+        assert_eq!(r.frame_name("STILL"), "STILL");
+        assert!(r.sprite("halo").is_some());
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
