@@ -58,7 +58,29 @@ pub enum Seg {
     /// cell and row sizes CLIENTWIDTH / CLIENTHEIGHT count in), at most
     /// `rows` rows. Takes no width in the line. `html` is its source, for
     /// HTML_GETPRINTEDSTR.
-    Div { dx: i32, dy: i32, cols: usize, rows: Option<usize>, lines: Vec<Line>, html: String },
+    Div { dx: i32, dy: i32, cols: usize, rows: Option<usize>, lines: Vec<Line>, html: String, deco: Box<DivBox> },
+}
+
+/// A `<div>`'s background, border and padding, in cells.
+#[derive(Clone, Debug, Default)]
+pub struct DivBox {
+    pub bg: Option<Rgb>,
+    pub bcolor: Option<Rgb>,
+    /// border on top, right, bottom, left (drawn one cell wide)
+    pub border: [bool; 4],
+    /// padding top, right, bottom, left
+    pub pad: [usize; 4],
+}
+
+impl DivBox {
+    /// Rows / columns the border and padding take: (top, right, bottom, left).
+    pub fn insets(&self) -> [usize; 4] {
+        let mut n = self.pad;
+        for (k, b) in self.border.iter().enumerate() {
+            n[k] += *b as usize;
+        }
+        n
+    }
 }
 
 /// A finished logical line.
@@ -107,6 +129,8 @@ pub struct Console {
     pub button_wrap: bool,
     /// Generation stamped on new lines (Emuera's `newButtonGeneration`).
     pub gen: u64,
+    /// `<button title=…>` tooltips: button value → (generation, text)
+    pub tooltips: std::collections::HashMap<String, (u64, String)>,
     /// Buttons on lines of this generation are clickable
     /// (`lastButtonGeneration`); see `begin_input`.
     pub valid_gen: u64,
@@ -159,6 +183,7 @@ impl Console {
             printc_per_line: 3,
             button_wrap: false,
             gen: 0,
+            tooltips: std::collections::HashMap::new(),
             valid_gen: 0,
             buttons_since_input: false,
             last_input_site: None,
@@ -390,6 +415,32 @@ impl Console {
                 _ => {}
             }
         }
+    }
+
+    fn tooltip_key(v: &Value) -> String {
+        match v {
+            Value::Int(i) => format!("i{}", i),
+            Value::Str(s) => format!("s{}", s),
+        }
+    }
+
+    /// A button printed now has tooltip `text` (empty: none).
+    pub fn set_tooltip(&mut self, v: &Value, text: &str) {
+        if self.tooltips.len() > 4096 {
+            let g = self.valid_gen;
+            self.tooltips.retain(|_, t| t.0 >= g);
+        }
+        let k = Self::tooltip_key(v);
+        if text.is_empty() {
+            self.tooltips.remove(&k);
+        } else {
+            self.tooltips.insert(k, (self.gen, text.to_string()));
+        }
+    }
+
+    /// The tooltip of a clickable button.
+    pub fn tooltip_for(&self, v: &Value) -> Option<&str> {
+        self.tooltips.get(&Self::tooltip_key(v)).filter(|t| t.0 >= self.valid_gen).map(|t| t.1.as_str())
     }
 
     /// The script asks for a value (INPUT…, not WAIT) at `site`. Emuera's

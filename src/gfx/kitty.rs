@@ -78,7 +78,7 @@ impl Backend for Kitty {
             let cols = p.img.width().div_ceil(cw).max(1);
             let rows = p.crop_h.div_ceil(ch).max(1);
             want.entry(id).or_default().push(format!(
-                "\x1b[{};{}H\x1b_Ga=p,i={},q=2,C=1,y={},h={},c={},r={},Y={}\x1b\\",
+                "\x1b[{};{}H\x1b_Ga=p,i={},q=2,C=1,y={},h={},c={},r={},Y={}{}\x1b\\",
                 p.row + 1,
                 p.col + 1,
                 id,
@@ -86,7 +86,9 @@ impl Backend for Kitty {
                 p.crop_h,
                 cols,
                 rows,
-                p.y_off.max(0)
+                p.y_off.max(0),
+                // under the text (above cell backgrounds): z < 0
+                if p.below { ",z=-1" } else { "" }
             ));
         }
         // images no longer shown

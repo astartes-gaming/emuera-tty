@@ -30,6 +30,8 @@ pub struct Placement {
     /// visible pixel rows of the image: [crop_top, crop_top + crop_h)
     pub crop_top: u32,
     pub crop_h: u32,
+    /// behind the text (a CBG layer with depth > 0), where the terminal can
+    pub below: bool,
 }
 
 /// One way of showing images. All hooks default to doing nothing.

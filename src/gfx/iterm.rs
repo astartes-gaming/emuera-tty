@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn whole_cells_png() {
         let img = std::rc::Rc::new(RgbaImage::from_pixel(13, 20, image::Rgba([255, 0, 0, 255])));
-        let p = Placement { key: "a".into(), img, col: 2, row: 3, y_off: 4, crop_top: 0, crop_h: 20 };
+        let p = Placement { key: "a".into(), img, col: 2, row: 3, y_off: 4, crop_top: 0, crop_h: 20, below: false };
         let mut out = Vec::new();
         Iterm::new().draw(&mut out, &[p], (8, 16));
         let s = String::from_utf8(out).unwrap();

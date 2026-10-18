@@ -219,6 +219,10 @@ impl Vm {
                                 Ok(i) => Value::Int(i),
                                 Err(_) => Value::Str(v.clone()),
                             });
+                            if let Some(b) = &button {
+                                let t = attrs.get("title").map(|t| decode_entities(t)).unwrap_or_default();
+                                self.con.set_tooltip(b, t.trim());
+                            }
                         }
                         ("button", true) | ("nonbutton", _) => button = None,
                         ("clearbutton", c) => clear = !c,
@@ -305,13 +309,42 @@ impl Vm {
             h = v.get(3).copied().flatten().or(h);
         }
         let cell_px = (fs / 2.0).max(1.0);
-        let w = w.unwrap_or(self.con.width as f32 * cell_px).max(cell_px);
+        let lh = self.con.line_height.max(1.0);
+        // margin / padding / border: one value for all sides, or CSS's
+        // "top,right,bottom,left" (2: top-bottom,left-right; 3: top,left-right,bottom)
+        let sides = |k: &str| -> [f32; 4] {
+            let Some(v) = attrs.get(k) else { return [0.0; 4] };
+            let n: Vec<f32> = v.split(',').map(|x| px(x).unwrap_or(0.0)).collect();
+            match n.len() {
+                1 => [n[0]; 4],
+                2 => [n[0], n[1], n[0], n[1]],
+                3 => [n[0], n[1], n[2], n[1]],
+                _ if n.len() >= 4 => [n[0], n[1], n[2], n[3]],
+                _ => [0.0; 4],
+            }
+        };
+        // vertical sides in lines, horizontal ones in half-width cells
+        let to_cells = |v: [f32; 4]| -> [usize; 4] { [(v[0] / lh).round() as usize, (v[1] / cell_px).round() as usize, (v[2] / lh).round() as usize, (v[3] / cell_px).round() as usize] };
+        let margin = to_cells(sides("margin"));
+        let border = sides("border");
+        let deco = crate::console::DivBox {
+            bg: attrs.get("color").and_then(|c| color_from_str(c)),
+            bcolor: attrs.get("bcolor").and_then(|c| color_from_str(c.split(',').next().unwrap_or(""))).or(Some(self.con.style.fg)),
+            border: [border[0] > 0.0, border[1] > 0.0, border[2] > 0.0, border[3] > 0.0],
+            pad: to_cells(sides("padding")),
+        };
+        let ins = deco.insets();
+        x += margin[3] as f32 * cell_px;
+        y += margin[0] as f32 * lh;
+        let w = w.unwrap_or(self.con.width as f32 * cell_px).max(cell_px) - (margin[1] + margin[3]) as f32 * cell_px;
+        let w = w.max(cell_px * (ins[1] + ins[3] + 1) as f32);
+        let h = h.map(|h| (h - (margin[0] + margin[2]) as f32 * lh).max(lh));
         // lay the content out as lines of its own
         let saved_cur = std::mem::take(&mut self.con.cur);
         let saved_cur_align = self.con.cur_align.take();
         let saved_width = self.con.width;
         let (n0, dropped0) = (self.con.lines.len(), self.con.dropped_front);
-        self.con.width = ((w / cell_px).floor() as usize).saturating_sub(1).max(1);
+        self.con.width = ((w / cell_px).floor() as usize).saturating_sub(1 + ins[1] + ins[3]).max(1);
         self.html_print(inner);
         let start = n0.saturating_sub(self.con.dropped_front - dropped0).min(self.con.lines.len());
         let lines = self.con.lines.split_off(start);
@@ -320,7 +353,6 @@ impl Vm {
         self.con.cur = saved_cur;
         self.con.cur_align = saved_cur_align;
         let html = format!("<{}>{}</div>", tag, inner);
-        let lh = self.con.line_height.max(1.0);
         self.con.push_seg(Seg::Div {
             dx: (x / cell_px).round() as i32,
             dy: (y / lh).round() as i32,
@@ -328,6 +360,7 @@ impl Vm {
             rows: h.map(|h| (h / lh).round().max(1.0) as usize),
             lines,
             html,
+            deco: Box::new(deco),
         });
     }
 

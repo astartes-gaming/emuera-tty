@@ -77,6 +77,69 @@ struct DivAt {
     rows: Vec<DRow>,
 }
 
+/// A div's rows inside its background, padding and border: `cols` wide,
+/// `rows` high (else as tall as the content needs).
+fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, rows: Option<usize>) -> Vec<DRow> {
+    let ins = deco.insets();
+    let blank = |bg: Option<Rgb>| Cell { ch: ' ', w: 1, style: Style { fg: Rgb(0, 0, 0), bg, bold: false, italic: false, underline: false, strike: false }, button: None };
+    let edge = blank(deco.bcolor);
+    let fill = blank(deco.bg);
+    let height = rows.unwrap_or(content.len() + ins[0] + ins[2]).max(ins[0] + ins[2] + 1);
+    let mut content = content.into_iter();
+    let mut out = Vec::with_capacity(height);
+    for r in 0..height {
+        let mut row = DRow::default();
+        let border_row = (r == 0 && deco.border[0]) || (r + 1 == height && deco.border[2]);
+        if border_row {
+            row.cells = vec![edge.clone(); cols];
+            out.push(row);
+            continue;
+        }
+        if deco.border[3] {
+            row.cells.push(edge.clone());
+        }
+        row.cells.extend(std::iter::repeat_n(fill.clone(), deco.pad[3]));
+        let start = row.cells.len();
+        let in_w = cols.saturating_sub(ins[1] + ins[3]);
+        if r >= ins[0] && r + ins[2] < height {
+            if let Some(c) = content.next() {
+                for mut cell in c.cells {
+                    if cell.style.bg.is_none() {
+                        cell.style.bg = deco.bg;
+                    }
+                    row.cells.push(cell);
+                }
+                for mut im in c.imgs {
+                    im.col += start;
+                    row.imgs.push(im);
+                }
+                for mut d in c.divs {
+                    d.col += start;
+                    row.divs.push(d);
+                }
+            }
+        }
+        // pad (or cut) the content to the inner width
+        let mut used = 0usize;
+        let mut k = start;
+        while k < row.cells.len() {
+            let w = row.cells[k].w.max(1) as usize;
+            if used + w > in_w {
+                row.cells.truncate(k);
+                break;
+            }
+            used += w;
+            k += 1;
+        }
+        row.cells.extend(std::iter::repeat_n(fill.clone(), in_w.saturating_sub(used) + deco.pad[1]));
+        if deco.border[1] {
+            row.cells.push(edge.clone());
+        }
+        out.push(row);
+    }
+    out
+}
+
 /// Paint `cells` over `row` from screen column `col`: covered cells (and
 /// wide characters cut in half) give way, the row is padded if short.
 fn paint_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
@@ -850,13 +913,18 @@ impl Tty {
                     }
                     col += cells.min(width);
                 }
-                Seg::Div { dx, dy, cols, rows: max_rows, lines, .. } => {
+                Seg::Div { dx, dy, cols, rows: max_rows, lines, deco, .. } => {
+                    let ins = deco.insets();
+                    let in_w = cols.saturating_sub(ins[1] + ins[3]).max(1);
                     let mut inner = Vec::new();
                     for l in lines {
-                        inner.extend(self.layout_line_in(l, cur_gen, scale, *cols));
+                        inner.extend(self.layout_line_in(l, cur_gen, scale, in_w));
                     }
                     if let Some(m) = max_rows {
-                        inner.truncate(*m);
+                        inner.truncate(m.saturating_sub(ins[0] + ins[2]).max(1));
+                    }
+                    if deco.bg.is_some() || deco.border.iter().any(|b| *b) || ins.iter().any(|n| *n > 0) {
+                        inner = boxed_div(inner, deco, *cols, *max_rows);
                     }
                     let at = (col as i64 + *dx as i64).max(0) as usize;
                     rows.last_mut().unwrap().divs.push(DivAt { col: at, dy: *dy, rows: inner });
@@ -1146,6 +1214,7 @@ impl Tty {
                     y_off: top % ch,
                     crop_top,
                     crop_h,
+                    below: false,
                 });
             }
         }
@@ -1184,6 +1253,18 @@ impl Tty {
             self.gfx.reset(&mut out);
         }
         self.gfx.draw(&mut out, &placements, self.cell);
+        // buttons with tooltips need a full redraw when hovered, and the
+        // hovered one shows its tooltip by the pointer
+        for (i, v) in self.buttons.iter().enumerate() {
+            if con.tooltip_for(v).is_some() {
+                self.hover_imgs.insert(i);
+            }
+        }
+        if let (Some(b), Some((mx, my))) = (hover, self.mouse) {
+            if let Some(tip) = self.buttons.get(b).and_then(|v| con.tooltip_for(v)) {
+                self.draw_tooltip(&mut out, tip, mx, my);
+            }
+        }
         self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
         self.frame_cursor = None;
         // cursor at end of input
@@ -1324,6 +1405,7 @@ impl Tty {
                 y_off: top_c % ch,
                 crop_top,
                 crop_h,
+                below: l.z > 0 && self.screen_bg.is_none(),
             });
         }
         out
@@ -1343,6 +1425,47 @@ impl Tty {
             }
         }
         v
+    }
+
+    /// A tooltip box next to the pointer at 0-based cell (`mx`, `my`):
+    /// below it, or above when there is no room.
+    fn draw_tooltip(&self, out: &mut Vec<u8>, tip: &str, mx: usize, my: usize) {
+        let maxw = self.cols.saturating_sub(4).clamp(10, 60);
+        let mut lines: Vec<(String, usize)> = Vec::new();
+        for para in tip.split('\n') {
+            let (mut cur, mut w) = (String::new(), 0usize);
+            for word in para.split(' ') {
+                let ww: usize = word.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+                if w > 0 && w + 1 + ww > maxw {
+                    lines.push((std::mem::take(&mut cur), w));
+                    w = 0;
+                }
+                if w > 0 {
+                    cur.push(' ');
+                    w += 1;
+                }
+                for c in word.chars() {
+                    let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+                    if w + cw > maxw {
+                        lines.push((std::mem::take(&mut cur), w));
+                        w = 0;
+                    }
+                    cur.push(c);
+                    w += cw;
+                }
+            }
+            lines.push((cur, w));
+        }
+        lines.truncate(self.rows.saturating_sub(3).clamp(1, 10));
+        let w = lines.iter().map(|l| l.1).max().unwrap_or(0) + 2;
+        let h = lines.len();
+        let view = self.rows.saturating_sub(1);
+        let top = if my + 2 + h <= view { my + 2 } else { (my + 1).saturating_sub(h).max(1) };
+        let left = (mx + 2).min(self.cols.saturating_sub(w)).max(1);
+        let st = self.ov_style((20, 20, 20), (255, 245, 200), false);
+        for (i, (t, tw)) in lines.iter().enumerate() {
+            let _ = write!(out, "\x1b[{};{}H{} {}{} \x1b[0m", top + i, left, st, t, " ".repeat(w - 2 - tw));
+        }
     }
 
     /// Does the pointer's move change which hover picture (`srcb`) shows?
