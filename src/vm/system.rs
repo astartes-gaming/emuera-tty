@@ -450,7 +450,27 @@ impl Vm {
         items
     }
 
-    /// PRINT_SHOPITEM: the items whose ITEMSALES is set, three per line.
+    /// A `_Replace.csv` setting by its Japanese or English name.
+    pub fn replace_value(&self, jp: &str) -> Option<String> {
+        self.csv.replace.get(jp).or_else(|| self.csv.replace.iter().find(|(k, _)| crate::config_names::canonical(k) == jp).map(|(_, v)| v)).map(|v| v.trim().to_string())
+    }
+
+    /// The currency unit (`_Replace.csv` お金の単位, default `$`) and whether
+    /// it goes before the number (単位の位置, default yes).
+    pub fn money_label(&self) -> (String, bool) {
+        let label = self.replace_value("お金の単位").or_else(|| self.csv.gamebase.get("お金の単位").cloned()).unwrap_or_else(|| "$".into());
+        let first = self.replace_value("単位の位置").map_or(true, |s| !matches!(s.to_uppercase().as_str(), "後" | "NO" | "FALSE" | "0" | "AFTER"));
+        (label, first)
+    }
+
+    /// `amount` with the currency unit, as MONEYSTR / PRINT_SHOPITEM write it.
+    pub fn with_money_label(&self, amount: &str) -> String {
+        let (label, first) = self.money_label();
+        if first { format!("{}{}", label, amount) } else { format!("{}{}", amount, label) }
+    }
+
+    /// PRINT_SHOPITEM: the items whose ITEMSALES is set, PRINTCPERLINE per
+    /// line, as `[n] name($price)`.
     pub fn print_shop_items(&mut self) {
         let items = self.shop_items();
         let mut shown = 0;
@@ -458,11 +478,10 @@ impl Vm {
             let i = *i;
             if self.get_global_i("ITEMSALES", i.max(0) as usize) != 0 {
                 let price = self.get_global_i("ITEMPRICE", i.max(0) as usize);
-                let label = self.csv.gamebase.get("お金の単位").cloned().unwrap_or_else(|| "$".into());
-                let s = crate::vm::pad(&format!("[{}] {}({}{})", i, name, price, label), self.con.printc_len + 1, crate::ast::Align::Left);
+                let s = crate::vm::pad(&format!("[{}] {}({})", i, name, self.with_money_label(&price.to_string())), self.con.printc_len + 1, crate::ast::Align::Left);
                 self.con.print(&s);
                 shown += 1;
-                if shown % 3 == 0 {
+                if shown % self.con.printc_per_line.max(1) == 0 {
                     self.con.newline();
                 }
             }

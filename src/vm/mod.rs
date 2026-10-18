@@ -752,7 +752,7 @@ impl Vm {
                 let unit = if self.con.drawline_str.is_empty() { "-" } else { &self.con.drawline_str };
                 Value::Str(crate::console::repeat_to_width(unit, self.con.width))
             }
-            "MONEYLABEL" => Value::Str(self.csv.gamebase.get("お金の単位").cloned().unwrap_or_else(|| "$".into())),
+            "MONEYLABEL" => Value::Str(self.money_label().0),
             "SAVEDATA_TEXT" => self.globals.get("SAVEDATA_TEXT").map(|a| a.get(0)).unwrap_or(Value::Str(String::new())),
             "LASTLOAD_TEXT" | "LASTLOAD_NO" | "LASTLOAD_VERSION" => {
                 self.globals.get(name).map(|a| a.get(0)).unwrap_or(if name == "LASTLOAD_TEXT" { Value::Str(String::new()) } else { Value::Int(-1) })

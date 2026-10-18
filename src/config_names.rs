@@ -123,10 +123,6 @@ pub const NAMES: &[(&str, &str)] = &[
     ("時間切れ表示", "Time up message"),
     ("PBANDの初期値", "Default PBAND"),
     ("RELATIONの初期値", "Default RELATION"),
-    ("関連づけるテキストエディタ", "notepad"),
-    ("お金の単位", "$"),
-    ("起動時簡略表示", "Now Loading..."),
-    ("DRAWLINE文字", "-"),
 ];
 
 /// The Japanese name for a config key written either way.

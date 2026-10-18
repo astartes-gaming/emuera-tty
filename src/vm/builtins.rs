@@ -1623,9 +1623,9 @@ impl Vm {
         } else if names("RELATIONの初期値", "Default RELATION", "RelationDef") {
             int(rep_i("RELATIONの初期値", 0))
         } else if names("単位の位置", "Currency symbol position", "MoneyFirst") {
-            int(rep("単位の位置").map_or(1, |s| matches!(s.to_uppercase().as_str(), "YES" | "TRUE" | "1" | "前") as i64))
+            int(self.money_label().1 as i64)
         } else if names("お金の単位", "Currency symbol", "MoneyLabel") {
-            Some(Value::Str(self.csv.gamebase.get("お金の単位").cloned().or_else(|| rep("お金の単位")).unwrap_or_else(|| "$".into())))
+            Some(Value::Str(self.money_label().0))
         } else if names("フォント名", "Font name", "FontName") {
             Some(Value::Str(if self.con.default_font.is_empty() { "ＭＳ ゴシック".into() } else { self.con.default_font.clone() }))
         } else if names("描画インターフェース", "Drawing interface", "TextDrawingMode") {
@@ -3015,9 +3015,8 @@ impl Vm {
             "MONEYSTR" => {
                 let v = self.ai(a, 0, 0)?;
                 let fmt = self.as_(a, 1, "")?;
-                let label = self.csv.gamebase.get("お金の単位").cloned().unwrap_or_else(|| "$".into());
                 let n = format_number(v, &fmt);
-                s(format!("{}{}", n, label))
+                s(self.with_money_label(&n))
             }
             "BARSTR" => {
                 let v = self.ai(a, 0, 0)?;
