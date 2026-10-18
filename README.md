@@ -34,9 +34,11 @@ untested. Large parts of the Emuera command set are still missing (see
 
 ## 1. What you need
 
-- **Linux**, **macOS**, **FreeBSD** / the other BSDs, or **Windows 10/11**
-  (in Windows Terminal, or the classic console, which has a VT mode since
-  Windows 10). See [Other systems](#other-systems) for the differences.
+- **Linux**. It also builds for **macOS**, the **BSDs** (FreeBSD, NetBSD,
+  OpenBSD, DragonFly), **Windows 10/11**, **Termux** on Android, **illumos /
+  Solaris**, **Haiku** and **Redox**, but **only Linux is tested: every
+  other system is compile-checked only and untested.** Reports are
+  welcome. See [Other systems](#other-systems) for the differences.
 - A **terminal**. Any modern one works for text; see
   [Picking a terminal](#5-picking-a-terminal) for pictures and Japanese text.
 - **Rust** to build it: install with [rustup](https://rustup.rs)
@@ -72,6 +74,10 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ### Other systems
 
+> **Untested.** emuera-tty is developed and played on Linux. Everything
+> below is checked only by compiling for that system (`cargo check
+> --target …`); none of it has been run there yet.
+
 - **macOS / BSD**: the same steps. On macOS, `~/.local/bin` is usually not on
   PATH, so `--install` picks a writable PATH folder (Homebrew's
   `/usr/local/bin`) or tells you how to add one. Settings live in
@@ -91,6 +97,15 @@ export PATH="$HOME/.local/bin:$PATH"
   between Emuera.exe and emuera-tty. `--serial COM3` drives a terminal on a
   COM port. Picture text uses MS Gothic / Meiryo / Yu Gothic from
   `C:\Windows\Fonts`.
+- **Termux** (Android): `pkg install rust git`, then the same steps as on
+  Linux; `--install` puts the program in Termux's `$PREFIX/bin`. Pictures
+  show if Termux's terminal answers that it can draw sixels (auto
+  detection), else placeholders.
+- **Haiku**, **Redox**, **illumos / Solaris**, **NetBSD / OpenBSD /
+  DragonFly**: the Unix code path (termios, `poll`), as on Linux minus the
+  Linux-console extras. Haiku's Terminal and Redox's console show text
+  only; on Haiku the fastest serial speeds (460800, 921600) aren't
+  offered, on Redox there is no RTS/CTS flow control.
 
 ## 3. First run: choose your game
 
@@ -172,9 +187,10 @@ AnonTW's does), else next to the game; compressed when it asks for that
 (`セーブデータを圧縮して保存する`). Emuera-EM maps, XML documents and data
 tables named in `VarExt.csv` are saved too, and the autosave runs on
 entering the shop, like Emuera's. Older emuera-tty saves (`sav/*.rsav`)
-still load, and the next save of that slot writes a `.sav`. Emuera's
-older text save format (games without the binary option) can't be read
-yet.
+still load, and the next save of that slot writes a `.sav`. Saves in
+Emuera's text format (games whose config turns the binary option off)
+load too; saving always writes the binary format, which Emuera reads
+whatever its config says.
 
 ### Settings
 
@@ -185,7 +201,7 @@ running game:
 
 | Setting | Values | |
 |---|---|---|
-| Images | auto, kitty, sixel, fb, none | how pictures are drawn |
+| Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn |
 | Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
@@ -193,8 +209,22 @@ running game:
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
 | Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
 
-The overlay also has *Switch game…* and *Quit*. Command-line options and
-`EMUERA_*` variables override saved settings.
+The overlay also has *Manage saves…* (below), *Switch game…* and *Quit*.
+Command-line options and `EMUERA_*` variables override saved settings.
+
+### Managing saves
+
+F1 → *Manage saves…* lists the game's saves with their date and the
+comment Emuera's save menu shows. Pick one to **copy** or **move** it to
+another slot, **export** it to a file (by default
+`~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
+folder: **back up all saves** (into
+`~/.local/share/emuera-tty/backups/<game>/<date>/`), **restore a backup**
+(the current saves are backed up first) and **import a save file** into a
+slot. Nothing is lost by mistake: a deleted or overwritten save is copied
+to the backups first. Load a restored or imported save from the game's
+own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
+and `emuera-tty GAME --backup-saves` backs them up.
 
 **Readable colours:** games are drawn for Emuera's black (or game-set)
 background, and some colours there are hard to read, like pure blue, or
@@ -292,7 +322,12 @@ computer's own screen; the game quits when the line hangs up.
 emuera-tty --upgrade      # download the latest version, rebuild, reinstall
 emuera-tty --reset-data   # forget settings and the game list (saves are kept)
 emuera-tty --uninstall    # remove the installed program
+emuera-tty --manual       # the manual (man emuera-tty works once installed)
 ```
+
+`--install` also puts the manual page (`doc/emuera-tty.1`) in the
+`share/man/man1` beside the program's folder (`~/.local/share/man/man1`),
+where `man` finds it.
 
 `--upgrade` keeps its own copy of the source in
 `~/.local/share/emuera-tty/src` and needs `git` and `cargo`. Settings live
@@ -338,7 +373,9 @@ emuera-tty [GAME_DIR] [options]
 | `--term NAME` | terminfo name of the terminal (default `$TERM`, `vt100` with `--serial`) |
 | `--serial DEV` | play on a serial terminal; `--baud N`, `--serial-format 8N1`, `--flow xon\|rts\|none` |
 | `--size COLSxROWS` | screen size when the terminal can't report it |
+| `--saves` / `--backup-saves` | list the game's saves / back them all up |
 | `--install` / `--upgrade` / `--uninstall` / `--reset-data` | see the guide |
+| `--manual` | the full manual page |
 
 Environment: `FRAMEBUFFER=/dev/fbN` picks another framebuffer,
 `EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice,
@@ -454,8 +491,15 @@ checked.
   read `0x` hex, `0b` binary and exponents; FORM strings and literals
   know `\n \t \s \S`.
 - HTML_PRINT as in Emuera-EM: `px` sizes, `<div>` boxes laid out at their
-  offset (`xpos`/`ypos`/`width`/`height`, `rect=`, `size=`),
-  `<clearbutton>`, newlines in the text break the line like `<br>`.
+  offset (`xpos`/`ypos`/`width`/`height`, `rect=`, `size=`) with their
+  background colour, border (`border` / `bcolor`, drawn as coloured
+  cells), `padding` and `margin`; `<clearbutton>`; `<button title=…>`
+  tooltips shown by the pointer; `<img srcb=…>` hover pictures; newlines
+  in the text break the line like `<br>`.
+- Animated sprites: `ANIME` blocks in resources CSVs and
+  `SPRITEANIMECREATE` / `SPRITEANIMEADDFRAME`, redrawn on the
+  `SETANIMETIMER` interval (at most ten times a second).
+- `#LOCALSIZE` / `#LOCALSSIZE`.
 - Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
   `SPRITECREATE`, `SPRITE*`), shown through the image backends.
 - Client background layers (`CBGSETG`, `CBGSETSPRITE`, `CBGSETBUTTONSPRITE`,
@@ -490,17 +534,15 @@ statements as a function `@__INJECT` just before the n-th input.
 
 ## Roadmap
 
-1. Play deeper into AnonTW. Its 5 remaining parse errors are mistakes in
-   the game's own scripts (Emuera reports them too).
-2. Tooltips are accepted but not shown; `<div>` borders, padding and
-   background colours are ignored; CBG layers behind the text are drawn
-   over it by kitty.
-3. Speed of script-heavy games: pops-tw's new game takes about 15
-   seconds (its own object system makes many thousands of dynamic calls).
-4. Animated sprites (`ANIME` in resources CSV), `srcb` hover images.
-5. `LOCAL@FUNC`, `#LOCALSIZE`.
-6. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
+1. Run it on the other systems (macOS, Windows, the BSDs, Termux, Haiku,
+   Redox): they compile, nobody has played on them yet.
+2. Play deeper into AnonTW and pops-tw. AnonTW's 5 remaining parse errors
+   and pops-tw's 16 are mistakes in the games' own scripts (Emuera reports
+   them too).
+3. Speed of script-heavy games: pops-tw's new game takes about half a
+   minute of CPU (its own object system makes many thousands of dynamic
+   calls).
+4. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
    the shop item table layout.
-7. Emuera's older text save format (binary `.sav` files already work).
-8. fbterm 256-colour escapes; damage-tracked redraw for everything, not
-   just pointer moves, to reduce flicker on fb.
+5. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
+   (`radius`), tooltip delay and fonts (`TOOLTIP_*`).
