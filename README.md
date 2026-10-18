@@ -500,6 +500,11 @@ checked.
   `SPRITEANIMECREATE` / `SPRITEANIMEADDFRAME`, redrawn on the
   `SETANIMETIMER` interval (at most ten times a second).
 - `#LOCALSIZE` / `#LOCALSSIZE`.
+- TRAIN as in Emuera: commands numbered by their position in TRAIN.csv
+  (other numbers go to `@USERCOM`), NEXTCOM, the WAIT after a command,
+  and the per-step resets (UP / DOWN / LOSEBASE, SOURCE, NOWEX, STAIN to
+  `_Replace.csv`'s defaults). PRINT_SHOPITEM, MONEYSTR and MONEYLABEL use
+  `_Replace.csv`'s currency unit and its position.
 - Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
   `SPRITECREATE`, `SPRITE*`), shown through the image backends.
 - Client background layers (`CBGSETG`, `CBGSETSPRITE`, `CBGSETBUTTONSPRITE`,
@@ -542,7 +547,8 @@ statements as a function `@__INJECT` just before the n-th input.
 3. Speed of script-heavy games: pops-tw's new game takes about half a
    minute of CPU (its own object system makes many thousands of dynamic
    calls).
-4. Exact Emuera semantics for TRAIN (NEXTCOM, ASSIPLAY, juel handling) and
-   the shop item table layout.
+4. `CALLTRAIN` / `STOPCALLTRAIN` (continuous training), and `DOTRAIN`
+   jumping back into the TRAIN loop as in Emuera (it runs the command in
+   place here).
 5. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
    (`radius`), tooltip delay and fonts (`TOOLTIP_*`).
