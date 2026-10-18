@@ -565,6 +565,11 @@ board copes and a PC with memory to spare does exactly what it did:
 compiled, the biggest variables, characters, picture buffers…) to
 `<file>` at every input.
 
+`EMUERA_LINT=1` with `--check` lists compiled statements that look like
+the parser split their line in the wrong place (a function name holding
+`(`, `,` or spaces; FORM text still holding `%`, `{` or `}`), for hunting
+parser bugs across a whole game.
+
 For development: `cargo test` runs the unit tests and the `sample/` game's
 self-test; `cargo build --profile fastbuild --features profile` makes a
 quick-to-build optimised binary whose `EMUERA_PPROF=<file>` writes a

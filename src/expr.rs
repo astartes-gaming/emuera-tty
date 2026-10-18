@@ -264,11 +264,15 @@ impl<'a> ExprParser<'a> {
     fn postfix(&mut self) -> PResult<Expr> {
         let e = self.primary(true)?;
         if let Expr::Var(v) = &e {
+            // Emuera's lexer skips spaces between tokens: `X ++` too
+            let at = self.pos;
+            self.skip_ws();
             if self.starts_with("++") || self.starts_with("--") {
                 let d = if self.starts_with("++") { 1 } else { -1 };
                 self.pos += 2;
                 return Ok(Expr::IncDec(v.clone(), false, d));
             }
+            self.pos = at;
         }
         Ok(e)
     }
@@ -501,6 +505,38 @@ fn skip_plain_str(ch: &[char], mut i: usize) -> Option<usize> {
         }
     }
     None
+}
+
+/// Split FORM text at `sep` outside its `%…%`, `{…}` and `\@…\@` parts
+/// and escapes (RETURNFORM's arguments: `RETURNFORM %A,10,LEFT%, B`).
+pub fn split_form_top(s: &str, sep: char) -> Vec<String> {
+    let ch: Vec<char> = s.chars().collect();
+    let mut out = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < ch.len() {
+        let c = ch[i];
+        if c == '\\' && ch.get(i + 1) == Some(&'@') {
+            i = scan_ternary(&ch, i + 2).unwrap_or(ch.len());
+            continue;
+        }
+        if c == '\\' {
+            i += 2;
+            continue;
+        }
+        if c == '%' || c == '{' {
+            if let Some(j) = scan_expr(&ch, i + 1, if c == '%' { '%' } else { '}' }) {
+                i = j + 1;
+                continue;
+            }
+        }
+        if c == sep {
+            out.push(ch[start..i].iter().collect());
+            start = i + 1;
+        }
+        i += 1;
+    }
+    out.push(ch[start.min(ch.len())..].iter().collect());
+    out
 }
 
 /// Index of `term` at paren depth 0, scanning an expression from `i`.

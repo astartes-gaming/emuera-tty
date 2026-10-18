@@ -936,6 +936,10 @@ impl Parser {
     }
 
     fn is_str_var(&self, b: &FuncBuilder, name: &str) -> bool {
+        // (a function's own `#DIM X` wins over a global `#DIMS X`)
+        if b.body.dims.iter().any(|d| !d.is_str && d.name == name) {
+            return false;
+        }
         is_system_str_var(name) || self.global_str.contains(name) || b.str_locals.contains(name)
     }
 
@@ -1308,7 +1312,7 @@ impl Parser {
             }
             "RETURNFORM" => {
                 let mut v = Vec::new();
-                for p in split_top(arg_c, ',') {
+                for p in crate::expr::split_form_top(arg_c, ',') {
                     v.push(Expr::Form(Rc::new(upper_form(parse_form(p.trim(), defs)?))));
                 }
                 b.emit(Instr::Return(v));
@@ -1465,9 +1469,10 @@ impl Parser {
         // only plain `STR = ...` takes FORM text; `+=` takes a string expression
         if is_str && op == AsgOp::Set {
             // Emuera skips/trims only half-width spaces and tabs here; a
-            // leading full-width space is content (map rows start with them)
-            let raw = strip_comment_form(&rest);
-            let raw = raw.trim_matches([' ', '\t']);
+            // leading full-width space is content (map rows start with them).
+            // The text runs to the end of the line: a `;` in it is text, not
+            // a comment (ASCII-art rows, `X = ;%PLACE%`), as in Emuera
+            let raw = rest.trim_matches([' ', '\t']);
             b.emit(Instr::AssignForm(v, op, upper_form(parse_form(raw, &self.prog.defines)?)));
             return Ok(());
         }
@@ -1645,18 +1650,6 @@ impl Parser {
             CallTarget::Static(s.trim().to_uppercase())
         })
     }
-}
-
-fn strip_comment_form(s: &str) -> &str {
-    // in FORM assignments ';' still starts a comment unless escaped
-    let mut prev = '\0';
-    for (i, c) in s.char_indices() {
-        if c == ';' && prev != '\\' {
-            return &s[..i];
-        }
-        prev = c;
-    }
-    s
 }
 
 /// Position of `w` as a whitespace-delimited word outside quotes

@@ -19,6 +19,7 @@ mod frontend;
 mod fxhash;
 mod gfx;
 mod html;
+mod lint;
 mod loader;
 #[cfg(target_os = "linux")]
 mod mice;
@@ -352,6 +353,11 @@ fn run(o: Opts) -> i32 {
         eprintln!("... {} more parse errors (run with --check to list all)", prog.errors.len() - 30);
     }
     if o.check {
+        if std::env::var_os("EMUERA_LINT").is_some() {
+            for l in lint::lint(&prog) {
+                eprintln!("lint: {}", l);
+            }
+        }
         let code = if prog.errors.is_empty() { 0 } else { 1 };
         #[cfg(feature = "profile")]
         if let Some((f, g)) = &_pprof {

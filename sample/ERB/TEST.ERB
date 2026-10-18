@@ -250,6 +250,14 @@ CATCH
 	RESULT = -1
 ENDCATCH
 CALL CHECK, "callform_mod", RESULT == 42
+; a `;` in a string assignment is text (Emuera reads FORM to the line end)
+LOCALS = a;b ;c
+CALL CHECKS, "strset_semicolon", LOCALS, "a;b ;c"
+; `X ++` with a space is still a postfix increment
+LOCAL = 5
+CALL CHECK, "postfix_space", (LOCAL ++) == 5 && LOCAL == 6
+CALL RFORMTEST
+CALL CHECKS, "returnform_comma", RESULTS + "|" + RESULTS:1, "  ab|x2"
 PRINTFORML selftest: {CHECKCOUNT} checks done
 RETURN 0
 
@@ -291,6 +299,9 @@ RETURN ARG + ARG:1
 
 @ADDTWO0, ARG, ARG:1
 RETURN ARG + ARG:1
+
+@RFORMTEST
+RETURNFORM %"ab",4,RIGHT%, x{1+1}
 
 @REFFILL, R, N
 #DIMS REF R, 0
