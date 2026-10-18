@@ -581,6 +581,8 @@ impl<'a> Parser<'a> {
                 order: EventOrder::Normal,
                 single: false,
                 only: false,
+                local_size: 0,
+                locals_size: 0,
                 n_slots: 0,
                 file: file_idx,
                 line,
@@ -1192,7 +1194,15 @@ impl<'a> Parser<'a> {
             "#LATER" => b.f.order = EventOrder::Later,
             "#SINGLE" => b.f.single = true,
             "#ONLY" => b.f.only = true,
-            "#LOCALSIZE" | "#LOCALSSIZE" => {}
+            d @ ("#LOCALSIZE" | "#LOCALSSIZE") => {
+                // a number (a constant expression is left at the default)
+                let n = up.split_whitespace().nth(1).and_then(|t| t.parse::<u32>().ok()).unwrap_or(0).min(1_000_000);
+                if d == "#LOCALSIZE" {
+                    b.f.local_size = n;
+                } else {
+                    b.f.locals_size = n;
+                }
+            }
             _ => return Err(format!("unknown directive {}", line)),
         }
         Ok(())

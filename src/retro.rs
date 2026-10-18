@@ -38,16 +38,22 @@ pub struct SerialOpts {
     pub flow: String,
 }
 
+/// RTS/CTS flow control (Redox has none).
+#[cfg(all(unix, not(target_os = "redox")))]
+const CRTSCTS: libc::tcflag_t = libc::CRTSCTS;
+#[cfg(target_os = "redox")]
+const CRTSCTS: libc::tcflag_t = 0;
+
 #[cfg(unix)]
 fn baud_const(b: u32) -> Option<libc::speed_t> {
     // the BSDs and macOS: a speed is the baud rate itself
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly"))]
     if [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].contains(&b) {
         return Some(b as libc::speed_t);
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly"))]
     return None;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly")))]
     Some(match b {
         50 => libc::B50,
         75 => libc::B75,
@@ -130,7 +136,7 @@ impl Port {
             libc::cfsetispeed(&mut t, speed);
             libc::cfsetospeed(&mut t, speed);
             t.c_cflag |= libc::CLOCAL | libc::CREAD;
-            t.c_cflag &= !(libc::CSIZE | libc::PARENB | libc::PARODD | libc::CSTOPB | libc::CRTSCTS);
+            t.c_cflag &= !(libc::CSIZE | libc::PARENB | libc::PARODD | libc::CSTOPB | CRTSCTS);
             t.c_cflag |= match fb[0] {
                 '5' => libc::CS5,
                 '6' => libc::CS6,
@@ -149,7 +155,7 @@ impl Port {
                 t.c_iflag |= libc::ISTRIP;
             }
             match o.flow.as_str() {
-                "rts" | "rtscts" | "hw" => t.c_cflag |= libc::CRTSCTS,
+                "rts" | "rtscts" | "hw" => t.c_cflag |= CRTSCTS,
                 "none" | "off" => {}
                 _ => t.c_iflag |= libc::IXON | libc::IXOFF,
             }

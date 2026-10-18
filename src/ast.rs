@@ -330,6 +330,9 @@ pub struct Function {
     pub single: bool,
     /// `#ONLY`: this handler replaces all others of the event.
     pub only: bool,
+    /// `#LOCALSIZE` / `#LOCALSSIZE`: sizes of LOCAL / LOCALS (0: the default)
+    pub local_size: u32,
+    pub locals_size: u32,
     /// Number of [`Instr`] slots a call needs.
     pub n_slots: usize,
     pub file: u32,

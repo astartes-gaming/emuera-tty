@@ -560,8 +560,16 @@ impl Vm {
                         None => {
                             let a = match self.frame_private(name).cloned() {
                                 Some(d) => self.make_dim(&d)?,
-                                None if matches!(name, "LOCAL" | "ARG") => Arr::new(false, &[1000]),
-                                None => Arr::new(true, &[100]),
+                                None => {
+                                    // #LOCALSIZE / #LOCALSSIZE (1-D arrays still grow on write)
+                                    let f = &self.frames.last().unwrap().func;
+                                    match name {
+                                        "LOCAL" => Arr::new(false, &[if f.local_size > 0 { f.local_size as usize } else { 1000 }]),
+                                        "LOCALS" => Arr::new(true, &[if f.locals_size > 0 { f.locals_size as usize } else { 100 }]),
+                                        "ARG" => Arr::new(false, &[1000]),
+                                        _ => Arr::new(true, &[100]),
+                                    }
+                                }
                             };
                             self.statics.push(a);
                             self.static_index.insert(k, self.statics.len() - 1);
