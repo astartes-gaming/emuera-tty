@@ -103,7 +103,8 @@ fn usage_exit(code: i32) -> ! {
          \x20 --install                        copy this program to a folder on your PATH (~/.local/bin…)\n\
          \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
          \x20 --uninstall                      remove the installed copy\n\
-         \x20 --reset-data                     forget settings and the game library; saves are kept"
+         \x20 --reset-data                     forget settings and the game library; saves are kept\n\
+         \x20 --manual                         the full manual (also: man emuera-tty once installed)"
     );
     std::process::exit(code)
 }
@@ -177,6 +178,10 @@ fn parse_args() -> Opts {
                 }
             }
             "-h" | "--help" => usage_exit(0),
+            "--manual" | "--man" => {
+                picker::show_manual();
+                std::process::exit(0)
+            }
             s if s.starts_with("--gfx=") => o.gfx = s[6..].to_string(),
             s if s.starts_with('-') => usage(),
             s => o.game = Some(PathBuf::from(s)),

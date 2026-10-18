@@ -698,6 +698,11 @@ fn install_from(exe: &Path) -> Result<String, String> {
     std::fs::rename(&tmp, &dest).map_err(|e| format!("{}: {}", dest.display(), e))?;
     let on_path = std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d == dir));
     let mut msg = format!("Installed {}.", dest.display());
+    match install_man(&dir) {
+        Ok(Some(p)) => msg += &format!("\nManual page: {} (man emuera-tty).", p.display()),
+        Ok(None) => {}
+        Err(e) => msg += &format!("\n(manual page not installed: {})", e),
+    }
     if !on_path {
         if cfg!(windows) {
             msg += &format!("\n{} is not on your PATH; add it with (then open a new terminal):\n  setx PATH \"%PATH%;{}\"", dir.display(), dir.display());
@@ -706,6 +711,44 @@ fn install_from(exe: &Path) -> Result<String, String> {
         }
     }
     Ok(msg)
+}
+
+/// The manual page, built in.
+pub const MANUAL: &str = include_str!("../doc/emuera-tty.1");
+
+/// Where the manual page goes for a program in `bin`: `bin/../share/man/
+/// man1`, which man-db and mandoc search for every PATH folder.
+fn man_path(bin: &Path) -> Option<PathBuf> {
+    if cfg!(windows) {
+        return None;
+    }
+    Some(bin.parent()?.join("share").join("man").join("man1").join("emuera-tty.1"))
+}
+
+/// Install the manual page next to the program in `bin`.
+fn install_man(bin: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(p) = man_path(bin) else { return Ok(None) };
+    let d = p.parent().unwrap();
+    std::fs::create_dir_all(d).map_err(|e| format!("{}: {}", d.display(), e))?;
+    std::fs::write(&p, MANUAL).map_err(|e| format!("{}: {}", p.display(), e))?;
+    Ok(Some(p))
+}
+
+/// `--manual`: show the manual page (through man when there is one).
+pub fn show_manual() {
+    use std::io::Write as _;
+    if crate::sys::is_tty() && which("man").is_some() {
+        let child = std::process::Command::new("man").args(["-l", "-"]).stdin(std::process::Stdio::piped()).spawn();
+        if let Ok(mut c) = child {
+            if let Some(mut i) = c.stdin.take() {
+                let _ = i.write_all(MANUAL.as_bytes());
+            }
+            if c.wait().is_ok_and(|s| s.success()) {
+                return;
+            }
+        }
+    }
+    print!("{}", MANUAL);
 }
 
 /// `--uninstall`: remove the installed copy.
@@ -718,7 +761,12 @@ pub fn uninstall() -> Result<String, String> {
         None => bin_dir()?.join(crate::sys::EXE_NAME),
     };
     match std::fs::remove_file(&dest) {
-        Ok(()) => Ok(format!("Removed {}.", dest.display())),
+        Ok(()) => {
+            if let Some(m) = dest.parent().and_then(man_path) {
+                let _ = std::fs::remove_file(m);
+            }
+            Ok(format!("Removed {}.", dest.display()))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!("{} is not installed.", dest.display())),
         Err(e) => Err(format!("{}: {}", dest.display(), e)),
     }

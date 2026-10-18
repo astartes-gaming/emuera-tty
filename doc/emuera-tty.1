@@ -1,0 +1,241 @@
+.TH EMUERA-TTY 1 "2026-10-18" "emuera-tty" "User Commands"
+.SH NAME
+emuera-tty \- play Emuera (era) games in a terminal
+.SH SYNOPSIS
+.B emuera-tty
+.RI [ GAME ]
+.RI [ options ]
+.br
+.B emuera-tty
+.I GAME
+.BR \-\-saves " | " \-\-backup\-saves
+.br
+.B emuera-tty
+.BR \-\-install " | " \-\-upgrade " | " \-\-uninstall " | " \-\-reset\-data
+.SH DESCRIPTION
+.B emuera-tty
+runs games written for Emuera, the engine of eratohoTW, AnonTW, eraNAS
+(pops-tw), eraMegaten and the other era games, in a terminal instead of
+the Windows window. It reads the game's
+.IR CSV/ ,
+.I ERB/
+and
+.I resources/
+folders directly; the
+.I Emuera.exe
+next to them is not used. Saves are Emuera's own files, so they move both
+ways between emuera-tty and Emuera.
+.PP
+.I GAME
+is a game folder (the one holding
+.I CSV/
+and
+.IR ERB/ )
+or an archive of one
+.RI ( .zip ", " .tar.gz ", " .7z ", ...),"
+which is extracted once into the data folder. Without
+.IR GAME :
+the current folder if it is a game, else the game played last, else a
+launcher opens with the game library and a folder browser.
+.SH PLAYING
+.TP
+.B Numbers, Enter, clicks
+Choose a menu entry: type its number and press Enter, or click it.
+.TP
+.B Enter, any key, click
+Continue where the game waits
+.RB ( "\(dA (Enter)" ).
+.TP
+.BR PgUp ", " PgDn ", " \(ua ", " \(da ", " Home ", " End ", wheel"
+Scroll back through earlier text; End returns.
+.TP
+.BR F1 ", " Ctrl\-O
+The options overlay: display settings, \fBManage saves\fR, switching game,
+quitting.
+.TP
+.B Ctrl\-L
+Redraw the screen.
+.TP
+.B Ctrl\-C
+Quit (also while a script is busy). Save first.
+.SH MANAGING SAVES
+\fBF1\fR \(-> \fBManage saves\fR lists the game's saves with their date and
+the comment Emuera shows. For one save: copy or move it to another slot,
+export it to a file, delete it. For all of them: back up the save folder,
+restore a backup, import a save file. A deleted or overwritten save is
+always copied to the backups first.
+.TP
+.B \-\-saves
+List the saves of
+.I GAME
+(slot, date, size, comment) and say how many backups there are.
+.TP
+.B \-\-backup\-saves
+Copy all of
+.IR GAME 's
+saves into a new, dated backup folder.
+.SH OPTIONS
+.TP
+.B \-\-choose
+Open the launcher even if a game is remembered.
+.TP
+.BR \-\-gfx " auto|kitty|iterm|sixel|fb|none"
+How pictures are drawn. \fBauto\fR (default) asks the terminal: kitty
+graphics (kitty, WezTerm, Ghostty, Konsole), iTerm2 inline images, sixel
+(foot, xterm \-ti vt340, mlterm, Windows Terminal), or the Linux
+framebuffer on the console. \fBnone\fR shows placeholders.
+.TP
+.B \-\-headless
+Plain line-by-line stdin/stdout, for scripts and tests; waits continue at
+once and the end of input quits.
+.TP
+.B \-\-echo
+Echo the inputs in headless mode.
+.TP
+.B \-\-check
+Load the game, report parse errors and exit.
+.TP
+.B \-\-strict
+Commands emuera-tty doesn't implement are errors instead of warnings.
+.TP
+.B \-\-debug
+Run
+.B [IF_DEBUG]
+blocks and
+.B ;#;
+lines, like Emuera's debug mode.
+.SS Retro and serial terminals
+.TP
+.BR \-\-retro [ =line ]
+Drive the terminal through its terminfo entry with ASCII output only: box
+drawing from the alternate character set, kana romanised. Automatic when
+.B $TERM
+isn't an ANSI terminal (vt52, adm3a, dumb, ...).
+.B =line
+prints line by line for terminals without cursor addressing.
+.TP
+.BI \-\-term " NAME"
+The terminfo name of the terminal (default
+.BR $TERM ;
+vt100 with
+.BR \-\-serial ).
+.TP
+.BI \-\-serial " DEVICE"
+Play on a terminal on a serial line
+.RI ( /dev/ttyS0 ", " /dev/ttyUSB0 ,
+or
+.I COM3
+on Windows).
+.TP
+.BI \-\-baud " N"
+Line speed (default 9600).
+.TP
+.BI \-\-serial\-format " 8N1|7E1|..."
+Data bits, parity and stop bits (default 8N1).
+.TP
+.BR \-\-flow " xon|rts|none"
+Flow control (default xon).
+.TP
+.BI \-\-size " COLSxROWS"
+The screen size when the terminal can't report it.
+.SS Setup
+.TP
+.B \-\-install
+Copy this program into a folder on your PATH, and this page into the
+matching
+.IR share/man/man1 .
+.TP
+.B \-\-upgrade
+Fetch the latest source with git, build it with cargo and install it.
+.TP
+.B \-\-uninstall
+Remove the installed copy and this page.
+.TP
+.B \-\-reset\-data
+Forget emuera-tty's settings and game library. Saves are not touched.
+.TP
+.BR \-h ", " \-\-help
+Short help.
+.SH ENVIRONMENT
+.TP
+.B EMUERA_GFX
+Default for
+.BR \-\-gfx .
+.TP
+.B EMUERA_COLORS
+.BR truecolor ", " 256 " or " 16 :
+the colour depth, when detection guesses wrong.
+.TP
+.B EMUERA_AMBIGUOUS
+.BR wide ", " narrow ", " single " or " osc66 :
+how box drawing and symbols get Emuera's two columns.
+.TP
+.B EMUERA_MEASURE=0
+Skip measuring how wide the terminal draws ambiguous characters.
+.TP
+.B EMUERA_MOUSE
+.BR off " / " term :
+no console mouse;
+.BR mice :
+read
+.I /dev/input/mice
+even outside the Linux console.
+.TP
+.B EMUERA_THREADS
+Cap the threads used for loading and picture decoding.
+.TP
+.B EMUERA_SEED
+Fix the random number generator (reproducible runs).
+.TP
+.BI EMUERA_TRACE= name
+Log calls to functions whose name contains
+.IR name ,
+with timestamps, to stderr.
+.TP
+.BI EMUERA_PROFILE= file
+Sample which ERB function runs every millisecond and keep
+.I file
+updated with the totals and the input the script waits for.
+.TP
+.BR EMUERA_INJECT= "STMT||STMT, " EMUERA_INJECT_AT= n
+Run those statements just before the
+.IR n -th
+input (debugging).
+.TP
+.B EMUERA_TIMING=1
+Print how long loading takes.
+.TP
+.BR XDG_CONFIG_HOME ", " XDG_DATA_HOME
+Where settings and data go (below).
+.SH FILES
+.TP
+.I ~/.config/emuera-tty/config
+Settings and the game library
+.RB ( %APPDATA%\eemuera-tty
+on Windows).
+.TP
+.I ~/.local/share/emuera-tty/games/
+Games extracted from archives.
+.TP
+.I ~/.local/share/emuera-tty/backups/GAME/
+Save backups, one dated folder each.
+.TP
+.IR GAME /sav/save NN .sav ", " GAME /sav/global.sav
+The game's saves (next to the game when its
+.I emuera.config
+doesn't ask for a
+.I sav
+folder).
+.TP
+.IR GAME /emuera.config
+Emuera's configuration; font size, line height, colours, PRINTC widths and
+save options are honoured.
+.SH NOTES
+Developed and tested on Linux. macOS, the BSDs, Windows, Termux (Android)
+and the other systems are compile-checked only and untested.
+.SH SEE ALSO
+.BR terminfo (5),
+.BR kitty (1),
+.BR foot (1)
+.PP
+https://github.com/astartes-gaming/emuera-tty
