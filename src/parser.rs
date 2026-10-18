@@ -1600,9 +1600,11 @@ impl Parser {
         let mut in_pct = false;
         for (i, c) in s.char_indices() {
             match c {
-                '%' if form => in_pct = !in_pct,
-                '{' => depth += 1,
-                '}' => depth -= 1,
+                // `%…%` holes, but not the `%` (modulo) of a `{…}` one:
+                // `IRAI_{ID % 1000}(ARG)` calls IRAI_4 with ARG
+                '%' if form && depth == 0 => in_pct = !in_pct,
+                '{' if !in_pct => depth += 1,
+                '}' if !in_pct => depth -= 1,
                 ',' if depth == 0 && !in_pct => {
                     end = i;
                     break;
