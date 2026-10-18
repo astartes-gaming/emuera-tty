@@ -1358,6 +1358,9 @@ impl Vm {
                     self.set_results(t);
                 }
             }
+            // statements in Emuera (no sound here): they leave RESULT alone,
+            // which pops-tw relies on (USERSHOP plays a key sound first)
+            "PLAYSOUND" | "STOPSOUND" | "PLAYBGM" | "STOPBGM" | "SETSOUNDVOLUME" | "SETBGMVOLUME" => {}
             _ => {
                 // functions used as statements: result into RESULT / RESULTS
                 match self.builtin_fn(name, a)? {
@@ -1941,16 +1944,33 @@ impl Vm {
                             }
                         };
                         let (sw, sh) = (src_rect.3, src_rect.4);
+                        // the size it is drawn at by default (CSV columns
+                        // 10-11, else its rectangle) and its base position
+                        let (bw, bh) = self.res.sprite_size(&sname).map(|(w, h)| (w as i32, h as i32)).unwrap_or((sw, sh));
+                        let (px, py) = self.res.base_pos(&sname);
                         let dest = match a.len() {
-                            0..=2 => (0, 0, sw, sh),
+                            0..=2 => (0, 0, bw, bh),
                             3 | 4 => {
                                 let p = ints(self, 2, 2)?;
-                                (p[0], p[1], sw, sh)
+                                (p[0], p[1], bw, bh)
                             }
                             _ => {
                                 let r = ints(self, 2, 4)?;
                                 (r[0], r[1], r[2], r[3])
                             }
+                        };
+                        // Emuera: shifted by the base position and sized by
+                        // the source over the base size, both scaled with
+                        // the destination (CroppedImage.GraphicsDraw)
+                        let dest = if (px, py) != (0, 0) && bw != 0 && bh != 0 {
+                            (
+                                dest.0 + (px as i32) * dest.2 / bw,
+                                dest.1 + (py as i32) * dest.3 / bh,
+                                dest.2 * sw / bw,
+                                dest.3 * sh / bh,
+                            )
+                        } else {
+                            dest
                         };
                         let cm = if a.len() >= 7 { Some(self.color_matrix_arg(&a[6])?) } else { None };
                         match img {
@@ -2670,26 +2690,47 @@ impl Vm {
                 i(vals.iter().filter(|x| **x == target || (x.as_string() == target.as_string())).count() as i64)
             }
             "FINDELEMENT" | "FINDLASTELEMENT" => {
+                // Emuera: a string target is a regular expression; "exact"
+                // means its first match is the whole element. Searched in
+                // place (pops-tw calls this on 1000-element arrays a lot).
                 let v = self.avar(a, 0)?;
                 let target = self.arg(a, 1)?.unwrap_or(Value::Int(0));
-                let st = self.ai(a, 2, 0)?;
+                let st = self.ai(a, 2, 0)?.max(0) as usize;
                 let en = self.arg(a, 3)?.map(|v| v.as_int());
                 let exact = self.ai(a, 4, 0)? != 0;
-                let (_, _, vals) = self.arr_vals(&v, st, en)?;
-                let m = |x: &Value| -> bool {
-                    match (x, &target) {
-                        (Value::Str(a), Value::Str(b)) => {
-                            if exact {
-                                a == b
-                            } else {
-                                crate::regex::get(b).is_ok_and(|re| crate::regex::is_match(&re, a))
+                let last = name == "FINDLASTELEMENT";
+                let (loc, base, len) = self.array_row(&v)?;
+                let en = en.map_or(len, |e| e.clamp(0, len as i64) as usize);
+                if st >= en {
+                    return i(-1);
+                }
+                let pat = target.as_string();
+                let lit = crate::regex::literal(&pat);
+                let re = if lit.is_none() && self.arr_at(&loc).is_some_and(|a| a.is_str()) { crate::regex::get(&pat).ok() } else { None };
+                let arr = self.arr_at(&loc).unwrap();
+                let pos = match &arr.data {
+                    super::vars::Data::I(vs) => {
+                        let t = target.as_int();
+                        let m = |k: &usize| vs.get(base + k).copied().unwrap_or(0) == t;
+                        if last { (st..en).rev().find(m) } else { (st..en).find(m) }
+                    }
+                    super::vars::Data::S(vs) => {
+                        let m = |k: &usize| {
+                            let x = vs.get(base + k).map_or("", String::as_str);
+                            match (&lit, &re) {
+                                (Some(l), _) => if exact { x == l } else { x.contains(l.as_str()) },
+                                (None, Some(re)) => if exact {
+                                    re.find(x).ok().flatten().is_some_and(|m| m.as_str().len() == x.len())
+                                } else {
+                                    crate::regex::is_match(re, x)
+                                },
+                                (None, None) => false,
                             }
-                        }
-                        _ => x.as_int() == target.as_int(),
+                        };
+                        if last { (st..en).rev().find(m) } else { (st..en).find(m) }
                     }
                 };
-                let pos = if name == "FINDELEMENT" { vals.iter().position(m) } else { vals.iter().rposition(m) };
-                i(pos.map(|p| p as i64 + st.max(0)).unwrap_or(-1))
+                i(pos.map_or(-1, |p| p as i64))
             }
             "INRANGEARRAY" => {
                 let v = self.avar(a, 0)?;
@@ -3348,8 +3389,8 @@ impl Vm {
                     return i(0);
                 }
                 let (x, y) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
-                let p = self.sprite_pos.entry(n).or_insert((0, 0));
-                *p = if name == "SPRITEMOVE" { (p.0 + x, p.1 + y) } else { (x, y) };
+                let p = self.res.base_pos(&n);
+                self.res.set_base_pos(&n, if name == "SPRITEMOVE" { (p.0 + x, p.1 + y) } else { (x, y) });
                 i(1)
             }
             "GETCONFIG" | "GETCONFIGS" => {
@@ -3418,7 +3459,7 @@ impl Vm {
             // no graphics surfaces / sprite positions / text box in this frontend
             "SPRITEPOSX" | "SPRITEPOSY" => {
                 let n = self.as_(a, 0, "")?.to_uppercase();
-                let p = self.sprite_pos.get(&n).copied().unwrap_or((0, 0));
+                let p = self.res.base_pos(&n);
                 i(if name == "SPRITEPOSX" { p.0 } else { p.1 })
             }
             "GGETCOLOR" => {

@@ -63,6 +63,8 @@ impl Vm {
     /// Run one system state; returns the state to go to next.
     /// `__LOADED` is internal: after a load, run @EVENTLOAD then the shop.
     pub fn run_state(&mut self, st: &str) -> VmResult<String> {
+        // like Emuera, each system phase starts with SKIPDISP off
+        self.con.skip_disp = false;
         match st {
             "TITLE" => {
                 if self.call_opt("SYSTEM_TITLE")? {
@@ -267,6 +269,7 @@ impl Vm {
             // like Emuera: wait after @EVENTCOMEND so its text can be read.
             // PREVCOM is the script's business (games set it in EVENTCOMEND).
             if self.call_opt("EVENTCOMEND")? {
+                self.con.skip_disp = false;
                 self.wait()?;
             }
         }
@@ -309,6 +312,7 @@ impl Vm {
                 self.con.newline();
             }
             self.call_opt("SHOW_USERCOM")?;
+            self.con.skip_disp = false;
             let v = self.input_int(None, None, false)?;
             if avail.contains(&v) {
                 self.do_train_command(v)?;

@@ -455,7 +455,11 @@ checked.
 Debugging: `EMUERA_TRACE=<part of a function name>` logs matching calls and
 their return values to stderr, with timestamps. `EMUERA_PROFILE=<file>`
 samples which ERB function is running every millisecond (time spent waiting
-for the player not counted) and keeps `<file>` updated with the top 60.
+for the player not counted) and keeps `<file>` updated with the top 60,
+under a first line telling which input the script is waiting for and the
+call stack that asked for it (handy when a game seems stuck).
+`EMUERA_INJECT="STATEMENT||STATEMENT"` with `EMUERA_INJECT_AT=<n>` runs those
+statements as a function `@__INJECT` just before the n-th input.
 
 ## Roadmap
 

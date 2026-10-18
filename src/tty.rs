@@ -1279,6 +1279,12 @@ impl Tty {
             }
             let Some((img, fp)) = res.cbg_pixels(&src) else { continue };
             let (w, h) = (img.width() as f32, img.height() as f32);
+            // a sprite is offset by its base position (CSV columns 7-8)
+            let (bx, by) = match &src {
+                CbgSrc::Sprite(n) => res.base_pos(n),
+                CbgSrc::G(_) => (0, 0),
+            };
+            let l = crate::resources::CbgLayer { x: l.x + bx as i32, y: l.y + by as i32, ..l.clone() };
             let top_e = client_h + l.y as f32 - h;
             let (pw, ph) = ((w * sx).round().max(1.0) as u32, (h * sy).round().max(1.0) as u32);
             let (left, top) = ((l.x as f32 * sx).round() as i32, (top_e * sy).round() as i32);

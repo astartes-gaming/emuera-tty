@@ -118,6 +118,9 @@ pub struct Vm {
     pub frames: Vec<Frame>,
     /// ERH `#DIM` declarations by name (sizes / flags for lookups).
     pub user_dims: HashMap<String, DimDecl>,
+    /// inputs asked for so far, and when to run @__INJECT
+    inputs_seen: u64,
+    inject_at: Option<u64>,
     /// `var_info` results by (function, name) pointers
     var_cache: HashMap<(usize, usize), (Name, VarInfo)>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
@@ -146,8 +149,6 @@ pub struct Vm {
     /// (default, use it on empty input, string input, default string,
     /// skip the input and take the default)
     pub flow_input: (i64, bool, bool, String, bool),
-    /// SPRITEMOVE / SPRITESETPOS offsets, by sprite
-    pub sprite_pos: HashMap<String, (i64, i64)>,
     /// SKIPLOG: message skipping on (MESSKIP)
     pub mes_skip: bool,
     /// instructions run, for the periodic screen update (`tick`)
@@ -201,6 +202,8 @@ impl Vm {
             frames: Vec::new(),
             user_dims: HashMap::default(),
             var_cache: HashMap::default(),
+            inputs_seen: 0,
+            inject_at: std::env::var("EMUERA_INJECT_AT").ok().and_then(|n| n.parse().ok()),
             maps: HashMap::default(),
             dts: HashMap::default(),
             xml_docs: HashMap::default(),
@@ -215,7 +218,6 @@ impl Vm {
             strict: false,
             flow_input: (0, false, false, String::new(), false),
             mes_skip: false,
-            sprite_pos: HashMap::default(),
             ticks: 0,
             last_draw: std::time::Instant::now(),
             is_timeout: false,
@@ -1499,7 +1501,30 @@ impl Vm {
     /// Ask the frontend for input; None means a timeout. Quitting the
     /// frontend becomes `Ctrl::Quit`.
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
+        // SKIPDISP skips the WAIT family along with the prints (Emuera's
+        // IS_PRINT flag), and a script INPUT under it is an error
+        if self.con.skip_disp {
+            if req.kind == InputKind::Wait {
+                return Ok(Some(String::new()));
+            }
+            if !self.frames.is_empty() {
+                self.con.skip_disp = false;
+                return err("input was requested while SKIPDISP is on");
+            }
+        }
+        // debugging aid (see main.rs): run @__INJECT at input number N
+        self.inputs_seen += 1;
+        if let Some(n) = self.inject_at {
+            if self.inputs_seen == n {
+                self.inject_at = None;
+                self.call_name("__INJECT", Vec::new())?;
+            }
+        }
         let _wait = prof::Waiting::new();
+        if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
+            let st: Vec<String> = self.frames.iter().map(|f| format!("{}:{}", f.func.name, f.func.lines.get(f.pc.saturating_sub(1)).map_or(0, |l| l.1))).collect();
+            prof::set_waiting_at(format!("{:?} at {}", req.kind, st.join(" > ")));
+        }
         self.con.width = self.fe.cols().saturating_sub(1).max(20);
         // Emuera flushes an unfinished line when the script stops for input
         // (RunEmueraProgram → PrintFlush), so later output starts afresh.
@@ -1672,6 +1697,12 @@ pub mod prof {
 
     /// waiting for the player: not counted
     pub static WAIT: AtomicBool = AtomicBool::new(false);
+    /// the call stack of the last input wait
+    static WAIT_AT: Mutex<String> = Mutex::new(String::new());
+
+    pub fn set_waiting_at(s: String) {
+        *WAIT_AT.lock().unwrap() = s;
+    }
 
     /// Marks the time until it is dropped as waiting for input.
     pub struct Waiting;
@@ -1713,7 +1744,8 @@ pub mod prof {
                     let names = NAMES.lock().unwrap().clone().unwrap_or_default();
                     let mut v: Vec<(&usize, &u64)> = counts.iter().collect();
                     v.sort_by(|a, b| b.1.cmp(a.1));
-                    let mut out = format!("{} samples (1 ms each), time spent in each function itself:\n", total);
+                    let mut out = format!("{} input: {}\n", if WAIT.load(Ordering::Relaxed) { "waiting for" } else { "last" }, WAIT_AT.lock().unwrap());
+                    out += &format!("{} samples (1 ms each), time spent in each function itself:\n", total);
                     for (id, n) in v.into_iter().take(60) {
                         out += &format!("{:6.1}% {:8} {}\n", *n as f64 * 100.0 / total.max(1) as f64, n, names.get(id).map(String::as_str).unwrap_or("?"));
                     }

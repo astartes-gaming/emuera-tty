@@ -29,6 +29,24 @@ pub fn get(pat: &str) -> Result<Rc<Regex>, String> {
     Ok(r)
 }
 
+/// The text a pattern matches if it has no regex operators (`\\.` and
+/// the like count as the plain character), else None.
+pub fn literal(p: &str) -> Option<String> {
+    let mut out = String::with_capacity(p.len());
+    let mut it = p.chars();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' => match it.next() {
+                Some(e) if !e.is_ascii_alphanumeric() => out.push(e),
+                _ => return None,
+            },
+            '.' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' => return None,
+            _ => out.push(c),
+        }
+    }
+    Some(out)
+}
+
 /// .NET syntax the Rust engines spell differently: named groups
 /// `(?<name>` / `(?'name'` become `(?P<name>`, and `\k<name>` stays.
 fn dotnet_pattern(p: &str) -> String {
@@ -251,6 +269,15 @@ mod tests {
         // lookbehind / lookahead
         let re = get(r"(?<=x)\d+(?=y)").unwrap();
         assert_eq!(replace(&re, "x12y x34z", "N"), "xNy x34z");
+    }
+
+    #[test]
+    fn literals() {
+        assert_eq!(literal(r"a\.b\(c\)"), Some("a.b(c)".into()));
+        assert_eq!(literal("日本語 x"), Some("日本語 x".into()));
+        assert_eq!(literal(r"a\d"), None);
+        assert_eq!(literal("a.b"), None);
+        assert_eq!(literal("x|y"), None);
     }
 
     #[test]

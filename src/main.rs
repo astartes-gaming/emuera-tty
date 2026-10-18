@@ -292,6 +292,11 @@ fn run(o: Opts) -> i32 {
             }
         }
     }
+    // debugging aid: EMUERA_INJECT="STATEMENT||STATEMENT…" becomes a
+    // function @__INJECT the VM runs at input number EMUERA_INJECT_AT
+    if let Ok(code) = std::env::var("EMUERA_INJECT") {
+        files.push(parser::SourceFile { path: "(EMUERA_INJECT)".into(), text: format!("@__INJECT\n{}\n", code.replace("||", "\n")) });
+    }
     phase("read files");
     let n_erh = files.iter().filter(|f| f.path.to_lowercase().ends_with(".erh")).count();
     for (i, f) in files.iter().enumerate() {

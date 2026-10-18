@@ -16,6 +16,12 @@ use std::rc::Rc;
 pub struct Sprite {
     pub file: PathBuf,
     pub rect: Option<(u32, u32, u32, u32)>,
+    /// columns 7-8: where the sprite is drawn relative to the point it is
+    /// drawn at (Emuera's DestBasePosition; portrait parts use it to sit
+    /// on the body)
+    pub pos: (i32, i32),
+    /// columns 10-11: the size it is drawn at (default: the rectangle's)
+    pub dest: Option<(u32, u32)>,
 }
 
 #[derive(Default)]
@@ -40,6 +46,8 @@ pub struct Resources {
     pub cbg_bmap: Option<i64>,
     /// image sizes read from file headers (before decoding)
     dims: HashMap<PathBuf, (u32, u32)>,
+    /// SPRITESETPOS / SPRITEMOVE base positions (over the CSV's)
+    pos_override: HashMap<String, (i64, i64)>,
     /// when each buffer last changed (`gen` values)
     g_gen: HashMap<i64, u64>,
     /// prepared (cut, scaled) parts of draws, by source, its version, the
@@ -432,7 +440,16 @@ impl Resources {
                 } else {
                     None
                 };
-                r.sprites.insert(f[0].to_uppercase(), Sprite { file, rect });
+                let num = |i: usize| f.get(i).and_then(|s| s.trim().parse::<i32>().ok());
+                let pos = match (num(6), num(7)) {
+                    (Some(x), Some(y)) => (x, y),
+                    _ => (0, 0),
+                };
+                let dest = match (num(9), num(10)) {
+                    (Some(w), Some(h)) if w > 0 && h > 0 => Some((w as u32, h as u32)),
+                    _ => None,
+                };
+                r.sprites.insert(f[0].to_uppercase(), Sprite { file, rect, pos, dest });
             }
         }
         r
@@ -548,6 +565,20 @@ impl Resources {
         self.g_gen.get(&gid).copied().unwrap_or(0)
     }
 
+    /// A sprite's base position (SPRITEPOSX / SPRITEPOSY).
+    pub fn base_pos(&self, name: &str) -> (i64, i64) {
+        let k = name.to_uppercase();
+        if let Some(p) = self.pos_override.get(&k) {
+            return *p;
+        }
+        self.sprites.get(&k).map(|s| (s.pos.0 as i64, s.pos.1 as i64)).unwrap_or((0, 0))
+    }
+
+    pub fn set_base_pos(&mut self, name: &str, p: (i64, i64)) {
+        self.pos_override.insert(name.to_uppercase(), p);
+        self.gen = self.gen.wrapping_add(1);
+    }
+
     /// A SPRITECREATE sprite's source: (buffer id, x, y, w, h).
     pub fn g_sprite(&self, name: &str) -> Option<(i64, i32, i32, i32, i32)> {
         self.g_sprites.get(&name.to_uppercase()).copied().filter(|s| self.graphics.contains_key(&s.0))
@@ -637,6 +668,9 @@ impl Resources {
         let key = name.to_uppercase();
         if let Some(&(gid, _, _, w, h)) = self.g_sprites.get(&key) {
             return self.graphics.contains_key(&gid).then_some((w.unsigned_abs(), h.unsigned_abs()));
+        }
+        if let Some(Sprite { dest: Some(d), .. }) = self.sprites.get(&key) {
+            return Some(*d);
         }
         if let Some(Sprite { rect: Some((_, _, w, h)), .. }) = self.sprites.get(&key) {
             return Some((*w, *h));
