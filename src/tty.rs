@@ -1390,7 +1390,7 @@ impl Tty {
                 // (only the size is needed: no pixel fingerprint)
                 let CbgSrc::G(gid) = src else { continue };
                 let Some(g) = res.graphics.get(&gid) else { continue };
-                let top_e = client_h + l.y as f32 - g.img.height() as f32;
+                let top_e = client_h + l.y as f32 - g.height() as f32;
                 // text fallback: what GDRAWTEXT wrote into the buffer
                 for t in &g.texts {
                     // text drawn larger than the console font takes more

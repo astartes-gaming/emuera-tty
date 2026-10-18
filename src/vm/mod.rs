@@ -30,6 +30,7 @@
 pub mod builtins;
 pub mod datatable;
 pub mod erasav;
+mod memstats;
 pub mod save;
 pub mod textsav;
 pub mod system;
@@ -78,6 +79,8 @@ impl std::ops::Deref for Idx {
 /// One active function call.
 pub struct Frame {
     pub func: Rc<Function>,
+    /// its statements (kept while it runs, whatever happens to memory)
+    pub body: Rc<Body>,
     /// Index of the next instruction to run.
     pub pc: usize,
     /// `#DIM DYNAMIC` privates (fresh each call).
@@ -158,6 +161,14 @@ pub struct Vm {
     pending_refs: Vec<(String, Loc)>,
     /// `EMUERA_TRACE`: log calls whose name contains this.
     trace: Option<String>,
+    /// `EMUERA_MEMSTATS`: the file the memory report goes to.
+    memstats: Option<String>,
+    /// user function calls so far
+    calls: u64,
+    /// roughly the memory compiled function bodies take (those that can
+    /// be compiled again), and how much they may (`EMUERA_CODE_MB`)
+    code_bytes: usize,
+    pub code_budget: usize,
     rng: u64,
     /// Warnings already printed (each is shown once).
     warned: HashSet<String>,
@@ -231,6 +242,10 @@ impl Vm {
             varext: save::VarExt::load(crate::loader::find_dir_ci(&game_dir, "CSV").as_deref()),
             pending_refs: Vec::new(),
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
+            memstats: std::env::var("EMUERA_MEMSTATS").ok(),
+            calls: 0,
+            code_bytes: 0,
+            code_budget: crate::sys::memory_budget("EMUERA_CODE_MB", 16),
             rng: seed | 1,
             warned: HashSet::default(),
             game_dir,
@@ -276,7 +291,7 @@ impl Vm {
     /// Is `name` a `#DIM CONST` without indices, here (the function's own
     /// or a global one)?
     fn is_const_scalar(&self, name: &str) -> bool {
-        let own = self.frames.last().and_then(|fr| fr.func.dims.iter().find(|d| d.name == name));
+        let own = self.frames.last().and_then(|fr| fr.body.dims.iter().find(|d| d.name == name));
         match own {
             Some(d) => d.is_const && d.dims.is_empty(),
             None => self.user_dims.get(name).is_some_and(|d| d.is_const && !d.is_chara && d.dims.is_empty()),
@@ -297,6 +312,7 @@ impl Vm {
         self.reloader = Some(f);
         let errors = prog.errors.len();
         self.prog = prog;
+        self.code_bytes = 0;
         // caches keyed by the old functions' addresses
         let dims = self.prog.global_dims.clone();
         for d in &dims {
@@ -512,13 +528,13 @@ impl Vm {
 
     fn frame_private(&self, name: &str) -> Option<&DimDecl> {
         let f = self.frames.last()?;
-        f.func.dims.iter().find(|d| d.name == name)
+        f.body.dims.iter().find(|d| d.name == name)
     }
 
     /// Is `name` resolvable as a variable here (used for CSV-name indices)?
     pub fn var_exists(&self, name: &str) -> bool {
         if let Some(f) = self.frames.last() {
-            if f.vars.contains_key(name) || f.func.dims.iter().any(|d| d.name == name) {
+            if f.vars.contains_key(name) || f.body.dims.iter().any(|d| d.name == name) {
                 return true;
             }
         }
@@ -637,8 +653,8 @@ impl Vm {
         // the function's own #DIMs win over everything else
         // skey: its entry in the function's static slot cache
         let (private, is_static, skey) = match self.frames.last() {
-            Some(f) if !f.func.dims.is_empty() => match f.func.dims.iter().position(|d| d.name.len() == name.len() && d.name == name) {
-                Some(k) => (true, f.func.dims[k].is_static, 4 + k as u32),
+            Some(f) if !f.body.dims.is_empty() => match f.body.dims.iter().position(|d| d.name.len() == name.len() && d.name == name) {
+                Some(k) => (true, f.body.dims[k].is_static, 4 + k as u32),
                 None => (false, ni.local_family != 0, ni.local_family as u32 - (ni.local_family != 0) as u32),
             },
             Some(_) => (false, ni.local_family != 0, (ni.local_family as u32).saturating_sub(1)),
@@ -667,8 +683,8 @@ impl Vm {
         if is_static {
             // the slot is remembered in the reference, tagged with the function
             use std::sync::atomic::Ordering::Relaxed;
-            let func = self.frames.last().unwrap().func.clone();
-            let cache = func.static_cache.get_or_init(|| (0..4 + func.dims.len()).map(|_| std::sync::atomic::AtomicU32::new(0)).collect());
+            let body = self.frames.last().unwrap().body.clone();
+            let cache = body.static_cache.get_or_init(|| (0..4 + body.dims.len()).map(|_| std::sync::atomic::AtomicU32::new(0)).collect());
             let cached = cache[info.skey as usize].load(Relaxed);
             let slot = if cached != 0 {
                 cached as usize - 1
@@ -1165,9 +1181,10 @@ impl Vm {
     fn call_args(&mut self, f: &Function, args: &[Expr]) -> VmResult<(Vec<Option<Value>>, Vec<(String, Loc)>)> {
         let mut vals = Vec::with_capacity(args.len());
         let mut refs = Vec::new();
+        let body = f.body();
         for (i, a) in args.iter().enumerate() {
             let p = f.params.get(i).map(|p| &p.target.name);
-            let is_ref = !f.dims.is_empty() && p.is_some_and(|n| f.dims.iter().any(|d| d.is_ref && *d.name == **n));
+            let is_ref = !body.dims.is_empty() && p.is_some_and(|n| body.dims.iter().any(|d| d.is_ref && *d.name == **n));
             if let (true, Expr::Var(v)) = (is_ref, a) {
                 let top = self.frames.len().saturating_sub(1);
                 let loc = match self.locate(&VarRef::new(v.name.clone(), vec![]))?.loc {
@@ -1203,15 +1220,29 @@ impl Vm {
         if self.frames.len() >= MAX_DEPTH {
             return err("call stack overflow");
         }
+        // (compiled on its first call: report what didn't parse)
+        let body = f.body();
+        self.calls += 1;
+        if body.used.swap(self.calls, std::sync::atomic::Ordering::Relaxed) == 0 && f.lazy.is_some() {
+            self.code_bytes += body.approx_bytes();
+        }
+        if crate::parser::LAZY_ERRORS.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(l) = &f.lazy {
+                for e in l.take_errors() {
+                    self.warn(&format!("parse: {}", e));
+                }
+            }
+        }
         // allocate private (non-static) dims in the caller context
         let mut vars = HashMap::default();
-        for d in &f.dims {
+        for d in &body.dims {
             if !d.is_static {
                 let a = self.make_dim(d)?;
                 vars.insert(d.name.clone(), a);
             }
         }
-        self.frames.push(Frame { func: f.clone(), pc: 0, vars, slots: vec![Slot::None; f.n_slots], refs });
+        let slots = vec![Slot::None; body.n_slots];
+        self.frames.push(Frame { func: f.clone(), body: body.clone(), pc: 0, vars, slots, refs });
         // bind parameters
         for (i, p) in f.params.iter().enumerate() {
             // (moved out: the arguments aren't used again)
@@ -1229,7 +1260,7 @@ impl Vm {
                     // (Emuera's implicit default), never the previous call's value
                     None => {
                         let n = &*p.target.name;
-                        let is_param_var = matches!(n, "ARG" | "ARGS") || f.dims.iter().any(|d| d.name == n && !d.is_ref);
+                        let is_param_var = matches!(n, "ARG" | "ARGS") || body.dims.iter().any(|d| d.name == n && !d.is_ref);
                         if is_param_var {
                             match self.var_is_str(&p.target) {
                                 Ok(true) => Some(Value::Str(String::new())),
@@ -1271,12 +1302,45 @@ impl Vm {
         r
     }
 
+    /// Keep compiled function bodies within `code_budget`: drop those
+    /// called longest ago (not running now); they're compiled again from
+    /// their files when next called. Big games run a few huge functions
+    /// once (pops-tw fills its name lists with 170000 lines at the title).
+    fn trim_code(&mut self) {
+        if self.code_bytes <= self.code_budget {
+            return;
+        }
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut lru: Vec<(u64, usize, Rc<Function>)> = Vec::new();
+        for f in self.prog.funcs.values().flatten() {
+            if f.lazy.is_none() || self.frames.iter().any(|fr| Rc::ptr_eq(&fr.func, f)) {
+                continue;
+            }
+            if let Some(b) = f.body.get() {
+                let used = b.used.load(Relaxed);
+                if used != 0 {
+                    lru.push((used, b.approx_bytes(), f.clone()));
+                }
+            }
+        }
+        lru.sort_unstable_by_key(|e| e.0);
+        for (_, bytes, f) in lru {
+            if self.code_bytes <= self.code_budget * 3 / 4 {
+                break;
+            }
+            // SAFETY: the program runs on this thread alone
+            if unsafe { f.body.clear() } {
+                self.code_bytes = self.code_bytes.saturating_sub(bytes);
+            }
+        }
+    }
+
     /// Prefix an error with "file:line: @FUNC:" the first time it passes
     /// through a frame, so messages point at the failing ERB line.
-    fn located(&self, e: Ctrl, f: &Function, pc: usize) -> Ctrl {
+    fn located(&self, e: Ctrl, f: &Function, body: &Body, pc: usize) -> Ctrl {
         match e {
             Ctrl::Error(m, false) => {
-                let (file, line) = f.lines.get(pc).copied().unwrap_or((f.file, f.line));
+                let (file, line) = body.lines.get(pc).copied().unwrap_or((f.file, f.line));
                 let path = self.prog.files.get(file as usize).cloned().unwrap_or_default();
                 Ctrl::Error(format!("{}:{}: @{}: {}", path, line, f.name, m), true)
             }
@@ -1288,9 +1352,10 @@ impl Vm {
     fn exec(&mut self) -> VmResult<Option<Value>> {
         // a frame's function never changes while it runs: take it once
         let f = self.frames.last().unwrap().func.clone();
+        let body = self.frames.last().unwrap().body.clone();
         loop {
             let pc = self.frames.last().unwrap().pc;
-            if pc >= f.code.len() {
+            if pc >= body.code.len() {
                 return Ok(None);
             }
             self.frames.last_mut().unwrap().pc = pc + 1;
@@ -1298,10 +1363,10 @@ impl Vm {
             if self.ticks & 0xFFF == 0 {
                 self.tick()?;
             }
-            match self.step(&f, pc) {
+            match self.step(&body, pc) {
                 Ok(None) => {}
                 Ok(Some(ret)) => return Ok(ret),
-                Err(e) => return Err(self.located(e, &f, pc)),
+                Err(e) => return Err(self.located(e, &f, &body, pc)),
             }
         }
     }
@@ -1319,8 +1384,8 @@ impl Vm {
     }
 
     /// Execute one instruction. Ok(Some(x)) means the function returns x.
-    fn step(&mut self, f: &Rc<Function>, pc: usize) -> VmResult<Option<Option<Value>>> {
-        match &f.code[pc] {
+    fn step(&mut self, body: &Body, pc: usize) -> VmResult<Option<Option<Value>>> {
+        match &body.code[pc] {
             Instr::BadLine(msg, fatal) => {
                 if *fatal || self.strict {
                     return err(format!("line failed to parse: {}", msg));
@@ -1444,7 +1509,7 @@ impl Vm {
                                 _ => None,
                             }
                         };
-                        CaseTable::build(&f.code, at, *slot, &mut lit)
+                        CaseTable::build(&body.code, at, *slot, &mut lit)
                     })
                     .as_ref()
                     .and_then(|t| match &v {
@@ -1535,7 +1600,7 @@ impl Vm {
             Instr::Goto(g) => {
                 let (target, try_, catch) = (&g.0, &g.1, &g.2);
                 let label = self.resolve_target(target)?;
-                match f.labels.get(&label) {
+                match body.labels.get(&label) {
                     Some(&t) => self.set_pc(t),
                     None => {
                         if *try_ {
@@ -1551,7 +1616,7 @@ impl Vm {
             Instr::GotoList(ts) => {
                 for t in ts {
                     let label = self.resolve_target(t)?;
-                    if let Some(&p) = f.labels.get(&label) {
+                    if let Some(&p) = body.labels.get(&label) {
                         self.set_pc(p);
                         break;
                     }
@@ -1791,9 +1856,17 @@ impl Vm {
                 self.call_name("__INJECT", Vec::new())?;
             }
         }
+        // keep the unpacked graphics buffers and compiled bodies within
+        // their memory budgets
+        self.res.trim_graphics();
+        self.trim_code();
+        // EMUERA_MEMSTATS=<file>: what the memory holds, at every input
+        if let Some(f) = &self.memstats {
+            let _ = std::fs::write(f, self.mem_report());
+        }
         let _wait = prof::Waiting::new();
         if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
-            let st: Vec<String> = self.frames.iter().map(|f| format!("{}:{}", f.func.name, f.func.lines.get(f.pc.saturating_sub(1)).map_or(0, |l| l.1))).collect();
+            let st: Vec<String> = self.frames.iter().map(|f| format!("{}:{}", f.func.name, f.body.lines.get(f.pc.saturating_sub(1)).map_or(0, |l| l.1))).collect();
             prof::set_waiting_at(format!("{:?} at {}", req.kind, st.join(" > ")));
         }
         self.con.width = self.fe.cols().saturating_sub(1).max(20);

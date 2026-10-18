@@ -281,51 +281,60 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
 
 /// Read and parse the game's ERH / ERB files (on all cores): the program
 /// and how many files there were. Also used by the reload-ERB hotkey.
-fn build_program(game: &std::path::Path, erb_dir: Option<&std::path::Path>, rename: &[(String, String)], debug: bool, phase: &mut dyn FnMut(&str)) -> (parser::Program, usize) {
+/// `lazy`: function bodies are compiled when first called (less memory,
+/// quicker start); else all now (`--check`).
+fn build_program(game: &std::path::Path, erb_dir: Option<&std::path::Path>, rename: &[(String, String)], debug: bool, lazy: bool, phase: &mut dyn FnMut(&str)) -> (parser::Program, usize) {
     let mut p = parser::Parser::new(rename, debug);
     // EMUERA_THREADS=n limits the worker threads (default: all cores)
     let cores = std::env::var("EMUERA_THREADS").ok().and_then(|n| n.parse().ok()).filter(|&n: &usize| n > 0).unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
-    let mut files = Vec::new();
-    if let Some(erb) = erb_dir {
-        let paths: Vec<std::path::PathBuf> = loader::walk(erb, &["erh"]).into_iter().chain(loader::walk(erb, &["erb"])).collect();
-        // read + decode (Shift_JIS detection) in parallel, keeping order
-        let read: Vec<Result<String, String>> = parallel_map(&paths, cores, |f| loader::read_text(f).map_err(|e| format!("{}: {}", f.display(), e)));
-        for (f, r) in paths.iter().zip(read) {
-            match r {
-                Ok(text) => files.push(parser::SourceFile { path: f.strip_prefix(game).unwrap_or(f).display().to_string(), text }),
-                Err(e) => eprintln!("{}", e),
-            }
-        }
+    let (erhs, erbs) = match erb_dir {
+        Some(erb) => (loader::walk(erb, &["erh"]), loader::walk(erb, &["erb"])),
+        None => (Vec::new(), Vec::new()),
+    };
+    let rel = |f: &std::path::Path| f.strip_prefix(game).unwrap_or(f).display().to_string();
+    for f in erhs.iter().chain(&erbs) {
+        p.prog.files.push(rel(f));
     }
-    // debugging aid: EMUERA_INJECT="STATEMENT||STATEMENT…" becomes a
-    // function @__INJECT the VM runs at input number EMUERA_INJECT_AT
-    if let Ok(code) = std::env::var("EMUERA_INJECT") {
-        files.push(parser::SourceFile { path: "(EMUERA_INJECT)".into(), text: format!("@__INJECT\n{}\n", code.replace("||", "\n")) });
-    }
-    phase("read files");
-    let n_erh = files.iter().filter(|f| f.path.to_lowercase().ends_with(".erh")).count();
-    for (i, f) in files.iter().enumerate() {
-        p.prog.files.push(f.path.clone());
-        if i < n_erh {
-            p.parse_erh(i as u32, f);
+    // headers first: what they declare holds in every .ERB
+    let texts: Vec<Result<String, String>> = parallel_map(&erhs, cores, |f| loader::read_text(f).map_err(|e| format!("{}: {}", f.display(), e)));
+    phase("read erh");
+    for (i, (f, t)) in erhs.iter().zip(texts).enumerate() {
+        match t {
+            Ok(text) => p.parse_erh(i as u32, &parser::SourceFile { path: rel(f), text }),
+            Err(e) => eprintln!("{}", e),
         }
     }
     phase("parse erh");
-    // ERB files are independent once the headers are known: parse them on
-    // all cores in contiguous chunks, then merge in file order
-    let erbs: Vec<(usize, &parser::SourceFile)> = files.iter().enumerate().skip(n_erh).collect();
-    let forks: Vec<parser::Program> = parallel_chunks(&erbs, cores, |(_, f)| f.text.len(), |chunk| {
+    let n_files = erhs.len() + erbs.len() + 1;
+    if lazy {
+        p.compile_lazily(n_files);
+    }
+    // ERB files are independent once the headers are known: read and parse
+    // them on all cores in contiguous chunks (a file at a time per core),
+    // then merge in file order
+    let items: Vec<(u32, &std::path::PathBuf, usize)> = erbs.iter().enumerate().map(|(j, f)| ((erhs.len() + j) as u32, f, std::fs::metadata(f).map_or(1, |m| m.len() as usize))).collect();
+    let forks: Vec<parser::Program> = parallel_chunks(&items, cores, |it| it.2, |chunk| {
         let mut q = p.fork();
-        for (i, f) in chunk {
-            q.parse_erb(*i as u32, f);
+        for (i, f, _) in chunk {
+            match std::fs::read(f) {
+                Ok(raw) => q.parse_erb_file(*i, &rel(f), f, &raw),
+                Err(e) => eprintln!("{}: {}", f.display(), e),
+            }
         }
         q.prog
     });
     for prog in forks {
         p.absorb(prog);
     }
+    // debugging aid: EMUERA_INJECT="STATEMENT||STATEMENT…" becomes a
+    // function @__INJECT the VM runs at input number EMUERA_INJECT_AT
+    if let Ok(code) = std::env::var("EMUERA_INJECT") {
+        let src = parser::SourceFile { path: "(EMUERA_INJECT)".into(), text: format!("@__INJECT\n{}\n", code.replace("||", "\n")) };
+        p.prog.files.push(src.path.clone());
+        p.parse_erb((n_files - 1) as u32, &src);
+    }
     phase("parse erb");
-    (p.prog, files.len())
+    (p.prog, n_files - 1)
 }
 
 /// Write the sampling profile: time per Rust function, by itself and with
@@ -366,6 +375,14 @@ fn write_pprof(path: &str, g: &pprof::ProfilerGuard) {
     let _ = std::fs::write(path, format!("{} samples\n== self\n{}\n== inclusive\n{}\n== calls\n{}", total, top(&own), top(&incl), top(&edges)));
 }
 
+/// "  rss 123 MB" (Linux), for EMUERA_TIMING.
+fn rss() -> String {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok()))
+        .map_or(String::new(), |kb| format!("  rss {} MB", kb / 1024))
+}
+
 /// Load the game and run it; returns the process exit code.
 fn run(o: Opts) -> i32 {
     let Some(game) = choose_game(&o) else { return 0 };
@@ -386,7 +403,7 @@ fn run(o: Opts) -> i32 {
     let mut lap = std::time::Instant::now();
     let mut phase = |name: &str| {
         if timing {
-            eprintln!("timing: {:<12} {:>8.2?}", name, lap.elapsed());
+            eprintln!("timing: {:<12} {:>8.2?}{}", name, lap.elapsed(), rss());
         }
         lap = std::time::Instant::now();
     };
@@ -395,7 +412,10 @@ fn run(o: Opts) -> i32 {
     for w in &csv.warnings {
         eprintln!("csv: {}", w);
     }
-    let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.debug, &mut phase);
+    // function bodies are compiled when first called, except for --check
+    // (or EMUERA_PARSE=all): a game runs a few percent of them
+    let lazy = !o.check && std::env::var("EMUERA_PARSE").map_or(true, |v| v != "all");
+    let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.debug, lazy, &mut phase);
     let n_funcs: usize = prog.funcs.values().map(|v| v.len()).sum();
     eprintln!(
         "loaded {} files, {} functions, {} chara templates in {:.2?} ({} parse errors)",
@@ -475,10 +495,10 @@ fn run(o: Opts) -> i32 {
     // the reload hotkey parses the ERB files again
     {
         let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.debug);
-        vm.reloader = Some(Box::new(move || build_program(&g, erb.as_deref(), &rename, debug, &mut |_| {}).0));
+        vm.reloader = Some(Box::new(move || build_program(&g, erb.as_deref(), &rename, debug, lazy, &mut |_| {}).0));
     }
     if timing {
-        eprintln!("timing: {:<12} {:>8.2?} (resources, terminal, data init)", "vm ready", lap.elapsed());
+        eprintln!("timing: {:<12} {:>8.2?}{} (resources, terminal, data init)", "vm ready", lap.elapsed(), rss());
     }
     if let Some(px) = load_config(&game, &csv_dir, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
         // no real terminal to fit: use Emuera's width (half-width cells are font_size/2 px)

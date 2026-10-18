@@ -125,7 +125,9 @@ once and the end of input quits.
 Echo the inputs in headless mode.
 .TP
 .B \-\-check
-Load the game, report parse errors and exit.
+Load the game, compile every function, report parse errors and exit.
+(Otherwise a function is compiled when it first runs, and its errors are
+reported then.)
 .TP
 .B \-\-strict
 Commands emuera-tty doesn't implement are errors instead of warnings.
@@ -235,7 +237,28 @@ Run those statements just before the
 input (debugging).
 .TP
 .B EMUERA_TIMING=1
-Print how long loading takes.
+Print how long loading takes, and the memory in use after each phase.
+.TP
+.B EMUERA_PARSE=all
+Compile every function at load instead of on its first call (more memory,
+all parse errors at once).
+.TP
+.BI EMUERA_CODE_MB= n
+Compiled functions may take about
+.I n
+MB (default: a sixteenth of the machine's memory); beyond that, those
+called longest ago are dropped and compiled again when needed.
+.TP
+.BI EMUERA_GBUF_MB= n
+Graphics buffers may take
+.I n
+MB unpacked (default: an eighth of the memory); the least recently used
+are packed until used again.
+.TP
+.BI EMUERA_MEMSTATS= file
+Write what the memory holds to
+.I file
+at every input.
 .TP
 .BR XDG_CONFIG_HOME ", " XDG_DATA_HOME
 Where settings and data go (below).
@@ -264,7 +287,9 @@ Emuera's configuration; font size, line height, colours, PRINTC widths and
 save options are honoured.
 .SH NOTES
 Developed and tested on Linux. macOS, the BSDs, Windows, Termux (Android)
-and the other systems are compile-checked only and untested.
+and the other systems are compile-checked only and untested. Small boards
+such as the Raspberry Pi Zero (512 MB) have enough memory for big games;
+the ARM builds are tried under emulation only.
 .SH SEE ALSO
 .BR terminfo (5),
 .BR kitty (1),

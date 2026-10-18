@@ -1,6 +1,6 @@
 //! The program representation shared by the parser and the VM.
 //!
-//! ERB source is compiled once at startup into these types:
+//! ERB source is compiled into these types (function bodies on first use):
 //!
 //! * [`Expr`] — expressions (`1 + X:2`, `@"text %NAME%"`, `FOO(1, 2)`).
 //! * [`Form`] — Emuera "FORM strings": literal text with `%…%`, `{…}` and
@@ -10,7 +10,8 @@
 //!   parser patches in, so the VM's main loop is just "run `code[pc]`,
 //!   advance `pc`" and needs no recursion for control flow.
 //! * [`Function`] — a compiled `@FUNCTION` with its parameters, private
-//!   `#DIM`s, labels and per-instruction source positions (for errors).
+//!   `#DIM`s, and its [`Body`]: the instructions, labels and their source
+//!   positions (for errors), compiled when the function first runs.
 //!
 //! All identifiers are stored upper-cased (Emuera is case-insensitive).
 
@@ -379,17 +380,128 @@ pub enum EventOrder {
     Later,
 }
 
-#[derive(Debug)]
-pub struct Function {
-    pub name: String,
-    pub params: Vec<Param>,
+/// A function's compiled statements.
+#[derive(Debug, Default)]
+pub struct Body {
+    /// `Vm::statics` slot + 1 of LOCAL, LOCALS, ARG, ARGS and then each
+    /// static `#DIM` (0: not known yet), made on first use
+    pub static_cache: std::sync::OnceLock<Box<[std::sync::atomic::AtomicU32]>>,
+    /// when the function was last called (the VM's call count; 0: not
+    /// since it was compiled), to drop the least used bodies first
+    pub used: std::sync::atomic::AtomicU64,
     pub code: Vec<Instr>,
     /// (file index, line number) per instruction
     pub lines: Vec<(u32, u32)>,
     /// `$LABEL` → instruction index, for GOTO.
     pub labels: crate::fxhash::HashMap<String, usize>,
-    /// Private `#DIM`s declared in this function.
+    /// Number of [`Instr`] slots a call needs.
+    pub n_slots: usize,
+    /// Private `#DIM`s (and EE `VARI` / `VARS` locals) of the function.
     pub dims: Vec<DimDecl>,
+}
+
+impl Body {
+    /// Roughly the memory it takes: instructions with their expressions.
+    pub fn approx_bytes(&self) -> usize {
+        self.code.len() * 320
+    }
+}
+
+/// Where a function's [`Body`] is: none until compiled, and again once
+/// dropped to save memory (it is compiled again when next called). Users
+/// hold an `Arc` of it, so dropping it never pulls it from under a call.
+pub struct BodyCell(std::sync::atomic::AtomicPtr<Body>);
+
+impl BodyCell {
+    pub fn new(b: Option<Body>) -> BodyCell {
+        BodyCell(std::sync::atomic::AtomicPtr::new(b.map_or(std::ptr::null_mut(), |b| Rc::into_raw(Rc::new(b)) as *mut Body)))
+    }
+
+    pub fn get(&self) -> Option<Rc<Body>> {
+        let p = self.0.load(std::sync::atomic::Ordering::Acquire);
+        if p.is_null() {
+            return None;
+        }
+        // SAFETY: `p` came from `Rc::into_raw` and the cell holds a count
+        // on it; the count is only given up by `clear` / `take` / drop,
+        // which don't run while this does (see `clear`)
+        unsafe {
+            Rc::increment_strong_count(p);
+            Some(Rc::from_raw(p))
+        }
+    }
+
+    /// Store a freshly compiled body (or keep one stored meanwhile).
+    fn set(&self, b: Body) -> Rc<Body> {
+        let new = Rc::into_raw(Rc::new(b)) as *mut Body;
+        match self.0.compare_exchange(std::ptr::null_mut(), new, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire) {
+            Ok(_) => {}
+            // SAFETY: `new` is ours and wasn't stored
+            Err(_) => drop(unsafe { Rc::from_raw(new) }),
+        }
+        self.get().expect("just stored")
+    }
+
+    /// Drop the body; true if there was one.
+    ///
+    /// # Safety
+    /// No other thread may use this cell meanwhile: only the thread that
+    /// runs the program calls it (functions are shared between threads
+    /// only while loading).
+    pub unsafe fn clear(&self) -> bool {
+        let p = self.0.swap(std::ptr::null_mut(), std::sync::atomic::Ordering::AcqRel);
+        if p.is_null() {
+            return false;
+        }
+        drop(Rc::from_raw(p));
+        true
+    }
+
+    /// Take the body out (for a function nothing else holds).
+    pub fn take(&mut self) -> Option<Body> {
+        let p = std::mem::replace(self.0.get_mut(), std::ptr::null_mut());
+        if p.is_null() {
+            return None;
+        }
+        // SAFETY: from `Rc::into_raw`; `&mut self`: no `get` is running
+        Rc::try_unwrap(unsafe { Rc::from_raw(p) }).ok()
+    }
+}
+
+impl Default for BodyCell {
+    fn default() -> BodyCell {
+        BodyCell::new(None)
+    }
+}
+
+impl Drop for BodyCell {
+    fn drop(&mut self) {
+        let p = *self.0.get_mut();
+        if !p.is_null() {
+            // SAFETY: from `Rc::into_raw`, and `&mut self`
+            drop(unsafe { Rc::from_raw(p) });
+        }
+    }
+}
+
+impl std::fmt::Debug for BodyCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.load(std::sync::atomic::Ordering::Relaxed).is_null() { "BodyCell(none)" } else { "BodyCell(compiled)" })
+    }
+}
+
+/// A function: its header (`@NAME(params)` and the `#` lines) is read
+/// at load, its statements ([`Body`]) then too or on its first call (see
+/// [`crate::parser::LazySrc`]): a game runs few of its functions.
+#[derive(Debug)]
+pub struct Function {
+    pub name: String,
+    pub params: Vec<Param>,
+    /// The statements, once compiled: use [`Function::body`].
+    pub body: BodyCell,
+    /// Where the statements are read from on the first call (None: they
+    /// were compiled at load, and are never dropped).
+    pub lazy: Option<crate::parser::LazySrc>,
     /// `#FUNCTION` / `#FUNCTIONS`: callable inside expressions.
     pub is_function: bool,
     pub returns_str: bool,
@@ -401,13 +513,23 @@ pub struct Function {
     /// `#LOCALSIZE` / `#LOCALSSIZE`: sizes of LOCAL / LOCALS (0: the default)
     pub local_size: u32,
     pub locals_size: u32,
-    /// Number of [`Instr`] slots a call needs.
-    pub n_slots: usize,
     pub file: u32,
     pub line: u32,
-    /// `Vm::statics` slot + 1 of LOCAL, LOCALS, ARG, ARGS and then each
-    /// static `#DIM` (0: not known yet), made on first use
-    pub static_cache: std::sync::OnceLock<Box<[std::sync::atomic::AtomicU32]>>,
+}
+
+impl Function {
+    /// The statements, compiled now if this is the first call (or the
+    /// first since they were dropped).
+    #[inline]
+    pub fn body(&self) -> Rc<Body> {
+        match self.body.get() {
+            Some(b) => b,
+            None => self.body.set(match &self.lazy {
+                Some(l) => l.compile(self),
+                None => Body::default(),
+            }),
+        }
+    }
 }
 
 
@@ -420,5 +542,7 @@ mod tests {
         assert!(std::mem::size_of::<super::Instr>() <= 48);
         assert!(std::mem::size_of::<super::Expr>() <= 32);
         assert!(std::mem::size_of::<super::FormPart>() <= 48);
+        // a header per function, compiled or not (pops-tw: 100k)
+        assert!(std::mem::size_of::<super::Function>() <= 112);
     }
 }

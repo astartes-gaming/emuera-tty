@@ -26,6 +26,19 @@ pub fn decode(bytes: &[u8]) -> String {
     }
 }
 
+/// Whether [`decode`] reads these bytes as Shift_JIS.
+pub fn is_sjis(bytes: &[u8]) -> bool {
+    !bytes.starts_with(&[0xEF, 0xBB, 0xBF]) && std::str::from_utf8(bytes).is_err()
+}
+
+/// Part of a file (whole lines) in the encoding [`decode`] found for it.
+pub fn decode_as(bytes: &[u8], sjis: bool) -> String {
+    if sjis {
+        return encoding_rs::SHIFT_JIS.decode(bytes).0.into_owned();
+    }
+    String::from_utf8_lossy(bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes)).into_owned()
+}
+
 /// Find a direct child directory by case-insensitive name.
 pub fn find_dir_ci(base: &Path, name: &str) -> Option<PathBuf> {
     let rd = fs::read_dir(base).ok()?;

@@ -1880,6 +1880,7 @@ impl Vm {
                     return err(format!("GCREATE: bad size {}x{}", w, h));
                 }
                 self.res.graphics.insert(gid, Graphic::new(RgbaImage::new(w as u32, h as u32)));
+                self.res.trim_graphics();
                 1
             }
             "GCREATEFROMFILE" => {
@@ -1893,6 +1894,7 @@ impl Vm {
                 match image::open(&p) {
                     Ok(img) if img.width() as i64 <= MAX && img.height() as i64 <= MAX => {
                         self.res.graphics.insert(gid, Graphic::new(img.to_rgba8()));
+                        self.res.trim_graphics();
                         1
                     }
                     _ => 0,
@@ -1906,6 +1908,7 @@ impl Vm {
                 match image::open(self.save_dir().join(format!("img{:04}.png", k))) {
                     Ok(img) => {
                         self.res.graphics.insert(gid, Graphic::new(img.to_rgba8()));
+                        self.res.trim_graphics();
                         1
                     }
                     Err(_) => 0,
@@ -1924,7 +1927,7 @@ impl Vm {
                         let k = self.ai(a, 1, 0)?;
                         let dir = self.save_dir();
                         let _ = std::fs::create_dir_all(&dir);
-                        self.res.graphics[&gid].img.save(dir.join(format!("img{:04}.png", k))).is_ok() as i64
+                        self.res.graphics[&gid].img().save(dir.join(format!("img{:04}.png", k))).is_ok() as i64
                     }
                     "GSETBRUSH" => {
                         let c = color(self.ai(a, 1, 0)?)?;
@@ -1937,14 +1940,21 @@ impl Vm {
                         let c = color(self.ai(a, 1, 0)?)?;
                         let rect = if a.len() >= 6 { Some(ints(self, 2, 4)?) } else { None };
                         let g = self.res.graphics.get_mut(&gid).unwrap();
-                        let (w, h) = (g.img.width() as i32, g.img.height() as i32);
+                        let (w, h) = (g.width() as i32, g.height() as i32);
                         let (x0, y0, x1, y1) = match rect {
                             Some(r) => (r[0].max(0), r[1].max(0), (r[0] + r[2]).min(w), (r[1] + r[3]).min(h)),
                             None => (0, 0, w, h),
                         };
-                        for y in y0..y1 {
-                            for x in x0..x1 {
-                                g.img.put_pixel(x as u32, y as u32, image::Rgba(c));
+                        if (x0, y0, x1, y1) == (0, 0, w, h) {
+                            // the whole buffer: new pixels (cleared to
+                            // transparent, untouched memory until drawn on)
+                            g.set_img(if c == [0; 4] { RgbaImage::new(w as u32, h as u32) } else { RgbaImage::from_pixel(w as u32, h as u32, image::Rgba(c)) });
+                        } else {
+                            let img = g.img_mut();
+                            for y in y0..y1 {
+                                for x in x0..x1 {
+                                    img.put_pixel(x as u32, y as u32, image::Rgba(c));
+                                }
                             }
                         }
                         g.texts.retain(|t| !(t.x >= x0 && t.x < x1 && t.y >= y0 && t.y < y1));
@@ -1957,15 +1967,15 @@ impl Vm {
                         for p in tile.pixels_mut() {
                             *p = image::Rgba(g.brush);
                         }
-                        draw_image(&mut g.img, &tile, (r[0], r[1], r[2], r[3]), (0, 0, tile.width() as i32, tile.height() as i32), None);
+                        draw_image(g.img_mut(), &tile, (r[0], r[1], r[2], r[3]), (0, 0, tile.width() as i32, tile.height() as i32), None);
                         1
                     }
                     "GSETCOLOR" => {
                         let c = color(self.ai(a, 1, 0)?)?;
                         let (x, y) = (self.ai(a, 2, 0)?, self.ai(a, 3, 0)?);
                         let g = self.res.graphics.get_mut(&gid).unwrap();
-                        if (0..g.img.width() as i64).contains(&x) && (0..g.img.height() as i64).contains(&y) {
-                            g.img.put_pixel(x as u32, y as u32, image::Rgba(c));
+                        if (0..g.width() as i64).contains(&x) && (0..g.height() as i64).contains(&y) {
+                            g.img_mut().put_pixel(x as u32, y as u32, image::Rgba(c));
                             1
                         } else {
                             0
@@ -2019,14 +2029,14 @@ impl Vm {
                             Some(img) => {
                                 // an image file sprite: its pixels never change
                                 let key = format!("S:{}", sname.to_uppercase());
-                                self.res.draw_cached(gid, &key, 0, &img, dest, (0, 0, sw, sh), cm.as_ref());
+                                self.res.draw_cached(gid, &key, 0, crate::resources::PartSrc::Img(&img), dest, (0, 0, sw, sh), cm.as_ref());
                             }
                             None => {
                                 // take the source out for the draw (two buffers)
                                 let (sg, sx, sy, _, _) = src_rect;
                                 let ver = self.res.g_version(sg);
                                 let src = self.res.graphics.remove(&sg).unwrap();
-                                self.res.draw_cached(gid, &format!("G:{}", sg), ver, &src.img, dest, (sx, sy, sw, sh), cm.as_ref());
+                                self.res.draw_cached(gid, &format!("G:{}", sg), ver, crate::resources::PartSrc::G(&src), dest, (sx, sy, sw, sh), cm.as_ref());
                                 self.res.graphics.insert(sg, src);
                             }
                         }
@@ -2044,15 +2054,15 @@ impl Vm {
                         let sg = if src == gid { None } else { self.res.graphics.remove(&src) };
                         let texts = match &sg {
                             Some(g) => {
-                                self.res.draw_cached(gid, &format!("G:{}", src), ver, &g.img, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
+                                self.res.draw_cached(gid, &format!("G:{}", src), ver, crate::resources::PartSrc::G(g), (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
                                 g.texts.clone()
                             }
                             None => {
                                 // drawing a buffer onto itself: from a copy
                                 let g = &self.res.graphics[&gid];
-                                let (img, t) = (g.img.clone(), g.texts.clone());
+                                let (img, t) = (g.img().clone(), g.texts.clone());
                                 let g = self.res.graphics.get_mut(&gid).unwrap();
-                                draw_image(&mut g.img, &img, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
+                                draw_image(g.img_mut(), &img, (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
                                 t
                             }
                         };
@@ -2094,7 +2104,7 @@ impl Vm {
                         let r = ints(self, 1, 4)?;
                         let g = self.res.graphics.get_mut(&gid).unwrap();
                         let (c, w, d) = (g.pen.0, g.pen.1, g.dash.0);
-                        crate::resources::draw_line(&mut g.img, (r[0], r[1]), (r[2], r[3]), w, c, d);
+                        crate::resources::draw_line(g.img_mut(), (r[0], r[1]), (r[2], r[3]), w, c, d);
                         1
                     }
                     "GDRAWTEXT" => {
@@ -2109,14 +2119,14 @@ impl Vm {
                         // Emuera fills the glyphs, then strokes them with
                         // the pen: a set pen is an outline around the text
                         if g.pen_set && g.pen.1 >= 2 {
-                            let r = g.pen.1 as f32 / 2.0;
+                            let (r, pen) = (g.pen.1 as f32 / 2.0, g.pen.0);
                             for k in 0..8 {
                                 let ang = k as f32 * std::f32::consts::PI / 4.0;
                                 let o = ((ang.cos() * r).round() as i32, (ang.sin() * r).round() as i32);
-                                crate::resources::draw_text(&mut g.img, &t, (p[0] + o.0, p[1] + o.1), &f, sz, g.pen.0);
+                                crate::resources::draw_text(g.img_mut(), &t, (p[0] + o.0, p[1] + o.1), &f, sz, pen);
                             }
                         }
-                        crate::resources::draw_text(&mut g.img, &t, (p[0], p[1]), &f, sz, c);
+                        crate::resources::draw_text(g.img_mut(), &t, (p[0], p[1]), &f, sz, c);
                         // as text: the colour that shows most
                         let shown = if g.pen_set && g.pen.1 >= 3 { [g.pen.0[0], g.pen.0[1], g.pen.0[2], 255] } else { c };
                         g.texts.push(crate::resources::GText { x: p[0], y: p[1], size: sz as i32, color: shown, text: t.clone() });
@@ -2130,26 +2140,27 @@ impl Vm {
                         // about (x, y) of src (default its middle)
                         let src = self.ai(a, 1, 0)?;
                         let ang = self.ai(a, 2, 0)? as f32;
-                        let Some(s) = self.res.graphics.get(&src).map(|g| g.img.clone()) else { return i(0) };
+                        let Some(s) = self.res.graphics.get(&src).map(|g| g.img().clone()) else { return i(0) };
                         let p = if a.len() >= 5 { ints(self, 3, 2)? } else { vec![s.width() as i32 / 2, s.height() as i32 / 2] };
                         let g = self.res.graphics.get_mut(&gid).unwrap();
-                        crate::resources::draw_rotated(&mut g.img, &s, ang, (p[0] as f32, p[1] as f32));
+                        crate::resources::draw_rotated(g.img_mut(), &s, ang, (p[0] as f32, p[1] as f32));
                         1
                     }
                     "GDRAWGWITHMASK" => {
                         // the mask's blue channel is the source's opacity
                         let (src, mask) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
                         let p = ints(self, 3, 2)?;
-                        let (Some(s), Some(m)) = (self.res.graphics.get(&src).map(|g| g.img.clone()), self.res.graphics.get(&mask).map(|g| g.img.clone())) else {
+                        let (Some(s), Some(m)) = (self.res.graphics.get(&src).map(|g| g.img().clone()), self.res.graphics.get(&mask).map(|g| g.img().clone())) else {
                             return i(0);
                         };
                         let g = self.res.graphics.get_mut(&gid).unwrap();
-                        if s.dimensions() != m.dimensions() || p[0] < 0 || p[1] < 0 || p[0] as u32 + s.width() > g.img.width() || p[1] as u32 + s.height() > g.img.height() {
+                        if s.dimensions() != m.dimensions() || p[0] < 0 || p[1] < 0 || p[0] as u32 + s.width() > g.width() || p[1] as u32 + s.height() > g.height() {
                             return i(0);
                         }
+                        let img = g.img_mut();
                         for (x, y, sp) in s.enumerate_pixels() {
                             let k = m.get_pixel(x, y).0[2] as u32 + 1;
-                            let d = g.img.get_pixel_mut(p[0] as u32 + x, p[1] as u32 + y);
+                            let d = img.get_pixel_mut(p[0] as u32 + x, p[1] as u32 + y);
                             if k == 256 {
                                 *d = *sp;
                             } else if k > 1 {
@@ -3401,8 +3412,8 @@ impl Vm {
                 let id = self.ai(a, 0, 0)?;
                 i(match self.res.graphics.get(&id) {
                     None => 0,
-                    Some(g) if name == "GWIDTH" => g.img.width() as i64,
-                    Some(g) if name == "GHEIGHT" => g.img.height() as i64,
+                    Some(g) if name == "GWIDTH" => g.width() as i64,
+                    Some(g) if name == "GHEIGHT" => g.height() as i64,
                     Some(_) => 1,
                 })
             }
@@ -3529,8 +3540,8 @@ impl Vm {
             "GGETCOLOR" => {
                 let (id, x, y) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
                 i(match self.res.graphics.get(&id) {
-                    Some(g) if (0..g.img.width() as i64).contains(&x) && (0..g.img.height() as i64).contains(&y) => {
-                        crate::resources::to_argb(g.img.get_pixel(x as u32, y as u32).0)
+                    Some(g) if (0..g.width() as i64).contains(&x) && (0..g.height() as i64).contains(&y) => {
+                        crate::resources::to_argb(g.img().get_pixel(x as u32, y as u32).0)
                     }
                     _ => -1,
                 })

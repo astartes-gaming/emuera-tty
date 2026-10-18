@@ -117,6 +117,34 @@ pub fn trim_memory() {
     }
 }
 
+/// A memory budget in bytes: `env` (in MB) if set, else the machine's
+/// memory / `div` (no limit where that is unknown).
+pub fn memory_budget(env: &str, div: u64) -> usize {
+    match std::env::var(env).ok().and_then(|v| v.trim().parse::<usize>().ok()) {
+        Some(mb) => mb << 20,
+        None => total_memory().map_or(usize::MAX, |m| (m / div) as usize),
+    }
+}
+
+/// The machine's memory in bytes, where it can be read.
+pub fn total_memory() -> Option<u64> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let s = std::fs::read_to_string("/proc/meminfo").ok()?;
+        let kb: u64 = s.lines().find(|l| l.starts_with("MemTotal:"))?.split_whitespace().nth(1)?.parse().ok()?;
+        Some(kb * 1024)
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut m: MEMORYSTATUSEX = std::mem::zeroed();
+        m.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        (GlobalMemoryStatusEx(&mut m) != 0).then_some(m.ullTotalPhys)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    None
+}
+
 pub use imp::*;
 
 #[cfg(unix)]
@@ -248,7 +276,7 @@ mod imp {
         unsafe {
             let mut tv: libc::timeval = std::mem::zeroed();
             libc::gettimeofday(&mut tv, std::ptr::null_mut());
-            let t: libc::time_t = tv.tv_sec;
+            let t = tv.tv_sec;
             let mut tm: libc::tm = std::mem::zeroed();
             libc::localtime_r(&t, &mut tm);
             DateTime {

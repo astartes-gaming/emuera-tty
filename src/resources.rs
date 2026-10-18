@@ -33,6 +33,8 @@ pub struct Resources {
     pub warnings: Vec<String>,
     /// Emuera's graphics buffers (GCREATE…), by id
     pub graphics: HashMap<i64, Graphic>,
+    /// the bytes buffers may take unpacked (see [`Resources::trim_graphics`])
+    pub gbuf_budget: usize,
     /// sprites made by SPRITECREATE: (graphics id, x, y, w, h) — they show
     /// the buffer as it is now, like Emuera's SpriteG
     g_sprites: HashMap<String, (i64, i32, i32, i32, i32)>,
@@ -120,9 +122,100 @@ pub struct GText {
     pub text: String,
 }
 
+/// A graphics buffer's pixels: as they are, or packed while unused when
+/// buffers hold more than [`Resources::gbuf_budget`] (games like pops-tw
+/// keep a few portraits per character in buffers: hundreds of MB).
+#[derive(Clone)]
+enum Pixels {
+    Plain(RgbaImage),
+    /// run-length coded (see `rle_pack`)
+    Packed(Vec<u32>),
+}
+
+/// Bumped on every use of a buffer's pixels: least recently used first
+/// when packing.
+static GBUF_CLOCK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Run-length code pixels: a run of one value as `0x8000_0000 | n, value`,
+/// other pixels as `n, pixels…`. Exact; drawn portraits are mostly runs of
+/// transparent pixels.
+fn rle_pack(raw: &[u8]) -> Vec<u32> {
+    let px: Vec<u32> = raw.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let mut out = Vec::new();
+    let (mut i, mut lit) = (0, 0);
+    let flush = |out: &mut Vec<u32>, a: usize, b: usize| {
+        if b > a {
+            out.push((b - a) as u32);
+            out.extend_from_slice(&px[a..b]);
+        }
+    };
+    while i < px.len() {
+        let v = px[i];
+        let mut j = i + 1;
+        while j < px.len() && px[j] == v && j - i < 0x7FFF_FFFF {
+            j += 1;
+        }
+        if j - i >= 4 {
+            flush(&mut out, lit, i);
+            out.push(0x8000_0000 | (j - i) as u32);
+            out.push(v);
+            lit = j;
+        }
+        i = j;
+    }
+    flush(&mut out, lit, px.len());
+    out.shrink_to_fit();
+    out
+}
+
+fn rle_unpack(packed: &[u32], w: u32, h: u32) -> RgbaImage {
+    let n = w as usize * h as usize * 4;
+    let mut out: Vec<u8> = Vec::with_capacity(n);
+    let mut k = 0;
+    while k < packed.len() {
+        let t = packed[k];
+        if t & 0x8000_0000 != 0 {
+            let (run, v) = ((t & 0x7FFF_FFFF) as usize, packed[k + 1]);
+            if v == 0 {
+                out.resize(out.len() + run * 4, 0);
+            } else {
+                for _ in 0..run {
+                    out.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+            k += 2;
+        } else {
+            for v in &packed[k + 1..k + 1 + t as usize] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            k += 1 + t as usize;
+        }
+    }
+    out.resize(n, 0);
+    RgbaImage::from_raw(w, h, out).expect("buffer size")
+}
+
+/// How many bytes graphics buffers may take unpacked: `EMUERA_GBUF_MB`, else
+/// an eighth of the machine's memory (no limit where that's unknown).
+fn gbuf_budget() -> usize {
+    crate::sys::memory_budget("EMUERA_GBUF_MB", 8)
+}
+
+/// The source of [`Resources::draw_cached`]: a picture or a buffer.
+pub enum PartSrc<'a> {
+    Img(&'a RgbaImage),
+    G(&'a Graphic),
+}
+
 /// A graphics buffer and its drawing state.
+#[derive(Clone)]
 pub struct Graphic {
-    pub img: RgbaImage,
+    /// the pixels: [`Graphic::img`] / [`Graphic::img_mut`]
+    px: std::cell::RefCell<Pixels>,
+    w: u32,
+    h: u32,
+    /// `GBUF_CLOCK` when the pixels were last used
+    used: std::cell::Cell<u64>,
     /// GSETBRUSH (fills, text); None: the console's text colour for text
     pub brush: [u8; 4],
     pub brush_set: bool,
@@ -139,7 +232,89 @@ pub struct Graphic {
 
 impl Graphic {
     pub fn new(img: RgbaImage) -> Graphic {
-        Graphic { img, brush: [0, 0, 0, 255], brush_set: false, pen: ([0, 0, 0, 255], 1), pen_set: false, font: (String::new(), 100, 0), dash: (0, 0), texts: Vec::new() }
+        let (w, h) = img.dimensions();
+        Graphic {
+            px: std::cell::RefCell::new(Pixels::Plain(img)),
+            w,
+            h,
+            used: std::cell::Cell::new(GBUF_CLOCK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+            brush: [0, 0, 0, 255],
+            brush_set: false,
+            pen: ([0, 0, 0, 255], 1),
+            pen_set: false,
+            font: (String::new(), 100, 0),
+            dash: (0, 0),
+            texts: Vec::new(),
+        }
+    }
+
+    pub fn width(&self) -> u32 {
+        self.w
+    }
+
+    pub fn height(&self) -> u32 {
+        self.h
+    }
+
+    fn touch(&self) {
+        self.used.set(GBUF_CLOCK.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    }
+
+    /// The pixels (unpacked first if they were packed).
+    pub fn img(&self) -> std::cell::Ref<'_, RgbaImage> {
+        self.touch();
+        if matches!(*self.px.borrow(), Pixels::Packed(_)) {
+            let mut p = self.px.borrow_mut();
+            if let Pixels::Packed(v) = &*p {
+                *p = Pixels::Plain(rle_unpack(v, self.w, self.h));
+            }
+        }
+        std::cell::Ref::map(self.px.borrow(), |p| match p {
+            Pixels::Plain(i) => i,
+            Pixels::Packed(_) => unreachable!("unpacked above"),
+        })
+    }
+
+    pub fn img_mut(&mut self) -> &mut RgbaImage {
+        self.touch();
+        let (w, h) = (self.w, self.h);
+        let p = self.px.get_mut();
+        if let Pixels::Packed(v) = p {
+            *p = Pixels::Plain(rle_unpack(v, w, h));
+        }
+        match p {
+            Pixels::Plain(i) => i,
+            Pixels::Packed(_) => unreachable!("unpacked above"),
+        }
+    }
+
+    /// Replace all the pixels (a clear).
+    pub fn set_img(&mut self, img: RgbaImage) {
+        self.touch();
+        *self.px.get_mut() = Pixels::Plain(img);
+    }
+
+    /// Bytes the pixels take as they are now, and whether they're plain.
+    fn bytes(&self) -> (usize, bool) {
+        match &*self.px.borrow() {
+            Pixels::Plain(i) => (i.as_raw().capacity(), true),
+            Pixels::Packed(v) => (v.capacity() * 4, false),
+        }
+    }
+
+    /// Pack the pixels; the bytes that frees.
+    fn pack(&mut self) -> usize {
+        let p = self.px.get_mut();
+        let Pixels::Plain(i) = p else { return 0 };
+        let before = i.as_raw().capacity();
+        let v = rle_pack(i.as_raw());
+        let after = v.capacity() * 4;
+        // (noise doesn't pack: keep it as it is)
+        if after >= before {
+            return 0;
+        }
+        *p = Pixels::Packed(v);
+        before - after
     }
 }
 
@@ -473,7 +648,7 @@ pub fn blit_part(dst: &mut RgbaImage, part: &RgbaImage, (dx, dy, dw, dh): (i32, 
 impl Resources {
     /// Read every sprite CSV under `dir` (images are not decoded yet).
     pub fn load(dir: Option<&Path>) -> Resources {
-        let mut r = Resources::default();
+        let mut r = Resources { gbuf_budget: gbuf_budget(), ..Resources::default() };
         let Some(dir) = dir else { return r };
         for csv in walk(dir, &["csv"]) {
             let base = csv.parent().unwrap_or(dir).to_path_buf();
@@ -540,13 +715,14 @@ impl Resources {
         match src {
             CbgSrc::G(gid) => {
                 let g = self.graphics.get(gid)?;
-                let h = fingerprint(&g.img);
+                let img = g.img();
+                let h = fingerprint(&img);
                 if let Some((k, img)) = &self.cbg_cache.get(gid) {
                     if *k == h {
                         return Some((img.clone(), h));
                     }
                 }
-                let img = Rc::new(g.img.clone());
+                let img = Rc::new(img.clone());
                 self.cbg_cache.insert(*gid, (h, img.clone()));
                 Some((img, h))
             }
@@ -564,12 +740,12 @@ impl Resources {
     /// (Emuera pixels, `y` <= 0): the pixel's 0xRRGGBB if fully opaque.
     pub fn cbg_button_at(&self, x: i64, y: i64) -> Option<i64> {
         let g = self.graphics.get(&self.cbg_bmap?)?;
-        let (w, h) = (g.img.width() as i64, g.img.height() as i64);
+        let (w, h) = (g.width() as i64, g.height() as i64);
         let my = y + h;
         if x < 0 || my < 0 || x >= w || my >= h {
             return None;
         }
-        let p = g.img.get_pixel(x as u32, my as u32).0;
+        let p = g.img().get_pixel(x as u32, my as u32).0;
         (p[3] == 255).then_some(((p[0] as i64) << 16) | ((p[1] as i64) << 8) | p[2] as i64)
     }
 
@@ -599,6 +775,41 @@ impl Resources {
     }
 
     /// Was an animated sprite drawn since the last call?
+    /// Keep the unpacked graphics buffers within [`Resources::gbuf_budget`]:
+    /// pack the least recently used ones (they unpack when used again).
+    pub fn trim_graphics(&mut self) {
+        let plain: usize = self.graphics.values().map(|g| g.bytes()).filter(|b| b.1).map(|b| b.0).sum();
+        if plain <= self.gbuf_budget {
+            return;
+        }
+        let mut lru: Vec<(u64, i64)> = self.graphics.iter().filter(|(_, g)| g.bytes().1).map(|(id, g)| (g.used.get(), *id)).collect();
+        lru.sort_unstable();
+        let mut over = plain - self.gbuf_budget;
+        for (_, id) in lru {
+            if over == 0 {
+                break;
+            }
+            if let Some(g) = self.graphics.get_mut(&id) {
+                over = over.saturating_sub(g.pack());
+            }
+        }
+    }
+
+    /// Pictures held: (what, how many, bytes), for the memory report.
+    pub fn mem_stats(&self) -> Vec<(&'static str, usize, usize)> {
+        let px = |i: &RgbaImage| i.as_raw().capacity();
+        let packed: Vec<usize> = self.graphics.values().map(|g| g.bytes()).filter(|b| !b.1).map(|b| b.0).collect();
+        vec![
+            ("graphics buffers", self.graphics.len(), self.graphics.values().map(|g| g.bytes().0).sum()),
+            ("  of them packed", packed.len(), packed.iter().sum()),
+            ("decoded image files", self.files.len(), self.files.values().flatten().map(|i| px(i)).sum()),
+            ("cut sprites", self.cropped.len(), self.cropped.values().flatten().map(|i| px(i)).sum()),
+            ("scaled sprites", self.scaled.len(), self.scaled.values().map(|i| px(i)).sum()),
+            ("prepared draws", self.parts.len(), self.parts.values().map(|i| px(i)).sum()),
+            ("background copies", self.cbg_cache.len(), self.cbg_cache.values().map(|(_, i)| px(i)).sum()),
+        ]
+    }
+
     pub fn take_anim_used(&mut self) -> bool {
         std::mem::take(&mut self.anim_used)
     }
@@ -664,12 +875,17 @@ impl Resources {
 
     /// Draw `src` (an image, known by `key` + `version`) into buffer
     /// `dst`, reusing the scaled cut-out from an earlier identical draw.
-    pub fn draw_cached(&mut self, dst: i64, key: &str, version: u64, src: &RgbaImage, dest: (i32, i32, i32, i32), srect: (i32, i32, i32, i32), cm: Option<&[[f32; 5]; 5]>) {
+    pub fn draw_cached(&mut self, dst: i64, key: &str, version: u64, src: PartSrc, dest: (i32, i32, i32, i32), srect: (i32, i32, i32, i32), cm: Option<&[[f32; 5]; 5]>) {
         let k = (key.to_string(), version, srect, dest.2, dest.3);
         let part = match self.parts.get(&k) {
             Some(p) => p.clone(),
             None => {
-                let Some(p) = prepare_part(src, srect, dest.2, dest.3) else { return };
+                // (a packed buffer unpacks only when its part isn't cached)
+                let p = match src {
+                    PartSrc::Img(i) => prepare_part(i, srect, dest.2, dest.3),
+                    PartSrc::G(g) => prepare_part(&g.img(), srect, dest.2, dest.3),
+                };
+                let Some(p) = p else { return };
                 if self.parts.len() > 64 {
                     self.parts.clear();
                 }
@@ -679,7 +895,7 @@ impl Resources {
             }
         };
         if let Some(g) = self.graphics.get_mut(&dst) {
-            blit_part(&mut g.img, &part, dest, cm);
+            blit_part(g.img_mut(), &part, dest, cm);
         }
     }
 
@@ -716,7 +932,7 @@ impl Resources {
         let Some(g) = self.graphics.get(&gid) else { return false };
         // (replacing one whose buffer was disposed)
         self.cropped.remove(&name.to_uppercase());
-        let r = rect.unwrap_or((0, 0, g.img.width() as i32, g.img.height() as i32));
+        let r = rect.unwrap_or((0, 0, g.width() as i32, g.height() as i32));
         self.g_sprites.insert(name.to_uppercase(), (gid, r.0, r.1, r.2, r.3));
         self.changed();
         true
@@ -770,7 +986,7 @@ impl Resources {
             // the buffer's rectangle as it is now (cached until it changes)
             let g = self.graphics.get(&gid)?;
             let mut out = RgbaImage::new(w.unsigned_abs().max(1), h.unsigned_abs().max(1));
-            draw_image(&mut out, &g.img, (0, 0, w.abs().max(1), h.abs().max(1)), (x, y, w.abs(), h.abs()), None);
+            draw_image(&mut out, &g.img(), (0, 0, w.abs().max(1), h.abs().max(1)), (x, y, w.abs(), h.abs()), None);
             let out = Some(Rc::new(out));
             self.cropped.insert(key, out.clone());
             return out;
@@ -968,5 +1184,32 @@ mod tests {
         assert_eq!(r.frame_name("STILL"), "STILL");
         assert!(r.sprite("halo").is_some());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn packed_buffers_stay_exact() {
+        // transparent runs, a coloured run, noise, an odd tail
+        let mut img = RgbaImage::new(37, 23);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = match (x, y) {
+                (_, 0..=4) => image::Rgba([0, 0, 0, 0]),
+                (0..=19, 5..=9) => image::Rgba([200, 10, 10, 255]),
+                (_, 5..=15) => image::Rgba([(x * 7 + y) as u8, (x ^ y) as u8, 3, 255]),
+                _ => image::Rgba([1, 2, 3, (x % 3) as u8]),
+            };
+        }
+        let mut r = Resources::default();
+        r.graphics.insert(1, Graphic::new(img.clone()));
+        r.graphics.insert(2, Graphic::new(RgbaImage::new(64, 64)));
+        r.gbuf_budget = 0;
+        r.trim_graphics();
+        assert!(r.graphics.values().all(|g| !g.bytes().1), "both packed");
+        assert_eq!(*r.graphics[&1].img(), img);
+        assert!(r.graphics[&2].img().pixels().all(|p| p.0 == [0; 4]));
+        // drawing into a packed buffer unpacks it first
+        r.trim_graphics();
+        r.graphics.get_mut(&1).unwrap().img_mut().put_pixel(0, 0, image::Rgba([5, 5, 5, 5]));
+        img.put_pixel(0, 0, image::Rgba([5, 5, 5, 5]));
+        assert_eq!(*r.graphics[&1].img(), img);
     }
 }

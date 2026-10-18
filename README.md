@@ -38,7 +38,9 @@ untested. Large parts of the Emuera command set are still missing (see
   OpenBSD, DragonFly), **Windows 10/11**, **Termux** on Android, **illumos /
   Solaris**, **Haiku** and **Redox**, but **only Linux is tested: every
   other system is compile-checked only and untested.** Reports are
-  welcome. See [Other systems](#other-systems) for the differences.
+  welcome. See [Other systems](#other-systems) for the differences, and
+  [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for the
+  Raspberry Pi Zero and other 512 MB boards.
 - A **terminal**. Any modern one works for text; see
   [Picking a terminal](#5-picking-a-terminal) for pictures and Japanese text.
 - **Rust** to build it: install with [rustup](https://rustup.rs)
@@ -106,6 +108,34 @@ export PATH="$HOME/.local/bin:$PATH"
   Linux-console extras. Haiku's Terminal and Redox's console show text
   only; on Haiku the fastest serial speeds (460800, 921600) aren't
   offered, on Redox there is no RTS/CTS flow control.
+
+### Small machines (Raspberry Pi Zero and the like)
+
+emuera-tty keeps its memory low enough for a 512 MB board (see
+[Memory](#memory)): AnonTW stays under 160 MB, pops-tw under 350 MB.
+It runs on 32-bit ARM (Pi Zero / Zero W, ARMv6) and 64-bit ARM (Pi Zero 2,
+Pi 3 and later). **Not tried on a real board yet**: the 32-bit ARM build
+runs AnonTW under emulation (`qemu-arm`) with the same output as on a PC,
+and both ARM builds compile.
+
+Building on the board itself works (`cargo build --release`) but takes a
+long time on a Zero; building on a PC and copying the program over is
+quicker. For a Pi Zero (no cross compiler needed):
+
+```bash
+rustup target add arm-unknown-linux-musleabihf
+```
+
+```bash
+RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes" cargo build --release --target arm-unknown-linux-musleabihf
+```
+
+then copy `target/arm-unknown-linux-musleabihf/release/emuera-tty` to the
+Pi (use `aarch64-unknown-linux-musl` for a 64-bit Pi OS) and run
+`./emuera-tty --install` there. On the Linux console with no X, pictures
+go to the framebuffer; over SSH, use a terminal with sixel or kitty
+graphics, or `--gfx none` for text only. A big game takes some seconds to
+load on a Zero (it reads every script once).
 
 ## 3. First run: choose your game
 
@@ -423,11 +453,10 @@ tries kitty's text-sizing protocol instead, which some may prefer).
 At startup emuera-tty also measures how wide the terminal really draws
 those characters (terminals' width tables differ), which keeps maps
 aligned in Konsole, kitty and others; `EMUERA_MEASURE=0` skips that,
-`EMUERA_TRACE` as above. Game scripts are read and parsed on every CPU
-core (AnonTW loads in about a second instead of five, and takes about
-600 MB of memory);
-`EMUERA_THREADS=N` caps the thread count, and `EMUERA_TIMING=1` prints
-how long each loading phase took. Running the script itself is one
+`EMUERA_TRACE` as above. Game scripts are read on every CPU core (AnonTW
+loads in 0.3 s); `EMUERA_THREADS=N` caps the thread count, and
+`EMUERA_TIMING=1` prints how long each loading phase took and the memory
+in use after it. Running the script itself is one
 thread by nature (every line may read what the previous one wrote), but
 pictures a screen needs are decoded and scaled on all cores. The
 interpreter resolves each variable once (a reference remembers its global
@@ -436,6 +465,39 @@ SELECTCASE made of constants, and avoids copying strings when comparing,
 calling functions or querying DataTables: on AnonTW's shop screens it runs
 about three times faster than the first versions. `EMUERA_SEED=N` fixes the random
 number seed, so a run can be repeated exactly (tests, bug reports).
+
+### Memory
+
+A big game's scripts are tens of thousands of functions (AnonTW 90000,
+pops-tw 100000), and a session runs a few percent of them. So at load
+emuera-tty reads only each function's `@` line and attributes (`#FUNCTION`,
+`#PRI`…) and where it is in its file; the statements are compiled the
+first time the function is called, read again from the file (nothing is
+kept in memory meanwhile). A parse error in a function body is reported
+when the function first runs; `--check` compiles everything and lists
+them all (`EMUERA_PARSE=all` compiles everything at load for a normal
+run too). A script file edited while the game runs is read as it is
+then, for functions not run yet; the reload key (F5) reloads everything.
+
+Two things are kept within a share of the machine's memory, so a 512 MB
+board copes and a PC with memory to spare does exactly what it did:
+
+- **Compiled functions** beyond 1/16 of the memory (`EMUERA_CODE_MB=n`
+  sets it): the bodies called longest ago are dropped and compiled again
+  if needed. pops-tw runs a 170000-line function once at the title.
+- **Graphics buffers** (`GCREATE`) beyond 1/8 (`EMUERA_GBUF_MB=n`): the
+  least recently used are kept packed (run-length coded, exactly) until
+  drawn or shown again. pops-tw keeps three portraits per character in
+  buffers, 270 MB unpacked, 40 MB packed.
+
+| | before | now (PC) | with a 512 MB machine's budgets |
+|---|---|---|---|
+| AnonTW, 800-input session | 654 MB | 157 MB | 157 MB |
+| pops-tw, a new game | 1204 MB | 636 MB | 346 MB |
+
+`EMUERA_MEMSTATS=<file>` writes what the memory holds (functions
+compiled, the biggest variables, characters, picture buffers…) to
+`<file>` at every input.
 
 For development: `cargo test` runs the unit tests and the `sample/` game's
 self-test; `cargo build --profile fastbuild --features profile` makes a
@@ -588,11 +650,12 @@ statements as a function `@__INJECT` just before the n-th input.
 ## Roadmap
 
 1. Run it on the other systems (macOS, Windows, the BSDs, Termux, Haiku,
-   Redox): they compile, nobody has played on them yet.
+   Redox) and on a real Raspberry Pi Zero: they compile (the Pi build
+   also runs under emulation), nobody has played on them yet.
 2. Play deeper into AnonTW and pops-tw. AnonTW's 5 remaining parse errors
    and pops-tw's 16 are mistakes in the games' own scripts (Emuera reports
    them too).
-3. Speed of script-heavy games: pops-tw's new game takes about 20 seconds
+3. Speed of script-heavy games: pops-tw's new game takes about 17 seconds
    of CPU (its own object system looks names up in 1000-entry arrays
    hundreds of thousands of times); compiling variables to slots ahead of
    time would be the next step.

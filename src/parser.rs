@@ -81,7 +81,9 @@ enum Ctl {
 
 /// The function being compiled.
 struct FuncBuilder {
+    /// the header (name, parameters, `#FUNCTION`…)
     f: Function,
+    body: Body,
     /// Open blocks, innermost last.
     ctl: Vec<Ctl>,
     /// SIF jumps waiting for "the end of the next statement".
@@ -98,16 +100,16 @@ struct FuncBuilder {
 impl FuncBuilder {
     /// Append an instruction; returns its index (for later patching).
     fn emit(&mut self, i: Instr) -> usize {
-        self.f.code.push(i);
-        self.f.lines.push(self.cur_line);
-        self.f.code.len() - 1
+        self.body.code.push(i);
+        self.body.lines.push(self.cur_line);
+        self.body.code.len() - 1
     }
     fn pc(&self) -> usize {
-        self.f.code.len()
+        self.body.code.len()
     }
     /// Fill in the jump / exit / catch target of instruction `at`.
     fn patch(&mut self, at: usize, target: usize) {
-        match &mut self.f.code[at] {
+        match &mut self.body.code[at] {
             Instr::Jump(t) => *t = target,
             Instr::JumpIfNot(_, t) => *t = target,
             Instr::ForBegin(f) => f.exit = target,
@@ -119,21 +121,178 @@ impl FuncBuilder {
     }
     /// Reserve a per-call scratch slot (FOR bounds, SELECTCASE value).
     fn slot(&mut self) -> usize {
-        self.f.n_slots += 1;
-        self.f.n_slots - 1
+        self.body.n_slots += 1;
+        self.body.n_slots - 1
     }
 }
 
-pub struct Parser<'a> {
+pub struct Parser {
     pub prog: Program,
-    /// `_Rename.csv` pairs for `[[name]]` substitution.
-    rename: &'a [(String, String)],
-    /// `rename` by name (the first entry wins, as with replacing in order)
-    rename_map: std::sync::Arc<HashMap<String, String>>,
+    /// `_Rename.csv` pairs by name, for `[[name]]` substitution (the first
+    /// entry wins, as with replacing in order)
+    rename_map: Rc<HashMap<String, String>>,
     /// Global `#DIMS` names.
     global_str: HashSet<String>,
     /// `--debug`: keep `;#;` lines and `[IF_DEBUG]` blocks.
     debug: bool,
+    /// Set: function bodies are compiled on their first call (see
+    /// [`LazySrc`]), not at load.
+    lazy: Option<Rc<LazyCtx>>,
+}
+
+/// Set when lazily compiled bodies had errors the VM hasn't reported.
+pub static LAZY_ERRORS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Where a function's statements are, for compiling them on its first
+/// call: a byte range of its file, from its `@` line to the next
+/// function's, read again then (the source isn't kept in memory). Big
+/// games run a few percent of their functions in a session, and the
+/// compiled form of a function takes several times its source.
+pub struct LazySrc {
+    ctx: Rc<LazyCtx>,
+    file: u32,
+    start: u32,
+    end: u32,
+    /// `[IF]` blocks open at the `@` line
+    open_ifs: u16,
+    /// which function of its name in the file it is (0: the first), to
+    /// find it again in a file changed since loading
+    ord: u16,
+}
+
+impl std::fmt::Debug for LazySrc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LazySrc(file {}, bytes {}..{})", self.file, self.start, self.end)
+    }
+}
+
+/// What compiling a function later needs: a parser with the headers'
+/// `#DEFINE`s and string variables, and the files as they were loaded.
+pub struct LazyCtx {
+    parser: std::sync::Mutex<Parser>,
+    files: Vec<std::sync::OnceLock<LazyFile>>,
+    /// errors in bodies compiled since the VM last took them
+    errors: std::sync::Mutex<Vec<String>>,
+    /// files changed since loading, compiled whole: (file, its functions)
+    changed: std::sync::Mutex<Vec<(u32, HashMap<String, Vec<Rc<Function>>>)>>,
+}
+
+struct LazyFile {
+    path: std::path::PathBuf,
+    /// the name in messages
+    rel: String,
+    sjis: bool,
+    len: u64,
+    mtime: Option<std::time::SystemTime>,
+}
+
+fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A body that stops with `msg` when run.
+fn failed_body(f: &Function, msg: String) -> Body {
+    Body { code: vec![Instr::BadLine(msg.into(), true)], lines: vec![(f.file, f.line)], ..Body::default() }
+}
+
+/// Byte offsets of the starts of `lines` (1-based, ascending) in `raw`.
+fn line_offsets(raw: &[u8], lines: impl Iterator<Item = u32>) -> Vec<u32> {
+    let mut out = Vec::new();
+    let (mut line, mut pos) = (1u32, 0usize);
+    for want in lines {
+        while line < want {
+            match raw[pos..].iter().position(|&c| c == b'\n') {
+                Some(i) => {
+                    pos += i + 1;
+                    line += 1;
+                }
+                None => {
+                    pos = raw.len();
+                    break;
+                }
+            }
+        }
+        out.push(pos as u32);
+    }
+    out
+}
+
+fn read_range(path: &std::path::Path, start: u32, end: u32) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek};
+    let mut f = std::fs::File::open(path)?;
+    f.seek(std::io::SeekFrom::Start(start as u64))?;
+    let mut buf = vec![0; end.saturating_sub(start) as usize];
+    f.read_exact(&mut buf)?;
+    Ok(buf)
+}
+
+impl LazySrc {
+    /// Read and compile the body of `f` (whose header this is).
+    pub fn compile(&self, f: &Function) -> Body {
+        let ctx = &*self.ctx;
+        let Some(file) = ctx.files.get(self.file as usize).and_then(|m| m.get()) else {
+            return failed_body(f, format!("@{}: its file is unknown", f.name));
+        };
+        let same = std::fs::metadata(&file.path).is_ok_and(|m| m.len() == file.len && m.modified().ok() == file.mtime);
+        if !same {
+            return self.from_changed(f, file);
+        }
+        let text = match read_range(&file.path, self.start, self.end) {
+            Ok(b) => crate::loader::decode_as(&b, file.sjis),
+            Err(e) => return failed_body(f, format!("{}: {}", file.rel, e)),
+        };
+        let mut p = lock(&ctx.parser);
+        let (lines, _) = p.logical_lines(&text, f.line, self.open_ifs as usize);
+        let head = match lines.split_first() {
+            Some(((no, head), rest)) if *no == f.line && head.starts_with('@') => p.func_header(&head[1..], self.file, *no).map(|b| (b, rest)),
+            _ => Err(String::new()),
+        };
+        let Ok((mut b, rest)) = head else {
+            drop(p);
+            return self.from_changed(f, file);
+        };
+        let end = rest.iter().position(|(_, l)| l.starts_with('@')).unwrap_or(rest.len());
+        p.statements(&mut b, &file.rel, &rest[..end]);
+        let mut g = p.finish(b, &file.rel);
+        let errors = std::mem::take(&mut p.prog.errors);
+        drop(p);
+        if !errors.is_empty() {
+            lock(&ctx.errors).extend(errors);
+            LAZY_ERRORS.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        g.body.take().unwrap_or_default()
+    }
+
+    /// The body of `f` from its file as it is now: the file changed since
+    /// the game was loaded.
+    fn from_changed(&self, f: &Function, file: &LazyFile) -> Body {
+        let ctx = &*self.ctx;
+        let mut changed = lock(&ctx.changed);
+        if !changed.iter().any(|(i, _)| *i == self.file) {
+            let raw = match std::fs::read(&file.path) {
+                Ok(r) => r,
+                Err(e) => return failed_body(f, format!("{}: {}", file.rel, e)),
+            };
+            let mut q = lock(&ctx.parser).fork();
+            q.parse_erb_text(self.file, &file.rel, &crate::loader::decode(&raw), None);
+            let mut errors = lock(&ctx.errors);
+            errors.push(format!("{} changed since the game was loaded: its functions are read as they are now when they first run (F5 reloads all the scripts)", file.rel));
+            errors.append(&mut q.prog.errors);
+            LAZY_ERRORS.store(true, std::sync::atomic::Ordering::Relaxed);
+            changed.push((self.file, std::mem::take(&mut q.prog.funcs)));
+        }
+        let funcs = &mut changed.iter_mut().find(|(i, _)| *i == self.file).expect("just added").1;
+        match funcs.get_mut(&f.name).and_then(|v| v.get_mut(self.ord as usize)).and_then(Rc::get_mut).and_then(|g| g.body.take()) {
+            Some(b) => b,
+            None => failed_body(f, format!("@{} is no longer in {}, which changed since the game was loaded: reload the scripts (F5)", f.name, file.rel)),
+        }
+    }
+
+    /// Errors found in function bodies compiled since the last call.
+    pub fn take_errors(&self) -> Vec<String> {
+        LAZY_ERRORS.store(false, std::sync::atomic::Ordering::Relaxed);
+        std::mem::take(&mut *lock(&self.ctx.errors))
+    }
 }
 
 /// Cut a trailing `; comment`, ignoring `;` inside quotes (quote nesting
@@ -265,13 +424,26 @@ fn form_arg_cmd(cmd: &str) -> bool {
 /// Block markers that only matter to Emuera's message skipping.
 const IGNORED_BLOCKS: &[&str] = &["NOSKIP", "ENDNOSKIP"];
 
-impl<'a> Parser<'a> {
-    pub fn new(rename: &'a [(String, String)], debug: bool) -> Self {
+impl Parser {
+    pub fn new(rename: &[(String, String)], debug: bool) -> Self {
         let mut m: HashMap<String, String> = HashMap::default();
         for (k, v) in rename {
             m.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        Parser { prog: Program::default(), rename, rename_map: std::sync::Arc::new(m), global_str: HashSet::default(), debug }
+        Parser { prog: Program::default(), rename_map: Rc::new(m), global_str: HashSet::default(), debug, lazy: None }
+    }
+
+    /// From now on (after the headers), leave function bodies to their
+    /// first call. `n_files`: how many files there are in all.
+    pub fn compile_lazily(&mut self, n_files: usize) {
+        let mut later = self.fork();
+        later.lazy = None;
+        self.lazy = Some(Rc::new(LazyCtx {
+            parser: std::sync::Mutex::new(later),
+            files: (0..n_files).map(|_| std::sync::OnceLock::new()).collect(),
+            errors: Default::default(),
+            changed: Default::default(),
+        }));
     }
 
     /// `[[name]]` → its `_Rename.csv` replacement, in one pass over the line.
@@ -302,14 +474,19 @@ impl<'a> Parser<'a> {
         out
     }
 
-    /// Preprocess raw text into logical (line_no, text) pairs.
-    fn logical_lines(&self, text: &str) -> Vec<(u32, String)> {
+    /// Preprocess raw text into logical (line_no, text) pairs. `first_no`:
+    /// the number of the text's first line; `open_ifs`: `[IF]` blocks open
+    /// there (all on their taken branch: a function starts there). Also
+    /// returns, per `@` line, how many `[IF]` blocks are open at it.
+    fn logical_lines(&self, text: &str, first_no: u32, open_ifs: usize) -> (Vec<(u32, String)>, Vec<u16>) {
         let mut out = Vec::new();
+        let mut depths = Vec::new();
         let mut skip_depth = 0;
-        let mut cond_stack: Vec<bool> = Vec::new(); // true = active
+        // per open [IF]: (this branch is active, a branch was taken)
+        let mut cond_stack: Vec<(bool, bool)> = vec![(true, true); open_ifs];
         let mut join: Option<(u32, String)> = None;
         for (no, raw) in text.lines().enumerate() {
-            let no = no as u32 + 1;
+            let no = no as u32 + first_no;
             let trimmed = raw.trim();
             // most lines are plain code: skip blanks / comments before
             // allocating anything (the `{ }` join and `[...]` checks below
@@ -355,29 +532,32 @@ impl<'a> Parser<'a> {
                 continue;
             }
             if up.starts_with("[IF_DEBUG]") {
-                cond_stack.push(self.debug);
+                cond_stack.push((self.debug, self.debug));
                 continue;
             }
             if up.starts_with("[IF_NDEBUG]") {
-                cond_stack.push(!self.debug);
+                cond_stack.push((!self.debug, !self.debug));
                 continue;
             }
+            // as in Emuera: after a taken branch, ELSEIF / ELSE are off
             if up.starts_with("[IF ") || up.starts_with("[ELSEIF ") {
                 let elseif = up.starts_with("[ELSEIF");
                 let name = line.trim_start_matches(|c| c != ' ').trim().trim_end_matches(']').trim();
                 let v = self.prog.defines.contains_key(&name.to_uppercase());
                 if elseif {
-                    if let Some(t) = cond_stack.last_mut() {
-                        *t = !*t && v;
+                    if let Some((on, done)) = cond_stack.last_mut() {
+                        *on = !*done && v;
+                        *done |= *on;
                     }
                 } else {
-                    cond_stack.push(v);
+                    cond_stack.push((v, v));
                 }
                 continue;
             }
             if up.starts_with("[ELSE]") {
-                if let Some(t) = cond_stack.last_mut() {
-                    *t = !*t;
+                if let Some((on, done)) = cond_stack.last_mut() {
+                    *on = !*done;
+                    *done = true;
                 }
                 continue;
             }
@@ -385,7 +565,7 @@ impl<'a> Parser<'a> {
                 cond_stack.pop();
                 continue;
             }
-            if cond_stack.iter().any(|v| !v) {
+            if cond_stack.iter().any(|c| !c.0) {
                 continue;
             }
             if line == "{" {
@@ -394,6 +574,9 @@ impl<'a> Parser<'a> {
             }
             if line == "}" {
                 if let Some((n, s)) = join.take() {
+                    if s.starts_with('@') {
+                        depths.push(cond_stack.len() as u16);
+                    }
                     out.push((n, s));
                 }
                 continue;
@@ -408,22 +591,25 @@ impl<'a> Parser<'a> {
             if line.is_empty() || line.starts_with(';') {
                 continue;
             }
+            if line.starts_with('@') {
+                depths.push(cond_stack.len() as u16);
+            }
             out.push((no, line));
         }
-        out
+        (out, depths)
     }
 
     /// A parser for ERB files on another thread: same `#DEFINE`s and global
     /// string-variable names, empty output. Merge back with [`absorb`].
     ///
     /// [`absorb`]: Parser::absorb
-    pub fn fork(&self) -> Parser<'a> {
+    pub fn fork(&self) -> Parser {
         Parser {
             prog: Program { defines: self.prog.defines.clone(), ..Program::default() },
-            rename: self.rename,
             rename_map: self.rename_map.clone(),
             global_str: self.global_str.clone(),
             debug: self.debug,
+            lazy: self.lazy.clone(),
         }
     }
 
@@ -439,7 +625,7 @@ impl<'a> Parser<'a> {
     /// Header file: `#DEFINE`s and global `#DIM`s only. All headers are
     /// parsed before any .ERB, so functions can use what they declare.
     pub fn parse_erh(&mut self, file_idx: u32, src: &SourceFile) {
-        let lines = self.logical_lines(&src.text);
+        let (lines, _) = self.logical_lines(&src.text, 1, 0);
         // defines first (so dims can use them)
         for (no, line) in &lines {
             let up = line.to_uppercase();
@@ -541,40 +727,127 @@ impl<'a> Parser<'a> {
         Ok(d)
     }
 
-    /// Script file: a sequence of `@FUNCTION` blocks.
+    /// Script file: a sequence of `@FUNCTION` blocks, compiled now.
     pub fn parse_erb(&mut self, file_idx: u32, src: &SourceFile) {
-        let lines = self.logical_lines(&src.text);
-        let mut fb: Option<FuncBuilder> = None;
+        self.parse_erb_text(file_idx, &src.path, &src.text, None);
+    }
+
+    /// A script file as read from disk (`raw`, at `path`; `rel`: its name
+    /// in messages). With [`compile_lazily`] only the function headers are
+    /// read now.
+    ///
+    /// [`compile_lazily`]: Parser::compile_lazily
+    pub fn parse_erb_file(&mut self, file_idx: u32, rel: &str, path: &std::path::Path, raw: &[u8]) {
+        let text = crate::loader::decode(raw);
+        if let Some(ctx) = &self.lazy {
+            let meta = std::fs::metadata(path).ok();
+            let file = LazyFile {
+                path: path.to_path_buf(),
+                rel: rel.to_string(),
+                sjis: crate::loader::is_sjis(raw),
+                len: raw.len() as u64,
+                mtime: meta.and_then(|m| m.modified().ok()),
+            };
+            if let Some(slot) = ctx.files.get(file_idx as usize) {
+                let _ = slot.set(file);
+            }
+        }
+        self.parse_erb_text(file_idx, rel, &text, Some(raw));
+    }
+
+    fn parse_erb_text(&mut self, file_idx: u32, path: &str, text: &str, raw: Option<&[u8]>) {
+        let (lines, depths) = self.logical_lines(text, 1, 0);
+        // with the file's bytes at hand, bodies can be left for later
+        let lazy = match (&self.lazy, raw) {
+            (Some(ctx), Some(raw)) if ctx.files.get(file_idx as usize).is_some_and(|f| f.get().is_some()) => Some((ctx.clone(), raw)),
+            _ => None,
+        };
+        let starts: Vec<usize> = lines.iter().enumerate().filter(|(_, (_, l))| l.starts_with('@')).map(|(i, _)| i).collect();
+        for (no, _) in &lines[..starts.first().copied().unwrap_or(lines.len())] {
+            self.prog.errors.push(format!("{}:{}: line outside of function", path, no));
+        }
+        let offsets = match &lazy {
+            Some((_, raw)) => line_offsets(raw, starts.iter().map(|&i| lines[i].0)),
+            None => Vec::new(),
+        };
+        let mut ords: HashMap<String, u16> = HashMap::default();
+        for (k, &i0) in starts.iter().enumerate() {
+            let i1 = starts.get(k + 1).copied().unwrap_or(lines.len());
+            let (no, head) = &lines[i0];
+            let mut b = match self.func_header(&head[1..], file_idx, *no) {
+                Ok(b) => b,
+                Err(e) => {
+                    self.prog.errors.push(format!("{}:{}: {}", path, no, e));
+                    for (no, _) in &lines[i0 + 1..i1] {
+                        self.prog.errors.push(format!("{}:{}: line outside of function", path, no));
+                    }
+                    continue;
+                }
+            };
+            self.attributes(&mut b, path, &lines[i0 + 1..i1]);
+            match &lazy {
+                Some((ctx, raw)) => {
+                    let ord = ords.entry(b.f.name.clone()).or_default();
+                    b.f.lazy = Some(LazySrc {
+                        ctx: ctx.clone(),
+                        file: file_idx,
+                        start: offsets[k],
+                        end: offsets.get(k + 1).copied().unwrap_or(raw.len() as u32),
+                        open_ifs: depths.get(k).copied().unwrap_or(0),
+                        ord: *ord,
+                    });
+                    *ord += 1;
+                    self.register(b.f);
+                }
+                None => {
+                    self.statements(&mut b, path, &lines[i0 + 1..i1]);
+                    let f = self.finish(b, path);
+                    self.register(f);
+                }
+            }
+        }
+    }
+
+    /// A function's `#` lines but its `#DIM`s: `#FUNCTION`, `#PRI`…, known
+    /// at load (an event's order, whether it's a #FUNCTION).
+    fn attributes(&mut self, b: &mut FuncBuilder, path: &str, lines: &[(u32, String)]) {
         for (no, line) in lines {
-            if let Some(stripped) = line.strip_prefix('@') {
-                if let Some(b) = fb.take() {
-                    self.finish(b, &src.path);
+            if line.starts_with('#') && !line[1..].get(..3).is_some_and(|d| d.eq_ignore_ascii_case("DIM")) {
+                if let Err(e) = self.directive(b, line) {
+                    self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
                 }
-                match self.func_header(stripped, file_idx, no) {
-                    Ok(b) => fb = Some(b),
-                    Err(e) => self.prog.errors.push(format!("{}:{}: {}", src.path, no, e)),
+            }
+        }
+    }
+
+    /// Compile a function's body: its `#DIM`s first (Emuera only takes
+    /// `#` lines right after the `@` line), then the statements.
+    fn statements(&mut self, b: &mut FuncBuilder, path: &str, lines: &[(u32, String)]) {
+        let file_idx = b.f.file;
+        for (no, line) in lines {
+            if line.starts_with('#') && line[1..].get(..3).is_some_and(|d| d.eq_ignore_ascii_case("DIM")) {
+                b.cur_line = (file_idx, *no);
+                if let Err(e) = self.directive(b, line) {
+                    self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
                 }
+            }
+        }
+        for (no, line) in lines {
+            if line.starts_with('#') {
                 continue;
             }
-            let Some(b) = fb.as_mut() else {
-                self.prog.errors.push(format!("{}:{}: line outside of function", src.path, no));
-                continue;
-            };
-            b.cur_line = (file_idx, no);
-            let r = self.statement(b, &line);
+            b.cur_line = (file_idx, *no);
+            let r = self.statement(b, line);
             if let Some(e) = b.soft_error.take() {
-                self.prog.errors.push(format!("{}:{}: {} :: {}", src.path, no, e, line));
+                self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
             }
             if let Err(e) = r {
-                self.prog.errors.push(format!("{}:{}: {} :: {}", src.path, no, e, line));
+                self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
                 // keep the line's place so a pending SIF guards it, as in Emuera
                 let fatal = !e.starts_with("unknown command");
                 b.emit(Instr::BadLine(format!("{} :: {}", e, line).into(), fatal));
                 Self::after_stmt(b);
             }
-        }
-        if let Some(b) = fb.take() {
-            self.finish(b, &src.path);
         }
     }
 
@@ -602,13 +875,12 @@ impl<'a> Parser<'a> {
         }
         Ok(FuncBuilder {
             soft_error: None,
+            body: Body::default(),
             f: Function {
                 name,
                 params,
-                code: vec![],
-                lines: vec![],
-                labels: HashMap::default(),
-                dims: vec![],
+                body: Default::default(),
+                lazy: None,
                 is_function: false,
                 returns_str: false,
                 order: EventOrder::Normal,
@@ -616,10 +888,8 @@ impl<'a> Parser<'a> {
                 only: false,
                 local_size: 0,
                 locals_size: 0,
-                n_slots: 0,
                 file: file_idx,
                 line,
-                static_cache: Default::default(),
             },
             ctl: vec![],
             sif: vec![],
@@ -628,9 +898,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Close a function: report unclosed blocks and register it. Several
-    /// functions with one name form an event (all are kept).
-    fn finish(&mut self, mut b: FuncBuilder, path: &str) {
+    /// Close a function's body: report unclosed blocks.
+    fn finish(&mut self, mut b: FuncBuilder, path: &str) -> Function {
         if !b.ctl.is_empty() {
             let kinds: Vec<&str> = b
                 .ctl
@@ -651,13 +920,19 @@ impl<'a> Parser<'a> {
         // falling off the end returns without touching RESULT
         b.emit(Instr::ReturnF(None));
         // the program is kept for the whole run: no spare capacity
-        b.f.code.shrink_to_fit();
-        b.f.lines.shrink_to_fit();
-        b.f.dims.shrink_to_fit();
-        b.f.params.shrink_to_fit();
-        b.f.labels.shrink_to_fit();
-        let name = b.f.name.clone();
-        self.prog.funcs.entry(name).or_default().push(Rc::new(b.f));
+        b.body.code.shrink_to_fit();
+        b.body.lines.shrink_to_fit();
+        b.body.dims.shrink_to_fit();
+        b.body.labels.shrink_to_fit();
+        b.f.body = BodyCell::new(Some(b.body));
+        b.f
+    }
+
+    /// Add a function to the program. Several functions with one name
+    /// form an event (all are kept).
+    fn register(&mut self, mut f: Function) {
+        f.params.shrink_to_fit();
+        self.prog.funcs.entry(f.name.clone()).or_default().push(Rc::new(f));
     }
 
     fn is_str_var(&self, b: &FuncBuilder, name: &str) -> bool {
@@ -745,7 +1020,7 @@ impl<'a> Parser<'a> {
         if let Some(label) = line.strip_prefix('$') {
             let label = strip_comment(label).trim().to_uppercase();
             let pc = b.pc();
-            b.f.labels.insert(label, pc);
+            b.body.labels.insert(label, pc);
             return Ok(());
         }
         if line.starts_with('#') {
@@ -1009,7 +1284,7 @@ impl<'a> Parser<'a> {
             "ENDCATCH" => {
                 let Some(Ctl::TryC { call, ends }) = b.ctl.pop() else { return Err("ENDCATCH without TRYC*".into()) };
                 let pc = b.pc();
-                if matches!(&b.f.code[call], Instr::Call(c) if c.catch.is_none()) || matches!(&b.f.code[call], Instr::Goto(g) if g.2.is_none()) {
+                if matches!(&b.body.code[call], Instr::Call(c) if c.catch.is_none()) || matches!(&b.body.code[call], Instr::Goto(g) if g.2.is_none()) {
                     b.patch(call, pc);
                 }
                 for e in ends {
@@ -1061,11 +1336,11 @@ impl<'a> Parser<'a> {
                 let sizes: Vec<i64> = parts.map(|x| x.parse::<i64>().map_err(|_| format!("{}: bad size '{}'", cmd, x))).collect::<Result<_, _>>()?;
                 let name = decl.to_uppercase();
                 let is_array = !sizes.is_empty();
-                if !b.f.dims.iter().any(|d| d.name == name) {
+                if !b.body.dims.iter().any(|d| d.name == name) {
                     if is_str {
                         b.str_locals.insert(name.clone());
                     }
-                    b.f.dims.push(DimDecl {
+                    b.body.dims.push(DimDecl {
                         name: name.clone(),
                         decl_name: decl,
                         is_str,
@@ -1215,7 +1490,7 @@ impl<'a> Parser<'a> {
             if d.is_str {
                 b.str_locals.insert(d.name.clone());
             }
-            b.f.dims.push(d);
+            b.body.dims.push(d);
             return Ok(());
         }
         match up.split_whitespace().next().unwrap_or("") {

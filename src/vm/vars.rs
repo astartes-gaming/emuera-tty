@@ -31,6 +31,14 @@ impl Arr {
         matches!(self.data, Data::S(_))
     }
 
+    /// Heap bytes held (strings included).
+    pub fn bytes(&self) -> usize {
+        match &self.data {
+            Data::I(v) => v.capacity() * 8,
+            Data::S(v) => v.capacity() * 24 + v.iter().map(|s| s.capacity()).sum::<usize>(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match &self.data {
             Data::I(v) => v.len(),
