@@ -170,7 +170,7 @@ impl DataTable {
         let mut hits: Vec<usize> = Vec::new();
         for (i, r) in self.rows.iter().enumerate() {
             let keep = match &pred {
-                Some(p) => truthy(&self.eval(p, r)),
+                Some(p) => self.eval(p, r).truthy(),
                 None => true,
             };
             if keep {
@@ -212,32 +212,48 @@ impl DataTable {
     }
 
     fn cmp_vals(&self, a: &Value, b: &Value) -> Ordering {
+        self.cmp_v(V::of(a), V::of(b))
+    }
+
+    /// Compare two values (case-insensitively unless the table says
+    /// otherwise), without allocating.
+    fn cmp_v(&self, a: V, b: V) -> Ordering {
         match (a, b) {
-            (Value::Int(x), Value::Int(y)) => x.cmp(y),
-            (Value::Str(x), Value::Str(y)) => {
+            (V::Int(x), V::Int(y)) => x.cmp(&y),
+            (V::Str(x), V::Str(y)) => {
                 if self.case_sensitive {
                     x.cmp(y)
+                } else if x.is_ascii() && y.is_ascii() {
+                    x.bytes().map(|c| c.to_ascii_lowercase()).cmp(y.bytes().map(|c| c.to_ascii_lowercase()))
                 } else {
-                    x.to_lowercase().cmp(&y.to_lowercase())
+                    x.chars().flat_map(char::to_lowercase).cmp(y.chars().flat_map(char::to_lowercase))
                 }
             }
             // mixed: compare as numbers when the string is numeric
-            (Value::Int(x), Value::Str(s)) => s.trim().parse::<i64>().map(|y| x.cmp(&y)).unwrap_or_else(|_| x.to_string().cmp(s)),
-            (Value::Str(_), Value::Int(_)) => self.cmp_vals(b, a).reverse(),
+            (V::Int(x), V::Str(s)) => s.trim().parse::<i64>().map(|y| x.cmp(&y)).unwrap_or_else(|_| x.to_string().as_str().cmp(s)),
+            (V::Str(_), V::Int(_)) => self.cmp_v(b, a).reverse(),
+            // (nulls are handled by the callers)
+            (V::Null, V::Null) => Ordering::Equal,
+            (V::Null, _) => Ordering::Less,
+            (_, V::Null) => Ordering::Greater,
         }
     }
 
-    fn eval(&self, f: &Filter, r: &Row) -> Option<Value> {
-        let b = |x: bool| Some(Value::Int(x as i64));
+    /// A filter's value for row `r`, borrowing cells and literals.
+    fn eval<'a>(&'a self, f: &'a Filter, r: &'a Row) -> V<'a> {
+        let b = |x: bool| V::Int(x as i64);
         match f {
-            Filter::Lit(v) => v.clone(),
-            Filter::Col(c) => r[*c].clone(),
-            Filter::Not(x) => b(!truthy(&self.eval(x, r))),
-            Filter::And(x, y) => b(truthy(&self.eval(x, r)) && truthy(&self.eval(y, r))),
-            Filter::Or(x, y) => b(truthy(&self.eval(x, r)) || truthy(&self.eval(y, r))),
+            Filter::Lit(v) => v.as_ref().map_or(V::Null, V::of),
+            Filter::Col(c) => r[*c].as_ref().map_or(V::Null, V::of),
+            Filter::Not(x) => b(!self.eval(x, r).truthy()),
+            Filter::And(x, y) => b(self.eval(x, r).truthy() && self.eval(y, r).truthy()),
+            Filter::Or(x, y) => b(self.eval(x, r).truthy() || self.eval(y, r).truthy()),
             Filter::Cmp(op, x, y) => {
-                let (Some(x), Some(y)) = (self.eval(x, r), self.eval(y, r)) else { return b(false) };
-                let o = self.cmp_vals(&x, &y);
+                let (x, y) = (self.eval(x, r), self.eval(y, r));
+                if matches!(x, V::Null) || matches!(y, V::Null) {
+                    return b(false);
+                }
+                let o = self.cmp_v(x, y);
                 b(match op {
                     CmpOp::Eq => o == Ordering::Equal,
                     CmpOp::Ne => o != Ordering::Equal,
@@ -248,16 +264,26 @@ impl DataTable {
                 })
             }
             Filter::Like(x, pat, neg) => {
-                let Some(v) = self.eval(x, r) else { return b(false) };
-                let (s, p) = if self.case_sensitive { (v.as_string(), pat.clone()) } else { (v.as_string().to_lowercase(), pat.to_lowercase()) };
+                let v = self.eval(x, r);
+                if matches!(v, V::Null) {
+                    return b(false);
+                }
+                let s = v.to_string();
+                let (s, p) = if self.case_sensitive { (s, pat.clone()) } else { (s.to_lowercase(), pat.to_lowercase()) };
                 b(like(&s, &p) != *neg)
             }
             Filter::In(x, list, neg) => {
-                let Some(v) = self.eval(x, r) else { return b(false) };
-                let hit = list.iter().any(|e| self.eval(e, r).is_some_and(|w| self.cmp_vals(&v, &w) == Ordering::Equal));
+                let v = self.eval(x, r);
+                if matches!(v, V::Null) {
+                    return b(false);
+                }
+                let hit = list.iter().any(|e| {
+                    let w = self.eval(e, r);
+                    !matches!(w, V::Null) && self.cmp_v(v, w) == Ordering::Equal
+                });
                 b(hit != *neg)
             }
-            Filter::IsNull(x, neg) => b(self.eval(x, r).is_none() != *neg),
+            Filter::IsNull(x, neg) => b(matches!(self.eval(x, r), V::Null) != *neg),
         }
     }
 
@@ -371,8 +397,35 @@ impl DataTable {
     }
 }
 
-fn truthy(v: &Option<Value>) -> bool {
-    v.as_ref().is_some_and(|v| v.truthy())
+/// A value seen by a filter: borrowed from the table or the filter.
+#[derive(Clone, Copy)]
+enum V<'a> {
+    Null,
+    Int(i64),
+    Str(&'a str),
+}
+
+impl<'a> V<'a> {
+    fn of(v: &'a Value) -> V<'a> {
+        match v {
+            Value::Int(i) => V::Int(*i),
+            Value::Str(s) => V::Str(s),
+        }
+    }
+    fn truthy(self) -> bool {
+        match self {
+            V::Null => false,
+            V::Int(i) => i != 0,
+            V::Str(s) => !s.is_empty(),
+        }
+    }
+    fn to_string(self) -> String {
+        match self {
+            V::Null => String::new(),
+            V::Int(i) => i.to_string(),
+            V::Str(s) => s.to_string(),
+        }
+    }
 }
 
 /// LIKE with `%` / `*` (any run) and `_` (one char) wildcards.

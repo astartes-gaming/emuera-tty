@@ -1031,9 +1031,8 @@ impl Vm {
                     match val {
                         None => a2.clear(),
                         Some(val) => {
-                            for i in 0..a2.len() {
-                                a2.set(i, val.clone());
-                            }
+                            let n = a2.len();
+                            a2.fill(0..n, &val);
                         }
                     }
                 } else {
@@ -1041,8 +1040,9 @@ impl Vm {
                     let base = if a2.dims.len() <= 1 { 0 } else { p.flat - p.flat % rl };
                     let end = end.unwrap_or(rl as i64).max(0) as usize;
                     let val = val.unwrap_or(if a2.is_str() { Value::Str(String::new()) } else { Value::Int(0) });
-                    for i in start.max(0) as usize..end {
-                        a2.set(base + i, val.clone());
+                    let s = start.max(0) as usize;
+                    if s < end {
+                        a2.fill(base + s..base + end, &val);
                     }
                 }
             }

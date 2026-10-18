@@ -128,6 +128,8 @@ pub struct Parser<'a> {
     pub prog: Program,
     /// `_Rename.csv` pairs for `[[name]]` substitution.
     rename: &'a [(String, String)],
+    /// `rename` by name (the first entry wins, as with replacing in order)
+    rename_map: std::sync::Arc<HashMap<String, String>>,
     /// Global `#DIMS` names.
     global_str: HashSet<String>,
     /// `--debug`: keep `;#;` lines and `[IF_DEBUG]` blocks.
@@ -265,7 +267,39 @@ const IGNORED_BLOCKS: &[&str] = &["NOSKIP", "ENDNOSKIP"];
 
 impl<'a> Parser<'a> {
     pub fn new(rename: &'a [(String, String)], debug: bool) -> Self {
-        Parser { prog: Program::default(), rename, global_str: HashSet::default(), debug }
+        let mut m: HashMap<String, String> = HashMap::default();
+        for (k, v) in rename {
+            m.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        Parser { prog: Program::default(), rename, rename_map: std::sync::Arc::new(m), global_str: HashSet::default(), debug }
+    }
+
+    /// `[[name]]` → its `_Rename.csv` replacement, in one pass over the line.
+    fn apply_rename(&self, line: &str) -> String {
+        let mut out = String::with_capacity(line.len());
+        let mut rest = line;
+        while let Some(i) = rest.find("[[") {
+            out.push_str(&rest[..i]);
+            let after = &rest[i + 2..];
+            match after.find("]]") {
+                Some(j) => match self.rename_map.get(&after[..j]) {
+                    Some(v) => {
+                        out.push_str(v);
+                        rest = &after[j + 2..];
+                    }
+                    None => {
+                        out.push_str("[[");
+                        rest = after;
+                    }
+                },
+                None => {
+                    out.push_str(&rest[i..]);
+                    rest = "";
+                }
+            }
+        }
+        out.push_str(rest);
+        out
     }
 
     /// Preprocess raw text into logical (line_no, text) pairs.
@@ -302,10 +336,8 @@ impl<'a> Parser<'a> {
                 line = line[3..].trim().to_string();
             }
             // [[rename]]
-            if line.contains("[[") {
-                for (k, v) in self.rename {
-                    line = line.replace(&format!("[[{}]]", k), v);
-                }
+            if line.contains("[[") && !self.rename_map.is_empty() {
+                line = self.apply_rename(&line);
             }
             // preprocessor lines all start with '['; only they need upper-casing
             let up = if line.starts_with('[') { line.to_uppercase() } else { String::new() };
@@ -389,6 +421,7 @@ impl<'a> Parser<'a> {
         Parser {
             prog: Program { defines: self.prog.defines.clone(), ..Program::default() },
             rename: self.rename,
+            rename_map: self.rename_map.clone(),
             global_str: self.global_str.clone(),
             debug: self.debug,
         }

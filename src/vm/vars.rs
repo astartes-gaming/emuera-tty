@@ -108,6 +108,27 @@ impl Arr {
         }
     }
 
+    /// Set elements `range` to `val` (VARSET), growing a 1-D array to reach
+    /// the end; strings reuse their buffers.
+    pub fn fill(&mut self, range: std::ops::Range<usize>, val: &Value) {
+        if range.is_empty() {
+            return;
+        }
+        self.grow(range.end - 1);
+        let end = range.end.min(self.len());
+        let start = range.start.min(end);
+        match &mut self.data {
+            Data::I(v) => v[start..end].fill(val.as_int()),
+            Data::S(v) => {
+                let s = val.as_string();
+                for x in &mut v[start..end] {
+                    x.clear();
+                    x.push_str(&s);
+                }
+            }
+        }
+    }
+
     pub fn get_i(&self, f: usize) -> i64 {
         match &self.data {
             Data::I(v) => v.get(f).copied().unwrap_or(0),

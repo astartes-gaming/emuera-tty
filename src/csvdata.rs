@@ -75,6 +75,12 @@ pub struct GameCsv {
 }
 
 /// Which name table a variable's last index is resolved against.
+/// Every table `table_for_var` names (so a table fits in a few bits).
+pub const TABLE_NAMES: &[&str] = &[
+    "ABL", "TALENT", "EXP", "MARK", "PALAM", "BASE", "SOURCE", "EX", "ITEM", "TRAIN", "EQUIP", "TEQUIP", "FLAG", "TFLAG", "CFLAG", "TCVAR",
+    "CSTR", "STAIN", "MONEY", "DAY", "TIME", "STRNAME", "TSTR", "SAVESTR", "GLOBAL", "GLOBALS",
+];
+
 pub fn table_for_var(var: &str) -> Option<&'static str> {
     Some(match var {
         "ABL" | "ABLNAME" => "ABL",

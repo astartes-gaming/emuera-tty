@@ -601,9 +601,8 @@ impl Vm {
     /// name in the same function always means the same kind of variable).
     fn var_info(&mut self, v: &VarRef) -> VarInfo {
         let name = &*v.name;
-        let ni = match v.cache.get() {
-            Some(n) => *n,
-            None => {
+        let ni = match v.cache.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => {
                 let table = match table_for_var(name) {
                     Some(t) => Tbl::Static(t),
                     None if self.csv.tables.contains_key(name) => Tbl::Own,
@@ -625,9 +624,10 @@ impl Vm {
                     pseudo: pseudo_var(name),
                     system: system_var(name),
                 };
-                let _ = v.cache.set(n);
+                v.cache.store(n.pack(), std::sync::atomic::Ordering::Relaxed);
                 n
             }
+            packed => NameInfo::unpack(packed),
         };
         // the function's own #DIMs win over everything else
         // skey: its entry in the function's static slot cache
@@ -1033,28 +1033,46 @@ impl Vm {
 
     /// Build a FORM string's text.
     pub fn eval_form(&mut self, f: &Form) -> VmResult<String> {
+        // a lone literal (common for FORM arguments): no building
+        if let [FormPart::Lit(s)] = &f.parts[..] {
+            return Ok(s.clone());
+        }
         let mut out = String::new();
+        self.eval_form_into(f, &mut out)?;
+        Ok(out)
+    }
+
+    fn eval_form_into(&mut self, f: &Form, out: &mut String) -> VmResult<()> {
+        use std::fmt::Write as _;
         for p in &f.parts {
             match p {
                 FormPart::Lit(s) => out.push_str(s),
                 FormPart::Str(e, w, a) | FormPart::Int(e, w, a) => {
-                    let s = self.eval(e)?.into_string();
+                    let v = self.eval(e)?;
                     match w {
                         Some(w) => {
                             let w = self.eval_int(w)?.max(0) as usize;
-                            out.push_str(&pad(&s, w, *a));
+                            out.push_str(&pad(&v.into_string(), w, *a));
                         }
-                        None => out.push_str(&s),
+                        None => match v {
+                            Value::Int(i) => {
+                                let _ = write!(out, "{}", i);
+                            }
+                            Value::Str(s) => out.push_str(&s),
+                        },
                     }
                 }
                 FormPart::Cond(cab) => {
                     let (c, a, b) = &**cab;
-                    let s = if self.eval(c)?.truthy() { self.eval_form(a)? } else { self.eval_form(b)? };
-                    out.push_str(&s);
+                    if self.eval(c)?.truthy() {
+                        self.eval_form_into(a, out)?;
+                    } else {
+                        self.eval_form_into(b, out)?;
+                    }
                 }
             }
         }
-        Ok(out)
+        Ok(())
     }
 
     /// A call inside an expression: user functions first, then built-ins.
@@ -1881,7 +1899,7 @@ pub enum Tbl {
 }
 
 /// What a variable name means whatever function uses it (cached in the
-/// `VarRef`; `Vm::var_info` adds the function's own #DIMs).
+/// `VarRef`, packed in a u64; `Vm::var_info` adds the function's own #DIMs).
 #[derive(Clone, Copy)]
 pub struct NameInfo {
     table: Tbl,
@@ -1906,6 +1924,46 @@ pub struct VarInfo {
     csv_name: bool,
     pseudo: bool,
     system: Option<&'static VarDef>,
+}
+
+impl NameInfo {
+    /// bits 0-5 table (0 none, 1.. TABLE_NAMES + 1, 63 own), 6-8 LOCAL
+    /// family, 9 user #DIM, 10 CHARADATA, 11-12 its dimensions, 13 CSV
+    /// name array, 14 pseudo, 16-31 system variable + 1, 63 set
+    fn pack(&self) -> u64 {
+        let t: u64 = match self.table {
+            Tbl::None => 0,
+            Tbl::Own => 63,
+            Tbl::Static(t) => crate::csvdata::TABLE_NAMES.iter().position(|x| *x == t).map_or(0, |i| i as u64 + 1),
+        };
+        let mut p = t | (self.local_family as u64) << 6;
+        if let Some((chara, dims)) = self.user {
+            p |= 1 << 9 | (chara as u64) << 10 | (dims.min(3) as u64) << 11;
+        }
+        p |= (self.csv_name as u64) << 13 | (self.pseudo as u64) << 14;
+        if let Some(d) = self.system {
+            let i = (d as *const VarDef as usize - vars::SYSTEM_VARS.as_ptr() as usize) / std::mem::size_of::<VarDef>();
+            p |= (i as u64 + 1) << 16;
+        }
+        p | 1 << 63
+    }
+
+    fn unpack(p: u64) -> NameInfo {
+        let table = match p & 63 {
+            0 => Tbl::None,
+            63 => Tbl::Own,
+            i => Tbl::Static(crate::csvdata::TABLE_NAMES[i as usize - 1]),
+        };
+        let sys = (p >> 16) & 0xFFFF;
+        NameInfo {
+            table,
+            local_family: ((p >> 6) & 7) as u8,
+            user: (p & 1 << 9 != 0).then(|| (p & 1 << 10 != 0, ((p >> 11) & 3) as usize)),
+            csv_name: p & 1 << 13 != 0,
+            pseudo: p & 1 << 14 != 0,
+            system: (sys != 0).then(|| &vars::SYSTEM_VARS[sys as usize - 1]),
+        }
+    }
 }
 
 impl std::fmt::Debug for NameInfo {
@@ -1992,5 +2050,32 @@ pub mod prof {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod nameinfo_tests {
+    use super::*;
+
+    #[test]
+    fn pack_roundtrip() {
+        for t in crate::csvdata::TABLE_NAMES {
+            for (local, user) in [(0u8, None), (3, Some((true, 2))), (4, Some((false, 3)))] {
+                let n = NameInfo { table: Tbl::Static(t), local_family: local, user, csv_name: true, pseudo: false, system: system_var("CFLAG") };
+                let u = NameInfo::unpack(n.pack());
+                assert!(matches!(u.table, Tbl::Static(x) if x == *t));
+                assert_eq!((u.local_family, u.user, u.csv_name, u.pseudo), (local, user, true, false));
+                assert!(std::ptr::eq(u.system.unwrap(), system_var("CFLAG").unwrap()));
+            }
+        }
+        // every name table_for_var can give is in TABLE_NAMES
+        for v in ["ABL", "PALAMNAME", "ITEMPRICE", "TRAINNAME", "STR", "GLOBALSNAME", "TIMENAME", "CDOWN"] {
+            assert!(crate::csvdata::TABLE_NAMES.contains(&crate::csvdata::table_for_var(v).unwrap()), "{}", v);
+        }
+        for d in vars::SYSTEM_VARS {
+            let n = NameInfo { table: Tbl::Own, local_family: 0, user: None, csv_name: false, pseudo: true, system: Some(d) };
+            let u = NameInfo::unpack(n.pack());
+            assert!(std::ptr::eq(u.system.unwrap(), d) && matches!(u.table, Tbl::Own) && u.pseudo);
+        }
     }
 }

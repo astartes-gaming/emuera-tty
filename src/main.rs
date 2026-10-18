@@ -412,6 +412,10 @@ fn run(o: Opts) -> i32 {
     }
     if o.check {
         let code = if prog.errors.is_empty() { 0 } else { 1 };
+        #[cfg(feature = "profile")]
+        if let Some((f, g)) = &_pprof {
+            write_pprof(f, g);
+        }
         // the process exits next: don't spend time freeing ~100k functions
         std::mem::forget(prog);
         return code;
