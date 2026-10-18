@@ -27,6 +27,7 @@ mod picker;
 mod regex;
 mod resources;
 mod retro;
+mod savemgr;
 mod settings;
 mod sys;
 mod terminfo;
@@ -60,6 +61,8 @@ struct Opts {
     flow: String,
     /// --size COLSxROWS
     size: Option<(usize, usize)>,
+    /// --saves / --backup-saves
+    saves: Option<&'static str>,
 }
 
 /// Print help; exit 0 when asked for (--help), 2 on bad options.
@@ -80,6 +83,10 @@ fn usage_exit(code: i32) -> ! {
          \x20 --check                          parse the game and report errors only\n\
          \x20 --strict                         unknown commands are errors\n\
          \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
+         \n\
+         saves (also in the F1 overlay: Manage saves):\n\
+         \x20 --saves                          list the game's saves with their comments\n\
+         \x20 --backup-saves                   copy all of them to a new backup folder\n\
          \n\
          retro and serial terminals:\n\
          \x20 --retro[=line]                   drive the terminal from its terminfo entry, ASCII only\n\
@@ -123,6 +130,7 @@ fn parse_args() -> Opts {
         serial_format: "8N1".into(),
         flow: "xon".into(),
         size: None,
+        saves: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -133,6 +141,8 @@ fn parse_args() -> Opts {
             "--debug" => o.debug = true,
             "--echo" => o.echo = true,
             "--choose" => o.choose = true,
+            "--saves" => o.saves = Some("list"),
+            "--backup-saves" => o.saves = Some("backup"),
             "--install" | "--uninstall" | "--upgrade" | "--reset-data" => {
                 let r = match a.as_str() {
                     "--install" => picker::install(),
@@ -262,6 +272,9 @@ fn load_config(game: &std::path::Path, csv_dir: &std::path::Path, con: &mut cons
 /// Load the game and run it; returns the process exit code.
 fn run(o: Opts) -> i32 {
     let Some(game) = choose_game(&o) else { return 0 };
+    if let Some(cmd) = o.saves {
+        return saves_cmd(cmd, &game);
+    }
     let Some(csv_dir) = loader::find_dir_ci(&game, "CSV") else {
         eprintln!("{}: no CSV directory found", game.display());
         return 1;
@@ -408,6 +421,8 @@ fn run(o: Opts) -> i32 {
         }
     }
     vm.strict = o.strict;
+    let sd = vm.save_dir();
+    vm.fe.set_game(&game, &sd);
     let r = vm.run();
     vm.fe.shutdown();
     if vm.defer_warnings {
@@ -478,6 +493,33 @@ fn parallel_chunks<T: Sync, R: Send>(items: &[T], threads: usize, weight: impl F
 /// `f` applied to every item, using up to `threads` threads; order kept.
 fn parallel_map<T: Sync, R: Send>(items: &[T], threads: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     parallel_chunks(items, threads, |_| 1, |c| c.iter().map(&f).collect::<Vec<R>>()).into_iter().flatten().collect()
+}
+
+/// `--saves` / `--backup-saves`.
+fn saves_cmd(cmd: &str, game: &std::path::Path) -> i32 {
+    let dir = savemgr::save_dir_of(game);
+    let root = savemgr::backup_root(game).unwrap_or_else(|| dir.join("backups"));
+    if cmd == "backup" {
+        return match savemgr::backup_all(&dir, &root, "") {
+            Ok((p, n)) => {
+                println!("backed up {} files to {}", n, p.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("emuera-tty: {}", e);
+                1
+            }
+        };
+    }
+    println!("saves in {}:", dir.display());
+    for s in savemgr::list(&dir) {
+        println!("  {:<8} {:<16} {:>9}  {}", s.label(), savemgr::when(s.modified), s.size, s.comment);
+    }
+    let bks = savemgr::backups(&root);
+    if !bks.is_empty() {
+        println!("{} backups in {}", bks.len(), root.display());
+    }
+    0
 }
 
 /// Decide which game folder to run (see `usage`). None: the user cancelled

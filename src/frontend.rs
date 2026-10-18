@@ -116,6 +116,8 @@ pub trait Frontend {
     }
     /// Override the width, for frontends with no real terminal size.
     fn set_cols(&mut self, _cols: usize) {}
+    /// The game folder and where its saves are (for the save manager).
+    fn set_game(&mut self, _game: &std::path::Path, _save_dir: &std::path::Path) {}
     fn shutdown(&mut self) {}
 }
 

@@ -24,6 +24,8 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
+mod saves;
+
 /// How many rows above / below the view are searched for images that
 /// reach into it (portraits are about 15 rows tall).
 const IMG_REACH: usize = 40;
@@ -203,6 +205,8 @@ pub struct Tty {
     button_wrap: bool,
     /// CBG pictures scaled to the terminal, by (fingerprint, size)
     cbg_scaled: std::collections::HashMap<(u64, u32, u32), std::rc::Rc<image::RgbaImage>>,
+    /// the game folder and its save folder, for the save manager
+    game: Option<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -342,6 +346,7 @@ impl Tty {
             last_frame: 0,
             force_frame: false,
             cbg_scaled: std::collections::HashMap::new(),
+            game: None,
             button_wrap: false,
         };
         if xp > 0 && yp > 0 {
@@ -1414,7 +1419,7 @@ impl Tty {
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ITEMS};
         let mut st = Settings::load();
-        let extra = ["Switch game…  (unsaved progress is lost)", "Quit emuera-tty", "Close  (Esc)"];
+        let extra = ["Manage saves…  (copy, export, back up, restore)", "Switch game…  (unsaved progress is lost)", "Quit emuera-tty", "Close  (Esc)"];
         let n = ITEMS.len() + extra.len();
         let mut sel = 0usize;
         let mut note = String::new();
@@ -1466,8 +1471,15 @@ impl Tty {
                 }
             } else if act == 1 {
                 match sel - ITEMS.len() {
-                    0 => break OverlayExit::SwitchGame,
-                    1 => break OverlayExit::Quit,
+                    0 => {
+                        if self.game.is_none() {
+                            note = "no game folder known here".into();
+                        } else if self.save_manager(con, res, req) {
+                            break OverlayExit::Quit;
+                        }
+                    }
+                    1 => break OverlayExit::SwitchGame,
+                    2 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }
@@ -1511,20 +1523,8 @@ impl Tty {
         }
     }
 
-    /// Draw the overlay box; returns its top row (1-based, the title row)
-    /// for mapping clicks.
-    fn draw_overlay(&self, st: &crate::settings::Settings, extra: &[&str], sel: usize, note: &str) -> (usize,) {
-        use crate::settings::ITEMS;
-        let n = ITEMS.len() + extra.len();
-        let w = self.cols.saturating_sub(4).clamp(30, 72);
-        let h = n + 4; // title, rows, help, borders
-        let left = (self.cols.saturating_sub(w)) / 2 + 1;
-        let top = (self.rows.saturating_sub(h)) / 2 + 1;
-        let mut out: Vec<u8> = Vec::new();
-        let inner = w - 2;
-        // fixed colours where the terminal has them: palette colours vary
-        // by theme (Konsole's blue is bright, and bright cyan on it vanishes)
-        let rgb = |fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool| -> String {
+    /// The SGR sequence for an overlay colour pair, in the terminal's depth.
+    fn ov_style(&self, fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool) -> String {
             let b = if bold { "1;" } else { "" };
             match self.color {
                 ColorMode::True => format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2),
@@ -1541,7 +1541,22 @@ impl Tty {
                     format!("\x1b[0;{}{};{}m", b, f, k)
                 }
             }
-        };
+        }
+
+    /// Draw the overlay box; returns its top row (1-based, the title row)
+    /// for mapping clicks.
+    fn draw_overlay(&self, st: &crate::settings::Settings, extra: &[&str], sel: usize, note: &str) -> (usize,) {
+        use crate::settings::ITEMS;
+        let n = ITEMS.len() + extra.len();
+        let w = self.cols.saturating_sub(4).clamp(30, 72);
+        let h = n + 4; // title, rows, help, borders
+        let left = (self.cols.saturating_sub(w)) / 2 + 1;
+        let top = (self.rows.saturating_sub(h)) / 2 + 1;
+        let mut out: Vec<u8> = Vec::new();
+        let inner = w - 2;
+        // fixed colours where the terminal has them: palette colours vary
+        // by theme (Konsole's blue is bright, and bright cyan on it vanishes)
+        let rgb = |fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool| -> String { self.ov_style(fg, bg, bold) };
         let box_bg = (22, 32, 58);
         let frame = rgb((150, 170, 210), box_bg, false);
         let title = rgb((255, 255, 255), box_bg, true);
@@ -1977,6 +1992,9 @@ impl Frontend for Tty {
     }
 
     /// Restore the terminal (mouse off, main screen, cooked mode).
+    fn set_game(&mut self, game: &std::path::Path, save_dir: &std::path::Path) {
+        self.game = Some((game.to_path_buf(), save_dir.to_path_buf()));
+    }
     fn shutdown(&mut self) {
         if !self.active {
             return;
