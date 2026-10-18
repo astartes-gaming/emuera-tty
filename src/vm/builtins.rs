@@ -423,6 +423,25 @@ impl Vm {
 
     /// Elements `start..end` of `v`'s row (end defaults to the row length):
     /// (location, flat index of `start`, values).
+    /// The flat element range `start..end` of `v`'s row, to read in place.
+    fn row_range(&mut self, v: &VarRef, start: i64, end: Option<i64>) -> VmResult<(Loc, std::ops::Range<usize>)> {
+        let (loc, base, len) = self.array_row(v)?;
+        let end = end.unwrap_or(len as i64).min(len as i64).max(0) as usize;
+        let start = (start.max(0) as usize).min(end);
+        Ok((loc, base + start..base + end))
+    }
+
+    /// The row's elements `start..end` as integers (strings are parsed, as
+    /// Value::as_int does).
+    fn row_ints(&mut self, v: &VarRef, start: i64, end: Option<i64>) -> VmResult<Vec<i64>> {
+        let (loc, r) = self.row_range(v, start, end)?;
+        let arr = self.arr_at(&loc).unwrap();
+        Ok(match &arr.data {
+            super::vars::Data::I(vs) => r.map(|k| vs.get(k).copied().unwrap_or(0)).collect(),
+            super::vars::Data::S(_) => r.map(|k| arr.get(k).as_int()).collect(),
+        })
+    }
+
     fn arr_vals(&mut self, v: &VarRef, start: i64, end: Option<i64>) -> VmResult<(Loc, usize, Vec<Value>)> {
         let (loc, base, len) = self.array_row(v)?;
         let end = end.unwrap_or(len as i64).min(len as i64).max(0) as usize;
@@ -2673,8 +2692,8 @@ impl Vm {
                 let v = self.avar(a, 0)?;
                 let st = self.ai(a, 1, 0)?;
                 let en = self.arg(a, 2)?.map(|v| v.as_int());
-                let (_, _, vals) = self.arr_vals(&v, st, en)?;
-                let it = vals.iter().map(|v| v.as_int());
+                let ints = self.row_ints(&v, st, en)?;
+                let it = ints.iter().copied();
                 i(match name {
                     "SUMARRAY" => it.sum(),
                     "MAXARRAY" => it.max().unwrap_or(0),
@@ -2686,8 +2705,19 @@ impl Vm {
                 let target = self.arg(a, 1)?.unwrap_or(Value::Int(0));
                 let st = self.ai(a, 2, 0)?;
                 let en = self.arg(a, 3)?.map(|v| v.as_int());
-                let (_, _, vals) = self.arr_vals(&v, st, en)?;
-                i(vals.iter().filter(|x| **x == target || (x.as_string() == target.as_string())).count() as i64)
+                // counted in place (no copy of the array)
+                let (loc, r) = self.row_range(&v, st, en)?;
+                let arr = self.arr_at(&loc).unwrap();
+                i(match &arr.data {
+                    super::vars::Data::I(vs) => match &target {
+                        Value::Int(t) => r.filter(|k| vs.get(*k).copied().unwrap_or(0) == *t).count(),
+                        Value::Str(t) => r.filter(|k| vs.get(*k).copied().unwrap_or(0).to_string() == *t).count(),
+                    },
+                    super::vars::Data::S(vs) => {
+                        let t = target.as_string();
+                        r.filter(|k| vs.get(*k).map_or("", String::as_str) == t).count()
+                    }
+                } as i64)
             }
             "FINDELEMENT" | "FINDLASTELEMENT" => {
                 // Emuera: a string target is a regular expression; "exact"
@@ -2738,12 +2768,8 @@ impl Vm {
                 let hi = self.ai(a, 2, 0)?;
                 let st = self.ai(a, 3, 0)?;
                 let en = self.arg(a, 4)?.map(|v| v.as_int());
-                let (_, _, vals) = self.arr_vals(&v, st, en)?;
-                i(vals.iter().filter(|x| {
-                    let x = x.as_int();
-                    x >= lo && x < hi
-                })
-                .count() as i64)
+                let ints = self.row_ints(&v, st, en)?;
+                i(ints.iter().filter(|&&x| x >= lo && x < hi).count() as i64)
             }
             "CMATCH" | "SUMCARRAY" | "MAXCARRAY" | "MINCARRAY" | "INRANGECARRAY" => {
                 let v = self.avar(a, 0)?;
@@ -3000,12 +3026,13 @@ impl Vm {
             "LINEISEMPTY" => i(self.con.line_is_empty() as i64),
             "CSVNAME" | "CSVCALLNAME" | "CSVNICKNAME" | "CSVMASTERNAME" => {
                 let no = self.ai(a, 0, 0)?;
-                let t = self.chara_no_template(no).map(|k| self.csv.charas[k].clone());
+                // (borrowed: templates hold every CSV value of a character)
+                let t = self.chara_no_template(no).map(|k| &self.csv.charas[k]);
                 s(t.map(|t| match name {
-                    "CSVNAME" => t.name,
-                    "CSVCALLNAME" => t.callname,
-                    "CSVNICKNAME" => t.nickname,
-                    _ => t.mastername,
+                    "CSVNAME" => t.name.clone(),
+                    "CSVCALLNAME" => t.callname.clone(),
+                    "CSVNICKNAME" => t.nickname.clone(),
+                    _ => t.mastername.clone(),
                 })
                 .unwrap_or_default())
             }
@@ -3016,7 +3043,7 @@ impl Vm {
                     Some(e) => self.eval_index_pub(e, var)?,
                     None => 0,
                 };
-                let t = self.chara_no_template(no).map(|k| self.csv.charas[k].clone());
+                let t = self.chara_no_template(no).map(|k| &self.csv.charas[k]);
                 if var == "CSTR" {
                     return s(t.and_then(|t| t.strs.iter().find(|(v, i, _)| v == "CSTR" && *i == idx).map(|x| x.2.clone())).unwrap_or_default());
                 }
