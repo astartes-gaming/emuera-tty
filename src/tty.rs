@@ -275,6 +275,13 @@ pub struct Tty {
     game: Option<(std::path::PathBuf, std::path::PathBuf)>,
     /// an animated sprite was on the last frame
     animating: bool,
+    /// fbterm: 256 colours through its own escapes
+    fbterm: bool,
+    /// hash of each screen row as last written (0: unknown, write it)
+    row_hash: Vec<u64>,
+    hash_cols: usize,
+    /// something drew over the rows outside `render` (overlay boxes)
+    redraw_all: std::cell::Cell<bool>,
     /// buttons with a `srcb` hover picture (their hover needs a full redraw)
     hover_imgs: std::collections::HashSet<usize>,
 }
@@ -369,8 +376,11 @@ impl Tty {
             Ok("16") => Some(ColorMode::C16),
             _ => None,
         };
-        let detected = if term == "linux" || term.starts_with("fbterm") {
+        let detected = if term == "linux" {
             ColorMode::C16
+        } else if term.starts_with("fbterm") {
+            // with its own escapes (see `sgr`)
+            ColorMode::C256
         } else if colorterm.contains("truecolor") || colorterm.contains("24bit") || term.contains("kitty") || term.contains("foot") || term.contains("direct") {
             ColorMode::True
         } else if term.contains("256") {
@@ -418,6 +428,10 @@ impl Tty {
             cbg_scaled: std::collections::HashMap::new(),
             game: None,
             animating: false,
+            fbterm: term.starts_with("fbterm"),
+            row_hash: Vec::new(),
+            hash_cols: 0,
+            redraw_all: std::cell::Cell::new(true),
             hover_imgs: std::collections::HashSet::new(),
             button_wrap: false,
         };
@@ -983,6 +997,15 @@ impl Tty {
                     let _ = write!(out, ";48;2;{};{};{}", b.0, b.1, b.2);
                 }
             }
+            // fbterm: its own colour escapes after the attributes (terminfo
+            // setaf=\E[1;%p1%d}, setab=\E[2;%p1%d})
+            ColorMode::C256 if self.fbterm => {
+                let _ = write!(out, "m\x1b[1;{}}}", rgb256(fg));
+                if let Some(b) = bg {
+                    let _ = write!(out, "\x1b[2;{}}}", rgb256(b));
+                }
+                return;
+            }
             ColorMode::C256 => {
                 let _ = write!(out, ";38;5;{}", rgb256(fg));
                 if let Some(b) = bg {
@@ -1012,6 +1035,7 @@ impl Tty {
             Some(b) => {
                 let _ = match self.color {
                     ColorMode::True => write!(out, "\x1b[0;48;2;{};{};{}m\x1b[K", b.0, b.1, b.2),
+                    ColorMode::C256 if self.fbterm => write!(out, "\x1b[0m\x1b[2;{}}}\x1b[K", rgb256(b)),
                     ColorMode::C256 => write!(out, "\x1b[0;48;5;{}m\x1b[K", rgb256(b)),
                     ColorMode::C16 => write!(out, "\x1b[0;{}m\x1b[K", 40 + rgb16_bg(b)),
                 };
@@ -1113,7 +1137,11 @@ impl Tty {
         // own on screen: draw one
         let pointer = if self.mice.is_some() { self.mouse } else { None };
         let mut pointer_drawn = false;
+        // each row's bytes, for damage tracking (see `skip_unchanged_rows`)
+        let mut row_bytes: Vec<(usize, usize)> = Vec::with_capacity(view_h);
+        let rows_from = out.len();
         for (sr, row) in visible.iter().enumerate() {
+            let row_start = out.len();
             let _ = write!(out, "\x1b[{};1H", sr + 1);
             let mut col = 0usize;
             let mut last_style: Option<(Style, Option<Rgb>)> = None;
@@ -1165,7 +1193,7 @@ impl Tty {
                 self.btn_map[sr].push((s, col, b));
             }
             self.clear_eol(&mut out);
-            // images on this row (skipping any that start past the edge)
+            row_bytes.push((row_start, out.len()));
         }
         // images: placed by pixel, so a picture can start rows above or
         // below its own line (negative `ypos` stacks portrait layers, each
@@ -1219,9 +1247,12 @@ impl Tty {
             }
         }
         for sr in visible.len()..view_h {
+            let row_start = out.len();
             let _ = write!(out, "\x1b[{};1H", sr + 1);
             self.clear_eol(&mut out);
+            row_bytes.push((row_start, out.len()));
         }
+        let rows_to = out.len();
         if let (Some((px, py)), false) = (pointer, pointer_drawn) {
             // pointer over blank space
             if py < view_h {
@@ -1260,9 +1291,10 @@ impl Tty {
                 self.hover_imgs.insert(i);
             }
         }
+        let mut tip_rows = 0..0;
         if let (Some(b), Some((mx, my))) = (hover, self.mouse) {
             if let Some(tip) = self.buttons.get(b).and_then(|v| con.tooltip_for(v)) {
-                self.draw_tooltip(&mut out, tip, mx, my);
+                tip_rows = self.draw_tooltip(&mut out, tip, mx, my);
             }
         }
         self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
@@ -1289,6 +1321,7 @@ impl Tty {
             con.dirty = false;
             return;
         }
+        let out = self.skip_unchanged_rows(out, (rows_from, rows_to), &row_bytes, &placements, cols, tip_rows);
         if std::env::var_os("EMUERA_DEBUG_FRAMES").is_some() {
             eprintln!("frame {:x} len {} keys {:?}", fp, out.len(), placements.iter().map(|p| p.key.clone()).collect::<Vec<_>>());
         }
@@ -1429,7 +1462,7 @@ impl Tty {
 
     /// A tooltip box next to the pointer at 0-based cell (`mx`, `my`):
     /// below it, or above when there is no room.
-    fn draw_tooltip(&self, out: &mut Vec<u8>, tip: &str, mx: usize, my: usize) {
+    fn draw_tooltip(&self, out: &mut Vec<u8>, tip: &str, mx: usize, my: usize) -> std::ops::Range<usize> {
         let maxw = self.cols.saturating_sub(4).clamp(10, 60);
         let mut lines: Vec<(String, usize)> = Vec::new();
         for para in tip.split('\n') {
@@ -1466,6 +1499,57 @@ impl Tty {
         for (i, (t, tw)) in lines.iter().enumerate() {
             let _ = write!(out, "\x1b[{};{}H{} {}{} \x1b[0m", top + i, left, st, t, " ".repeat(w - 2 - tw));
         }
+        top - 1..top - 1 + h
+    }
+
+    /// Damage tracking: drop from `out` the rows (byte ranges `rows` within
+    /// `out`'s `span`) that are the same as on the terminal already. A row
+    /// is written anyway after anything else drew over it (an overlay, a
+    /// tooltip, a hover repaint), on a forced or resized frame, and where
+    /// the pictures changed for backends that draw them into the cells
+    /// (framebuffer, sixel, iTerm2), so old pixels go.
+    #[allow(clippy::too_many_arguments)]
+    fn skip_unchanged_rows(&mut self, out: Vec<u8>, span: (usize, usize), rows: &[(usize, usize)], placements: &[Placement], cols: usize, tip_rows: std::ops::Range<usize>) -> Vec<u8> {
+        use std::hash::{Hash, Hasher};
+        let full = self.force_frame || self.redraw_all.replace(false) || self.row_hash.len() != rows.len() || self.hash_cols != cols;
+        let ch = self.cell.1.max(1) as i32;
+        // rows under pictures, before and now, when the pictures changed
+        let mut img_rows = vec![false; rows.len()];
+        let cell_images = !matches!(self.gfx.name(), "kitty" | "none");
+        let changed = placements.len() != self.frame_imgs.len()
+            || placements.iter().zip(&self.frame_imgs).any(|(a, b)| a.key != b.key || (a.col, a.row, a.y_off, a.crop_top, a.crop_h) != (b.col, b.row, b.y_off, b.crop_top, b.crop_h));
+        if cell_images && changed {
+            for p in placements.iter().chain(&self.frame_imgs) {
+                let last = p.row + (p.y_off + p.crop_h as i32 + ch - 1) / ch;
+                for r in p.row.max(0)..last.max(0) {
+                    if let Some(f) = img_rows.get_mut(r as usize) {
+                        *f = true;
+                    }
+                }
+            }
+        }
+        let mut hashes = Vec::with_capacity(rows.len());
+        let mut kept = Vec::with_capacity(out.len());
+        kept.extend_from_slice(&out[..span.0]);
+        for (r, &(a, b)) in rows.iter().enumerate() {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            out[a..b].hash(&mut h);
+            let h = h.finish() | 1;
+            if full || img_rows[r] || self.row_hash.get(r) != Some(&h) {
+                kept.extend_from_slice(&out[a..b]);
+            }
+            hashes.push(h);
+        }
+        kept.extend_from_slice(&out[span.1..]);
+        // the tooltip covers these rows now: write them again next time
+        for r in tip_rows {
+            if let Some(h) = hashes.get_mut(r) {
+                *h = 0;
+            }
+        }
+        self.row_hash = hashes;
+        self.hash_cols = cols;
+        kept
     }
 
     /// Does the pointer's move change which hover picture (`srcb`) shows?
@@ -1538,6 +1622,11 @@ impl Tty {
         }
         write_all(&out);
         crate::sys::drain_stdout();
+        for &(_, r, _) in &touched {
+            if let Some(h) = self.row_hash.get_mut(r) {
+                *h = 0;
+            }
+        }
         self.drawn_pointer = new_ptr;
         self.hover = new_hover;
         // images the repainted cells cut into (only the framebuffer draws
@@ -1677,6 +1766,7 @@ impl Tty {
             let b = if bold { "1;" } else { "" };
             match self.color {
                 ColorMode::True => format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2),
+                ColorMode::C256 if self.fbterm => format!("\x1b[0;{}m\x1b[1;{}}}\x1b[2;{}}}", b.trim_end_matches(';'), rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2))),
                 ColorMode::C256 => format!(
                     "\x1b[0;{}38;5;{};48;5;{}m",
                     b,
@@ -1695,6 +1785,7 @@ impl Tty {
     /// Draw the overlay box; returns its top row (1-based, the title row)
     /// for mapping clicks.
     fn draw_overlay(&self, st: &crate::settings::Settings, extra: &[&str], sel: usize, note: &str) -> (usize,) {
+        self.redraw_all.set(true);
         use crate::settings::ITEMS;
         let n = ITEMS.len() + extra.len();
         let w = self.cols.saturating_sub(4).clamp(30, 72);

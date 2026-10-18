@@ -173,6 +173,7 @@ impl Tty {
     /// the action colour), `help` at the bottom; scrolled to show `sel`.
     /// Returns the top row and the first row shown.
     fn draw_list(&self, title: &str, rows: &[String], first_action: usize, sel: usize, help: &str) -> (usize, usize) {
+        self.redraw_all.set(true);
         let vis = rows.len().min(self.rows.saturating_sub(6).max(3));
         let start = sel.saturating_sub(vis.saturating_sub(1)).min(rows.len() - vis);
         let (left, top, inner) = self.box_geo(vis);
@@ -251,6 +252,7 @@ impl Tty {
             self.no_images = true;
             self.render(con, res, Some(req));
             let (left, top, inner) = self.box_geo(2);
+            self.redraw_all.set(true);
             let bg = (22, 32, 58);
             let frame = self.ov_style((150, 170, 210), bg, false);
             let tstyle = self.ov_style((255, 255, 255), bg, true);
