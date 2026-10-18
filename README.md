@@ -34,7 +34,9 @@ untested. Large parts of the Emuera command set are still missing (see
 
 ## 1. What you need
 
-- **Linux** (other Unix-likes may work; Windows does not).
+- **Linux**, **macOS**, **FreeBSD** / the other BSDs, or **Windows 10/11**
+  (in Windows Terminal, or the classic console, which has a VT mode since
+  Windows 10). See [Other systems](#other-systems) for the differences.
 - A **terminal**. Any modern one works for text; see
   [Picking a terminal](#5-picking-a-terminal) for pictures and Japanese text.
 - **Rust** to build it: install with [rustup](https://rustup.rs)
@@ -67,6 +69,28 @@ and tell you to add that to `PATH`, with this line in `~/.bashrc` (or
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+### Other systems
+
+- **macOS / BSD**: the same steps. On macOS, `~/.local/bin` is usually not on
+  PATH, so `--install` picks a writable PATH folder (Homebrew's
+  `/usr/local/bin`) or tells you how to add one. Settings live in
+  `~/.config/emuera-tty`. The Linux-console extras (framebuffer pictures,
+  gpm / `/dev/input/mice` mouse) are Linux-only; everything that goes
+  through the terminal works the same. Fonts for picture text come from
+  fontconfig when it's installed, else the system's Japanese fonts
+  (Hiragino on macOS).
+- **Windows**: install Rust with `rustup-init.exe` (the MSVC toolchain, as
+  rustup suggests), then in PowerShell:
+  `git clone …`, `cd emuera-tty`, `cargo build --release`,
+  `.\target\release\emuera-tty.exe --install`. Run it in **Windows Terminal**
+  (mouse, true colour and sixel pictures in recent versions); the old
+  console window works too but without pictures. Settings go to
+  `%APPDATA%\emuera-tty`, extracted games to `%LOCALAPPDATA%\emuera-tty`;
+  game saves stay in the game's `sav\` as with Emuera, so you can switch
+  between Emuera.exe and emuera-tty. `--serial COM3` drives a terminal on a
+  COM port. Picture text uses MS Gothic / Meiryo / Yu Gothic from
+  `C:\Windows\Fonts`.
 
 ## 3. First run: choose your game
 
@@ -188,8 +212,9 @@ terminal:
 | Terminal | Images | Notes |
 |---|---|---|
 | **kitty**, **WezTerm**, **Ghostty**, Konsole | yes (kitty graphics) | best choice |
-| **foot**, xterm (`-ti vt340`), mlterm, yaft | yes (sixel) | |
-| GNOME Terminal, Alacritty, others | `░` placeholders | fine for playing |
+| **iTerm2** (macOS) | yes (iTerm2 inline images) | |
+| **foot**, xterm (`-ti vt340`), mlterm, yaft, Windows Terminal 1.22+ | yes (sixel) | |
+| macOS Terminal.app, GNOME Terminal, Alacritty, others | `░` placeholders | fine for playing |
 | Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
 | bare Linux console (no fbterm) | yes (framebuffer) | can't show Japanese/Chinese text |
 | real VT100 / VT220 / VT52 / ADM-3A / Wyse…, local or on a **serial line** | no | ASCII, see below |
@@ -204,7 +229,7 @@ terminal:
 - Make the window **wide**: many games lay out menus for ~150 columns.
   If a game warns that the window is too narrow, shrink the font or
   widen the window.
-- `--gfx none` turns images off; `--gfx kitty|sixel|fb` forces a backend
+- `--gfx none` turns images off; `--gfx kitty|iterm|sixel|fb` forces a backend
   if auto-detection guesses wrong.
 
 **On the Linux console** (Ctrl-Alt-F3 etc.):
@@ -304,7 +329,7 @@ emuera-tty [GAME_DIR] [options]
 | Option | |
 |---|---|
 | `--choose` | open the game picker even if a game is remembered |
-| `--gfx auto\|kitty\|sixel\|fb\|none` | image backend (also `EMUERA_GFX`) |
+| `--gfx auto\|kitty\|iterm\|sixel\|fb\|none` | image backend (also `EMUERA_GFX`) |
 | `--check` | parse the game, list errors, exit |
 | `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input |
 | `--strict` | unimplemented commands are errors instead of warnings |
@@ -361,6 +386,7 @@ anywhere, `EMUERA_MOUSE=off` (or `term`) disables it.
 | Environment | Backend | How |
 |---|---|---|
 | `TERM=linux` / `fbterm*` (VT) | **fb** | mmaps `/dev/fb0`, alpha-blends sprites onto the console after each frame. Needs read/write access to the device (`video` group). Cell size = fb resolution ÷ cols/rows. |
+| `TERM_PROGRAM=iTerm.app` / `LC_TERMINAL=iTerm2` | **iterm** | PNG per sprite in `OSC 1337 File=`, sized in whole cells (padded, so never stretched), cached. |
 | kitty graphics reply `_Gi=31;OK` | **kitty** | RGBA transmit once per sprite+size, `a=p` placements, source-rect crop at the screen edge. |
 | DA1 reply contains `4` | **sixel** | median-cut 255-colour quantiser, transparent background, cached per sprite. |
 | otherwise | none | images shown as `░` placeholders of the right size. |
@@ -395,7 +421,8 @@ src/
   terminfo.rs    compiled terminfo reader, tparm, delay padding
   settings.rs    saved settings and the game library (~/.config/emuera-tty/config)
   picker.rs      launcher: game library, folder / archive picker, settings page
-  gfx/{kitty,sixel,fb}.rs
+  sys.rs         platform layer: raw mode, size, input polling (termios / Windows console)
+  gfx/{kitty,iterm,sixel,fb}.rs
 sample/          small test game; ERB/TEST.ERB is a language self-test
 ```
 

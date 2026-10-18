@@ -144,7 +144,7 @@ enum OverlayExit {
 }
 
 pub struct Tty {
-    orig: libc::termios,
+    raw_mode: crate::sys::RawMode,
     gfx: Box<dyn Backend>,
     cell: (u32, u32),
     cols: usize,
@@ -208,14 +208,7 @@ pub struct Tty {
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
 /// when the terminal doesn't report them.
 fn winsize() -> (usize, usize, u32, u32) {
-    unsafe {
-        let mut ws: libc::winsize = std::mem::zeroed();
-        if libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
-            (ws.ws_col as usize, ws.ws_row as usize, ws.ws_xpixel as u32, ws.ws_ypixel as u32)
-        } else {
-            (80, 24, 0, 0)
-        }
-    }
+    crate::sys::winsize().unwrap_or((80, 24, 0, 0))
 }
 
 /// Decode an X10 / urxvt button byte (already minus 32). Releases come as
@@ -293,19 +286,7 @@ impl Tty {
     /// Enter raw mode and the alternate screen, pick colour and graphics
     /// support, open the console mouse if needed, and enable mouse reports.
     pub fn new(gfx_pref: &str) -> Result<Tty, String> {
-        unsafe {
-            if libc::isatty(0) == 0 || libc::isatty(1) == 0 {
-                return Err("stdin/stdout is not a terminal".into());
-            }
-        }
-        let mut orig: libc::termios = unsafe { std::mem::zeroed() };
-        if unsafe { libc::tcgetattr(0, &mut orig) } != 0 {
-            return Err("tcgetattr failed".into());
-        }
-        let mut raw = orig;
-        unsafe { libc::cfmakeraw(&mut raw) };
-        raw.c_oflag |= libc::OPOST | libc::ONLCR;
-        unsafe { libc::tcsetattr(0, libc::TCSANOW, &raw) };
+        let raw_mode = crate::sys::RawMode::enter()?;
         let term = std::env::var("TERM").unwrap_or_default();
         let colorterm = std::env::var("COLORTERM").unwrap_or_default();
         let forced = match std::env::var("EMUERA_COLORS").as_deref() {
@@ -326,7 +307,7 @@ impl Tty {
         let color = forced.unwrap_or(detected);
         let (cols, rows, xp, yp) = winsize();
         let mut t = Tty {
-            orig,
+            raw_mode,
             gfx: Box::new(gfx::NoGfx),
             cell: (8, 16),
             cols,
@@ -394,19 +375,12 @@ impl Tty {
     /// Wait up to `timeout_ms` for input on stdin (and the console mouse);
     /// returns whether anything arrived.
     fn read_bytes(&mut self, timeout_ms: i32) -> bool {
-        let mut pfd = [
-            libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd: self.mice.as_ref().map_or(-1, |m| m.fd()), events: libc::POLLIN, revents: 0 },
-        ];
-        let r = unsafe { libc::poll(pfd.as_mut_ptr(), 2, timeout_ms) };
-        if r <= 0 {
-            return false;
-        }
-        if pfd[0].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 && pfd[0].revents & libc::POLLIN == 0 {
+        let r = crate::sys::poll(timeout_ms, self.mice.as_ref().map_or(-1, |m| m.fd()));
+        if r.hangup {
             self.hangup = true;
             return false;
         }
-        if pfd[1].revents & libc::POLLIN != 0 {
+        if r.extra {
             let (cell, cols, rows) = (self.cell, self.cols, self.rows);
             if let Some(m) = &mut self.mice {
                 for (btn, x, y, press) in m.read(cell, cols, rows) {
@@ -414,28 +388,28 @@ impl Tty {
                 }
             }
         }
-        if pfd[0].revents & libc::POLLIN == 0 {
+        if !r.input {
             return !self.queued.is_empty();
         }
         let mut b = [0u8; 4096];
-        let n = unsafe { libc::read(0, b.as_mut_ptr() as *mut libc::c_void, b.len()) };
-        if n > 0 {
-            self.pending.extend_from_slice(&b[..n as usize]);
-            true
-        } else {
-            // 0: end of input; an error other than "try again"
-            let e = std::io::Error::last_os_error().raw_os_error();
-            if n == 0 || !matches!(e, Some(libc::EINTR) | Some(libc::EAGAIN)) {
-                self.hangup = true;
+        match crate::sys::read_stdin(&mut b) {
+            Ok(n) if n > 0 => {
+                self.pending.extend_from_slice(&b[..n]);
+                true
             }
-            false
+            // an error other than "try again"
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock) => false,
+            // 0: end of input
+            _ => {
+                self.hangup = true;
+                false
+            }
         }
     }
 
     /// Is unread input waiting on stdin right now?
     fn input_waiting(&self) -> bool {
-        let mut pfd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
-        unsafe { libc::poll(&mut pfd, 1, 0) > 0 && pfd.revents & libc::POLLIN != 0 }
+        crate::sys::poll(0, -1).input
     }
 
     /// Send a query and collect the reply until `done` or timeout.
@@ -558,13 +532,18 @@ impl Tty {
         match pref {
             "none" => return,
             "kitty" => self.gfx = Box::new(gfx::kitty::Kitty::new()),
+            "iterm" => self.gfx = Box::new(gfx::iterm::Iterm::new()),
             "sixel" => self.gfx = Box::new(gfx::sixel::Sixel::new()),
             "fb" => {
                 try_fb(self);
             }
             _ => {
+                // iTerm2 says who it is (and has no kitty graphics)
+                let iterm = std::env::var("TERM_PROGRAM").as_deref() == Ok("iTerm.app") || std::env::var("LC_TERMINAL").as_deref() == Ok("iTerm2");
                 if is_vt {
                     try_fb(self);
+                } else if iterm {
+                    self.gfx = Box::new(gfx::iterm::Iterm::new());
                 } else {
                     // kitty graphics query + primary device attributes
                     let r = self.query(
@@ -1210,9 +1189,7 @@ impl Tty {
         self.last_frame = fp;
         self.force_frame = false;
         write_all(&out);
-        unsafe {
-            libc::tcdrain(1);
-        }
+        crate::sys::drain_stdout();
         self.gfx.after_flush(&placements, self.cell);
         self.frame_imgs = placements;
         con.dirty = false;
@@ -1406,9 +1383,7 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H\x1b[?25h", r, c);
         }
         write_all(&out);
-        unsafe {
-            libc::tcdrain(1);
-        }
+        crate::sys::drain_stdout();
         self.drawn_pointer = new_ptr;
         self.hover = new_hover;
         // images the repainted cells cut into (only the framebuffer draws
@@ -1799,11 +1774,8 @@ impl Frontend for Tty {
                         // start over on the launcher (this game's unsaved
                         // progress goes, as the overlay warns)
                         self.shutdown();
-                        if let Ok(exe) = std::env::current_exe() {
-                            use std::os::unix::process::CommandExt;
-                            let e = std::process::Command::new(exe).arg("--choose").exec();
-                            eprintln!("emuera-tty: can't restart: {}", e);
-                        }
+                        let e = crate::sys::exec_self(&["--choose".into()]);
+                        eprintln!("emuera-tty: can't restart: {}", e);
                         return InputResult::Quit;
                     }
                 },
@@ -2017,9 +1989,7 @@ impl Frontend for Tty {
         if let Some(n) = &self.notice {
             eprintln!("emuera-tty: {}", n);
         }
-        unsafe {
-            libc::tcsetattr(0, libc::TCSANOW, &self.orig);
-        }
+        self.raw_mode.restore();
     }
 }
 

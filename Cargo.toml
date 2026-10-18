@@ -10,7 +10,12 @@ encoding_rs = "0.8.42"
 fancy-regex = "0.19.2"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "bmp", "jpeg", "webp"] }
-libc = "0.2.191"
 tar = "0.4"
 unicode-width = "0.2.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_SystemInformation", "Win32_Devices_Communication"] }

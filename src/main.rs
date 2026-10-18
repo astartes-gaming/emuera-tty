@@ -17,6 +17,10 @@ mod fxhash;
 mod gfx;
 mod html;
 mod loader;
+#[cfg(target_os = "linux")]
+mod mice;
+#[cfg(not(target_os = "linux"))]
+#[path = "mice_none.rs"]
 mod mice;
 mod parser;
 mod picker;
@@ -24,6 +28,7 @@ mod regex;
 mod resources;
 mod retro;
 mod settings;
+mod sys;
 mod terminfo;
 mod tty;
 mod xml;
@@ -69,7 +74,7 @@ fn usage_exit(code: i32) -> ! {
          \n\
          options:\n\
          \x20 --choose                         pick a game folder (even if one is remembered)\n\
-         \x20 --gfx auto|kitty|sixel|fb|none   image backend (default auto)\n\
+         \x20 --gfx auto|kitty|iterm|sixel|fb|none image backend (default auto)\n\
          \x20 --headless                       plain stdin/stdout mode (scripts, tests)\n\
          \x20 --echo                           echo inputs in headless mode\n\
          \x20 --check                          parse the game and report errors only\n\
@@ -345,10 +350,7 @@ fn run(o: Opts) -> i32 {
     drop(files);
     // the parse threads leave most of their scratch memory (source text,
     // line copies) cached in glibc's per-thread arenas: give it back
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    unsafe {
-        libc::malloc_trim(0);
-    }
+    sys::trim_memory();
     let res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
     // saved settings (options and EMUERA_* variables win)
     let st = settings::Settings::load();
@@ -481,7 +483,7 @@ fn parallel_map<T: Sync, R: Send>(items: &[T], threads: usize, f: impl Fn(&T) ->
 /// Decide which game folder to run (see `usage`). None: the user cancelled
 /// the picker (or there is nothing to run, already reported).
 fn choose_game(o: &Opts) -> Option<PathBuf> {
-    let interactive = !o.headless && !o.check && unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 };
+    let interactive = !o.headless && !o.check && sys::is_tty();
     // an explicit folder is used as-is; only picker choices are remembered
     if let Some(g) = &o.game {
         if archive::is_archive(g) {

@@ -37,10 +37,7 @@ pub fn is_archive(path: &Path) -> bool {
 fn dest_for(archive: &Path) -> Option<PathBuf> {
     let name = archive.file_name()?.to_string_lossy().to_string();
     let stem = &name[..name.len() - suffix(archive)?.len()];
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))?;
+    let base = crate::sys::data_base()?;
     Some(base.join("emuera-tty").join("games").join(stem))
 }
 

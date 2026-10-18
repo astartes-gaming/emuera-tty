@@ -5,7 +5,12 @@
 //! rows) and hands each frame's [`Placement`]s to the chosen [`Backend`],
 //! which only knows *how* to put pixels on that kind of terminal.
 
+#[cfg(target_os = "linux")]
 pub mod fb;
+#[cfg(not(target_os = "linux"))]
+#[path = "fb_none.rs"]
+pub mod fb;
+pub mod iterm;
 pub mod kitty;
 pub mod sixel;
 
@@ -29,7 +34,7 @@ pub struct Placement {
 
 /// One way of showing images. All hooks default to doing nothing.
 pub trait Backend {
-    /// "kitty", "sixel", "fb" or "none" (for the startup message).
+    /// "kitty", "iterm", "sixel", "fb" or "none" (for the startup message).
     fn name(&self) -> &'static str;
     /// Called before text is written for a frame (e.g. delete old placements).
     fn begin(&mut self, _out: &mut Vec<u8>) {}

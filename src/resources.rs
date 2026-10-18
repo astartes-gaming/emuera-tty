@@ -214,9 +214,42 @@ fn font_for(name: &str) -> Option<std::sync::Arc<ab_glyph::FontVec>> {
             let data = std::fs::read(f).ok()?;
             ab_glyph::FontVec::try_from_vec_and_index(data, i.trim().parse().unwrap_or(0)).ok()
         })
+        .or_else(|| system_font_file(name))
         .map(Arc::new);
     cache.lock().ok()?.insert(name.to_string(), found.clone());
     found
+}
+
+/// Without fontconfig (Windows, macOS): the usual Japanese system fonts,
+/// the requested one first.
+fn system_font_file(name: &str) -> Option<ab_glyph::FontVec> {
+    let n = name.to_lowercase().replace([' ', '　'], "");
+    let mut c: Vec<(std::path::PathBuf, u32)> = Vec::new();
+    if cfg!(windows) {
+        let dir = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into())).join("Fonts");
+        let proportional = n.contains("pgothic") || n.contains("ｐゴシック") || n.contains("pゴシック");
+        if n.contains("meiryo") || n.contains("メイリオ") {
+            c.push((dir.join("meiryo.ttc"), 0));
+        }
+        if n.contains("yugoth") || n.contains("游ゴシック") {
+            c.push((dir.join("YuGothM.ttc"), 0));
+        }
+        if n.contains("biz") {
+            c.push((dir.join("BIZ-UDGothicR.ttc"), 0));
+        }
+        if n.contains("mincho") || n.contains("明朝") {
+            c.push((dir.join("msmincho.ttc"), if proportional { 1 } else { 0 }));
+        }
+        // MS Gothic is the first face of msgothic.ttc, MS PGothic the third
+        c.push((dir.join("msgothic.ttc"), if proportional { 2 } else { 0 }));
+        c.push((dir.join("meiryo.ttc"), 0));
+        c.push((dir.join("YuGothM.ttc"), 0));
+    } else if cfg!(target_os = "macos") {
+        for f in ["/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/Supplemental/Osaka.ttf", "/Library/Fonts/Osaka.ttf", "/Library/Fonts/Arial Unicode.ttf", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"] {
+            c.push((f.into(), 0));
+        }
+    }
+    c.into_iter().find_map(|(f, i)| ab_glyph::FontVec::try_from_vec_and_index(std::fs::read(f).ok()?, i).ok())
 }
 
 /// Is `name` a fixed-pitch Japanese font (or the default, MS Gothic)?

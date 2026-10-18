@@ -124,22 +124,8 @@ mod chrono_like {
         pub ms: i64,
     }
     pub fn now() -> DateTime {
-        unsafe {
-            let mut tv: libc::timeval = std::mem::zeroed();
-            libc::gettimeofday(&mut tv, std::ptr::null_mut());
-            let t: libc::time_t = tv.tv_sec;
-            let mut tm: libc::tm = std::mem::zeroed();
-            libc::localtime_r(&t, &mut tm);
-            DateTime {
-                y: tm.tm_year as i64 + 1900,
-                mo: tm.tm_mon as i64 + 1,
-                d: tm.tm_mday as i64,
-                h: tm.tm_hour as i64,
-                mi: tm.tm_min as i64,
-                s: tm.tm_sec as i64,
-                ms: (tv.tv_usec / 1000) as i64,
-            }
-        }
+        let t = crate::sys::now();
+        DateTime { y: t.y, mo: t.mo, d: t.d, h: t.h, mi: t.mi, s: t.s, ms: t.ms }
     }
 }
 
@@ -801,9 +787,7 @@ impl Vm {
             "QUIT_AND_RESTART" | "FORCE_QUIT_AND_RESTART" => {
                 // start the game again from scratch: run this program anew
                 self.fe.shutdown();
-                use std::os::unix::process::CommandExt;
-                let exe = std::env::current_exe().map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
-                let e = std::process::Command::new(exe).args(std::env::args_os().skip(1)).exec();
+                let e = crate::sys::exec_self(&std::env::args_os().skip(1).collect::<Vec<_>>());
                 return err(format!("{}: {}", name, e));
             }
             // as in Emuera, which doesn't implement these either

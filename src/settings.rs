@@ -28,7 +28,7 @@ pub struct Item {
 }
 
 pub const ITEMS: &[Item] = &[
-    Item { key: "images", label: "Images", choices: &["auto", "kitty", "sixel", "fb", "none"], live: true, help: "how pictures are drawn (auto: whatever the terminal supports)" },
+    Item { key: "images", label: "Images", choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"], live: true, help: "how pictures are drawn (auto: whatever the terminal supports)" },
     Item { key: "colors", label: "Colours", choices: &["auto", "truecolor", "256", "16"], live: true, help: "colour depth sent to the terminal" },
     Item {
         key: "contrast",
@@ -66,10 +66,7 @@ pub struct Settings {
 
 /// `$XDG_CONFIG_HOME/emuera-tty/config` (default `~/.config/…`).
 pub fn config_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    let base = crate::sys::config_base()?;
     Some(base.join("emuera-tty").join("config"))
 }
 

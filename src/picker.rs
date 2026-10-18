@@ -109,20 +109,12 @@ fn browse_start(st: &crate::settings::Settings) -> PathBuf {
     st.last
         .as_ref()
         .and_then(|g| g.parent().map(|p| p.to_path_buf()))
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .or_else(crate::sys::home_dir)
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
-    let mut orig: libc::termios = unsafe { std::mem::zeroed() };
-    if unsafe { libc::isatty(0) == 0 || libc::isatty(1) == 0 || libc::tcgetattr(0, &mut orig) != 0 } {
-        return None;
-    }
-    let mut raw = orig;
-    unsafe {
-        libc::cfmakeraw(&mut raw);
-        libc::tcsetattr(0, libc::TCSANOW, &raw);
-    }
+    let raw_mode = crate::sys::RawMode::enter().ok()?;
     let term = std::env::var("TERM").unwrap_or_default();
     let is_vt = term == "linux" || term.starts_with("fbterm");
     let mice = if crate::mice::Mice::wanted(is_vt) { crate::mice::Mice::open().ok() } else { None };
@@ -143,7 +135,7 @@ fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
     p.load();
     let chosen = p.run();
     out(b"\x1b[?1006l\x1b[?1015l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
-    unsafe { libc::tcsetattr(0, libc::TCSANOW, &orig) };
+    raw_mode.restore();
     chosen
 }
 
@@ -154,9 +146,7 @@ fn out(b: &[u8]) {
 }
 
 fn term_size() -> (usize, usize) {
-    let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
-    unsafe { libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) };
-    if ws.ws_col == 0 { (80, 24) } else { (ws.ws_col as usize, ws.ws_row as usize) }
+    crate::sys::winsize().map_or((80, 24), |(c, r, _, _)| (c, r))
 }
 
 /// `s` cut to `w` display cells.
@@ -358,8 +348,8 @@ impl Picker {
                 }
                 Act::Up => self.go_up(),
                 Act::Home => {
-                    if let Some(h) = std::env::var_os("HOME") {
-                        self.cd(PathBuf::from(h));
+                    if let Some(h) = crate::sys::home_dir() {
+                        self.cd(h);
                     }
                 }
                 Act::ToggleHidden => {
@@ -513,15 +503,15 @@ impl Picker {
                 self.pending.drain(..used);
                 return a;
             }
-            let mut pfd = [
-                libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: self.mice.as_ref().map_or(-1, |m| m.fd()), events: libc::POLLIN, revents: 0 },
-            ];
-            if unsafe { libc::poll(pfd.as_mut_ptr(), 2, 500) } <= 0 {
+            let r = crate::sys::poll(500, self.mice.as_ref().map_or(-1, |m| m.fd()));
+            if r.hangup {
+                return Act::Cancel;
+            }
+            if !r.input && !r.extra {
                 // redraw on resize
                 return Act::None;
             }
-            if pfd[1].revents & libc::POLLIN != 0 {
+            if r.extra {
                 let (cols, rows) = term_size();
                 let evs = self.mice.as_mut().map(|m| m.read((8, 16), cols, rows)).unwrap_or_default();
                 for (btn, _x, y, press) in evs {
@@ -530,13 +520,13 @@ impl Picker {
                     }
                 }
             }
-            if pfd[0].revents & libc::POLLIN != 0 {
+            if r.input {
                 let mut b = [0u8; 256];
-                let n = unsafe { libc::read(0, b.as_mut_ptr() as *mut libc::c_void, b.len()) };
-                if n <= 0 {
-                    return Act::Cancel;
+                match crate::sys::read_stdin(&mut b) {
+                    Ok(n) if n > 0 => self.pending.extend_from_slice(&b[..n]),
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock) => {}
+                    _ => return Act::Cancel,
                 }
-                self.pending.extend_from_slice(&b[..n as usize]);
             }
         }
     }
@@ -578,8 +568,7 @@ impl Picker {
         }
         if b.len() == 1 {
             // lone ESC unless more bytes arrive right away
-            let mut pfd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
-            return if unsafe { libc::poll(&mut pfd, 1, 30) } > 0 { None } else { Some((Act::Cancel, 1)) };
+            return if crate::sys::poll(30, -1).input { None } else { Some((Act::Cancel, 1)) };
         }
         if b[1] != b'[' {
             return Some((Act::None, 2));
@@ -656,9 +645,7 @@ pub fn install() -> Result<String, String> {
 
 /// Can we write into `d` (an existing folder)?
 fn writable(d: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(c) = std::ffi::CString::new(d.as_os_str().as_bytes()) else { return false };
-    d.is_dir() && unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 }
+    crate::sys::dir_writable(d)
 }
 
 /// Where `--install` puts the program: a folder on the default `$PATH`, so
@@ -671,10 +658,10 @@ fn writable(d: &Path) -> bool {
 /// 4. failing all that, `$XDG_BIN_HOME` or `~/.local/bin` (created; the
 ///    install message then says how to add it to PATH).
 pub fn bin_dir() -> Result<PathBuf, String> {
-    let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?);
+    let home = crate::sys::home_dir().ok_or("HOME is not set")?;
     let xdg = std::env::var_os("XDG_BIN_HOME").map(PathBuf::from).filter(|p| p.is_absolute());
     let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|d| d.is_absolute()).collect()).unwrap_or_default();
-    if let Some(d) = path.iter().find(|d| d.join("emuera-tty").is_file() && writable(d)) {
+    if let Some(d) = path.iter().find(|d| d.join(crate::sys::EXE_NAME).is_file() && writable(d)) {
         return Ok(d.clone());
     }
     let usual: Vec<PathBuf> = xdg.iter().cloned().chain([home.join(".local").join("bin"), home.join("bin")]).collect();
@@ -692,21 +679,31 @@ pub fn bin_dir() -> Result<PathBuf, String> {
 /// Copy the binary `exe` to the user binary folder ([`bin_dir`]).
 fn install_from(exe: &Path) -> Result<String, String> {
     let dir = bin_dir()?;
-    let dest = dir.join("emuera-tty");
+    let dest = dir.join(crate::sys::EXE_NAME);
     if dest.canonicalize().ok() == exe.canonicalize().ok() {
         return Ok(format!("{} is already installed.", dest.display()));
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
     // write beside the target and rename, so replacing a running copy is safe
     let tmp = dir.join(".emuera-tty.new");
+    // Windows can't replace a running program, but can rename it aside
+    #[cfg(windows)]
+    if dest.exists() {
+        let old = dir.join(".emuera-tty.old.exe");
+        let _ = std::fs::remove_file(&old);
+        let _ = std::fs::rename(&dest, &old);
+    }
     std::fs::copy(exe, &tmp).map_err(|e| format!("{}: {}", tmp.display(), e))?;
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+    crate::sys::set_executable(&tmp).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &dest).map_err(|e| format!("{}: {}", dest.display(), e))?;
     let on_path = std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d == dir));
     let mut msg = format!("Installed {}.", dest.display());
     if !on_path {
-        msg += &format!("\n{} is not on your PATH; add this to ~/.bashrc or ~/.profile:\n  export PATH=\"{}:$PATH\"", dir.display(), dir.display());
+        if cfg!(windows) {
+            msg += &format!("\n{} is not on your PATH; add it with (then open a new terminal):\n  setx PATH \"%PATH%;{}\"", dir.display(), dir.display());
+        } else {
+            msg += &format!("\n{} is not on your PATH; add this to ~/.bashrc or ~/.profile:\n  export PATH=\"{}:$PATH\"", dir.display(), dir.display());
+        }
     }
     Ok(msg)
 }
@@ -715,10 +712,10 @@ fn install_from(exe: &Path) -> Result<String, String> {
 pub fn uninstall() -> Result<String, String> {
     // the copy the shell would run, else where --install would put it
     let on_path = std::env::var_os("PATH")
-        .and_then(|p| std::env::split_paths(&p).map(|d| d.join("emuera-tty")).find(|f| f.is_file() && f.parent().is_some_and(writable)));
+        .and_then(|p| std::env::split_paths(&p).map(|d| d.join(crate::sys::EXE_NAME)).find(|f| f.is_file() && f.parent().is_some_and(writable)));
     let dest = match on_path {
         Some(f) => f,
-        None => bin_dir()?.join("emuera-tty"),
+        None => bin_dir()?.join(crate::sys::EXE_NAME),
     };
     match std::fs::remove_file(&dest) {
         Ok(()) => Ok(format!("Removed {}.", dest.display())),
@@ -741,11 +738,7 @@ pub fn reset_data() -> Result<String, String> {
 
 /// Where `--upgrade` keeps its checkout: `$XDG_DATA_HOME/emuera-tty/src`.
 fn source_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))?;
-    Some(base.join("emuera-tty").join("src"))
+    Some(crate::sys::data_base()?.join("emuera-tty").join("src"))
 }
 
 pub const REPO_URL: &str = "https://github.com/astartes-gaming/emuera-tty.git";
@@ -775,16 +768,17 @@ pub fn upgrade() -> Result<String, String> {
         run_cmd(Command::new("git").args(["clone", "--depth", "1", REPO_URL]).arg(&src))?;
     }
     // cargo from PATH, else rustup's default location
-    let cargo = std::env::var_os("HOME")
-        .map(|h| PathBuf::from(h).join(".cargo").join("bin").join("cargo"))
+    let cargo = crate::sys::home_dir()
+        .map(|h| h.join(".cargo").join("bin").join(if cfg!(windows) { "cargo.exe" } else { "cargo" }))
         .filter(|c| c.is_file() && which("cargo").is_none())
         .unwrap_or_else(|| PathBuf::from("cargo"));
     run_cmd(Command::new(cargo).arg("build").arg("--release").arg("--manifest-path").arg(src.join("Cargo.toml")))?;
-    let built = src.join("target").join("release").join("emuera-tty");
+    let built = src.join("target").join("release").join(crate::sys::EXE_NAME);
     install_from(&built)
 }
 
 /// First `name` on PATH.
 fn which(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(name)).find(|p| p.is_file())
+    let exe = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(&exe)).find(|p| p.is_file())
 }

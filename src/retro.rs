@@ -18,6 +18,7 @@ use crate::terminfo::{self as ti, TermInfo};
 use std::time::{Duration, Instant};
 
 /// Where the terminal is: our own stdin/stdout, or a serial device.
+#[cfg(unix)]
 pub struct Port {
     in_fd: i32,
     out_fd: i32,
@@ -37,7 +38,16 @@ pub struct SerialOpts {
     pub flow: String,
 }
 
+#[cfg(unix)]
 fn baud_const(b: u32) -> Option<libc::speed_t> {
+    // the BSDs and macOS: a speed is the baud rate itself
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    if [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].contains(&b) {
+        return Some(b as libc::speed_t);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    return None;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     Some(match b {
         50 => libc::B50,
         75 => libc::B75,
@@ -63,6 +73,7 @@ fn baud_const(b: u32) -> Option<libc::speed_t> {
     })
 }
 
+#[cfg(unix)]
 fn speed_baud(s: libc::speed_t) -> u32 {
     for b in [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600] {
         if baud_const(b) == Some(s) {
@@ -73,6 +84,7 @@ fn speed_baud(s: libc::speed_t) -> u32 {
     38400
 }
 
+#[cfg(unix)]
 impl Port {
     /// The terminal we were started on, in raw mode.
     pub fn local() -> Result<Port, String> {
@@ -211,11 +223,177 @@ impl Port {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Port {
     fn drop(&mut self) {
         self.restore();
         if self.owned {
             unsafe { libc::close(self.in_fd) };
+        }
+    }
+}
+
+/// Where the terminal is: the console, or a COM port.
+#[cfg(windows)]
+pub struct Port {
+    /// a COM port we opened (closed on drop); None: the console
+    com: Option<usize>,
+    raw: Option<crate::sys::RawMode>,
+    /// line speed, for delay padding and how long to wait for a key's rest
+    pub baud: u32,
+    /// a serial line rather than the console
+    owned: bool,
+}
+
+#[cfg(windows)]
+impl Port {
+    /// The console we were started on, in raw mode.
+    pub fn local() -> Result<Port, String> {
+        let raw = crate::sys::RawMode::enter_with(true)?;
+        Ok(Port { com: None, baud: 38400, raw: Some(raw), owned: false })
+    }
+
+    /// Open and configure a COM port (`COM1`, `\\.\COM10`…).
+    pub fn serial(dev: &str, o: &SerialOpts) -> Result<Port, String> {
+        use windows_sys::Win32::Devices::Communication::*;
+        use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Storage::FileSystem::{CreateFileW, OPEN_EXISTING};
+        let f = o.format.to_ascii_uppercase();
+        let fb: Vec<char> = f.chars().collect();
+        if fb.len() != 3 || !matches!(fb[0], '5'..='8') || !matches!(fb[1], 'N' | 'E' | 'O') || !matches!(fb[2], '1' | '2') {
+            return Err(format!("bad serial format {:?} (want e.g. 8N1, 7E1)", o.format));
+        }
+        let name = if dev.starts_with(r"\\.\") { dev.to_string() } else { format!(r"\\.\{}", dev) };
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            let h = CreateFileW(wide.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, 0, std::ptr::null_mut());
+            if h == INVALID_HANDLE_VALUE {
+                return Err(format!("{}: {}", dev, std::io::Error::last_os_error()));
+            }
+            let mut dcb: DCB = std::mem::zeroed();
+            dcb.DCBlength = std::mem::size_of::<DCB>() as u32;
+            if GetCommState(h, &mut dcb) == 0 {
+                CloseHandle(h);
+                return Err(format!("{}: not a serial port", dev));
+            }
+            dcb.BaudRate = o.baud;
+            dcb.ByteSize = fb[0] as u8 - b'0';
+            dcb.Parity = match fb[1] {
+                'E' => EVENPARITY,
+                'O' => ODDPARITY,
+                _ => NOPARITY,
+            };
+            dcb.StopBits = if fb[2] == '2' { TWOSTOPBITS } else { ONESTOPBIT };
+            // bit fields: fBinary 0, fParity 1, fOutxCtsFlow 2, fDtrControl
+            // 4-5, fOutX 8, fInX 9, fRtsControl 12-13
+            let mut bits: u32 = 1 | (1 << 4);
+            if fb[1] != 'N' {
+                bits |= 1 << 1;
+            }
+            match o.flow.as_str() {
+                "rts" | "rtscts" | "hw" => bits |= (1 << 2) | (2 << 12),
+                "none" | "off" => bits |= 1 << 12,
+                _ => {
+                    bits |= (1 << 8) | (1 << 9) | (1 << 12);
+                    dcb.XonChar = 0x11;
+                    dcb.XoffChar = 0x13;
+                    dcb.XonLim = 64;
+                    dcb.XoffLim = 64;
+                }
+            }
+            dcb._bitfield = bits;
+            if SetCommState(h, &dcb) == 0 {
+                CloseHandle(h);
+                return Err(format!("{}: can't configure the line (baud {}?)", dev, o.baud));
+            }
+            Ok(Port { com: Some(h as usize), baud: o.baud, raw: None, owned: true })
+        }
+    }
+
+    fn write(&self, b: &[u8]) {
+        match self.com {
+            Some(h) => {
+                use windows_sys::Win32::Storage::FileSystem::WriteFile;
+                let mut off = 0;
+                while off < b.len() {
+                    let mut n = 0u32;
+                    if unsafe { WriteFile(h as _, b[off..].as_ptr(), (b.len() - off) as u32, &mut n, std::ptr::null_mut()) } == 0 || n == 0 {
+                        return;
+                    }
+                    off += n as usize;
+                }
+            }
+            None => {
+                use std::io::Write;
+                let mut o = std::io::stdout().lock();
+                let _ = o.write_all(b);
+                let _ = o.flush();
+            }
+        }
+    }
+
+    /// Bytes waiting within `timeout_ms`; None when the line is gone.
+    fn read(&self, timeout_ms: i32) -> Option<Vec<u8>> {
+        let mut b = [0u8; 256];
+        match self.com {
+            Some(h) => {
+                use windows_sys::Win32::Devices::Communication::{SetCommTimeouts, COMMTIMEOUTS};
+                use windows_sys::Win32::Storage::FileSystem::ReadFile;
+                // return as soon as a byte is there, else after the timeout
+                let t = COMMTIMEOUTS {
+                    ReadIntervalTimeout: u32::MAX,
+                    ReadTotalTimeoutMultiplier: u32::MAX,
+                    ReadTotalTimeoutConstant: if timeout_ms < 0 { u32::MAX - 1 } else { (timeout_ms as u32).max(1) },
+                    WriteTotalTimeoutMultiplier: 0,
+                    WriteTotalTimeoutConstant: 0,
+                };
+                let mut n = 0u32;
+                unsafe {
+                    SetCommTimeouts(h as _, &t);
+                    if ReadFile(h as _, b.as_mut_ptr(), b.len() as u32, &mut n, std::ptr::null_mut()) == 0 {
+                        return None;
+                    }
+                }
+                Some(b[..n as usize].to_vec())
+            }
+            None => {
+                let r = crate::sys::poll(timeout_ms, -1);
+                if r.hangup {
+                    return None;
+                }
+                if !r.input {
+                    return Some(Vec::new());
+                }
+                match crate::sys::read_stdin(&mut b) {
+                    Ok(0) => None,
+                    Ok(n) => Some(b[..n].to_vec()),
+                    Err(_) => Some(Vec::new()),
+                }
+            }
+        }
+    }
+
+    /// Console size (0 on a serial line: unknown).
+    fn winsize(&self) -> (usize, usize) {
+        match self.com {
+            Some(_) => (0, 0),
+            None => crate::sys::winsize().map_or((0, 0), |(c, r, _, _)| (c, r)),
+        }
+    }
+
+    fn restore(&mut self) {
+        if let Some(r) = self.raw.take() {
+            r.restore();
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Port {
+    fn drop(&mut self) {
+        self.restore();
+        if let Some(h) = self.com.take() {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(h as _) };
         }
     }
 }
