@@ -636,7 +636,12 @@ impl Tty {
             // gpm first (works without extra permissions), else the device
             let gpm = if std::env::var("EMUERA_MOUSE").as_deref() == Ok("mice") { Err(String::new()) } else { crate::mice::Mice::open_gpm() };
             match gpm.or_else(|_| crate::mice::Mice::open()) {
-                Ok(m) => t.mice = Some(m),
+                Ok(m) => {
+                    t.mice = Some(m);
+                    // the pointer shows from the start, mid-screen, until
+                    // the mouse moves it
+                    t.mouse = Some((t.cols / 2, t.rows / 2));
+                }
                 Err(e) => {
                     // shown on the input line (and again on exit): the
                     // startup text is gone once the screen is drawn
