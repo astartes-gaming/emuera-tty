@@ -363,6 +363,18 @@ fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>) -> (usize, usize, char
     (tw, extra, fill)
 }
 
+/// Text from the game safe to write into a box: a tab becomes a space,
+/// other control characters go (CR and LF stay for the caller to split
+/// lines at); written raw they would move the cursor.
+pub(crate) fn printable(s: &str) -> String {
+    s.chars().filter_map(|c| match c {
+        '\t' => Some(' '),
+        '\r' | '\n' => Some(c),
+        c if c.is_control() => None,
+        c => Some(c),
+    }).collect()
+}
+
 /// Strategy for East Asian "ambiguous width" characters (`━ ■ ※ …`).
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Ambi {
@@ -1504,7 +1516,11 @@ impl Tty {
     fn draw_tooltip(&self, out: &mut Vec<u8>, tip: &str, mx: usize, my: usize) -> std::ops::Range<usize> {
         let maxw = self.cols.saturating_sub(4).clamp(10, 60);
         let mut lines: Vec<(String, usize)> = Vec::new();
-        for para in tip.split('\n') {
+        // games break tooltip lines with CR (`UNICODE(0x000D)`, AnonTW's
+        // map) as well as LF; written raw, a CR sends the cursor to the
+        // left edge and the rest lands over the screen
+        let tip = printable(&tip.replace("\r\n", "\n"));
+        for para in tip.split(['\r', '\n']) {
             let (mut cur, mut w) = (String::new(), 0usize);
             for word in para.split(' ') {
                 let ww: usize = word.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();

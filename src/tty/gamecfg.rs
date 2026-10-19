@@ -20,7 +20,7 @@ fn width(s: &str) -> usize {
 fn fit(s: &str, w: usize) -> String {
     let mut out = String::new();
     let mut used = 0;
-    for c in s.chars() {
+    for c in s.chars().map(|c| if c.is_control() { ' ' } else { c }) {
         let cw = UnicodeWidthChar::width(c).unwrap_or(0);
         if used + cw > w {
             break;
