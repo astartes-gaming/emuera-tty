@@ -2573,10 +2573,11 @@ impl Tty {
         self.redraw_all.set(true);
     }
 
-    /// Is the mouse pointer ours to draw? (the console mouse, or the
-    /// keyboard pointer: no terminal shows a pointer for those)
+    /// Is the mouse pointer ours to draw? (the console mouse read from
+    /// /dev/input/mice, or the keyboard pointer: nothing else shows one;
+    /// gpm draws its own)
     fn own_pointer(&self) -> bool {
-        self.mice.is_some() || self.kbd_ptr
+        self.mice.as_ref().is_some_and(|m| !m.draws_pointer()) || self.kbd_ptr
     }
 
     /// The keyboard pointer: with it on, the cursor keys move the pointer a

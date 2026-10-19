@@ -34,6 +34,11 @@ pub struct Mice {
 }
 
 impl Mice {
+    /// Does gpm draw the pointer? (the raw device has none of its own)
+    pub fn draws_pointer(&self) -> bool {
+        self.gpm
+    }
+
     /// Use the console mouse (gpm or the raw device)? On a VT;
     /// `EMUERA_MOUSE=mice` forces it, `=off` / `=term` disables it.
     pub fn wanted(is_vt: bool) -> bool {
@@ -103,9 +108,11 @@ impl Mice {
         // struct Gpm_Connect { u16 eventMask, defaultMask, minMod, maxMod; i32 pid, vc; }
         let mut c = Vec::with_capacity(16);
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // every event
-        // nothing left to gpm's default handler: its pointer is an inverted
-        // cell that our redraws wipe out, so we draw the pointer ourselves
-        c.extend_from_slice(&0u16.to_ne_bytes());
+        // moves also go to gpm's default handler, which draws its own
+        // pointer (only root may: the kernel's selection pointer); clicks
+        // don't, so they make no selection
+        const GPM_MOVE: u16 = 1;
+        c.extend_from_slice(&GPM_MOVE.to_ne_bytes());
         c.extend_from_slice(&0u16.to_ne_bytes());
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // any modifiers
         c.extend_from_slice(&(std::process::id() as i32).to_ne_bytes());

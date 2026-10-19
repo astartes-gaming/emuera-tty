@@ -716,16 +716,18 @@ text.
 | xterm, kitty, WezTerm, foot, Ghostty, Alacritty, GNOME/KDE terminals, tmux | SGR (1006) mouse reports |
 | urxvt and other 1015 terminals | urxvt (1015) reports |
 | older terminals | legacy X10 reports |
-| Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client, draws its own pointer |
+| Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client; gpm draws its usual pointer |
 | Linux console / fbterm **without** gpm | reads `/dev/input/mice` directly (wheel included), draws its own pointer |
 
 Modifier keys held during a click are ignored. On the console, gpm needs
 nothing else; the `/dev/input/mice` fallback needs read access to the
 device, i.e. the `input` group — note that it can read *all* input
 devices, keyboards included. `EMUERA_MOUSE=mice` forces the console mouse
-anywhere, `EMUERA_MOUSE=off` (or `term`) disables it. With framebuffer
-pictures the pointer is drawn as an arrow over them (as an inverted cell
-it disappeared under pictures).
+anywhere, `EMUERA_MOUSE=off` (or `term`) disables it. With gpm the
+pointer is gpm's own (only gpm may draw it: when the screen changes under
+it, it shows again at the next move, as in other console programs).
+Without gpm emuera-tty draws one: an inverted cell, or an arrow over
+framebuffer pictures.
 
 **No mouse?** *Keyboard pointer* in F1 (`auto` turns it on by itself on the
 Linux console when no mouse can be found) puts a pointer on the screen
