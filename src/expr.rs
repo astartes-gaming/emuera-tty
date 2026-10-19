@@ -405,8 +405,10 @@ impl<'a> ExprParser<'a> {
                 None => return Err(format!("{}@: no function name", name)),
             }
         }
-        // #DEFINE macro expansion
-        if let Some(body) = self.defs.get(&name) {
+        // #DEFINE macro expansion (names are kept upper-cased: Emuera
+        // ignores case, `#DEFINE VirginKiss 0` is used as VirginKiss)
+        let def = self.defs.get(&name).or_else(|| if name.chars().any(|c| c.is_lowercase()) { self.defs.get(&name.to_uppercase()) } else { None });
+        if let Some(body) = def {
             if self.depth > 32 {
                 return Err("#DEFINE recursion too deep".into());
             }

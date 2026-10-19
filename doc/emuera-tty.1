@@ -224,6 +224,19 @@ read
 .I /dev/input/mice
 even outside the Linux console.
 .TP
+.BR EMUERA_SOUND= on|off
+Play the game's sounds (default: yes, except over SSH).
+.TP
+.BI EMUERA_SOUND_PLAYER= name
+The player program for sounds:
+.BR mpv ", " ffplay ", " mplayer ", " afplay ", " pw-play ", " paplay ", " aplay " or " powershell
+(default: the first of these found).
+.TP
+.B EMUERA_LIST_BUTTONS=1
+With
+.BR \-\-headless ,
+print the values of the buttons on screen before each input.
+.TP
 .B EMUERA_THREADS
 Cap the threads used for loading and picture decoding.
 .TP

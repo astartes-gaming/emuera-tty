@@ -290,6 +290,16 @@ pub struct Tty {
     pub contrast: f32,
     /// lines per mouse-wheel step
     pub wheel: usize,
+    /// show the hovered button's value, memory and the running function
+    /// in the bottom row
+    pub status_info: bool,
+    /// the bottom row's right side as last drawn: (columns the prompt may
+    /// use, the function asking, the column it starts at); None: not shown
+    bar: Option<(usize, String, usize)>,
+    /// memory in use, read at most once a second: (when, bytes)
+    mem_seen: Option<(Instant, Option<u64>)>,
+    /// when the script started its current stretch of computing
+    busy_since: Option<Instant>,
     /// the "Copy to clipboard" setting: game (emuera.config), on, off
     pub clip_mode: String,
     clip: crate::clipboard::Clipboard,
@@ -484,6 +494,10 @@ impl Tty {
             screen_bg: None,
             contrast: 3.0,
             wheel: 3,
+            status_info: true,
+            bar: None,
+            mem_seen: None,
+            busy_since: None,
             clip_mode: "game".into(),
             clip: crate::clipboard::Clipboard::default(),
             last_click: None,
@@ -1357,12 +1371,14 @@ impl Tty {
             None => String::new(),
         };
         out.extend_from_slice(prompt.as_bytes());
+        if req.is_some() {
+            self.busy_since = None;
+        }
+        self.bar = None;
         if self.scroll == 0 && cols > 40 && req.is_some() && !self.no_images {
-            let hint = "F1 settings";
             let used = 2 + self.buf.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 20;
-            if used + hint.len() < cols {
-                let _ = write!(out, "\x1b[{};{}H\x1b[0;2m{}\x1b[0m", self.rows, cols - hint.len(), hint);
-            }
+            self.bar = Some((used, con.running.clone(), 0));
+            self.draw_bar(&mut out, hover);
         }
         if self.scroll > 0 {
             let tag = format!(" [scroll -{}] ", self.scroll);
@@ -1830,6 +1846,9 @@ impl Tty {
                 touched.push((px, py, 1));
             }
         }
+        if new_hover != old_hover && self.status_info {
+            self.draw_bar(&mut out, new_hover);
+        }
         if let Some((r, c)) = self.frame_cursor {
             let _ = write!(out, "\x1b[{};{}H\x1b[?25h", r, c);
         }
@@ -1973,6 +1992,7 @@ impl Tty {
         match key {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
+            "statusbar" => self.status_info = v == "on",
             "clipboard" => self.clip_mode = v.to_string(),
             "colors" => {
                 self.color = match v {
@@ -2082,6 +2102,58 @@ impl Tty {
         let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 3 + n, left, frame, "─".repeat(inner));
         write_all(&out);
         (top + 1,)
+    }
+
+    /// The right side of the bottom row: the value the hovered button
+    /// sends, memory in use, the function asking for input, the settings
+    /// key. What doesn't fit goes: the function, memory, the key, the value
+    /// last. (Redrawn on its own when the hovered button changes.)
+    fn draw_bar(&mut self, out: &mut Vec<u8>, hover: Option<usize>) {
+        let Some((used, running, drawn_at)) = self.bar.clone() else { return };
+        let cols = self.cols;
+        let mut parts: Vec<(String, &str)> = Vec::new();
+        if self.status_info {
+            if let Some(v) = hover.filter(|&b| self.is_button(b)).and_then(|b| self.buttons.get(b)) {
+                parts.push((format!("→ {}", printable(&v.to_string())), "\x1b[0;1m"));
+            }
+            if let Some(m) = self.memory() {
+                parts.push((m, "\x1b[0;2m"));
+            }
+            if !running.is_empty() {
+                parts.push((format!("@{}", running), "\x1b[0;2m"));
+            }
+        }
+        parts.push(("F1 settings".to_string(), "\x1b[0;2m"));
+        let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
+        while !parts.is_empty() && used + width(&parts) >= cols {
+            let k = parts.iter().position(|(s, _)| s.starts_with('@')).or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB"))).or_else(|| parts.iter().position(|(s, _)| s == "F1 settings")).unwrap_or(0);
+            parts.remove(k);
+        }
+        // what was there before goes first
+        if drawn_at > 0 {
+            let _ = write!(out, "\x1b[{};{}H\x1b[0m\x1b[K", self.rows, drawn_at);
+        }
+        let mut at = 0;
+        if !parts.is_empty() {
+            // (ending a column short of the edge: no wrap on the last row)
+            at = cols + 2 - width(&parts);
+            let _ = write!(out, "\x1b[{};{}H", self.rows, at);
+            for (k, (s, st)) in parts.iter().enumerate() {
+                let _ = write!(out, "{}{}{}\x1b[0m", if k > 0 { "  " } else { "" }, st, s);
+            }
+        }
+        if let Some(b) = self.bar.as_mut() {
+            b.2 = at;
+        }
+    }
+
+    /// "123 MB": memory in use (read at most once a second).
+    fn memory(&mut self) -> Option<String> {
+        let fresh = self.mem_seen.is_some_and(|(t, _)| t.elapsed() < Duration::from_secs(1));
+        if !fresh {
+            self.mem_seen = Some((Instant::now(), crate::sys::memory_in_use()));
+        }
+        self.mem_seen.and_then(|(_, m)| m).map(|b| format!("{} MB", b >> 20))
     }
 
     /// The button id at a 0-based screen cell, from the last frame
@@ -2544,6 +2616,35 @@ impl Frontend for Tty {
 
     /// Ctrl+C typed (or the terminal gone) while a script runs. Other keys
     /// read meanwhile stay pending for the next input.
+    /// Computing for more than a moment: say so in the bottom row, with
+    /// the function running and the memory in use.
+    fn busy(&mut self, con: &Console) {
+        let since = *self.busy_since.get_or_insert_with(Instant::now);
+        if !self.status_info || self.cols < 30 || since.elapsed() < Duration::from_millis(400) {
+            return;
+        }
+        let mut s = String::from("… working");
+        if !con.running.is_empty() {
+            s += &format!("  @{}", con.running);
+        }
+        if let Some(m) = self.memory() {
+            s += &format!("  {}", m);
+        }
+        let mut line = String::new();
+        let mut w = 0;
+        for c in printable(&s).chars() {
+            let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+            if w + cw >= self.cols {
+                break;
+            }
+            line.push(c);
+            w += cw;
+        }
+        write_all(format!("\x1b[{};1H\x1b[0;2m{}\x1b[0m\x1b[K", self.rows, line).as_bytes());
+        // the next frame must repaint the row, even if nothing else changed
+        self.last_frame = 0;
+    }
+
     fn poll_interrupt(&mut self) -> bool {
         if self.input_waiting() {
             self.read_bytes(0);

@@ -150,6 +150,8 @@ pub struct Vm {
     pub dotrain: Option<i64>,
     /// set before @EVENTCOMEND; a WAIT clears it, else one follows it
     pub comend_wait: bool,
+    /// PLAYSOUND / PLAYBGM (None: silent)
+    pub sound: Option<crate::sound::Sound>,
     /// reads and parses the ERB files again (the reload hotkey)
     pub reloader: Option<Box<dyn FnMut() -> Program>>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
@@ -243,6 +245,7 @@ impl Vm {
             dotrain_ok: false,
             dotrain: None,
             comend_wait: false,
+            sound: None,
             reloader: None,
             maps: HashMap::default(),
             dts: HashMap::default(),
@@ -1417,11 +1420,38 @@ impl Vm {
         match e {
             Ctrl::Error(m, false) => {
                 let (file, line) = body.lines.get(pc).copied().unwrap_or((f.file, f.line));
-                let path = self.prog.files.get(file as usize).cloned().unwrap_or_default();
-                Ctrl::Error(format!("{}:{}: @{}: {}", path, line, f.name, m), true)
+                let path = |file: u32| self.prog.files.get(file as usize).cloned().unwrap_or_default();
+                let mut msg = format!("{}:{}: @{}: {}", path(file), line, f.name, m);
+                // as Emuera: the line itself, the function, then the calls
+                // that led here (innermost first)
+                if let Some(src) = self.source_line(&path(file), line) {
+                    msg += &format!("\n    {}", src.trim());
+                }
+                msg += &format!("\nCurrent function: @{} ({}:{})", f.name, path(f.file), f.line);
+                let callers = self.frames.len().saturating_sub(1);
+                if callers > 0 {
+                    msg += "\nCall stack:";
+                    const SHOWN: usize = 24;
+                    for (k, fr) in self.frames[..callers].iter().rev().enumerate() {
+                        if k == SHOWN {
+                            msg += &format!("\n  … {} more", callers - SHOWN);
+                            break;
+                        }
+                        let (file, line) = fr.body.lines.get(fr.pc.saturating_sub(1)).copied().unwrap_or((fr.func.file, fr.func.line));
+                        msg += &format!("\n  {}:{} (in @{})", path(file), line, fr.func.name);
+                    }
+                }
+                Ctrl::Error(msg, true)
             }
             e => e,
         }
+    }
+
+    /// Line `n` of a game file as it is on disk now, for error reports.
+    fn source_line(&self, rel: &str, n: u32) -> Option<String> {
+        let raw = std::fs::read(self.game_dir.join(rel)).ok()?;
+        let text = crate::loader::decode(&raw);
+        text.lines().nth((n as usize).checked_sub(1)?).map(|l| l.trim_start_matches('\u{feff}').to_string())
     }
 
     /// The instruction loop of the innermost frame.
@@ -1909,6 +1939,7 @@ impl Vm {
     /// Ask the frontend for input; None means a timeout. Quitting the
     /// frontend becomes `Ctrl::Quit`.
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
+        self.note_running();
         // SKIPDISP skips the WAIT family along with the prints (Emuera's
         // IS_PRINT flag), and a script INPUT under it is an error
         if self.con.skip_disp {
@@ -2055,7 +2086,19 @@ impl Vm {
         if self.con.dirty && self.con.redraw && self.fe.live_updates() {
             self.flush();
         }
+        self.note_running();
+        self.fe.busy(&self.con);
         Ok(())
+    }
+
+    /// Put the innermost function's name in `con.running`.
+    fn note_running(&mut self) {
+        if let Some(f) = self.frames.last() {
+            if self.con.running != f.func.name {
+                self.con.running.clear();
+                self.con.running.push_str(&f.func.name);
+            }
+        }
     }
 
     /// Push pending output to the frontend without waiting.

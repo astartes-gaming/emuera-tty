@@ -51,6 +51,20 @@ pub const ITEMS: &[Item] = &[
         live: true,
         help: "put printed text on the clipboard (OSC 52); game: as emuera.config says",
     },
+    Item {
+        key: "statusbar",
+        label: "Bottom bar details",
+        choices: &["on", "off"],
+        live: true,
+        help: "the hovered button's value, memory in use and the running function",
+    },
+    Item {
+        key: "sound",
+        label: "Sound",
+        choices: &["auto", "on", "off"],
+        live: false,
+        help: "PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)",
+    },
     Item { key: "wheel", label: "Wheel scrolls", choices: &["3", "1", "5", "10"], live: true, help: "lines per mouse-wheel step" },
     Item { key: "mouse", label: "Console mouse", choices: &["auto", "off"], live: false, help: "gpm / /dev/input/mice on the Linux console" },
     Item {

@@ -145,6 +145,27 @@ pub fn total_memory() -> Option<u64> {
     None
 }
 
+/// The memory this process uses now (resident), where it can be read.
+pub fn memory_in_use() -> Option<u64> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let s = std::fs::read_to_string("/proc/self/statm").ok()?;
+        let pages: u64 = s.split_whitespace().nth(1)?.parse().ok()?;
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        Some(pages * if page > 0 { page as u64 } else { 4096 })
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        let mut c: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        (GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) != 0).then_some(c.WorkingSetSize as u64)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    None
+}
+
 pub use imp::*;
 
 #[cfg(unix)]

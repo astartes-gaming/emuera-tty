@@ -1399,6 +1399,17 @@ impl Parser {
                 Self::after_stmt(b);
             }
             c if IGNORED_BLOCKS.contains(&c) => {}
+            // the default answer is FORM text up to the first comma
+            // (`INPUTS %NAME%`, `INPUTS 決定`), then numbers (mouse, skip)
+            "INPUTS" | "ONEINPUTS" if !arg_c.is_empty() => {
+                let parts = crate::expr::split_form_top(arg_c, ',');
+                let mut args = vec![Expr::Form(Rc::new(upper_form(parse_form(parts[0].trim_matches([' ', '\t']), defs)?)))];
+                for p in &parts[1..] {
+                    args.push(if p.trim().is_empty() { Expr::Empty } else { self.expr(p.trim())? });
+                }
+                b.emit(Instr::Command(Box::new((cmd, Args::Exprs(args)))));
+                Self::after_stmt(b);
+            }
             _ => {
                 if is_command(&cmd) {
                     let args = if raw_arg_cmd(&cmd) {

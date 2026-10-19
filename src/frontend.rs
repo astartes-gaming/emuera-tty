@@ -111,6 +111,10 @@ pub trait Frontend {
     fn live_updates(&self) -> bool {
         true
     }
+
+    /// The script has been computing for a while: show that it is busy
+    /// (`con.running` names the function).
+    fn busy(&mut self, _con: &Console) {}
     /// Show the console now even with REDRAW off (AWAIT).
     fn refresh(&mut self, con: &mut Console, res: &mut Resources) {
         self.flush(con, res);
@@ -206,6 +210,14 @@ impl Frontend for Headless {
         if req.kind == InputKind::Wait {
             println!();
             return InputResult::Text(String::new());
+        }
+        // EMUERA_LIST_BUTTONS=1: the values the buttons on screen send, even
+        // those that don't show a number (map cells), for scripted play
+        if std::env::var_os("EMUERA_LIST_BUTTONS").is_some() {
+            let vals: Vec<String> = con.button_values().iter().map(|v| v.to_string()).collect();
+            if !vals.is_empty() {
+                println!("[buttons: {}]", vals.join(", "));
+            }
         }
         let mut s = String::new();
         match self.lines_in.read_line(&mut s) {

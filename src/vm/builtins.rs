@@ -1442,9 +1442,11 @@ impl Vm {
                     self.set_results(t);
                 }
             }
-            // statements in Emuera (no sound here): they leave RESULT alone,
-            // which pops-tw relies on (USERSHOP plays a key sound first)
-            "PLAYSOUND" | "STOPSOUND" | "PLAYBGM" | "STOPBGM" | "SETSOUNDVOLUME" | "SETBGMVOLUME" => {}
+            // statements in Emuera: they leave RESULT alone, which pops-tw
+            // relies on (USERSHOP plays a key sound first)
+            "PLAYSOUND" | "STOPSOUND" | "PLAYBGM" | "STOPBGM" | "SETSOUNDVOLUME" | "SETBGMVOLUME" => {
+                self.builtin_fn(name, a)?;
+            }
             _ => {
                 // functions used as statements: result into RESULT / RESULTS
                 match self.builtin_fn(name, a)? {
@@ -3725,8 +3727,49 @@ impl Vm {
                 }
                 i(n)
             }
-            "GETMEMORYUSAGE" | "CLEARMEMORY" => i(0),
-            "EXISTSOUND" | "PLAYSOUND" | "STOPSOUND" | "PLAYBGM" | "STOPBGM" | "SETSOUNDVOLUME" | "SETBGMVOLUME" => i(0),
+            "GETMEMORYUSAGE" => i(crate::sys::memory_in_use().unwrap_or(0) as i64),
+            "CLEARMEMORY" => {
+                crate::sys::trim_memory();
+                i(0)
+            }
+            // (the sound statements leave RESULT alone)
+            "EXISTSOUND" => {
+                let f = self.as_(a, 0, "")?;
+                i(crate::sound::find_file(&self.game_dir, &f).is_some() as i64)
+            }
+            "PLAYSOUND" | "PLAYBGM" => {
+                let f = self.as_(a, 0, "")?;
+                let times = self.ai(a, 1, 1)?.clamp(1, 1000) as u32;
+                if let (Some(s), Some(p)) = (self.sound.as_mut(), crate::sound::find_file(&self.game_dir, &f)) {
+                    if name == "PLAYBGM" {
+                        s.play_bgm(&p);
+                    } else {
+                        s.play_se(&p, times);
+                    }
+                }
+                i(0)
+            }
+            "STOPSOUND" | "STOPBGM" => {
+                if let Some(s) = self.sound.as_mut() {
+                    if name == "STOPBGM" {
+                        s.stop_bgm();
+                    } else {
+                        s.stop_se();
+                    }
+                }
+                i(0)
+            }
+            "SETSOUNDVOLUME" | "SETBGMVOLUME" => {
+                let v = self.ai(a, 0, 100)?.clamp(0, 100) as u8;
+                if let Some(s) = self.sound.as_mut() {
+                    if name == "SETBGMVOLUME" {
+                        s.bgm_volume = v;
+                    } else {
+                        s.se_volume = v;
+                    }
+                }
+                i(0)
+            }
             _ => Ok(None),
         }
     }

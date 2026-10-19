@@ -156,6 +156,9 @@ pub struct Console {
     pub tooltips: std::collections::HashMap<String, (u64, String)>,
     /// `<nonbutton>` areas made so far (each gets its own value)
     tip_areas: u64,
+    /// the function running (or asking for input), for the bottom bar;
+    /// the VM updates it now and then, not on every call
+    pub running: String,
     /// Buttons on lines of this generation are clickable
     /// (`lastButtonGeneration`); see `begin_input`.
     pub valid_gen: u64,
@@ -217,6 +220,7 @@ impl Console {
             gen: 0,
             tooltips: std::collections::HashMap::new(),
             tip_areas: 0,
+            running: String::new(),
             valid_gen: 0,
             buttons_since_input: false,
             last_input_site: None,

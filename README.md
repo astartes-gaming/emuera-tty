@@ -246,6 +246,22 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.
+- **The bottom row** shows, on the right, the number the button under the
+  mouse sends (`→ 105`, also for buttons that don't show it, like map
+  squares), the memory emuera-tty uses, and the function asking for
+  input. While a script computes for more than a moment it says
+  `… working @FUNCTION`. (*Bottom bar details* in the settings turns
+  this off; memory shows on Linux, Android and Windows.)
+
+**Sound**: PLAYSOUND / PLAYBGM play the game's `sound/` files through a
+player program the system has: `mpv` or `ffplay` (any format, including
+the `.m4a` many games use), `mplayer`, `afplay` on macOS, or for WAV
+only `pw-play`, `paplay`, `aplay` and PowerShell on Windows. Install mpv
+for full sound (`pkg install mpv` on Termux). Ten effect channels and a
+looping BGM, as Emuera-EE; volume changes apply to sounds started after
+them. Off over SSH unless *Sound* in the settings says `on` (the sound
+would play on the remote machine); `EMUERA_SOUND=on|off` and
+`EMUERA_SOUND_PLAYER=mpv` override.
 
 **Saving** uses the game's own save menu, and the files are Emuera's own
 (binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
@@ -275,6 +291,8 @@ running game:
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
+| Bottom bar details | on, off | hovered button's value, memory, running function |
+| Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH (next start) |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
 | Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
@@ -476,8 +494,9 @@ start fresh. Games extracted from archives (and their saves) are in
 This is a proof of concept, so it will happen.
 
 - **A red `*** script error ***` screen** means the game hit something
-  emuera-tty doesn't support yet. The message names the game file, line
-  and function. Press Enter to quit; your last save is safe.
+  emuera-tty doesn't support yet (or a bug of the game's). As in Emuera
+  it shows the file and line, the line itself, the function, and the
+  call stack that led there. Press Enter to quit; your last save is safe.
 - **`warning: … not implemented (ignored)`** lines in the terminal after
   quitting are commands emuera-tty skipped; the game usually carries on.
 - **Check a game without playing it:** `emuera-tty /path/to/game --check`
@@ -736,6 +755,9 @@ under a first line telling which input the script is waiting for and the
 call stack that asked for it (handy when a game seems stuck).
 `EMUERA_INJECT="STATEMENT||STATEMENT"` with `EMUERA_INJECT_AT=<n>` runs those
 statements as a function `@__INJECT` just before the n-th input.
+`EMUERA_LIST_BUTTONS=1` makes `--headless` print the values of the buttons
+on screen before each input (`[buttons: 1001, 1002]`), hidden ones included,
+for scripted play.
 
 ## Roadmap
 
