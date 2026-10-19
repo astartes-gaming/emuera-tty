@@ -74,7 +74,7 @@ impl Engine {
             return Some(Engine::Libre { url: libre });
         }
         if which("translateLocally") {
-            return Some(Engine::Bergamot { model: model.unwrap_or_else(|| "ja-en-tiny".into()) });
+            return Some(Engine::Bergamot { model: model.unwrap_or_default() });
         }
         if which("argos-translate") || Argos::python().is_some() {
             return Some(Engine::Argos);
@@ -86,6 +86,7 @@ impl Engine {
         match self {
             Engine::Ollama { model } => format!("Ollama ({})", model),
             Engine::Libre { url } => format!("LibreTranslate ({})", url),
+            Engine::Bergamot { model } if model.is_empty() => "translateLocally".into(),
             Engine::Bergamot { model } => format!("translateLocally ({})", model),
             Engine::Argos => "argos-translate".into(),
             Engine::Command(c) => format!("`{}`", c),
@@ -94,13 +95,14 @@ impl Engine {
         }
     }
 
-    /// Translate one line of Japanese into `to` (`argos`: the worker's
-    /// Argos process, started on first use).
-    fn translate(&self, text: &str, to: &str, argos: &mut Option<Argos>) -> Result<String, String> {
+    /// Translate one line from `from` (ja, en) into `to` (`argos`: the
+    /// worker's Argos process, started on first use).
+    fn translate(&self, text: &str, from: &str, to: &str, argos: &mut Option<Argos>) -> Result<String, String> {
         let out = match self {
             Engine::Ollama { model } => {
                 let prompt = format!(
-                    "Translate this line of Japanese dialogue from a game into natural {}. Keep names as they are. Reply with the translation only, no notes.\n\n{}",
+                    "Translate this line of {} text from a game into natural {}. Keep names, numbers and symbols as they are. Reply with the translation only, no notes.\n\n{}",
+                    language_name(from),
                     language_name(to),
                     text
                 );
@@ -109,39 +111,43 @@ impl Engine {
                 json_field(&r, "response").ok_or("Ollama gave no translation")?
             }
             Engine::Libre { url } => {
-                let body = format!("{{\"q\":{},\"source\":\"ja\",\"target\":{},\"format\":\"text\"}}", json_str(text), json_str(to));
+                let body = format!("{{\"q\":{},\"source\":{},\"target\":{},\"format\":\"text\"}}", json_str(text), json_str(from), json_str(to));
                 let r = http(url, "POST", "/translate", &body, Duration::from_secs(60)).ok_or("LibreTranslate didn't answer")?;
                 json_field(&r, "translatedText").ok_or("LibreTranslate gave no translation")?
             }
-            Engine::Bergamot { model } => run(Command::new("translateLocally").args(["-m", model]), text)?,
+            Engine::Bergamot { model } => {
+                // (no model given: Bergamot's names, `ja-en-tiny`)
+                let model = if model.is_empty() { format!("{}-{}-tiny", from, to) } else { model.clone() };
+                run(Command::new("translateLocally").args(["-m", &model]), text)?
+            }
             Engine::Argos => {
                 if argos.is_none() {
                     *argos = Argos::start(to);
                 }
-                match argos.as_mut().map(|a| a.translate(text)) {
+                match argos.as_mut().map(|a| a.translate(text, from)) {
                     Some(Ok(t)) => t,
                     // no module to import: the command, a process a line
                     _ => {
                         *argos = None;
-                        run(Command::new("argos-translate").args(["--from-lang", "ja", "--to-lang", to]).arg(text), "")?
+                        run(Command::new("argos-translate").args(["--from-lang", from, "--to-lang", to]).arg(text), "")?
                     }
                 }
             }
             Engine::Command(c) => {
                 let mut cmd = if cfg!(windows) { Command::new("cmd") } else { Command::new("sh") };
-                cmd.arg(if cfg!(windows) { "/C" } else { "-c" }).arg(c).env("EMUERA_TRANSLATE_TO", to);
+                cmd.arg(if cfg!(windows) { "/C" } else { "-c" }).arg(c).env("EMUERA_TRANSLATE_TO", to).env("EMUERA_TRANSLATE_FROM", from);
                 run(&mut cmd, text)?
             }
             // (the text on stdin: a line starting with - isn't an option)
             Engine::Trans => {
                 let mut cmd = Command::new("trans");
-                cmd.args(["-b", "-no-ansi", "-no-autocorrect", "-s", "ja", "-t", to]);
+                cmd.args(["-b", "-no-ansi", "-no-autocorrect", "-s", from, "-t", to]);
                 if let Ok(e) = std::env::var("EMUERA_TRANS_ENGINE") {
                     cmd.args(["-e", &e]);
                 }
                 run(&mut cmd, text)?
             }
-            Engine::Deepl => run(Command::new("deepl").args(["text", "--from", "JA", "--to", &deepl_lang(to), text]), "")?,
+            Engine::Deepl => run(Command::new("deepl").args(["text", "--from", &from.to_uppercase(), "--to", &deepl_lang(to), text]), "")?,
         };
         // one line in, one line out
         let out = out.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
@@ -172,6 +178,8 @@ fn language_name(code: &str) -> &str {
         "ru" => "Russian",
         "zh" => "Chinese",
         "ko" => "Korean",
+        "ja" => "Japanese",
+        "it" => "Italian",
         c => c,
     }
 }
@@ -282,8 +290,9 @@ import sys
 from argostranslate import translate
 dst = sys.argv[1]
 for line in sys.stdin:
+    src, _, text = line.rstrip("\n").partition("\t")
     try:
-        out = translate.translate(line.rstrip("\n"), "ja", dst)
+        out = translate.translate(text, src, dst)
     except Exception as e:
         out = ""
     sys.stdout.write(" ".join(out.split("\n")) + "\n")
@@ -325,10 +334,10 @@ impl Argos {
         Some(Argos { child, input, output })
     }
 
-    fn translate(&mut self, text: &str) -> Result<String, String> {
+    fn translate(&mut self, text: &str, from: &str) -> Result<String, String> {
         use std::io::BufRead;
-        let line = text.replace(['\r', '\n'], " ");
-        writeln!(self.input, "{}", line).map_err(|e| e.to_string())?;
+        let line = text.replace(['\r', '\n', '\t'], " ");
+        writeln!(self.input, "{}\t{}", from, line).map_err(|e| e.to_string())?;
         self.input.flush().map_err(|e| e.to_string())?;
         let mut out = String::new();
         if self.output.read_line(&mut out).map_err(|e| e.to_string())? == 0 {
@@ -354,7 +363,7 @@ enum State {
 
 /// The translator thread and what it has translated.
 pub struct Mt {
-    to: Sender<String>,
+    to: Sender<(String, &'static str)>,
     from: Receiver<(String, Result<String, String>)>,
     seen: HashMap<String, State>,
     /// the last failure, for the settings page
@@ -363,13 +372,13 @@ pub struct Mt {
 
 impl Mt {
     pub fn start(engine: Engine, lang: &str) -> Mt {
-        let (to, rx) = channel::<String>();
+        let (to, rx) = channel::<(String, &'static str)>();
         let (tx, from) = channel();
         let (e, lang) = (engine, lang.to_string());
         let _ = std::thread::Builder::new().name("translate".into()).spawn(move || {
             let mut argos = None;
-            for text in rx {
-                let r = e.translate(&text, &lang, &mut argos);
+            for (text, from) in rx {
+                let r = e.translate(&text, from, &lang, &mut argos);
                 if tx.send((text, r)).is_err() {
                     break;
                 }
@@ -378,15 +387,16 @@ impl Mt {
         Mt { to, from, seen: HashMap::default(), last_error: None }
     }
 
-    /// The translation of `text` if it is in; asks for it if never asked.
-    pub fn get(&mut self, text: &str) -> Option<&str> {
+    /// The translation of `text` (in language `from`) if it is in; asks
+    /// for it if never asked.
+    pub fn get(&mut self, text: &str, from: &'static str) -> Option<&str> {
         if !self.seen.contains_key(text) {
             // (bounded: a long session forgets the oldest… all of them)
             if self.seen.len() > 20_000 {
                 self.seen.clear();
             }
             self.seen.insert(text.to_string(), State::Waiting);
-            let _ = self.to.send(text.to_string());
+            let _ = self.to.send((text.to_string(), from));
             return None;
         }
         match self.seen.get(text) {
@@ -419,20 +429,58 @@ impl Mt {
     }
 }
 
-/// Is a printed line character dialog worth translating? It has Japanese
-/// in it, and was printed by a character's dialogue (kojo) code or is in
-/// 「」 / 『』 quotes; never a map or a box drawing (lines and blocks), and
-/// never a line with buttons (menus).
-pub fn is_dialog(text: &str, kojo: bool) -> bool {
-    let japanese = text.chars().filter(|&c| matches!(c as u32, 0x3040..=0x30FF | 0x4E00..=0x9FFF | 0x3400..=0x4DBF)).count();
-    if japanese < 2 {
-        return false;
-    }
+/// A map or a box drawing (lines, blocks, Braille dots): never translated.
+pub fn is_drawing(text: &str) -> bool {
     let drawing = text.chars().filter(|&c| matches!(c as u32, 0x2500..=0x25FF | 0x2800..=0x28FF)).count();
-    if drawing * 10 > text.chars().count() {
-        return false;
+    drawing * 10 > text.chars().count()
+}
+
+fn is_japanese(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30FF | 0x4E00..=0x9FFF | 0x3400..=0x4DBF)
+}
+
+/// The language of `text` to translate from into `to` — Japanese or
+/// English, as `from` (the Translate from setting: auto, ja, en) allows —
+/// or None when there is nothing to translate: no words, a map or box
+/// drawing, or already the target language.
+pub fn source_of(text: &str, from: &str, to: &str) -> Option<&'static str> {
+    if is_drawing(text) {
+        return None;
     }
-    kojo || text.contains('「') || text.contains('『')
+    let ja = text.chars().filter(|&c| is_japanese(c)).count() >= 2;
+    // English: a word of three letters at least
+    let en = !ja && text.split(|c: char| !c.is_ascii_alphabetic()).any(|w| w.len() >= 3);
+    let src = match (from, ja, en) {
+        ("ja" | "auto", true, _) => "ja",
+        ("en" | "auto", _, true) => "en",
+        _ => return None,
+    };
+    (src != to).then_some(src)
+}
+
+/// Is a printed line character dialog? Printed by a character's dialogue
+/// (kojo) code, or in quotes (「」 『』 for Japanese, " “” for English).
+pub fn is_dialog(text: &str, kojo: bool, src: &str) -> bool {
+    kojo || if src == "ja" { text.contains('「') || text.contains('『') } else { text.contains('"') || text.contains('“') }
+}
+
+/// The part of `s` worth translating: (what goes before, the words, what
+/// goes after). Numbers, brackets and symbols around the words (`[100] - `,
+/// `[641]`, `(1600/1600)`) stay as they are.
+pub fn split_words(s: &str) -> (&str, &str, &str) {
+    let word = |c: char| c.is_alphabetic();
+    let Some(a) = s.find(word) else { return (s, "", "") };
+    let b = s.char_indices().filter(|&(_, c)| word(c)).last().map_or(s.len(), |(i, c)| i + c.len_utf8());
+    // a sentence keeps its closing punctuation
+    let mut b2 = b;
+    for (i, c) in s[b..].char_indices() {
+        if matches!(c, '.' | '!' | '?' | '。' | '！' | '？' | '」' | '』' | '"' | '”' | '…' | '、' | ',') {
+            b2 = b + i + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    (&s[..a], &s[a..b2], &s[b2..])
 }
 
 #[cfg(test)]
@@ -448,12 +496,24 @@ mod tests {
     }
 
     #[test]
-    fn only_dialog() {
-        assert!(is_dialog("「おはよう、ご主人様」", false));
-        assert!(is_dialog("咲夜は微笑んだ。", true));
-        assert!(!is_dialog("咲夜は微笑んだ。", false));
-        assert!(!is_dialog("Good morning, Master.", true));
-        assert!(!is_dialog("┃●━Valley┛┃　┏Valley━ForWes┗┓　┏┛森", true));
+    fn what_gets_translated() {
+        assert_eq!(source_of("「おはよう、ご主人様」", "auto", "en"), Some("ja"));
+        assert_eq!(source_of("Good morning, Master.", "auto", "en"), None);
+        assert_eq!(source_of("Good morning, Master.", "auto", "es"), Some("en"));
+        assert_eq!(source_of("Good morning, Master.", "ja", "es"), None);
+        assert_eq!(source_of("「おはよう」", "en", "es"), None);
+        assert_eq!(source_of("┃●━Valley┛┃　┏Valley━ForWes┗┓　┏┛森", "auto", "es"), None);
+        assert_eq!(source_of("( 1600/ 1600) [12]", "auto", "es"), None);
+        assert!(is_dialog("「おはよう、ご主人様」", false, "ja"));
+        assert!(is_dialog("咲夜は微笑んだ。", true, "ja"));
+        assert!(!is_dialog("咲夜は微笑んだ。", false, "ja"));
+        assert!(is_dialog("\"Good morning,\" said Sakuya.", false, "en"));
+        assert!(!is_dialog("You go to the kitchen.", false, "en"));
+        assert_eq!(split_words("[100] - Wake Up"), ("[100] - ", "Wake Up", ""));
+        assert_eq!(split_words("Ability Cards[641]"), ("", "Ability Cards", "[641]"));
+        assert_eq!(split_words(" STA ( 1600/ 1600)"), (" ", "STA", " ( 1600/ 1600)"));
+        assert_eq!(split_words("「おはよう」と言った。 "), ("「", "おはよう」と言った。", " "));
+        assert_eq!(split_words("[42]"), ("[42]", "", ""));
     }
 
     /// translate-shell and DeepL get the arguments their tools expect
@@ -476,9 +536,9 @@ mod tests {
         // (tests run on threads: only this one changes PATH and the key)
         std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
         std::env::set_var("DEEPL_AUTH_KEY", "test");
-        let t = Engine::choose("translate-shell").unwrap().translate("「やあ」", "en", &mut None).unwrap();
+        let t = Engine::choose("translate-shell").unwrap().translate("「やあ」", "ja", "en", &mut None).unwrap();
         assert_eq!(t, "-b|-no-ansi|-no-autocorrect|-s|ja|-t|en|「やあ」");
-        let d = Engine::choose("deepl").unwrap().translate("「やあ」", "pt", &mut None).unwrap();
+        let d = Engine::choose("deepl").unwrap().translate("「やあ」", "ja", "pt", &mut None).unwrap();
         assert_eq!(d, "text|--from|JA|--to|PT-BR|「やあ」|");
         std::env::set_var("PATH", old);
         let _ = std::fs::remove_dir_all(&bin);
@@ -503,8 +563,8 @@ mod tests {
             let output = std::io::BufReader::new(child.stdout.take().unwrap());
             Argos { child, input, output }
         };
-        assert_eq!(a.translate("あいう").unwrap(), "en:ういあ");
-        assert_eq!(a.translate("かき").unwrap(), "en:きか");
+        assert_eq!(a.translate("あいう", "ja").unwrap(), "en:ういあ");
+        assert_eq!(a.translate("Hello", "en").unwrap(), "en:olleH");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -514,16 +574,16 @@ mod tests {
             return;
         }
         let e = Engine::Command("tr a-z A-Z".into());
-        assert_eq!(e.translate("hello there\n", "en", &mut None).unwrap(), "HELLO THERE");
+        assert_eq!(e.translate("hello there\n", "ja", "en", &mut None).unwrap(), "HELLO THERE");
         let mut mt = Mt::start(e, "en");
-        assert_eq!(mt.get("abc"), None);
+        assert_eq!(mt.get("abc", "ja"), None);
         for _ in 0..100 {
             if mt.poll() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        assert_eq!(mt.get("abc"), Some("ABC"));
+        assert_eq!(mt.get("abc", "ja"), Some("ABC"));
         assert!(!mt.busy());
     }
 }

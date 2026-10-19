@@ -291,10 +291,14 @@ up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
-**Translating dialog**: *Translate dialog* in F1 (off, or the language:
-en, es, pt, fr, de, ru, zh, ko) translates characters' Japanese dialog as
-it appears. By default it uses a translator **on this computer**, so
-nothing is sent online: the first it finds of
+**Translating the game**: in F1, *Translate into* picks the language to
+show the game in (off, en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
+from* the game's own (auto: Japanese lines from Japanese, English ones from
+English, so an English translation like AnonTW can be read in Spanish), and
+*Translate what* either the characters' **dialog** or **all** text (menus,
+buttons, labels too). Text is translated as it appears. By default it uses
+a translator **on this computer**, so nothing is sent online: the first it
+finds of
 
 - [Ollama](https://ollama.com) running a model (`ollama pull qwen2.5:7b`
   translates Japanese well; `EMUERA_TRANSLATE_MODEL` picks the model),
@@ -305,7 +309,8 @@ nothing is sent online: the first it finds of
   `argospm install translate-ja_en`; one Argos process is kept running,
   so only the first line waits for the model to load),
 - or any command in `EMUERA_TRANSLATE_CMD`: it gets a line on stdin and
-  prints its translation (`EMUERA_TRANSLATE_TO` holds the language).
+  prints its translation (`EMUERA_TRANSLATE_FROM` and `EMUERA_TRANSLATE_TO`
+  hold the languages).
 
 *Translator* in F1 can instead pick an **online** service through its
 command-line tool (these send the dialog over the internet):
@@ -315,12 +320,15 @@ command-line tool (these send the dialog over the internet):
 - `deepl`: DeepL's own `deepl` tool (`pip install deepl`) with your API
   key in `DEEPL_AUTH_KEY` (the free key works).
 
-Only dialog is translated: lines printed by a character's dialogue code
-(the `口上` files, `KOJO` functions) and lines in 「」 / 『』 quotes, when
-they hold Japanese. Maps, box drawings, menus and buttons, numbers and
-English text are left alone, and the game itself still sees the text it
-printed. Lines show untranslated until their translation comes in, which
-happens in the background; lines seen again are instant. If the
+*Dialog* is the lines printed by a character's dialogue code (the `口上`
+files, `KOJO` functions) and lines in quotes (「」 『』, or "" in English);
+menus, buttons and the rest stay as they are. *All* translates every piece
+of text, keeping its colours and buttons, and sends only the words: the
+`[100]` numbers, brackets and figures around them stay put, and buttons
+still send the same numbers. Maps and box drawings are never translated,
+nor text already in the target language, and the game itself still sees
+the text it printed. Text shows untranslated until its translation comes
+in, which happens in the background; text seen again is instant. If the
 translator fails, F1 says why on that row's help line.
 
 **Saving** uses the game's own save menu, and the files are Emuera's own
@@ -353,7 +361,9 @@ running game:
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
-| Translate dialog | off, en, es, pt, fr, de, ru, zh, ko | translate character dialog into that language (see above) |
+| Translate into | off, en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
+| Translate from | auto, ja, en | the game's language; auto: per line |
+| Translate what | dialog, all | characters' dialog, or all text |
 | Translator | local, argos, translate-shell, deepl | which translator: any on this computer, Argos only, or an online one |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |

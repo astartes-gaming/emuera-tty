@@ -67,10 +67,24 @@ pub const ITEMS: &[Item] = &[
     },
     Item {
         key: "translate",
-        label: "Translate dialog",
-        choices: &["off", "en", "es", "pt", "fr", "de", "ru", "zh", "ko"],
+        label: "Translate into",
+        choices: &["off", "en", "es", "pt", "fr", "de", "it", "ru", "ja", "zh", "ko"],
         live: true,
-        help: "character dialog only, by a translator on this computer (Ollama, LibreTranslate, translateLocally, argos-translate)",
+        help: "the language to show the game in (with the translator below); off: as the game prints it",
+    },
+    Item {
+        key: "translate_from",
+        label: "Translate from",
+        choices: &["auto", "ja", "en"],
+        live: true,
+        help: "the game's language: auto takes Japanese lines from Japanese and English ones from English",
+    },
+    Item {
+        key: "translate_what",
+        label: "Translate what",
+        choices: &["dialog", "all"],
+        live: true,
+        help: "dialog: what characters say; all: menus and labels too (maps never; buttons still send their numbers)",
     },
     Item {
         key: "translator",

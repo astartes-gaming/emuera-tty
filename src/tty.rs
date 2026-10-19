@@ -295,8 +295,12 @@ pub struct Tty {
     pub status_info: bool,
     /// what applying a setting has to say (shown on the settings page)
     setting_note: String,
-    /// live translation of character dialog (see `mt`)
+    /// live translation of character dialog (see `mt`): the translator, and
+    /// into / from which language, and what (dialog, all)
     mt: Option<crate::mt::Mt>,
+    tr_to: String,
+    tr_from: String,
+    tr_all: bool,
     /// the memory in use in the bottom row too (it is always in F1)
     pub show_memory: bool,
     /// the bottom row's right side as last drawn: (columns the prompt may
@@ -503,6 +507,9 @@ impl Tty {
             status_info: true,
             setting_note: String::new(),
             mt: None,
+            tr_to: String::new(),
+            tr_from: "auto".into(),
+            tr_all: false,
             show_memory: false,
             bar: None,
             mem_seen: None,
@@ -2013,8 +2020,12 @@ impl Tty {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "statusbar" => self.status_info = v == "on",
-            "translate" => self.setting_note = self.set_translate(v, st.get("translator")),
-            "translator" if st.get("translate") != "off" => self.setting_note = self.set_translate(st.get("translate"), v),
+            "translate" | "translator" => self.setting_note = self.set_translate(st),
+            "translate_from" | "translate_what" => {
+                self.tr_from = st.get("translate_from").to_string();
+                self.tr_all = st.get("translate_what") == "all";
+                self.redraw_all.set(true);
+            }
             "memory" => self.show_memory = v == "on",
             "clipboard" => self.clip_mode = v.to_string(),
             "colors" => {
@@ -2047,17 +2058,21 @@ impl Tty {
         }
     }
 
-    /// Translate dialog into `lang` ("off": don't) with `translator` (the
-    /// Translator setting). What happened, in words.
-    pub fn set_translate(&mut self, lang: &str, translator: &str) -> String {
+    /// Translate as the settings say (Translate into / from / what,
+    /// Translator). What happened, in words.
+    pub fn set_translate(&mut self, st: &crate::settings::Settings) -> String {
         self.mt = None;
         self.redraw_all.set(true);
+        let lang = st.get("translate");
+        self.tr_to = lang.to_string();
+        self.tr_from = st.get("translate_from").to_string();
+        self.tr_all = st.get("translate_what") == "all";
         if lang == "off" {
-            return "dialog shows as the game prints it".into();
+            return "the game shows as it prints itself".into();
         }
-        match crate::mt::Engine::choose(translator) {
+        match crate::mt::Engine::choose(st.get("translator")) {
             Ok(e) => {
-                let d = format!("translating dialog into {} with {}", lang, e.describe());
+                let d = format!("translating {} into {} with {}", if self.tr_all { "the game" } else { "dialog" }, lang, e.describe());
                 self.mt = Some(crate::mt::Mt::start(e, lang));
                 d
             }
@@ -2065,27 +2080,49 @@ impl Tty {
         }
     }
 
-    /// `l` with its translation in place of its text, if it is dialog and
-    /// translated (the console keeps what the game printed).
+    /// `l` with translations in place of its text, as far as they are in
+    /// (the console keeps what the game printed). Dialog: the whole line at
+    /// once, in its first colour. All text: each piece on its own, so
+    /// buttons and colours stay, and only the words, not the numbers and
+    /// brackets around them.
     fn translated(&mut self, l: &Line) -> Option<Line> {
+        use crate::mt::{is_dialog, is_drawing, source_of, split_words};
+        let (from, to, all) = (self.tr_from.clone(), self.tr_to.clone(), self.tr_all);
         let mt = self.mt.as_mut()?;
-        let mut text = String::new();
+        let whole: String = l.segs.iter().filter_map(|s| if let Seg::Text { text, .. } = s { Some(text.as_str()) } else { None }).collect();
+        if is_drawing(&whole) {
+            return None;
+        }
+        if all {
+            let mut out = l.clone();
+            let mut changed = false;
+            for s in out.segs.iter_mut() {
+                let Seg::Text { text, .. } = s else { continue };
+                let (pre, words, post) = split_words(text);
+                let Some(src) = source_of(words, &from, &to) else { continue };
+                if let Some(tr) = mt.get(words, src) {
+                    *text = format!("{}{}{}", pre, tr, post);
+                    changed = true;
+                }
+            }
+            return changed.then_some(out);
+        }
         let mut style = None;
         for s in &l.segs {
             match s {
-                Seg::Text { text: t, style: st, button: None, .. } => {
-                    text.push_str(t);
+                Seg::Text { style: st, button: None, .. } => {
                     style.get_or_insert_with(|| st.clone());
                 }
                 // menus (buttons), pictures and drawings stay as they are
                 _ => return None,
             }
         }
-        if !crate::mt::is_dialog(&text, l.kojo) {
+        let src = source_of(&whole, &from, &to)?;
+        if !is_dialog(&whole, l.kojo, src) {
             return None;
         }
-        let lead: String = text.chars().take_while(|c| c.is_whitespace()).collect();
-        let tr = mt.get(text.trim())?;
+        let lead: String = whole.chars().take_while(|c| c.is_whitespace()).collect();
+        let tr = mt.get(whole.trim(), src)?;
         let mut out = l.clone();
         out.segs = vec![Seg::Text { text: format!("{}{}", lead, tr), style: style?, button: None, auto: false }];
         Some(out)
@@ -2165,7 +2202,7 @@ impl Tty {
         }
         let help = if !note.is_empty() {
             note.to_string()
-        } else if let (true, Some(e)) = (sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator"), self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
+        } else if let (true, Some(e)) = (sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator" | "translate_from" | "translate_what"), self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
             format!("last translation failed: {}", e)
         } else if sel < ITEMS.len() {
             ITEMS[sel].help.to_string()
