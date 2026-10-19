@@ -166,6 +166,36 @@ pub fn memory_in_use() -> Option<u64> {
     None
 }
 
+/// The characters the Linux console's current font can show (its Unicode
+/// map, `GIO_UNIMAP` on the terminal, as `showconsolefont` reads it); None
+/// elsewhere or when it can't be read. Others show as a diamond there.
+pub fn console_font_chars() -> Option<std::collections::HashSet<char>> {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        #[repr(C)]
+        struct UniPair {
+            unicode: u16,
+            fontpos: u16,
+        }
+        #[repr(C)]
+        struct UniMapDesc {
+            entry_ct: u16,
+            entries: *mut UniPair,
+        }
+        const GIO_UNIMAP: libc::c_ulong = 0x4B66;
+        let mut buf: Vec<UniPair> = Vec::with_capacity(65535);
+        let mut d = UniMapDesc { entry_ct: 65535, entries: buf.as_mut_ptr() };
+        if libc::ioctl(1, GIO_UNIMAP as _, &mut d) != 0 {
+            return None;
+        }
+        buf.set_len((d.entry_ct as usize).min(65535));
+        let set: std::collections::HashSet<char> = buf.iter().filter_map(|p| char::from_u32(p.unicode as u32)).collect();
+        return (!set.is_empty()).then_some(set);
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
 pub use imp::*;
 
 #[cfg(unix)]

@@ -331,6 +331,8 @@ pub struct Tty {
     /// How characters Emuera draws two columns wide but the terminal draws
     /// one column wide are handled (detected at startup, see `char_cells`).
     ambi: Ambi,
+    /// what the Linux console's font can draw (None: any terminal font)
+    font_chars: Option<std::collections::HashSet<char>>,
     /// Widths this terminal actually draws, for characters where tables
     /// disagree (measured at startup; only entries that differ from
     /// unicode-width are kept).
@@ -443,6 +445,49 @@ fn winsize() -> (usize, usize, u32, u32) {
 fn x10_mouse(cb: u16, x: u16, y: u16) -> Key {
     let release = cb & 3 == 3 && cb & (32 | 64) == 0;
     Key::Mouse { btn: if release { cb & !3 } else { cb }, x, y, press: !release }
+}
+
+/// A character the Linux console's font has instead of `ch` (which it
+/// would show as a diamond): the nearest ASCII or console-font lookalike.
+fn console_lookalike(ch: char, has: &std::collections::HashSet<char>) -> char {
+    let cands: &[char] = match ch {
+        // full-width ASCII
+        '\u{FF01}'..='\u{FF5E}' => return char::from_u32(ch as u32 - 0xFEE0).unwrap_or('?'),
+        '\u{3000}' => return ' ',
+        '【' | '〔' | '「' | '『' | '〈' | '《' | '〖' | '〘' | '〚' => &['[', '['],
+        '】' | '〕' | '」' | '』' | '〉' | '》' | '〗' | '〙' | '〛' => &[']', ']'],
+        '・' | '･' | '·' => &['·', '.'],
+        '、' | '､' => &[','],
+        '。' | '｡' => &['.'],
+        '…' | '‥' => &['…', '.'],
+        'ー' | '―' | '‐' | '—' | '–' | '─' | '━' => &['─', '-'],
+        '〜' => &['~'],
+        '“' | '”' | '″' | '〝' | '〟' => &['"'],
+        '‘' | '’' | '′' => &['\''],
+        '★' | '☆' | '※' => &['*'],
+        '○' | '◯' | '◎' | '〇' => &['○', 'o'],
+        '●' => &['●', '•', 'o'],
+        '□' | '◇' => &['□', '#'],
+        '■' | '◆' => &['■', '#'],
+        '△' | '▲' => &['▲', '^'],
+        '▽' | '▼' => &['▼', 'v'],
+        '→' | '⇒' => &['→', '>'],
+        '←' | '⇐' => &['←', '<'],
+        '↑' => &['↑', '^'],
+        '↓' => &['↓', 'v'],
+        '×' => &['×', 'x'],
+        '÷' => &['÷', '/'],
+        '±' => &['±', '+'],
+        '♪' | '♫' => &['♪', '#'],
+        '♡' | '♥' => &['♥', '<'],
+        '≠' => &['≠', '#'],
+        '≦' | '≤' => &['≤', '<'],
+        '≧' | '≥' => &['≥', '>'],
+        '┃' | '│' => &['│', '|'],
+        // nothing like it (kana, kanji): the console's diamond says so
+        _ => return ch,
+    };
+    cands.iter().copied().find(|c| c.is_ascii() || has.contains(c)).unwrap_or(ch)
 }
 
 /// How to draw one character so the screen matches Emuera's layout:
@@ -571,6 +616,7 @@ impl Tty {
             mice: None,
             mouse: None,
             ambi: Ambi::Pad,
+            font_chars: None,
             widths: std::collections::HashMap::new(),
             btn_map: Vec::new(),
             buttons: Vec::new(),
@@ -635,6 +681,10 @@ impl Tty {
             t.widths = t.measure_widths();
         }
         let is_vt = term == "linux" || term.starts_with("fbterm");
+        // (fbterm draws with fontconfig's fonts)
+        if term == "linux" {
+            t.font_chars = crate::sys::console_font_chars();
+        }
         if crate::mice::Mice::wanted(is_vt) {
             // gpm first (works without extra permissions), else the device
             let gpm = if std::env::var("EMUERA_MOUSE").as_deref() == Ok("mice") { Err(String::new()) } else { crate::mice::Mice::open_gpm() };
@@ -1104,6 +1154,7 @@ impl Tty {
                     let bid = push_btn(button, &mut self.buttons);
                     for ch in text.chars() {
                         let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied()) };
+                        let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
                         let w = tw + extra;
                         if tw == 0 {
                             continue;
@@ -1742,11 +1793,28 @@ impl Tty {
         out
     }
 
+    /// A character as the screen can draw it (`char_cells`' cells): on the
+    /// Linux console one its font lacks becomes a lookalike, in the same
+    /// cells (the lookalike in the first, filler after).
+    fn drawable(&self, ch: char, tw: usize, extra: usize, fill: char) -> (char, usize, usize, char) {
+        match &self.font_chars {
+            Some(has) if tw > 0 && !ch.is_ascii() && !has.contains(&ch) => {
+                let c = console_lookalike(ch, has);
+                if c == ch {
+                    return (ch, tw, extra, fill);
+                }
+                (c, 1, tw + extra - 1, if fill == ch { c } else { ' ' })
+            }
+            _ => (ch, tw, extra, fill),
+        }
+    }
+
     /// Cells for a run of text in one style (for text painted over rows).
     fn text_cells(&self, text: &str, st: &Style) -> Vec<Cell> {
         let mut v = Vec::new();
         for ch in text.chars() {
             let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied());
+            let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
             if tw == 0 {
                 continue;
             }
@@ -3280,7 +3348,7 @@ impl Drop for Tty {
 
 #[cfg(test)]
 mod tests {
-    use super::{char_cells, Ambi};
+    use super::{char_cells, console_lookalike, Ambi};
 
     #[test]
     fn osc66_draws_one_two_cell_glyph() {
@@ -3313,6 +3381,15 @@ mod tests {
     #[test]
     fn linux_console_draws_everything_in_one_cell() {
         // kanji, full-width space and letters: one cell plus a filler
+        // the Linux console's font: missing glyphs drawn as lookalikes
+        let has: std::collections::HashSet<char> = ['─', '■', '·'].into_iter().collect();
+        assert_eq!(console_lookalike('【', &has), '[');
+        assert_eq!(console_lookalike('）', &has), ')');
+        assert_eq!(console_lookalike('Ａ', &has), 'A');
+        assert_eq!(console_lookalike('ー', &has), '─');
+        assert_eq!(console_lookalike('・', &has), '·');
+        assert_eq!(console_lookalike('●', &has), 'o');
+        assert_eq!(console_lookalike('漢', &has), '漢');
         assert_eq!(char_cells('漢', Ambi::Narrow, None), (1, 1, ' '));
         assert_eq!(char_cells('　', Ambi::Narrow, None), (1, 1, ' '));
         assert_eq!(char_cells('Ａ', Ambi::Narrow, None), (1, 1, ' '));

@@ -553,6 +553,11 @@ terminal:
 - The console has no double-width characters, so emuera-tty notices that
   at startup and pads kanji, kana and full-width symbols itself, which
   keeps menus and maps lined up (`EMUERA_AMBIGUOUS=single` forces this).
+- Its font has a few hundred glyphs, and the rest show as a diamond.
+  emuera-tty reads which characters the font has and draws the missing
+  ones as the nearest it has: `【】「」` as `[ ]`, full-width `（Ａ１）` as
+  `(A1)`, `ー` as `─`, `★※` as `*`, and so on, in the same width. Kana and
+  kanji have no stand-in; use fbterm for those.
 - The console has 16 colours. Dim colours keep their hue (dark teal
   walls stay cyan, brown floors brown) and greys step through black, dark
   grey, light grey and white, so coloured maps stay readable.
