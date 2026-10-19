@@ -44,15 +44,7 @@ pub trait Backend {
     fn draw(&mut self, _out: &mut Vec<u8>, _p: &[Placement], _cell: (u32, u32)) {}
     /// Called after the frame has been written and drained to the tty.
     fn after_flush(&mut self, _p: &[Placement], _cell: (u32, u32)) {}
-    /// Draw the mouse pointer at cell `at` over everything (the framebuffer,
-    /// where pictures are painted over the text and would hide a pointer
-    /// drawn as an inverted cell). Must fit in the cell: repainting it
-    /// erases it.
-    fn draw_pointer(&mut self, _cell: (u32, u32), _at: (usize, usize)) {}
-    /// Does `draw_pointer` draw one? (then the cell isn't inverted too)
-    fn draws_pointer(&self) -> bool {
-        false
-    }
+
     /// The screen was cleared or may be out of step (Ctrl-L): place
     /// everything again on the next frame.
     fn reset(&mut self, _out: &mut Vec<u8>) {}

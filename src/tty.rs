@@ -370,8 +370,9 @@ pub struct Tty {
     pub status_info: bool,
     /// the keyboard pointer (see `kbd_pointer`)
     pub kbd_ptr: bool,
-    /// draw the console mouse's pointer even with gpm (Console pointer)
-    pub draw_pointer: bool,
+    /// our pointer blinks: shown now, and when that changes
+    ptr_on: bool,
+    blink_at: Instant,
     /// what applying a setting has to say (shown on the settings page)
     setting_note: String,
     /// live translation of character dialog (see `mt`): the translator, and
@@ -585,7 +586,8 @@ impl Tty {
             wheel: 3,
             status_info: true,
             kbd_ptr: false,
-            draw_pointer: false,
+            ptr_on: true,
+            blink_at: Instant::now(),
             setting_note: String::new(),
             mt: None,
             tr_to: String::new(),
@@ -888,7 +890,23 @@ impl Tty {
                 }
                 let b = self.pending.clone();
                 if b[1] == b'[' {
-                    if b.get(2) == Some(&b'M') {
+                    if b.get(2) == Some(&b'[') {
+                        // the Linux console's F1–F5: ESC [ [ A … E (the second
+                        // [ is no final byte here)
+                        if b.len() < 4 {
+                            self.read_bytes(30);
+                            if self.pending.len() < 4 {
+                                self.pending.clear();
+                                return Some(Key::Other);
+                            }
+                            return self.next_key(0);
+                        }
+                        (match b[3] {
+                            b'A' => Key::Settings,
+                            b'E' => Key::Reload,
+                            _ => Key::Other,
+                        }, 4)
+                    } else if b.get(2) == Some(&b'M') {
                         // X10 / normal mouse: ESC [ M Cb Cx Cy, each value + 32
                         if b.len() < 6 {
                             self.read_bytes(30);
@@ -931,7 +949,6 @@ impl Tty {
                                     // F1: xterm-style, and the Linux console's ESC [ [ A
                                     (p, b'~') if p == b"11" => Key::Settings,
                                     (p, b'~') if p == b"15" => Key::Reload,
-                                    (p, b'A') if p == b"[" => Key::Settings,
                                     (_, b'A') => Key::Up,
                                     (_, b'B') => Key::Down,
                                     (_, b'C') => Key::Right,
@@ -1340,8 +1357,8 @@ impl Tty {
         let mut placements = cbg_places;
         // the console mouse (gpm or the raw device) has no pointer of its
         // own on screen: draw one
-        // (the framebuffer draws it as an arrow over the pictures instead)
-        let pointer = if self.own_pointer() && !self.gfx.draws_pointer() { self.mouse } else { None };
+        // (blinking: off half the time)
+        let pointer = if self.own_pointer() && self.ptr_on { self.mouse } else { None };
         let mut pointer_drawn = false;
         // each row's bytes, for damage tracking (see `skip_unchanged_rows`)
         let mut row_bytes: Vec<(usize, usize)> = Vec::with_capacity(view_h);
@@ -1535,7 +1552,7 @@ impl Tty {
         if let Some(t) = &tip {
             tip_rows = self.draw_tooltip(&mut out, t, con.tip_colors);
         }
-        self.drawn_pointer = if self.own_pointer() { self.mouse.filter(|p| p.1 < view_h) } else { None };
+        self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
         self.frame_cursor = None;
         // cursor at end of input
         if req.map(|r| r.kind != InputKind::Wait).unwrap_or(false) {
@@ -1572,9 +1589,6 @@ impl Tty {
         write_all(&out);
         crate::sys::drain_stdout();
         self.gfx.after_flush(&placements, self.cell);
-        if let Some(p) = self.drawn_pointer.filter(|_| self.gfx.draws_pointer()) {
-            self.gfx.draw_pointer(self.cell, p);
-        }
         self.frame_imgs = placements;
         con.dirty = false;
     }
@@ -1913,9 +1927,7 @@ impl Tty {
     /// that lost or gained the hover highlight (re-blitting framebuffer
     /// images under them). A full redraw makes the images flicker.
     fn repaint_hover(&mut self, focus: Rgb) {
-        let new_ptr = if self.own_pointer() { self.mouse.filter(|p| p.1 < self.rows.saturating_sub(1)) } else { None };
-        // the framebuffer draws the pointer as an arrow: cells aren't inverted
-        let invert = !self.gfx.draws_pointer();
+        let new_ptr = if self.own_pointer() && self.ptr_on { self.mouse.filter(|p| p.1 < self.rows.saturating_sub(1)) } else { None };
         let new_hover = self.mouse.and_then(|(x, y)| self.button_at(x, y));
         let old_hover = self.hover;
         if new_ptr == self.drawn_pointer && new_hover == old_hover {
@@ -1944,7 +1956,7 @@ impl Tty {
                 };
                 let _ = write!(out, "\x1b[{};{}H\x1b[0m", r + 1, c + 1);
                 self.sgr(&mut out, &cell.style, ov);
-                if on_new && invert {
+                if on_new {
                     out.extend_from_slice(b"\x1b[7m");
                 }
                 let mut tmp = [0u8; 4];
@@ -1965,7 +1977,7 @@ impl Tty {
                 // a blank in the window background, inverted for the pointer
                 let blank = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
                 self.sgr(&mut out, &blank, None);
-                out.extend_from_slice(if inverse && invert { b"\x1b[7m \x1b[0m" } else { b" \x1b[0m" });
+                out.extend_from_slice(if inverse { b"\x1b[7m \x1b[0m" } else { b" \x1b[0m" });
                 touched.push((px, py, 1));
             }
         }
@@ -2002,9 +2014,6 @@ impl Tty {
             .collect();
         if !hit.is_empty() {
             self.gfx.after_flush(&hit, self.cell);
-        }
-        if let Some(p) = new_ptr.filter(|_| !invert) {
-            self.gfx.draw_pointer(self.cell, p);
         }
     }
 
@@ -2161,10 +2170,6 @@ impl Tty {
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "statusbar" => self.status_info = v == "on",
             "kbdpointer" => self.set_kbd_pointer(v),
-            "pointer" => {
-                self.draw_pointer = v == "drawn";
-                self.redraw_all.set(true);
-            }
             "translate" | "translator" => self.setting_note = self.set_translate(st),
             "translate_from" | "translate_what" => {
                 self.tr_from = st.get("translate_from").to_string();
@@ -2580,11 +2585,42 @@ impl Tty {
         self.redraw_all.set(true);
     }
 
-    /// Is the mouse pointer ours to draw? (the console mouse read from
-    /// /dev/input/mice, or the keyboard pointer: nothing else shows one;
-    /// gpm draws its own)
+    /// Is the mouse pointer ours to draw? (the console mouse, gpm's or the
+    /// raw device's, or the keyboard pointer: no terminal shows one)
     fn own_pointer(&self) -> bool {
-        self.mice.as_ref().is_some_and(|m| self.draw_pointer || !m.draws_pointer()) || self.kbd_ptr
+        self.mice.is_some() || self.kbd_ptr
+    }
+
+    /// Blink the pointer: how long until it changes (None: no pointer of
+    /// ours), turning it over when the time has come. It shows at once when
+    /// it moves (`show_pointer`).
+    fn blink(&mut self) -> Option<i32> {
+        if !self.own_pointer() || self.mouse.is_none() {
+            return None;
+        }
+        let now = Instant::now();
+        if now >= self.blink_at {
+            self.ptr_on = !self.ptr_on;
+            self.blink_at = now + Duration::from_millis(530);
+        }
+        Some(self.blink_at.saturating_duration_since(now).as_millis() as i32 + 1)
+    }
+
+    /// Blink the pointer when it is time (repainting just its cell); how
+    /// long to wait for the next time.
+    fn blink_wait(&mut self, focus: Rgb) -> Option<i32> {
+        let was = self.ptr_on;
+        let w = self.blink();
+        if self.ptr_on != was {
+            self.repaint_hover(focus);
+        }
+        w
+    }
+
+    /// The pointer moved: show it, and keep it on for a moment.
+    fn show_pointer(&mut self) {
+        self.ptr_on = true;
+        self.blink_at = Instant::now() + Duration::from_millis(530);
     }
 
     /// The keyboard pointer: with it on, the cursor keys move the pointer a
@@ -2791,6 +2827,8 @@ impl Frontend for Tty {
             };
             // dialog being translated: look for the results now and then
             let wait = if self.mt.as_ref().is_some_and(|m| m.busy()) { wait.min(250) } else { wait };
+            // the pointer blinking
+            let wait = self.blink_wait(con.focus_fg).map_or(wait, |b| wait.min(b));
             let Some(k) = self.next_key(wait).map(|k| self.kbd_pointer(k, false)) else {
                 let (c, r, _, _) = winsize();
                 let translated = self.mt.as_mut().is_some_and(|m| m.poll());
@@ -2874,6 +2912,7 @@ impl Frontend for Tty {
                         b if b & 32 != 0 => {
                             // motion: update hover highlight
                             self.mouse = Some((x, y));
+                            self.show_pointer();
                             // the console pointer is drawn by us: move it, but
                             // only once a burst of motion has been read
                             if self.own_pointer() || self.button_at(x, y) != self.hover {
@@ -2980,6 +3019,7 @@ impl Frontend for Tty {
                 }
                 None => 200,
             };
+            let wait = self.blink_wait(con.focus_fg).map_or(wait, |b| wait.min(b));
             let Some(k) = self.next_key(wait).map(|k| self.kbd_pointer(k, true)) else { continue };
             let key = |code: i64| RawInput::Key { code, data: code };
             match k {
@@ -3019,6 +3059,7 @@ impl Frontend for Tty {
                         65 => return RawInput::Wheel { up: false, cell },
                         b if b & 32 != 0 => {
                             self.mouse = Some(cell);
+                            self.show_pointer();
                             moved = true;
                         }
                         b @ 0..=2 if press => {

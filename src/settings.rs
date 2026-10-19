@@ -101,13 +101,6 @@ pub const ITEMS: &[Item] = &[
         help: "PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)",
     },
     Item {
-        key: "pointer",
-        label: "Console pointer",
-        choices: &["gpm", "drawn"],
-        live: true,
-        help: "the mouse pointer on the Linux console: gpm's own, or drawn by emuera-tty (if gpm's doesn't show)",
-    },
-    Item {
         key: "kbdpointer",
         label: "Keyboard pointer",
         choices: &["auto", "on", "off"],

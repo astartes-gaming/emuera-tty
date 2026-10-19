@@ -397,7 +397,6 @@ running game:
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
-| Console pointer | gpm, drawn | gpm's pointer, or one drawn by emuera-tty |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
 | Translator | auto, local, argos, translate-shell, deepl | auto: whichever is installed, this computer's first |
@@ -717,19 +716,16 @@ text.
 | xterm, kitty, WezTerm, foot, Ghostty, Alacritty, GNOME/KDE terminals, tmux | SGR (1006) mouse reports |
 | urxvt and other 1015 terminals | urxvt (1015) reports |
 | older terminals | legacy X10 reports |
-| Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client; gpm draws its usual pointer |
+| Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client, draws its own pointer |
 | Linux console / fbterm **without** gpm | reads `/dev/input/mice` directly (wheel included), draws its own pointer |
 
 Modifier keys held during a click are ignored. On the console, gpm needs
 nothing else; the `/dev/input/mice` fallback needs read access to the
 device, i.e. the `input` group — note that it can read *all* input
 devices, keyboards included. `EMUERA_MOUSE=mice` forces the console mouse
-anywhere, `EMUERA_MOUSE=off` (or `term`) disables it. With gpm the
-pointer is gpm's own (only gpm may draw it: when the screen changes under
-it, it shows again at the next move, as in other console programs);
-*Console pointer: drawn* in F1 has emuera-tty draw it instead.
-Without gpm emuera-tty draws one: an inverted cell, or an arrow over
-framebuffer pictures.
+anywhere, `EMUERA_MOUSE=off` (or `term`) disables it. The pointer on the
+console is a blinking inverted cell that emuera-tty draws (gpm's own
+would be wiped out by every redraw).
 
 **No mouse?** *Keyboard pointer* in F1 (`auto` turns it on by itself on the
 Linux console when no mouse can be found) puts a pointer on the screen
