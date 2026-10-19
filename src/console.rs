@@ -369,8 +369,11 @@ impl Console {
         self.dirty = true;
     }
 
+    /// LINECOUNT: the lines printed so far, those already dropped from the
+    /// history too (as Emuera counts; a game waiting for it to reach a
+    /// number never got there once the history was full).
     pub fn line_count(&self) -> usize {
-        self.lines.len()
+        self.dropped_front + self.lines.len()
     }
 
     /// DRAWLINE: a full-width rule on a line of its own.

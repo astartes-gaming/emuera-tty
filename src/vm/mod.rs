@@ -143,6 +143,13 @@ pub struct Vm {
     inject_at: Option<u64>,
     /// CALLTRAIN: the commands to run one after another, and how many ran
     pub ctrain: Option<(Vec<i64>, usize)>,
+    /// DOTRAIN: may it be used now (inside @EVENTTRAIN, @SHOW_STATUS,
+    /// @SHOW_USERCOM, @EVENTCOMEND or @USERCOM), and the command it chose,
+    /// which runs once that event has ended
+    pub dotrain_ok: bool,
+    pub dotrain: Option<i64>,
+    /// set before @EVENTCOMEND; a WAIT clears it, else one follows it
+    pub comend_wait: bool,
     /// reads and parses the ERB files again (the reload hotkey)
     pub reloader: Option<Box<dyn FnMut() -> Program>>,
     /// Emuera-EM MAP_* string maps, by (case-sensitive) name
@@ -233,6 +240,9 @@ impl Vm {
             inputs_seen: 0,
             inject_at: std::env::var("EMUERA_INJECT_AT").ok().and_then(|n| n.parse().ok()),
             ctrain: None,
+            dotrain_ok: false,
+            dotrain: None,
+            comend_wait: false,
             reloader: None,
             maps: HashMap::default(),
             dts: HashMap::default(),
@@ -1925,6 +1935,7 @@ impl Vm {
 
     /// WAIT, or FORCEWAIT (`force`: message skipping stops here).
     pub fn wait_ex(&mut self, force: bool) -> VmResult<()> {
+        self.comend_wait = false;
         if !self.con.cur.is_empty() {
             self.con.newline();
         }

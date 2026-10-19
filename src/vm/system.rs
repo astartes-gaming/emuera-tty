@@ -286,11 +286,22 @@ impl Vm {
         }
     }
 
+    /// Call a TRAIN event in which DOTRAIN may be used. Returns the command
+    /// DOTRAIN chose: Emuera runs it once the event has ended, in place of
+    /// what would have come next.
+    fn train_event(&mut self, name: &str) -> VmResult<Option<i64>> {
+        self.dotrain_ok = true;
+        let r = self.call_opt(name);
+        self.dotrain_ok = false;
+        r?;
+        Ok(self.dotrain.take())
+    }
+
     /// Run training command `n` as Emuera does: NOWEX cleared, @EVENTCOM,
     /// @COMn; if that succeeded (RESULT ≠ 0) @SOURCE_CHECK, SOURCE cleared,
-    /// @EVENTCOMEND and a WAIT so its text can be read. PREVCOM is the
-    /// script's business.
-    pub fn do_train_command(&mut self, n: i64) -> VmResult<()> {
+    /// @EVENTCOMEND and, unless it waited, a WAIT so its text can be read.
+    /// PREVCOM is the script's business. Returns a DOTRAIN from @EVENTCOMEND.
+    pub fn do_train_command(&mut self, n: i64) -> VmResult<Option<i64>> {
         for c in 0..self.charas.len() {
             self.chara_arr(c, "NOWEX").clear();
         }
@@ -303,26 +314,39 @@ impl Vm {
             for c in 0..self.charas.len() {
                 self.chara_arr(c, "SOURCE").clear();
             }
-            self.call_opt("EVENTCOMEND")?;
-            self.con.skip_disp = false;
-            self.wait()?;
+            self.comend_wait = true;
+            if let Some(d) = self.train_event("EVENTCOMEND")? {
+                return Ok(Some(d));
+            }
+            if self.comend_wait {
+                self.con.skip_disp = false;
+                self.wait()?;
+            }
         }
-        Ok(())
+        Ok(None)
     }
 
     /// TRAIN: the commands TRAIN.csv defines that @COM_ABLEn allows, listed
     /// with their position among TRAIN.csv's entries (that is the number
     /// typed, as in Emuera); any other number goes to @USERCOM. NEXTCOM ≥ 0
     /// runs that command first and is set to 0 (eramaker's rule: a script
-    /// that doesn't reset it repeats it).
+    /// that doesn't reset it repeats it). A DOTRAIN in an event runs its
+    /// command when the event ends, the screens in between skipped.
     fn train(&mut self) -> VmResult<String> {
         self.train_reset();
-        self.call_opt("EVENTTRAIN")?;
+        self.dotrain = None;
+        let mut dotrain = self.train_event("EVENTTRAIN")?;
         loop {
+            if let Some(n) = dotrain.take() {
+                self.con.skip_disp = false;
+                self.train_after_usercom();
+                dotrain = self.do_train_command(n)?;
+                continue;
+            }
             let next = self.get_global_i("NEXTCOM", 0);
             if next >= 0 {
                 self.set_global_i("NEXTCOM", 0, 0);
-                self.do_train_command(next)?;
+                dotrain = self.do_train_command(next)?;
                 continue;
             }
             // CALLTRAIN: the screens are run without output, the next
@@ -332,7 +356,10 @@ impl Vm {
                 self.con.skip_disp = true;
                 self.con.skip_user = false;
             }
-            self.call_opt("SHOW_STATUS")?;
+            dotrain = self.train_event("SHOW_STATUS")?;
+            if dotrain.is_some() {
+                continue;
+            }
             let mut coms: Vec<(i64, String)> = self
                 .csv
                 .tables
@@ -361,7 +388,10 @@ impl Vm {
             if !self.con.cur.is_empty() {
                 self.con.newline();
             }
-            self.call_opt("SHOW_USERCOM")?;
+            dotrain = self.train_event("SHOW_USERCOM")?;
+            if dotrain.is_some() {
+                continue;
+            }
             self.con.skip_disp = false;
             self.train_after_usercom();
             if let Some((list, done)) = self.ctrain.clone() {
@@ -376,12 +406,12 @@ impl Vm {
                 self.con.print(&format!("＜コマンド連続実行：{}/{}＞", done + 1, list.len()));
                 self.con.newline();
                 if avail.contains(&Some(id)) {
-                    self.do_train_command(id)?;
+                    dotrain = self.do_train_command(id)?;
                 } else {
                     self.con.print("コマンドを実行できませんでした");
                     self.con.newline();
                     self.set_result(id);
-                    self.call_opt("USERCOM")?;
+                    dotrain = self.train_event("USERCOM")?;
                 }
                 if self.ctrain.as_ref().is_some_and(|(l, d)| *d >= l.len()) {
                     self.ctrain = None;
@@ -390,13 +420,13 @@ impl Vm {
                 continue;
             }
             let v = self.input_int(None, None, false)?;
-            match usize::try_from(v).ok().and_then(|k| avail.get(k).copied().flatten()) {
+            dotrain = match usize::try_from(v).ok().and_then(|k| avail.get(k).copied().flatten()) {
                 Some(id) => self.do_train_command(id)?,
                 None => {
                     self.set_result(v);
-                    self.call_opt("USERCOM")?;
+                    self.train_event("USERCOM")?
                 }
-            }
+            };
         }
     }
 

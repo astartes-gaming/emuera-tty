@@ -986,10 +986,23 @@ impl Vm {
                     }
                 }
             }
+            // as Emuera: the event goes on to its end, then the TRAIN loop
+            // runs the command (the CALLTRAIN queue is dropped)
             "DOTRAIN" => {
+                if !self.dotrain_ok {
+                    return err("DOTRAIN can only be used in @EVENTTRAIN, @SHOW_STATUS, @SHOW_USERCOM, @EVENTCOMEND or @USERCOM");
+                }
+                self.ctrain = None;
                 let n = self.ai(a, 0, 0)?;
-                self.train_after_usercom();
-                self.do_train_command(n)?;
+                let size = self.csv.varsize.get("TRAINNAME").and_then(|d| d.first().copied()).unwrap_or(1000) as i64;
+                if n < 0 {
+                    return err(format!("DOTRAIN {}: below 0", n));
+                }
+                if n >= size {
+                    return err(format!("DOTRAIN {}: TRAINNAME has {} entries", n, size));
+                }
+                self.dotrain = Some(n);
+                self.dotrain_ok = false;
             }
             // continuous training: the TRAIN loop runs SELECTCOM:1..=n
             "CALLTRAIN" => {

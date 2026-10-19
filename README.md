@@ -694,7 +694,9 @@ checked.
   `_Replace.csv`'s defaults). PRINT_SHOPITEM, MONEYSTR and MONEYLABEL use
   `_Replace.csv`'s currency unit and its position. `CALLTRAIN` /
   `STOPCALLTRAIN` / `@CALLTRAINEND` (continuous training; pops-tw forces
-  commands with it).
+  commands with it). `DOTRAIN` as in Emuera: the event it is in (only
+  @EVENTTRAIN, @SHOW_STATUS, @SHOW_USERCOM, @EVENTCOMEND, @USERCOM) runs to
+  its end, then the command runs.
 - Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
   `SPRITECREATE`, `SPRITE*`), shown through the image backends.
 - Client background layers (`CBGSETG`, `CBGSETSPRITE`, `CBGSETBUTTONSPRITE`,
@@ -741,8 +743,6 @@ statements as a function `@__INJECT` just before the n-th input.
    of CPU (its own object system looks names up in 1000-entry arrays
    hundreds of thousands of times); compiling variables to slots ahead of
    time would be the next step.
-4. `DOTRAIN` jumping back into the TRAIN loop as in Emuera (it runs the
-   command in place here).
-5. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
+4. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
    (`radius`). Tooltip fonts (`TOOLTIP_SETFONT`, `TOOLTIP_SETFONTSIZE`)
    are the terminal's.

@@ -90,3 +90,37 @@ fn save_load_roundtrip() {
     assert!(after_comment(&a) == after_comment(&b), "re-saving a loaded game changed its data");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// DOTRAIN as in Emuera: the event it is in runs to its end, then the
+/// command runs in place of what came next; inside a command it is an error.
+#[test]
+fn dotrain_runs_after_the_event() {
+    let dir = std::env::temp_dir().join(format!("emuera-tty-test-dotrain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("CSV")).unwrap();
+    std::fs::create_dir_all(dir.join("ERB")).unwrap();
+    std::fs::write(dir.join("CSV/Train.csv"), "0,A\n1,B\n999,C\n").unwrap();
+    let erb = "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = -1\n\
+        @SHOW_STATUS\nFLAG:0 += 1\nPRINTFORML status {FLAG:0}\nSIF FLAG:0 == 1\n  DOTRAIN 1\nSIF FLAG:0 == 1\n  PRINTL rest of status\nSIF FLAG:0 == 3\n  QUIT\n\
+        @SHOW_USERCOM\nPRINTL usercom list\n\
+        @USERCOM\nPRINTFORML usercom {RESULT}\nSIF RESULT == 50\n  DOTRAIN 999\nPRINTL rest of usercom\n\
+        @COM1\nPRINTL com1\nRETURN 1\n@COM999\nPRINTL com999\nRETURN 1\n@COM0\nDOTRAIN 1\nRETURN 1\n\
+        @EVENTCOMEND\nPRINTFORML comend {SELECTCOM}\n";
+    std::fs::write(dir.join("ERB/T.ERB"), erb).unwrap();
+    let text = run(&dir, b"\n50\n\n0\n\n");
+    let order = ["status 1", "rest of status", "com1", "comend 1", "status 2", "usercom list", "usercom 50", "rest of usercom", "com999", "comend 999", "status 3"];
+    let mut at = 0;
+    for o in order {
+        let p = text[at..].find(o).unwrap_or_else(|| panic!("{:?} missing after byte {}:\n{}", o, at, text));
+        at += p + o.len();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    // DOTRAIN inside @COMn: Emuera refuses it
+    std::fs::create_dir_all(dir.join("CSV")).unwrap();
+    std::fs::create_dir_all(dir.join("ERB")).unwrap();
+    std::fs::write(dir.join("CSV/Train.csv"), "0,A\n1,B\n").unwrap();
+    std::fs::write(dir.join("ERB/T.ERB"), "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = 0\n@COM0\nDOTRAIN 1\nRETURN 1\n").unwrap();
+    let text = run(&dir, b"\n\n");
+    assert!(text.contains("DOTRAIN can only be used"), "{}", text);
+    let _ = std::fs::remove_dir_all(&dir);
+}
