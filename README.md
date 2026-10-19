@@ -682,11 +682,13 @@ checked.
   offset (`xpos`/`ypos`/`width`/`height`, `rect=`, `size=`) with their
   background colour, border (`border` / `bcolor`, drawn as coloured
   cells), rounded corners (`radius`, a quarter block), `padding` and
-  `margin`; `<clearbutton>`; `<button title=…>`
-  tooltips shown by the pointer after Emuera's delay (`TOOLTIP_SETDELAY`,
-  `TOOLTIP_SETDURATION`, `TOOLTIP_SETCOLOR`; `<br>` and CR break their
-  lines; the font is the terminal's); `<img srcb=…>` hover pictures; newlines in the text break the
-  line like `<br>`.
+  `margin`; `<clearbutton>`; `<button title=…>` and `<nonbutton title=…>`
+  (text that isn't a button) tooltips shown by the pointer after Emuera's
+  delay (`TOOLTIP_SETDELAY`, `TOOLTIP_SETDURATION`, `TOOLTIP_SETCOLOR`;
+  `<br>` and CR break their lines; the font is the terminal's);
+  `<img srcb=…>` hover pictures; colours by name or `#` and hex, `0x`
+  allowed as in Emuera (`#0xFFA500`); newlines in the text break the line
+  like `<br>`.
 - Animated sprites: `ANIME` blocks in resources CSVs and
   `SPRITEANIMECREATE` / `SPRITEANIMEADDFRAME`, redrawn on the
   `SETANIMETIMER` interval (at most ten times a second).

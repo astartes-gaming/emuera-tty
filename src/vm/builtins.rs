@@ -370,10 +370,16 @@ fn parse_color_name(n: &str) -> Option<Rgb> {
     if let Some((_, v)) = NAMED_COLORS.iter().find(|(name, _)| *name == n) {
         return Some(Rgb::from_i64(*v));
     }
-    let h = n.trim_start_matches('#');
-    if h.len() == 6 {
-        let v = i64::from_str_radix(h, 16).ok()?;
+    // `#` and hex digits as .NET's Convert.ToInt32(s, 16) reads them: an
+    // optional 0x (AnonTW writes `#0xFFFF00`), any number of digits
+    if let Some(h) = n.strip_prefix('#') {
+        let h = h.strip_prefix("0x").unwrap_or(h);
+        let v = i64::from_str_radix(h, 16).ok().filter(|v| (0..=0xFF_FFFF).contains(v))?;
         return Some(Rgb::from_i64(v));
+    }
+    // (also bare RRGGBB, which Emuera refuses)
+    if n.len() == 6 {
+        return i64::from_str_radix(&n, 16).ok().map(Rgb::from_i64);
     }
     None
 }
@@ -4184,6 +4190,20 @@ fn html_tag_split(s: &str) -> Option<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    /// HTML colours as Emuera reads them: names, `#` and hex (0x allowed).
+    #[test]
+    fn html_colors() {
+        use super::color_from_str as c;
+        use crate::console::Rgb;
+        assert_eq!(c("#FFA500"), Some(Rgb(255, 165, 0)));
+        assert_eq!(c("#0xC070C0"), Some(Rgb(0xC0, 0x70, 0xC0)));
+        assert_eq!(c("#0x404040"), Some(Rgb(0x40, 0x40, 0x40)));
+        assert_eq!(c("#ff"), Some(Rgb(0, 0, 255)));
+        assert_eq!(c("Red"), Some(Rgb(255, 0, 0)));
+        assert_eq!(c("#1000000"), None);
+        assert_eq!(c("#nope"), None);
+    }
+
     #[test]
     fn dotnet_number_formats() {
         use super::format_number as f;

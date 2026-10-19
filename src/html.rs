@@ -224,7 +224,12 @@ impl Vm {
                                 self.con.set_tooltip(b, t.trim());
                             }
                         }
-                        ("button", true) | ("nonbutton", _) => button = None,
+                        // Emuera-EM: text with a tooltip that is no button
+                        ("nonbutton", false) => {
+                            let t = attrs.get("title").map(|t| decode_entities(t)).unwrap_or_default();
+                            button = (!t.trim().is_empty()).then(|| self.con.tip_area(t.trim()));
+                        }
+                        ("button", true) | ("nonbutton", true) => button = None,
                         ("clearbutton", c) => clear = !c,
                         ("div", false) => {
                             // the content up to </div> (divs don't nest)

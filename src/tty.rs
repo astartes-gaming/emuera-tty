@@ -1239,7 +1239,7 @@ impl Tty {
                     }
                 }
                 let ov = match (cell.button, hover) {
-                    (Some(b), Some(h)) if b == h => Some(con.focus_fg),
+                    (Some(b), Some(h)) if b == h && self.is_button(b) => Some(con.focus_fg),
                     _ => None,
                 };
                 let key = (cell.style.clone(), ov);
@@ -1572,7 +1572,7 @@ impl Tty {
     /// below it, or above when there is no room.
     /// Where a tooltip goes and its lines (see [`Tty::draw_tooltip`]).
     fn tooltip_box(&self, tip: &str, mx: usize, my: usize) -> TipBox {
-        let maxw = self.cols.saturating_sub(4).clamp(10, 60);
+        let maxw = self.cols.saturating_sub(4).clamp(10, 80);
         let mut lines: Vec<(String, usize)> = Vec::new();
         // games break tooltip lines with CR (`UNICODE(0x000D)`, AnonTW's
         // map) as well as LF; written raw, a CR sends the cursor to the
@@ -1607,7 +1607,20 @@ impl Tty {
             }
             lines.push((cur, w));
         }
-        lines.truncate(self.rows.saturating_sub(3).clamp(1, 10));
+        // as tall as the screen allows (Emuera shows all of it: AnonTW's
+        // ability descriptions run to a dozen lines); a cut one ends in …
+        let most = self.rows.saturating_sub(2).max(1);
+        if lines.len() > most {
+            lines.truncate(most);
+            if let Some((l, w)) = lines.last_mut() {
+                if *w + 1 >= maxw {
+                    l.pop();
+                } else {
+                    *w += 1;
+                }
+                l.push('…');
+            }
+        }
         let w = lines.iter().map(|l| l.1).max().unwrap_or(0) + 2;
         let h = lines.len();
         let view = self.rows.saturating_sub(1);
@@ -1787,7 +1800,7 @@ impl Tty {
                     continue;
                 }
                 let ov = match (cell.button, new_hover) {
-                    (Some(b), Some(h)) if b == h => Some(focus),
+                    (Some(b), Some(h)) if b == h && self.is_button(b) => Some(focus),
                     _ => None,
                 };
                 let _ = write!(out, "\x1b[{};{}H\x1b[0m", r + 1, c + 1);
@@ -2071,10 +2084,21 @@ impl Tty {
         (top + 1,)
     }
 
-    /// The button id at a 0-based screen cell, from the last frame.
+    /// The button id at a 0-based screen cell, from the last frame
+    /// (`<nonbutton>` tooltip areas included).
     fn button_at(&self, x: usize, y: usize) -> Option<usize> {
         let row = self.btn_map.get(y)?;
         row.iter().find(|(s, e, _)| x >= *s && x < *e).map(|(_, _, b)| *b)
+    }
+
+    /// The clickable button at a cell (not a `<nonbutton>` area).
+    fn click_at(&self, x: usize, y: usize) -> Option<usize> {
+        self.button_at(x, y).filter(|&b| self.is_button(b))
+    }
+
+    /// Is button id `b` a real button (not a `<nonbutton>` tooltip area)?
+    fn is_button(&self, b: usize) -> bool {
+        self.buttons.get(b).is_some_and(|v| !crate::console::is_tip_area(v))
     }
 }
 
@@ -2339,7 +2363,7 @@ impl Frontend for Tty {
                             if req.kind == InputKind::Wait {
                                 return InputResult::Text(String::new());
                             }
-                            if let Some(b) = self.button_at(x, y) {
+                            if let Some(b) = self.click_at(x, y) {
                                 let v = self.buttons[b].clone();
                                 return InputResult::Text(v.to_string());
                             }
@@ -2352,7 +2376,7 @@ impl Frontend for Tty {
                                 self.scroll = 0;
                                 return InputResult::Skip(String::new());
                             }
-                            if let Some(b) = self.button_at(x, y) {
+                            if let Some(b) = self.click_at(x, y) {
                                 let v = self.buttons[b].clone();
                                 return InputResult::Skip(v.to_string());
                             }
@@ -2478,7 +2502,7 @@ impl Frontend for Tty {
                         }
                         b @ 0..=2 if press => {
                             self.mouse = Some(cell);
-                            let button = self.button_at(cell.0, cell.1).map(|i| self.buttons[i].clone());
+                            let button = self.click_at(cell.0, cell.1).map(|i| self.buttons[i].clone());
                             return RawInput::Click { btn: b as u8, cell, button };
                         }
                         _ => {}

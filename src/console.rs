@@ -34,6 +34,17 @@ pub struct Style {
     pub strike: bool,
 }
 
+/// Is `v` a `<nonbutton>` tooltip area rather than a button? (see
+/// [`Console::tip_area`])
+pub fn is_tip_area(v: &Value) -> bool {
+    matches!(v, Value::Str(s) if s.starts_with('\u{1}'))
+}
+
+/// A real (clickable) button value.
+fn is_button(b: &Option<Value>) -> bool {
+    b.as_ref().is_some_and(|v| !is_tip_area(v))
+}
+
 /// One piece of a line.
 #[derive(Clone, Debug)]
 pub enum Seg {
@@ -143,6 +154,8 @@ pub struct Console {
     pub gen: u64,
     /// `<button title=…>` tooltips: button value → (generation, text)
     pub tooltips: std::collections::HashMap<String, (u64, String)>,
+    /// `<nonbutton>` areas made so far (each gets its own value)
+    tip_areas: u64,
     /// Buttons on lines of this generation are clickable
     /// (`lastButtonGeneration`); see `begin_input`.
     pub valid_gen: u64,
@@ -203,6 +216,7 @@ impl Console {
             button_wrap: false,
             gen: 0,
             tooltips: std::collections::HashMap::new(),
+            tip_areas: 0,
             valid_gen: 0,
             buttons_since_input: false,
             last_input_site: None,
@@ -325,7 +339,7 @@ impl Console {
         let segs = std::mem::take(&mut self.cur);
         let segs = auto_buttons(segs);
         let align = self.cur_align.take().unwrap_or(self.align);
-        if segs.iter().any(|s| matches!(s, Seg::Text { button: Some(_), .. } | Seg::Image { button: Some(_), .. } | Seg::Rect { button: Some(_), .. })) {
+        if segs.iter().any(|s| matches!(s, Seg::Text { button, .. } | Seg::Image { button, .. } | Seg::Rect { button, .. } if is_button(button))) {
             // new buttons are the clickable ones (UpdateGeneration)
             self.valid_gen = self.gen;
             self.buttons_since_input = true;
@@ -425,7 +439,7 @@ impl Console {
     fn collect_buttons(segs: &[Seg], out: &mut Vec<Value>) {
         for s in segs {
             match s {
-                Seg::Text { button: Some(v), .. } | Seg::Image { button: Some(v), .. } | Seg::Rect { button: Some(v), .. } => {
+                Seg::Text { button: Some(v), .. } | Seg::Image { button: Some(v), .. } | Seg::Rect { button: Some(v), .. } if !is_tip_area(v) => {
                     if !out.contains(v) {
                         out.push(v.clone());
                     }
@@ -445,6 +459,17 @@ impl Console {
             Value::Int(i) => format!("i{}", i),
             Value::Str(s) => format!("s{}", s),
         }
+    }
+
+    /// A new `<nonbutton title=…>` area: text that shows a tooltip under the
+    /// pointer but is no button. It is marked like a button with a value of
+    /// its own (U+0001 and a number, which no game prints) that
+    /// [`is_tip_area`] tells apart: never highlighted, clicked or accepted.
+    pub fn tip_area(&mut self, text: &str) -> Value {
+        self.tip_areas += 1;
+        let v = Value::Str(format!("\u{1}{}", self.tip_areas));
+        self.set_tooltip(&v, text);
+        v
     }
 
     /// A button printed now has tooltip `text` (empty: none).
