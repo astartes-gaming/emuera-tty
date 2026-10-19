@@ -373,6 +373,8 @@ pub struct Tty {
     /// EMUERA_MOUSE_LOG: what the mouse did, for finding out why a pointer
     /// misbehaves where it can't be watched (the Linux console)
     mouse_log: Option<std::fs::File>,
+    /// console mouse events received (shown in the bottom bar there)
+    mouse_events: u64,
     /// our pointer blinks: shown now, and when that changes
     ptr_on: bool,
     blink_at: Instant,
@@ -590,6 +592,7 @@ impl Tty {
             status_info: true,
             kbd_ptr: false,
             mouse_log: std::env::var_os("EMUERA_MOUSE_LOG").and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()),
+            mouse_events: 0,
             ptr_on: true,
             blink_at: Instant::now() + Duration::from_millis(530),
             setting_note: String::new(),
@@ -673,6 +676,7 @@ impl Tty {
             let (cell, cols, rows) = (self.cell, self.cols, self.rows);
             let evs = self.mice.as_mut().map(|m| m.read(cell, cols, rows)).unwrap_or_default();
             for (btn, x, y, press) in evs {
+                self.mouse_events += 1;
                 self.mlog(&format!("event btn={} cell=({},{}) press={}", btn, x, y, press));
                 self.queued.push_back(Key::Mouse { btn, x, y, press });
             }
@@ -2555,6 +2559,15 @@ impl Tty {
             }
             if !running.is_empty() {
                 parts.push((format!("@{}", running), "\x1b[0;2m"));
+            }
+            // on the Linux console: is the mouse there, and are its events
+            // coming in?
+            if self.term == "linux" || self.term.starts_with("fbterm") {
+                let m = match &self.mice {
+                    Some(m) => format!("mouse:{} {}", m.describe().split(' ').next().unwrap_or(""), self.mouse_events),
+                    None => "mouse:none".to_string(),
+                };
+                parts.insert(0, (m, "\x1b[0;1m"));
             }
         }
         parts.push(("F1 settings".to_string(), "\x1b[0;2m"));
