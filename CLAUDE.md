@@ -94,17 +94,80 @@ with a very large stack.
 ## Conventions and constraints
 
 - **Emuera is the reference.** When behaviour is in doubt, read Emuera's
-  source (the user keeps a copy at `~/Documents/emuera.em`) rather than
-  guessing; comments in this codebase often name the Emuera function they
-  mirror. Saves must stay byte-compatible with Emuera's.
-- **Low memory and odd CPUs.** It must run on a 512 MB Raspberry Pi Zero
-  (ARMv6) and builds for RISC-V, big-endian PowerPC, LoongArch, MIPS,
-  m68k, s390x. Use `crate::atomic64` instead of `AtomicU64`; the `tar`
-  crate is used without default features (no xattr).
+  C# source rather than guessing: Emuera.em (EM + EE),
+  https://gitlab.com/EvilMask/emuera.em. Comments here often name the
+  Emuera function they mirror (`beginDataLoaded`, `SaveToStreamBinary`…).
+  An offline copy of the Emuera-EM documentation (command reference,
+  eramaker spec) is in the EraSlop repository on gitgud.io
+  (`era-games/EraSlop`, `.agents/eradoc/docs`); where it disagrees with
+  the source, the source wins. Emuera itself can't run on Linux here (no
+  .NET/Wine), so compatibility is checked against its source and against
+  files it wrote.
+- **Saves are byte-compatible with Emuera, both ways.** Players switch
+  between Emuera.exe and emuera-tty on the same saves. Never write anything
+  Emuera can't load. Any change near `vm/save.rs`, `erasav.rs`,
+  `textsav.rs`, `savemgr.rs`, `#DIM` handling or file load order needs the
+  save round trip below. Things that already matter for byte identity:
+  `#DIM` creation order (`declared_dims`, which depends on the file order
+  in `loader::emuera_files`), and `Chara::names_unset` (a character name
+  never set is null in Emuera and left out of the save; one set to "" is
+  written).
+- **Low memory.** It must run on a 512 MB Raspberry Pi Zero (ARMv6): lazy
+  per-function compile, compiled code dropped beyond `EMUERA_CODE_MB`
+  (default RAM/16), graphics buffers RLE-packed beyond `EMUERA_GBUF_MB`
+  (RAM/8). AnonTW peaks around 145 MB, pops-tw around 350 MB. After changes
+  to the parser, AST node sizes or resource caches, check peak memory
+  (`EMUERA_TIMING=1`, `EMUERA_MEMSTATS=<file>`).
+- **Odd CPUs.** i586, ARMv5–7, AArch64, RISC-V 64, PowerPC 64 (both
+  endians) and LoongArch run the games under qemu-user with output
+  identical to x86-64; MIPS, m68k, s390x and others are compile-checked.
+  Use `crate::atomic64::AtomicU64`, never the std one; keep `tar` without
+  default features (its xattr/rustix dependency doesn't build everywhere).
+  Runnable builds: a musl target with
+  `RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"`,
+  then `qemu-<arch> ./emuera-tty …` (without an address-space cap, or qemu
+  can't map the guest). The README's "Other CPUs" section has the list.
 - **Docs track behaviour.** User-visible changes update `README.md` and the
-  man page `doc/emuera-tty.1`.
-- **Don't modify real game folders** when testing; work on a scratch copy
-  (games write saves and `global.sav` on start). Big games use several GB
-  of address space during parallel loading, so cap memory (`ulimit -v`)
-  and don't run many at once.
-- Commit messages: a one-line summary, then a short paragraph on why.
+  man page `doc/emuera-tty.1` (`--manual` prints it).
+- **The maintainer's round:** fix, look for optimisations, update the
+  README, test, commit, push to `origin master`, then
+  `./target/release/emuera-tty --install`. Commit messages: a one-line
+  summary, then a short paragraph on why.
+
+## Testing beyond `cargo test`
+
+Real games used for testing are big eraTW variants (AnonTW: ~3,500 files,
+90,000 functions; pops-tw: 100,000 functions). Rules learnt the hard way:
+
+- **Never touch the real game folders.** Games write saves and `global.sav`
+  on start. Copy `ERB/` and `CSV/` (plus `sav/` if needed) to a scratch
+  folder; `resources/` and `sound/` only when pictures or sound matter.
+- **At most two game processes at once, each memory-capped**
+  (`ulimit -v 4000000` or RLIMIT_AS): six parallel AnonTW runs once
+  crashed a 7 GB machine.
+- Don't use `pkill -f` / `pgrep -f` with a pattern: it matches the shell
+  running it. Track PIDs.
+
+Tools in `tools/` (Python 3; the screen-reading ones need `python3-pyte`):
+
+- `tools/gamed.py` + `tools/g.sh`: keep a game running in a pseudo-terminal
+  and drive it command by command (type, key, click a label), reading the
+  settled screen back. For anything the headless mode can't reach (mouse,
+  INPUTMOUSEKEY menus, rendering). pops-tw's title is an INPUTMOUSEKEY
+  picture menu, so it can only be played through this, not `--headless`.
+- `tools/savdiff.py`: compare two binary saves: payload byte identity,
+  differing variables, entry order. Its docstring has the round-trip
+  recipe: an `@SYSTEM_LOADEND` hook that `SAVEDATA`s and `QUIT`s right
+  after loading an Emuera-made save.
+- `tools/console_mouse.py`: the Linux-console mouse pointer under a fake
+  gpm (`EMUERA_GPMCTL`, `EMUERA_GPM_VC`), printing reversed cells with their
+  colours.
+
+What only a human can check: the real Linux console (its font's glyph
+map via GIO_UNIMAP works only on the VT emuera-tty runs on; framebuffer
+pictures; 16 colours) and real terminals' image protocols. To test in a
+real Konsole without disturbing the desktop, run it on a hidden X server:
+`Xvfb :99 &`, then `env -u WAYLAND_DISPLAY DISPLAY=:99 QT_QPA_PLATFORM=xcb
+dbus-run-session konsole --nofork --separate -e …`, drive it with
+`xdotool` and capture with `import -window root shot.png` (without
+those variables Konsole opens on the user's Wayland session).
