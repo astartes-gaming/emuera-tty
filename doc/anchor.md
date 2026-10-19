@@ -23,6 +23,8 @@ lacks parts of them.
   line starting with `;` is skipped. Neither side is trimmed.
 - A line without exactly one comma, or a key given twice, is an
   exception: **the game does not start**.
+- A `_TR.csv` for any other table is ignored. pops-tw ships
+  `Juel_TR.csv`, which Anchor never reads (Juel isn't in the list).
 
 emuera-tty (`src/translate.rs`): also reads subfolders, trims both sides
 and a trailing comma, keeps the first of two duplicate keys, and gives no

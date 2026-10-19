@@ -3,7 +3,7 @@
 ## 1. Test scaffolding
 
 - [x] 1.1 Move the inline-game helpers from `tests/sample_selftest.rs` (`run`, plus a new `game(dir, files: &[(&str, &str)])` that writes CSV/ERB files into a temp dir) into `tests/common/mod.rs`, and use them from `sample_selftest.rs`. Verify: `cargo test` passes with the same three tests.
-- [ ] 1.2 Record a baseline: `--headless` output of `sample/` plus an 800-input AnonTW and a pops-tw new-game session, with `EMUERA_SEED=1`, saved outside the repo (neither game has TR files). Follow CLAUDE.md's *Testing beyond `cargo test`* rules: scratch copies of the games, at most two memory-capped processes. pops-tw's INPUTMOUSEKEY title can't be passed headless, so drive that session with `tools/gamed.py`. Verify: the files exist and two runs of the same build produce identical output.
+- [x] 1.2 Record a baseline in `../emuera-tty-baseline/` (see its `BASELINE.md`): `--headless` output of `sample/`, AnonTW and eraTohoK (no TR files), 800 seeded random inputs each through `drive.py`, with the before binary kept as `bin/emuera-tty.before`. Follow CLAUDE.md's *Testing beyond `cargo test`* rules: scratch copies, one memory-capped process at a time. Also record pops-tw, which ships Anchor TR files and TRCHARA, as a "before" snapshot: a 40-step `tools/gamed.py` session replayed by `replay.sh` (its title can't be passed headless). It is not reproducible, because its random numbers drift with wall time in the TUI. Verify: two runs of each headless game are identical under `compare.sh`, and the pops-tw transcript and slot-1 save exist.
 
 ## 2. TR table loading (spec: TR table files, TR file problems are warnings; design D6)
 
@@ -24,7 +24,7 @@
 
 - [ ] 4.1 Tell the parser whether the game has TR files. When it does, have it fill `Body::tr_line`: one byte per instruction holding the literal-table index from the raw line (first `<TABLE>NAME` found in TR table order, else ALL) and a "line contains RETURNF" bit. When it doesn't, leave the vec empty. Verify: unit test on a parsed body: `PRINTS TALENTNAME:5` → Talent, `PRINTS "男"` → ALL, an untranslated game → empty vec.
 - [ ] 4.2 Flagged literal and constant-folded string reads use the current instruction's table. Verify: the "Literal through ALL" and "Literal on a TALENTNAME line" scenarios pass.
-- [ ] 4.3 Check memory: `EMUERA_MEMSTATS` on pops-tw with a stand-in `Talent_TR.csv` shows the compiled-code size growing by at most one byte per instruction. Verify: before/after numbers noted in the PR.
+- [ ] 4.3 Check memory: `EMUERA_MEMSTATS` on pops-tw (its own TR files) shows the compiled-code size growing by at most one byte per instruction. Verify: before/after numbers noted in the PR.
 
 ## 5. Percent fallbacks and the memory (spec: Memory of untranslated reads, Percent values get an ALL lookup, Memory fallback, Stripped ALL lookup, RETURNF lines skip the fallbacks, Padding counts translated text; design D4)
 
@@ -57,9 +57,9 @@
 
 ## 10. Integration
 
-- [ ] 10.1 Compare against the task 1.2 baseline: the `sample/`, AnonTW and pops-tw runs must produce byte-identical output. Verify: `cmp` of each pair succeeds.
+- [ ] 10.1 Compare against the task 1.2 baseline: `./run.sh <new binary> GAME after` for `sample`, `anon-tw` and `eraTohoK`, then `compare.sh` against each `a` run. Verify: all three report "same".
 - [ ] 10.2 Run `cargo test`, `cargo clippy` (no new warnings), and `cargo check --target x86_64-pc-windows-msvc` and one big-endian target (`powerpc64-unknown-linux-musl`). Verify: all succeed.
-- [ ] 10.3 Play an Anchor-translated game (a scratch copy) through new game, a day, the shop, a save and a load, driving the TUI with `tools/gamed.py`, and note anything untranslated that Anchor would translate. If a player can supply a save that Anchor wrote in that game, load it, re-save it, and compare the two with `tools/savdiff.py`: string values translated in one and not the other point to a gap in the translate-flag rules. Verify: notes in the PR, with each problem either fixed or filed.
+- [ ] 10.3 Run `replay.sh <new binary> after` for pops-tw and read its screens side by side with `out/pops-tw.a.txt`, noting anything Anchor would translate that is still untranslated, and anything translated that Anchor wouldn't. Random numbers differ between runs, so ignore differences in weather, shop stock and similar. Load and re-save `out/pops-tw.after.sav` and compare with `tools/savdiff.py`, keeping the same noise in mind. If a player can supply a save Anchor wrote in pops-tw, load it, re-save it and compare: string values translated in one and not the other point to a gap in the translate-flag rules. Verify: notes in the PR, with each problem either fixed or filed.
 - [ ] 10.4 Update `doc/anchor.md`: mark each gap closed, and add anything learned in 10.3. Verify: no "Gap:" lines remain except those the proposal leaves out of scope.
 - [ ] 10.5 Run `openspec validate add-anchor-translation-parity --strict`. Verify: it reports the change is valid.
 
