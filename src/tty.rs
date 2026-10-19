@@ -70,6 +70,39 @@ fn all_text(st: &crate::settings::Settings) -> bool {
     }
 }
 
+/// `s` broken into lines of at most `w` columns at spaces (a word longer
+/// than that is cut), `most` lines at most, the last ending in … if more
+/// was left.
+fn wrap_words(s: &str, w: usize, most: usize) -> Vec<String> {
+    let cw = |s: &str| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+    let mut lines: Vec<String> = vec![String::new()];
+    for word in s.split(' ') {
+        let cur = lines.last_mut().unwrap();
+        if !cur.is_empty() && cw(cur) + 1 + cw(word) > w {
+            lines.push(String::new());
+        }
+        let cur = lines.last_mut().unwrap();
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        for c in word.chars() {
+            if cw(cur) + UnicodeWidthChar::width(c).unwrap_or(0) > w {
+                break;
+            }
+            cur.push(c);
+        }
+    }
+    if lines.len() > most {
+        lines.truncate(most);
+        let last = lines.last_mut().unwrap();
+        while cw(last) + 1 > w {
+            last.pop();
+        }
+        last.push('…');
+    }
+    lines
+}
+
 /// One laid-out screen row.
 #[derive(Default)]
 struct DRow {
@@ -2280,7 +2313,20 @@ impl Tty {
         use crate::settings::ITEMS;
         let n = ITEMS.len() + extra.len();
         let w = self.cols.saturating_sub(4).clamp(30, 72);
-        let h = n + 4; // title, rows, help, borders
+        let help = if !note.is_empty() {
+            note.to_string()
+        } else if let (true, Some(e)) = (sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator" | "translate_from" | "translate_what"), self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
+            format!("last translation failed: {}", e)
+        } else if sel < ITEMS.len() {
+            ITEMS[sel].help.to_string()
+        } else {
+            "↑↓ choose  ←→ / Enter change  Esc close".to_string()
+        };
+        // the help wraps (three lines at most) rather than being cut
+        // (always three lines high, so the box doesn't move between rows)
+        let mut help = wrap_words(&help, w.saturating_sub(3), 3);
+        help.resize(3, String::new());
+        let h = n + 3 + help.len(); // title, rows, help, borders
         let left = (self.cols.saturating_sub(w)) / 2 + 1;
         let top = (self.rows.saturating_sub(h)) / 2 + 1;
         let mut out: Vec<u8> = Vec::new();
@@ -2324,17 +2370,10 @@ impl Tty {
             let i = ITEMS.len() + k;
             line(&mut out, top + 2 + i, &format!("  {}", e), if i == sel { &hilite } else { &action });
         }
-        let help = if !note.is_empty() {
-            note.to_string()
-        } else if let (true, Some(e)) = (sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator" | "translate_from" | "translate_what"), self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
-            format!("last translation failed: {}", e)
-        } else if sel < ITEMS.len() {
-            ITEMS[sel].help.to_string()
-        } else {
-            "↑↓ choose  ←→ / Enter change  Esc close".to_string()
-        };
-        line(&mut out, top + 2 + n, &format!(" {}", help), &helpc);
-        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 3 + n, left, frame, "─".repeat(inner));
+        for (k, l) in help.iter().enumerate() {
+            line(&mut out, top + 2 + n + k, &format!(" {}", l), &helpc);
+        }
+        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 2 + n + help.len(), left, frame, "─".repeat(inner));
         write_all(&out);
         (top + 1,)
     }
