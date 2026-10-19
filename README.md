@@ -283,7 +283,9 @@ online. It uses the first it finds of:
 - a [LibreTranslate](https://libretranslate.com) server on port 5000
   (`EMUERA_LIBRETRANSLATE=host:port` for another),
 - `translateLocally` (Bergamot, `EMUERA_TRANSLATE_MODEL`, default
-  `ja-en-tiny`), or `argos-translate` with its Japanese package,
+  `ja-en-tiny`), or Argos Translate (`pipx install argostranslate`, then
+  `argospm install translate-ja_en`; one Argos process is kept running,
+  so only the first line waits for the model to load),
 - or any command in `EMUERA_TRANSLATE_CMD`: it gets a line on stdin and
   prints its translation (`EMUERA_TRANSLATE_TO` holds the language).
 
@@ -334,7 +336,7 @@ running game:
 | Bottom bar details | on, off | hovered button's value, running function |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
 | Translate dialog | off, en, es, pt, fr, de, ru, zh, ko | character dialog through a local translator (see above) |
-| Translator | local, translate-shell, deepl | which translator: one on this computer, or an online one |
+| Translator | local, argos, translate-shell, deepl | which translator: any on this computer, Argos only, or an online one |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |

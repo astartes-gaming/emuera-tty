@@ -75,7 +75,7 @@ pub const ITEMS: &[Item] = &[
     Item {
         key: "translator",
         label: "Translator",
-        choices: &["local", "translate-shell", "deepl"],
+        choices: &["local", "argos", "translate-shell", "deepl"],
         live: true,
         help: "local: Ollama, LibreTranslate… on this computer; translate-shell and DeepL send the dialog online",
     },

@@ -25,7 +25,7 @@ pub enum Engine {
     Libre { url: String },
     /// `translateLocally -m model`
     Bergamot { model: String },
-    /// `argos-translate --from-lang ja --to-lang <to>`
+    /// Argos Translate: one Python process kept running (see [`Argos`])
     Argos,
     /// a shell command
     Command(String),
@@ -45,6 +45,8 @@ impl Engine {
             "deepl" if !which("deepl") => Err("DeepL's tool isn't installed: pip install deepl".into()),
             "deepl" if std::env::var_os("DEEPL_AUTH_KEY").is_none() => Err("DeepL needs your API key in DEEPL_AUTH_KEY (a free key works)".into()),
             "deepl" => Ok(Engine::Deepl),
+            "argos" if which("argos-translate") || Argos::python().is_some() => Ok(Engine::Argos),
+            "argos" => Err("Argos Translate isn't installed: pipx install argostranslate, then argospm install translate-ja_en".into()),
             _ => Engine::find().ok_or_else(|| {
                 "no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL".into()
             }),
@@ -74,7 +76,7 @@ impl Engine {
         if which("translateLocally") {
             return Some(Engine::Bergamot { model: model.unwrap_or_else(|| "ja-en-tiny".into()) });
         }
-        if which("argos-translate") {
+        if which("argos-translate") || Argos::python().is_some() {
             return Some(Engine::Argos);
         }
         None
@@ -92,8 +94,9 @@ impl Engine {
         }
     }
 
-    /// Translate one line of Japanese into `to`.
-    fn translate(&self, text: &str, to: &str) -> Result<String, String> {
+    /// Translate one line of Japanese into `to` (`argos`: the worker's
+    /// Argos process, started on first use).
+    fn translate(&self, text: &str, to: &str, argos: &mut Option<Argos>) -> Result<String, String> {
         let out = match self {
             Engine::Ollama { model } => {
                 let prompt = format!(
@@ -111,7 +114,19 @@ impl Engine {
                 json_field(&r, "translatedText").ok_or("LibreTranslate gave no translation")?
             }
             Engine::Bergamot { model } => run(Command::new("translateLocally").args(["-m", model]), text)?,
-            Engine::Argos => run(Command::new("argos-translate").args(["--from-lang", "ja", "--to-lang", to]).arg(text), "")?,
+            Engine::Argos => {
+                if argos.is_none() {
+                    *argos = Argos::start(to);
+                }
+                match argos.as_mut().map(|a| a.translate(text)) {
+                    Some(Ok(t)) => t,
+                    // no module to import: the command, a process a line
+                    _ => {
+                        *argos = None;
+                        run(Command::new("argos-translate").args(["--from-lang", "ja", "--to-lang", to]).arg(text), "")?
+                    }
+                }
+            }
             Engine::Command(c) => {
                 let mut cmd = if cfg!(windows) { Command::new("cmd") } else { Command::new("sh") };
                 cmd.arg(if cfg!(windows) { "/C" } else { "-c" }).arg(c).env("EMUERA_TRANSLATE_TO", to);
@@ -254,6 +269,82 @@ fn json_field(json: &str, key: &str) -> Option<String> {
     None
 }
 
+/// Argos Translate kept running: loading Python and the model takes
+/// seconds, so one process translates every line (a line in, a line out).
+pub struct Argos {
+    child: std::process::Child,
+    input: std::process::ChildStdin,
+    output: std::io::BufReader<std::process::ChildStdout>,
+}
+
+const ARGOS_SCRIPT: &str = r#"
+import sys
+from argostranslate import translate
+dst = sys.argv[1]
+for line in sys.stdin:
+    try:
+        out = translate.translate(line.rstrip("\n"), "ja", dst)
+    except Exception as e:
+        out = ""
+    sys.stdout.write(" ".join(out.split("\n")) + "\n")
+    sys.stdout.flush()
+"#;
+
+impl Argos {
+    /// The Python that has argostranslate: the one `argos-translate` was
+    /// installed with (pipx and virtual environments have their own),
+    /// else python3 if it can import the module.
+    fn python() -> Option<String> {
+        let exe = if cfg!(windows) { "argos-translate.exe" } else { "argos-translate" };
+        let cli = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(exe)).find(|p| p.is_file()));
+        if let Some(cli) = cli {
+            if let Ok(text) = std::fs::read(&cli) {
+                let first = String::from_utf8_lossy(&text[..text.len().min(300)]).lines().next().unwrap_or("").to_string();
+                if let Some(line) = first.strip_prefix("#!") {
+                    // `#!/usr/bin/python3 -I`, `#!/usr/bin/env -S python3`
+                    let mut words = line.split_whitespace();
+                    let py = match words.next() {
+                        Some(e) if e.ends_with("/env") => words.find(|w| !w.starts_with('-')),
+                        w => w,
+                    };
+                    if let Some(py) = py {
+                        return Some(py.to_string());
+                    }
+                }
+            }
+        }
+        let ok = Command::new("python3").args(["-c", "import argostranslate"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        ok.is_ok_and(|s| s.success()).then(|| "python3".to_string())
+    }
+
+    fn start(to: &str) -> Option<Argos> {
+        let py = Argos::python()?;
+        let mut child = Command::new(py).args(["-c", ARGOS_SCRIPT, to]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+        let input = child.stdin.take()?;
+        let output = std::io::BufReader::new(child.stdout.take()?);
+        Some(Argos { child, input, output })
+    }
+
+    fn translate(&mut self, text: &str) -> Result<String, String> {
+        use std::io::BufRead;
+        let line = text.replace(['\r', '\n'], " ");
+        writeln!(self.input, "{}", line).map_err(|e| e.to_string())?;
+        self.input.flush().map_err(|e| e.to_string())?;
+        let mut out = String::new();
+        if self.output.read_line(&mut out).map_err(|e| e.to_string())? == 0 {
+            return Err("Argos stopped (is argostranslate installed for that Python?)".into());
+        }
+        Ok(out.trim_end().to_string())
+    }
+}
+
+impl Drop for Argos {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 /// What became of a line.
 enum State {
     Waiting,
@@ -276,8 +367,9 @@ impl Mt {
         let (tx, from) = channel();
         let (e, lang) = (engine, lang.to_string());
         let _ = std::thread::Builder::new().name("translate".into()).spawn(move || {
+            let mut argos = None;
             for text in rx {
-                let r = e.translate(&text, &lang);
+                let r = e.translate(&text, &lang, &mut argos);
                 if tx.send((text, r)).is_err() {
                     break;
                 }
@@ -384,12 +476,36 @@ mod tests {
         // (tests run on threads: only this one changes PATH and the key)
         std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
         std::env::set_var("DEEPL_AUTH_KEY", "test");
-        let t = Engine::choose("translate-shell").unwrap().translate("「やあ」", "en").unwrap();
+        let t = Engine::choose("translate-shell").unwrap().translate("「やあ」", "en", &mut None).unwrap();
         assert_eq!(t, "-b|-no-ansi|-no-autocorrect|-s|ja|-t|en|「やあ」");
-        let d = Engine::choose("deepl").unwrap().translate("「やあ」", "pt").unwrap();
+        let d = Engine::choose("deepl").unwrap().translate("「やあ」", "pt", &mut None).unwrap();
         assert_eq!(d, "text|--from|JA|--to|PT-BR|「やあ」|");
         std::env::set_var("PATH", old);
         let _ = std::fs::remove_dir_all(&bin);
+    }
+
+    /// The kept-running Argos process, with a stand-in argostranslate
+    /// module (the real one needs gigabytes of PyTorch).
+    #[test]
+    fn argos_process() {
+        if cfg!(windows) || !which("python3") {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("emuera-tty-argos-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("argostranslate")).unwrap();
+        std::fs::write(dir.join("argostranslate/__init__.py"), "").unwrap();
+        std::fs::write(dir.join("argostranslate/translate.py"), "def translate(t, s, d):\n    return d + ':' + t[::-1]\n").unwrap();
+        let mut a = {
+            let mut c = Command::new("python3");
+            c.args(["-c", ARGOS_SCRIPT, "en"]).env("PYTHONPATH", &dir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+            let mut child = c.spawn().unwrap();
+            let input = child.stdin.take().unwrap();
+            let output = std::io::BufReader::new(child.stdout.take().unwrap());
+            Argos { child, input, output }
+        };
+        assert_eq!(a.translate("あいう").unwrap(), "en:ういあ");
+        assert_eq!(a.translate("かき").unwrap(), "en:きか");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -398,7 +514,7 @@ mod tests {
             return;
         }
         let e = Engine::Command("tr a-z A-Z".into());
-        assert_eq!(e.translate("hello there\n", "en").unwrap(), "HELLO THERE");
+        assert_eq!(e.translate("hello there\n", "en", &mut None).unwrap(), "HELLO THERE");
         let mut mt = Mt::start(e, "en");
         assert_eq!(mt.get("abc"), None);
         for _ in 0..100 {
