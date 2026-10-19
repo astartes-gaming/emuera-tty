@@ -543,7 +543,7 @@ impl Vm {
         }
         for k in dts {
             if let Some(t) = self.dts.get_mut(k) {
-                t.rows.clear();
+                t.rows_mut().clear();
             }
         }
     }

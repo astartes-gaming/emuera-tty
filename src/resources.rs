@@ -64,6 +64,8 @@ pub struct Resources {
     pub anim_timer: i64,
     /// an animated sprite was drawn since the last [`Resources::take_anim_used`]
     anim_used: bool,
+    /// the last files GCREATEFROMFILE decoded (path, size and time, pixels)
+    loaded: Vec<(PathBuf, Option<(u64, std::time::SystemTime)>, Rc<RgbaImage>)>,
 }
 
 /// An animated sprite: its size and frames (frame sprite name, ms shown).
@@ -803,6 +805,7 @@ impl Resources {
             ("graphics buffers", self.graphics.len(), self.graphics.values().map(|g| g.bytes().0).sum()),
             ("  of them packed", packed.len(), packed.iter().sum()),
             ("decoded image files", self.files.len(), self.files.values().flatten().map(|i| px(i)).sum()),
+            ("files kept for buffers", self.loaded.len(), self.loaded.iter().map(|e| px(&e.2)).sum()),
             ("cut sprites", self.cropped.len(), self.cropped.values().flatten().map(|i| px(i)).sum()),
             ("scaled sprites", self.scaled.len(), self.scaled.values().map(|i| px(i)).sum()),
             ("prepared draws", self.parts.len(), self.parts.values().map(|i| px(i)).sum()),
@@ -970,6 +973,29 @@ impl Resources {
         };
         self.files.insert(p.to_path_buf(), img.clone());
         img
+    }
+
+    /// GCREATEFROMFILE's pixels. The last few files decoded are kept (at
+    /// most 16 MB, less on small machines): games load one picture into
+    /// many buffers (pops-tw its placeholder portrait six times for each
+    /// character), and decoding it again each time was most of the cost.
+    pub fn load_for_buffer(&mut self, p: &Path) -> Option<RgbaImage> {
+        let stamp = std::fs::metadata(p).ok().and_then(|m| Some((m.len(), m.modified().ok()?)));
+        if let Some(k) = self.loaded.iter().position(|(q, s, _)| q == p && *s == stamp && stamp.is_some()) {
+            let e = self.loaded.remove(k);
+            let img = (*e.2).clone();
+            self.loaded.push(e);
+            return Some(img);
+        }
+        let img = image::open(p).ok()?.to_rgba8();
+        let cap = (16usize << 20).min(self.gbuf_budget / 8);
+        if stamp.is_some() && img.as_raw().len() <= cap / 2 {
+            self.loaded.push((p.to_path_buf(), stamp, Rc::new(img.clone())));
+            while self.loaded.len() > 4 || self.loaded.iter().map(|e| e.2.as_raw().len()).sum::<usize>() > cap {
+                self.loaded.remove(0);
+            }
+        }
+        Some(img)
     }
 
     /// The sprite's pixels (cropped from its sheet).

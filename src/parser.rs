@@ -1059,7 +1059,7 @@ impl Parser {
                 let content = match mid {
                     'R' => PrintContent::Raw(rest.to_string()),
                     'F' => PrintContent::Form(upper_form(parse_form(rest, defs)?)),
-                    'G' => PrintContent::Exprs(vec![Expr::Call(Box::new(("__FORMS".into(), vec![upper_expr(parse_expr(arg_c, defs)?)])))]),
+                    'G' => PrintContent::Exprs(vec![Expr::Call(Box::new(("__FORMS".into(), vec![upper_expr(parse_expr(arg_c, defs)?)], Default::default())))]),
                     'S' => PrintContent::Expr(upper_expr(parse_expr(arg_c, defs)?)),
                     'V' => PrintContent::Exprs(parse_expr_list(arg_c, defs)?.into_iter().map(upper_expr).collect()),
                     _ => unreachable!(),
@@ -1684,10 +1684,10 @@ pub fn upper_expr(e: Expr) -> Expr {
             Expr::Var(v)
         }
         Expr::Call(c) => {
-            let (n, a) = *c;
+            let (n, a, kind) = *c;
             let mut a: Vec<Expr> = a.into_iter().map(upper_expr).collect();
             a.shrink_to_fit();
-            Expr::Call(Box::new((n.to_uppercase(), a)))
+            Expr::Call(Box::new((n.to_uppercase(), a, kind)))
         }
         Expr::Unary(o, x) => Expr::Unary(o, Box::new(upper_expr(*x))),
         Expr::Binary(o, a, b) => Expr::Binary(o, Box::new(upper_expr(*a)), Box::new(upper_expr(*b))),

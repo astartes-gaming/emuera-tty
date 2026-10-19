@@ -29,10 +29,11 @@ pub enum Expr {
     /// `@"…"` or a `\@ … \@` ternary used as a value: evaluated to a string.
     Form(Rc<Form>),
     Var(Rc<VarRef>),
-    /// User function or built-in; resolved at run time (user functions win).
+    /// User function or built-in; resolved at run time (user functions win)
+    /// and remembered in the cell (0: not yet, 1: the game's, 2: built-in).
     /// Boxed (with the width / ternary parts of [`FormPart`]) to keep
     /// `Expr` at 32 bytes: the parsed program holds millions of them.
-    Call(Box<(String, Vec<Expr>)>),
+    Call(Box<(String, Vec<Expr>, Resolved)>),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// `c ? a # b` (Emuera uses `#` where C uses `:`).
@@ -41,6 +42,26 @@ pub enum Expr {
     IncDec(Rc<VarRef>, bool, i64),
     /// Omitted argument (e.g. `FOO(1,,3)`).
     Empty,
+}
+
+/// What an [`Expr::Call`]'s name turned out to be: 0 not known yet, 1 one
+/// of the game's functions, 2 a built-in.
+#[derive(Debug, Default)]
+pub struct Resolved(std::sync::atomic::AtomicU8);
+
+impl Resolved {
+    pub fn get(&self) -> u8 {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    pub fn set(&self, k: u8) {
+        self.0.store(k, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl Clone for Resolved {
+    fn clone(&self) -> Resolved {
+        Resolved(self.get().into())
+    }
 }
 
 /// A variable with its index chain: `CFLAG:TARGET:好感度` is

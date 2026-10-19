@@ -563,6 +563,13 @@ impl Vm {
             || pseudo_var(name)
     }
 
+    /// [`Vm::var_exists`] answered from the reference's cached name
+    /// information (no lookups by name): true means it is a variable.
+    fn known_var(&mut self, v: &VarRef) -> bool {
+        let i = self.var_info(v);
+        i.private || i.is_static || i.user.is_some() || i.pseudo || i.system.is_some()
+    }
+
     /// One index value. A bare identifier that isn't a variable, or a
     /// string, is a CSV name looked up in `table` (or a table named after
     /// the variable, for ERD files: `NAME.ERD` for a 1-D array, `NAME@k.ERD`
@@ -573,7 +580,7 @@ impl Vm {
 
     fn eval_index_dim(&mut self, e: &Expr, table: Option<&str>, var: &str, dim: Option<usize>) -> VmResult<i64> {
         match e {
-            Expr::Var(v) if v.idx.is_empty() && !self.var_exists(&v.name) => {
+            Expr::Var(v) if v.idx.is_empty() && !self.known_var(v) && !self.var_exists(&v.name) => {
                 if let Some(t) = table {
                     if let Some(i) = self.csv.lookup(t, &v.name) {
                         return Ok(i);
@@ -702,12 +709,16 @@ impl Vm {
         if is_static {
             // the slot is remembered in the reference, tagged with the function
             use std::sync::atomic::Ordering::Relaxed;
-            let body = self.frames.last().unwrap().body.clone();
-            let cache = body.static_cache.get_or_init(|| (0..4 + body.dims.len()).map(|_| std::sync::atomic::AtomicU32::new(0)).collect());
-            let cached = cache[info.skey as usize].load(Relaxed);
+            let cached = {
+                let body = &self.frames.last().unwrap().body;
+                let cache = body.static_cache.get_or_init(|| (0..4 + body.dims.len()).map(|_| std::sync::atomic::AtomicU32::new(0)).collect());
+                cache[info.skey as usize].load(Relaxed)
+            };
             let slot = if cached != 0 {
                 cached as usize - 1
             } else {
+                let body = self.frames.last().unwrap().body.clone();
+                let cache = body.static_cache.get().unwrap();
                 // storage is per function name (event functions with one
                 // name share it)
                 let k = (self.frames.last().unwrap().func.name.to_string(), name.to_string());
@@ -992,7 +1003,17 @@ impl Vm {
             Expr::Empty => Ok(Value::Int(0)),
             Expr::Form(f) => Ok(Value::Str(self.eval_form(f)?)),
             Expr::Var(v) => self.get_var(v),
-            Expr::Call(c) => self.call_expr(&c.0, &c.1),
+            Expr::Call(c) => {
+                // a built-in once seen as one isn't looked for among the
+                // game's functions again
+                if c.2.get() == 2 {
+                    return self.builtin_fn(&c.0, &c.1)?.ok_or_else(|| Ctrl::Error(format!("unknown function '{}'", c.0), false));
+                }
+                if c.2.get() == 0 {
+                    c.2.set(if self.prog.funcs.contains_key(&c.0) { 1 } else { 2 });
+                }
+                self.call_expr(&c.0, &c.1)
+            }
             Expr::Unary(op, x) => {
                 let v = self.eval(x)?;
                 Ok(Value::Int(match op {
@@ -1234,10 +1255,11 @@ impl Vm {
     fn call_args(&mut self, f: &Function, args: &[Expr]) -> VmResult<(Vec<Option<Value>>, Vec<(String, Loc)>)> {
         let mut vals = Vec::with_capacity(args.len());
         let mut refs = Vec::new();
-        let body = f.body();
+        // (only a variable can be passed to a REF parameter)
+        let body = args.iter().any(|a| matches!(a, Expr::Var(_))).then(|| f.body());
         for (i, a) in args.iter().enumerate() {
             let p = f.params.get(i).map(|p| &p.target.name);
-            let is_ref = !body.dims.is_empty() && p.is_some_and(|n| body.dims.iter().any(|d| d.is_ref && *d.name == **n));
+            let is_ref = body.as_ref().is_some_and(|b| !b.dims.is_empty() && p.is_some_and(|n| b.dims.iter().any(|d| d.is_ref && *d.name == **n)));
             if let (true, Expr::Var(v)) = (is_ref, a) {
                 let top = self.frames.len().saturating_sub(1);
                 let loc = match self.locate(&VarRef::new(v.name.clone(), vec![]))?.loc {

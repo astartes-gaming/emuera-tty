@@ -1121,12 +1121,7 @@ impl Vm {
                 let arr = self.arr_at(&loc).unwrap();
                 let s = start.max(0) as usize;
                 let n = (count.max(0) as usize).min(len.saturating_sub(s));
-                let vals: Vec<Value> = (0..n).map(|i| arr.get(base + s + i)).collect();
-                for i in 0..n {
-                    let src = i as i64 - shift;
-                    let nv = if src >= 0 && (src as usize) < n { vals[src as usize].clone() } else { empty.clone() };
-                    arr.set(base + s + i, nv);
-                }
+                arr.shift(base + s..base + s + n, shift, &empty);
             }
             "ARRAYREMOVE" => {
                 let v = self.avar(a, 0)?;
@@ -1135,15 +1130,9 @@ impl Vm {
                 let (loc, base, len) = self.array_row(&v)?;
                 let arr = self.arr_at(&loc).unwrap();
                 let cnt = if cnt < 0 { len.saturating_sub(start) } else { cnt as usize };
-                let vals: Vec<Value> = (0..len).map(|i| arr.get(base + i)).collect();
                 let blank = if arr.is_str() { Value::Str(String::new()) } else { Value::Int(0) };
-                let mut out: Vec<Value> = vals[..start.min(len)].to_vec();
-                out.extend(vals.iter().skip(start + cnt).cloned());
-                while out.len() < len {
-                    out.push(blank.clone());
-                }
-                for (i, x) in out.into_iter().enumerate() {
-                    arr.set(base + i, x);
+                if start < len {
+                    arr.shift(base + start..base + len, -(cnt.min(len) as i64), &blank);
                 }
             }
             "ARRAYSORT" => {
@@ -1939,9 +1928,9 @@ impl Vm {
                 let rel = self.ai(a, 2, 0)? != 0;
                 let p = std::path::PathBuf::from(f.replace('\\', "/"));
                 let p = if p.is_absolute() || rel { p } else { self.game_dir.join("resources").join(&p) };
-                match image::open(&p) {
-                    Ok(img) if img.width() as i64 <= MAX && img.height() as i64 <= MAX => {
-                        self.res.graphics.insert(gid, Graphic::new(img.to_rgba8()));
+                match self.res.load_for_buffer(&p) {
+                    Some(img) if img.width() as i64 <= MAX && img.height() as i64 <= MAX => {
+                        self.res.graphics.insert(gid, Graphic::new(img));
                         self.res.trim_graphics();
                         1
                     }
@@ -2450,14 +2439,14 @@ impl Vm {
                 let nocase = self.ai(a, 1, 0)? != 0;
                 let Some(dt) = self.dts.get_mut(&key) else { return i(-1) };
                 if name == "DT_CLEAR" {
-                    dt.rows.clear();
+                    dt.rows_mut().clear();
                 } else {
                     dt.case_sensitive = !nocase;
                 }
                 i(1)
             }
             "DT_ROW_LENGTH" | "DT_COLUMN_LENGTH" => match self.dts.get(&key) {
-                Some(dt) => i(if name == "DT_ROW_LENGTH" { dt.rows.len() } else { dt.columns.len() } as i64),
+                Some(dt) => i(if name == "DT_ROW_LENGTH" { dt.rows().len() } else { dt.columns.len() } as i64),
                 None => i(-1),
             },
             "DT_COLUMN_ADD" => {
@@ -2510,7 +2499,7 @@ impl Vm {
                     let id = self.ai(a, 1, 0)?;
                     let dt = &self.dts[&key];
                     match dt.find_row(id) {
-                        Some(r) => dt.rows[r].clone(),
+                        Some(r) => dt.rows()[r].clone(),
                         None => return i(-2),
                     }
                 };
@@ -2546,12 +2535,12 @@ impl Vm {
                 let dt = self.dts.get_mut(&key).unwrap();
                 if b == 0 {
                     let id = row[0].as_ref().map_or(0, |v| v.as_int());
-                    dt.rows.push(row);
+                    dt.rows_mut().push(row);
                     return i(id);
                 }
                 let id = row[0].as_ref().map_or(0, |v| v.as_int());
                 let r = dt.find_row(id).unwrap();
-                dt.rows[r] = row;
+                dt.rows_mut()[r] = row;
                 i(count)
             }
             "DT_ROW_REMOVE" => {
@@ -2567,9 +2556,9 @@ impl Vm {
                     vec![self.ai(a, 1, 0)?]
                 };
                 let Some(dt) = self.dts.get_mut(&key) else { return i(-1) };
-                let before = dt.rows.len();
-                dt.rows.retain(|r| !ids.contains(&r[0].as_ref().map_or(i64::MIN, |v| v.as_int())));
-                i((before - dt.rows.len()) as i64)
+                let before = dt.rows().len();
+                dt.rows_mut().retain(|r| !ids.contains(&r[0].as_ref().map_or(i64::MIN, |v| v.as_int())));
+                i((before - dt.rows().len()) as i64)
             }
             "DT_CELL_GET" | "DT_CELL_ISNULL" | "DT_CELL_GETS" | "DT_CELL_SET" => {
                 let set = name == "DT_CELL_SET";
@@ -2584,7 +2573,7 @@ impl Vm {
                         _ => i(-1),
                     };
                 };
-                let r = if as_id { dt.find_row(idx) } else { usize::try_from(idx).ok().filter(|&r| r < dt.rows.len()) };
+                let r = if as_id { dt.find_row(idx) } else { usize::try_from(idx).ok().filter(|&r| r < dt.rows().len()) };
                 let c = dt.col(&cname);
                 let (Some(r), Some(c)) = (r, c) else {
                     return match name {
@@ -2594,7 +2583,7 @@ impl Vm {
                         _ => i(if cname.eq_ignore_ascii_case("id") { 0 } else { -3 }),
                     };
                 };
-                let cell = &dt.rows[r][c];
+                let cell = &dt.rows()[r][c];
                 match name {
                     "DT_CELL_GET" => i(cell.as_ref().map_or(0, |v| v.as_int())),
                     "DT_CELL_GETS" => s(cell.as_ref().map(|v| v.as_string()).unwrap_or_default()),
@@ -2605,7 +2594,7 @@ impl Vm {
                         }
                         match dt.check_value(c, v) {
                             Ok(v) => {
-                                dt.rows[r][c] = v;
+                                dt.rows_mut()[r][c] = v;
                                 i(1)
                             }
                             Err(()) => i(-2),
@@ -2820,29 +2809,36 @@ impl Vm {
                 let lit = crate::regex::literal(&pat);
                 let re = if lit.is_none() && self.arr_at(&loc).is_some_and(|a| a.is_str()) { crate::regex::get(&pat).ok() } else { None };
                 let arr = self.arr_at(&loc).unwrap();
+                // the stored elements (scanned as a slice), then the part
+                // never written, which reads as 0 / ""
+                fn search<T>(vs: &[T], from: usize, to: usize, last: bool, m: impl Fn(&T) -> bool, unset: bool) -> Option<usize> {
+                    let (lo, hi) = (from.min(vs.len()), to.min(vs.len()));
+                    let tail = hi.max(from) < to && unset;
+                    if last {
+                        if tail { Some(to - 1) } else { vs[lo..hi].iter().rposition(m).map(|p| lo + p) }
+                    } else {
+                        vs[lo..hi].iter().position(m).map(|p| lo + p).or(tail.then_some(hi.max(from)))
+                    }
+                }
                 let pos = match &arr.data {
                     super::vars::Data::I(vs) => {
                         let t = target.as_int();
-                        let m = |k: &usize| vs.get(base + k).copied().unwrap_or(0) == t;
-                        if last { (st..en).rev().find(m) } else { (st..en).find(m) }
+                        search(vs, base + st, base + en, last, |&x| x == t, t == 0)
                     }
                     super::vars::Data::S(vs) => {
-                        let m = |k: &usize| {
-                            let x = vs.get(base + k).map_or("", String::as_str);
-                            match (&lit, &re) {
-                                (Some(l), _) => if exact { x == l } else { x.contains(l.as_str()) },
-                                (None, Some(re)) => if exact {
-                                    re.find(x).ok().flatten().is_some_and(|m| m.as_str().len() == x.len())
-                                } else {
-                                    crate::regex::is_match(re, x)
-                                },
-                                (None, None) => false,
-                            }
+                        let m = |x: &str| match (&lit, &re) {
+                            (Some(l), _) => if exact { x == l } else { x.contains(l.as_str()) },
+                            (None, Some(re)) => if exact {
+                                re.find(x).ok().flatten().is_some_and(|m| m.as_str().len() == x.len())
+                            } else {
+                                crate::regex::is_match(re, x)
+                            },
+                            (None, None) => false,
                         };
-                        if last { (st..en).rev().find(m) } else { (st..en).find(m) }
+                        search(vs, base + st, base + en, last, |x| m(x), m(""))
                     }
                 };
-                i(pos.map_or(-1, |p| p as i64))
+                i(pos.map_or(-1, |p| (p - base) as i64))
             }
             "INRANGEARRAY" => {
                 let v = self.avar(a, 0)?;

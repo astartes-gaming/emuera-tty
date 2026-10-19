@@ -137,6 +137,35 @@ impl Arr {
         }
     }
 
+    /// Move the elements of `range` `k` places (toward its end when
+    /// positive) in place: those pushed past either end are dropped and the
+    /// places left free get `free` (ARRAYSHIFT, ARRAYREMOVE). Nothing is
+    /// copied, which matters for the 1000-string arrays games shift.
+    pub fn shift(&mut self, range: std::ops::Range<usize>, k: i64, free: &Value) {
+        if range.is_empty() || k == 0 {
+            return;
+        }
+        self.grow(range.end - 1);
+        let end = range.end.min(self.len());
+        let start = range.start.min(end);
+        let m = (k.unsigned_abs() as usize).min(end - start);
+        if m == 0 {
+            return;
+        }
+        fn rot<T>(s: &mut [T], m: usize, right: bool) {
+            if right {
+                s.rotate_right(m)
+            } else {
+                s.rotate_left(m)
+            }
+        }
+        match &mut self.data {
+            Data::I(v) => rot(&mut v[start..end], m, k > 0),
+            Data::S(v) => rot(&mut v[start..end], m, k > 0),
+        }
+        self.fill(if k > 0 { start..start + m } else { end - m..end }, free);
+    }
+
     pub fn get_i(&self, f: usize) -> i64 {
         match &self.data {
             Data::I(v) => v.get(f).copied().unwrap_or(0),
@@ -351,5 +380,43 @@ impl std::ops::Index<&str> for Globals {
     type Output = Arr;
     fn index(&self, name: &str) -> &Arr {
         self.get(name).expect("no such global")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Arr, Value};
+
+    /// ARRAYSHIFT / ARRAYREMOVE as they were written before `shift`: copy
+    /// the values out and back.
+    fn shifted(vals: &[i64], range: std::ops::Range<usize>, k: i64, free: i64) -> Vec<i64> {
+        let mut out = vals.to_vec();
+        let n = range.len() as i64;
+        for i in 0..n {
+            let src = i - k;
+            out[range.start + i as usize] = if (0..n).contains(&src) { vals[range.start + src as usize] } else { free };
+        }
+        out
+    }
+
+    #[test]
+    fn shift_matches_copying() {
+        let vals: Vec<i64> = (1..=9).collect();
+        for (r, k) in [(0..9, 2), (0..9, -3), (2..7, 1), (2..7, -1), (3..5, 9), (3..5, -9), (0..9, 0), (4..4, 2)] {
+            let mut a = Arr::new(false, &[9]);
+            for (i, &v) in vals.iter().enumerate() {
+                a.set(i, Value::Int(v));
+            }
+            a.shift(r.clone(), k, &Value::Int(-1));
+            let got: Vec<i64> = (0..9).map(|i| a.get_i(i)).collect();
+            assert_eq!(got, shifted(&vals, r.clone(), k, -1), "{:?} by {}", r, k);
+        }
+        // strings move without copies; the freed places get the fill value
+        let mut s = Arr::new(true, &[4]);
+        for (i, t) in ["a", "b", "c", "d"].iter().enumerate() {
+            s.set(i, Value::Str(t.to_string()));
+        }
+        s.shift(1..4, -1, &Value::Str(String::new()));
+        assert_eq!((0..4).map(|i| s.get(i).into_string()).collect::<Vec<_>>(), ["a", "c", "d", ""]);
     }
 }

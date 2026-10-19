@@ -432,7 +432,7 @@ impl<'a> ExprParser<'a> {
                 self.expect(")")?;
                 a
             };
-            return Ok(Expr::Call(Box::new((name, args))));
+            return Ok(Expr::Call(Box::new((name, args, Default::default()))));
         }
         let mut idx = Vec::new();
         if allow_index {

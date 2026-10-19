@@ -6,7 +6,8 @@
 
 use super::value::Value;
 use crate::xml::{self, Element};
-use std::cell::Cell;
+use crate::fxhash::HashMap;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -83,8 +84,16 @@ pub type Row = Vec<Option<Value>>;
 pub struct DataTable {
     pub name: String,
     pub columns: Vec<Column>,
-    pub rows: Vec<Row>,
+    /// (changed through [`DataTable::rows_mut`], which drops the index)
+    rows: Vec<Row>,
     pub case_sensitive: bool,
+    /// the rows by the value of one integer column, for Select filters
+    /// that ask for `column = number` (pops-tw asks for one character's
+    /// parts out of thousands of rows, tens of thousands of times)
+    index: RefCell<Option<(usize, HashMap<i64, Vec<u32>>)>>,
+    /// Selects since the rows last changed: a table changed between every
+    /// read isn't worth indexing
+    quiet: Cell<u32>,
 }
 
 thread_local! {
@@ -111,7 +120,20 @@ impl DataTable {
             columns: vec![Column { name: "id".into(), ty: ColType::I64, nullable: false, default: None }],
             rows: Vec::new(),
             case_sensitive: true,
+            index: RefCell::new(None),
+            quiet: Cell::new(0),
         }
+    }
+
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+
+    /// The rows, to change them (the index goes).
+    pub fn rows_mut(&mut self) -> &mut Vec<Row> {
+        *self.index.get_mut() = None;
+        self.quiet.set(0);
+        &mut self.rows
     }
 
     /// Column lookup is case-insensitive, like DataColumnCollection.
@@ -121,14 +143,14 @@ impl DataTable {
 
     pub fn add_column(&mut self, name: &str, ty: ColType, nullable: bool) {
         self.columns.push(Column { name: name.to_string(), ty, nullable, default: None });
-        for r in &mut self.rows {
+        for r in self.rows_mut() {
             r.push(None);
         }
     }
 
     pub fn remove_column(&mut self, i: usize) {
         self.columns.remove(i);
-        for r in &mut self.rows {
+        for r in self.rows_mut() {
             r.remove(i);
         }
     }
@@ -168,14 +190,15 @@ impl DataTable {
             None => None,
         };
         let mut hits: Vec<usize> = Vec::new();
-        for (i, r) in self.rows.iter().enumerate() {
-            let keep = match &pred {
-                Some(p) => self.eval(p, r).truthy(),
-                None => true,
-            };
-            if keep {
-                hits.push(i);
+        let keep = |i: usize| pred.as_ref().is_none_or(|p| self.eval(p, &self.rows[i]).truthy());
+        match pred.as_ref().and_then(|p| self.key_of(p)) {
+            // only the rows the index gives can match
+            Some((c, v)) if self.indexed(c) => {
+                if let Some(rs) = self.index.borrow().as_ref().and_then(|(_, m)| m.get(&v)) {
+                    hits.extend(rs.iter().map(|&i| i as usize).filter(|&i| keep(i)));
+                }
             }
+            _ => hits.extend((0..self.rows.len()).filter(|&i| keep(i))),
         }
         if let Some(sort) = sort.map(str::trim).filter(|s| !s.is_empty()) {
             let mut keys = Vec::new();
@@ -199,6 +222,41 @@ impl DataTable {
             });
         }
         Ok(hits.into_iter().map(|i| self.row_id(i)).collect())
+    }
+
+    /// A `column = number` the filter requires (alone or among ANDs), on
+    /// an integer column.
+    fn key_of(&self, f: &Filter) -> Option<(usize, i64)> {
+        match f {
+            Filter::And(a, b) => self.key_of(a).or_else(|| self.key_of(b)),
+            Filter::Cmp(CmpOp::Eq, x, y) => match (&**x, &**y) {
+                (Filter::Col(c), Filter::Lit(Some(Value::Int(v)))) | (Filter::Lit(Some(Value::Int(v))), Filter::Col(c)) if !self.columns[*c].ty.is_str() => Some((*c, *v)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Is there an index of column `c` (made now if the table is being
+    /// read without changes)?
+    fn indexed(&self, c: usize) -> bool {
+        let quiet = self.quiet.get();
+        self.quiet.set(quiet.saturating_add(1));
+        let mut ix = self.index.borrow_mut();
+        if matches!(&*ix, Some((col, _)) if *col == c) {
+            return true;
+        }
+        if quiet < 2 || self.rows.len() < 16 {
+            return false;
+        }
+        let mut m: HashMap<i64, Vec<u32>> = HashMap::default();
+        for (i, r) in self.rows.iter().enumerate() {
+            if let Some(Value::Int(v)) = &r[c] {
+                m.entry(*v).or_default().push(i as u32);
+            }
+        }
+        *ix = Some((c, m));
+        true
     }
 
     /// Null sorts first; numbers numerically; strings ordinally.
@@ -357,7 +415,8 @@ impl DataTable {
             .or_else(|| tables.iter().find(|e| e.attr("msdata:IsDataSet") != Some("true")))
             .ok_or("schema has no table")?;
         let tname = tbl.attr("name").unwrap_or(key).to_string();
-        let mut dt = DataTable { name: key.to_string(), columns: Vec::new(), rows: Vec::new(), case_sensitive: true };
+        let mut dt = DataTable::new(key);
+        dt.columns.clear();
         if let Some(cs) = tbl.attr("msdata:CaseSensitive") {
             dt.case_sensitive = cs.eq_ignore_ascii_case("true");
         }
@@ -679,6 +738,39 @@ mod tests {
         assert_eq!(names(&dt, &dt.select(Some("name = 'it''s' OR cost IN (1, 2)"), Some("[cost]")).unwrap()), ["b", "c", "it's"]);
         assert_eq!(dt.select(Some("name LIKE 'i%'"), None).unwrap().len(), 1);
         assert!(dt.select(Some("nope = 1"), None).is_err());
+    }
+
+    /// Selects through the index give what a scan gives, before and after
+    /// the rows change.
+    #[test]
+    fn select_by_index() {
+        let mut dt = DataTable::new("h");
+        dt.add_column("chara", ColType::I32, true);
+        dt.add_column("type", ColType::I32, true);
+        for k in 0..200 {
+            let mut r = dt.new_row();
+            r[1] = Some(Value::Int(k % 7));
+            r[2] = if k % 11 == 0 { None } else { Some(Value::Int(k % 5)) };
+            dt.rows_mut().push(r);
+        }
+        let scan = |dt: &DataTable, chara: i64, ty: i64| -> Vec<i64> {
+            (0..dt.rows().len()).filter(|&i| dt.rows()[i][1] == Some(Value::Int(chara)) && dt.rows()[i][2] == Some(Value::Int(ty))).map(|i| dt.row_id(i)).collect()
+        };
+        for round in 0..2 {
+            for _ in 0..4 {
+                for (c, t) in [(3, 2), (0, 0), (6, 4), (9, 1)] {
+                    assert_eq!(dt.select(Some(&format!("chara = {} and type = {}", c, t)), None).unwrap(), scan(&dt, c, t), "round {}", round);
+                    let n = dt.rows().iter().filter(|r| r[1] == Some(Value::Int(c))).count();
+                    assert_eq!(dt.select(Some(&format!("{} = chara", c)), None).unwrap().len(), n, "round {}", round);
+                }
+            }
+            assert!(dt.index.borrow().is_some());
+            // a changed row: the index is made again
+            let r = dt.rows().iter().position(|r| r[1] == Some(Value::Int(3))).unwrap();
+            dt.rows_mut()[r][1] = Some(Value::Int(9));
+            dt.rows_mut().iter_mut().filter(|r| r[1] == Some(Value::Int(0))).take(1).for_each(|r| r[1] = Some(Value::Int(9)));
+            dt.rows_mut().iter_mut().filter(|r| r[1] == Some(Value::Int(6))).take(1).for_each(|r| r[1] = Some(Value::Int(9)));
+        }
     }
 
     #[test]

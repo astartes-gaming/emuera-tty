@@ -743,7 +743,7 @@ statements as a function `@__INJECT` just before the n-th input.
 2. Play deeper into AnonTW and pops-tw. AnonTW's 5 remaining parse errors
    and pops-tw's 16 are mistakes in the games' own scripts (Emuera reports
    them too).
-3. Speed of script-heavy games: pops-tw's new game takes about 17 seconds
-   of CPU (its own object system looks names up in 1000-entry arrays
-   hundreds of thousands of times); compiling variables to slots ahead of
-   time would be the next step.
+3. Speed of script-heavy games: pops-tw's new game takes about 14
+   seconds of CPU (its own object system looks names up in 1000-entry
+   arrays hundreds of thousands of times, through a million statements);
+   compiling variables to slots ahead of time would be the next step.
