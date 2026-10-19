@@ -60,6 +60,16 @@ struct ImgAt {
     ypos: f32,
 }
 
+/// Translate all text (menus too), not only dialog? Auto: unless the
+/// game is shown in English.
+fn all_text(st: &crate::settings::Settings) -> bool {
+    match st.get("translate_what") {
+        "all" => true,
+        "auto" => st.get("translate") != "en",
+        _ => false,
+    }
+}
+
 /// One laid-out screen row.
 #[derive(Default)]
 struct DRow {
@@ -1914,6 +1924,7 @@ impl Tty {
         let extra = [
             "Game settings…  (Emuera's settings window: emuera.config)",
             "Manage saves…  (copy, export, back up, restore)",
+            "Test the translator…  (translates a sample line)",
             "Back to the title  (Ctrl-T)",
             "Restart the game  (Ctrl-R)",
             "Reload ERB files  (F5 / Ctrl-E)",
@@ -1924,7 +1935,21 @@ impl Tty {
         let n = ITEMS.len() + extra.len();
         let mut sel = 0usize;
         let mut note = String::new();
+        // a translator test running: (its answer, when it began, what is tested)
+        let mut test: Option<(std::sync::mpsc::Receiver<Result<String, String>>, Instant, String)> = None;
         let exit = loop {
+            if let Some((rx, began, what)) = &test {
+                let secs = began.elapsed().as_secs_f32();
+                note = match rx.try_recv() {
+                    Ok(Ok(t)) => format!("works ({:.1} s, {}): {}", secs, what, t),
+                    Ok(Err(e)) => format!("failed ({:.1} s, {}): {}", secs, what, e),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => format!("testing {}… {:.0} s", what, secs),
+                    Err(_) => format!("{} stopped", what),
+                };
+                if !note.starts_with("testing") {
+                    test = None;
+                }
+            }
             self.no_images = true;
             self.render(con, res, Some(req));
             let geo = self.draw_overlay(&st, &extra, sel, &note);
@@ -2001,11 +2026,32 @@ impl Tty {
                             }
                         }
                     }
-                    2 => break OverlayExit::Title,
-                    3 => break OverlayExit::Restart,
-                    4 => break OverlayExit::Reload,
-                    5 => break OverlayExit::SwitchGame,
-                    6 => break OverlayExit::Quit,
+                    2 => match crate::mt::Engine::choose(st.get("translator")) {
+                        Err(e) => note = e,
+                        Ok(e) => {
+                            // a sample in the game's language, into the one chosen
+                            let from = if st.get("translate_from") == "en" { "en" } else { "ja" };
+                            let sample = if from == "en" { "Good morning! What would you like to do today?" } else { "「おはようございます。今日は何をしましょうか？」" };
+                            let to = match st.get("translate") {
+                                "off" => if from == "en" { "es" } else { "en" },
+                                t => t,
+                            }
+                            .to_string();
+                            let to = if to == from { if from == "en" { "es".into() } else { "en".into() } } else { to };
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            let what = e.describe();
+                            let _ = std::thread::Builder::new().name("translate-test".into()).spawn(move || {
+                                let _ = tx.send(e.test(sample, from, &to));
+                            });
+                            note = format!("testing {}…", what);
+                            test = Some((rx, Instant::now(), what));
+                        }
+                    },
+                    3 => break OverlayExit::Title,
+                    4 => break OverlayExit::Restart,
+                    5 => break OverlayExit::Reload,
+                    6 => break OverlayExit::SwitchGame,
+                    7 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }
@@ -2023,7 +2069,7 @@ impl Tty {
             "translate" | "translator" => self.setting_note = self.set_translate(st),
             "translate_from" | "translate_what" => {
                 self.tr_from = st.get("translate_from").to_string();
-                self.tr_all = st.get("translate_what") == "all";
+                self.tr_all = all_text(st);
                 self.redraw_all.set(true);
             }
             "memory" => self.show_memory = v == "on",
@@ -2066,7 +2112,7 @@ impl Tty {
         let lang = st.get("translate");
         self.tr_to = lang.to_string();
         self.tr_from = st.get("translate_from").to_string();
-        self.tr_all = st.get("translate_what") == "all";
+        self.tr_all = all_text(st);
         if lang == "off" {
             return "the game shows as it prints itself".into();
         }
@@ -2094,16 +2140,94 @@ impl Tty {
             return None;
         }
         if all {
+            // menus keep their columns: where a piece is followed by a gap
+            // (two spaces or more, then more on the line) its translation
+            // keeps its width — padded if shorter, taking the gap's spaces
+            // (one stays) if longer, cut with … past that. At the end of a
+            // line, or before ordinary text, it just takes the room it needs.
+            let (ambi, widths) = (self.ambi, self.widths.clone());
+            let width = |s: &str| -> usize {
+                s.chars().map(|c| {
+                    let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, ambi, widths.get(&c).copied()) };
+                    tw + extra
+                }).sum()
+            };
+            let lead_spaces = |s: &str| s.len() - s.trim_start_matches(' ').len();
             let mut out = l.clone();
             let mut changed = false;
-            for s in out.segs.iter_mut() {
-                let Seg::Text { text, .. } = s else { continue };
+            // spaces a piece took from the ones after it
+            let mut eat = 0usize;
+            for k in 0..out.segs.len() {
+                // the spaces at the start of the pieces after this one, and
+                // whether anything comes after them
+                let (mut next_lead, mut more) = (0usize, false);
+                for s in &out.segs[k + 1..] {
+                    match s {
+                        Seg::Text { text, .. } if text.trim_start_matches(' ').is_empty() => next_lead += text.len(),
+                        Seg::Text { text, .. } => {
+                            next_lead += lead_spaces(text);
+                            more = true;
+                            break;
+                        }
+                        _ => {
+                            more = true;
+                            break;
+                        }
+                    }
+                }
+                let Seg::Text { text, .. } = &mut out.segs[k] else {
+                    eat = 0;
+                    continue;
+                };
+                if eat > 0 {
+                    let n = eat.min(lead_spaces(text));
+                    text.drain(..n);
+                    changed = true;
+                    eat -= n;
+                    if !text.is_empty() {
+                        eat = 0;
+                    }
+                }
                 let (pre, words, post) = split_words(text);
                 let Some(src) = source_of(words, &from, &to) else { continue };
-                if let Some(tr) = mt.get(words, src) {
-                    *text = format!("{}{}{}", pre, tr, post);
-                    changed = true;
-                }
+                let Some(tr) = mt.get(words, src) else { continue };
+                let (want, got) = (width(words), width(tr));
+                let mut post = post.to_string();
+                let tr = if got <= want {
+                    post.push_str(&" ".repeat(want - got));
+                    tr.to_string()
+                } else {
+                    // blank space after it: its own trailing spaces, then the
+                    // next piece's leading ones, keeping one
+                    let own = post.len() - post.trim_end_matches(' ').len();
+                    let gap = own + next_lead;
+                    let slack = gap.saturating_sub(1);
+                    let over = got - want;
+                    // not a column: nothing after it, or ordinary text
+                    let in_column = more && gap >= 2;
+                    if !in_column || over <= slack {
+                        let over = if in_column { over } else { over.min(slack) };
+                        let from_own = over.min(own);
+                        post.truncate(post.len() - from_own);
+                        eat = over - from_own;
+                        tr.to_string()
+                    } else {
+                        post.truncate(post.len() - own.min(slack));
+                        eat = slack - own.min(slack);
+                        let room = want + slack;
+                        let mut cut = String::new();
+                        for c in tr.chars() {
+                            if width(&cut) + width(&c.to_string()) + 1 > room {
+                                break;
+                            }
+                            cut.push(c);
+                        }
+                        cut.push('…');
+                        cut
+                    }
+                };
+                *text = format!("{}{}{}", pre, tr, post);
+                changed = true;
             }
             return changed.then_some(out);
         }

@@ -36,10 +36,17 @@ pub enum Engine {
 }
 
 impl Engine {
-    /// The translator chosen in the settings (`local`, `translate-shell`,
-    /// `deepl`), or why it can't be used.
+    /// The translator chosen in the settings (`auto`, `local`, `argos`,
+    /// `translate-shell`, `deepl`), or why it can't be used. Auto: the first
+    /// that is there, the ones on this computer first.
     pub fn choose(which_one: &str) -> Result<Engine, String> {
         match which_one {
+            "auto" => Engine::find()
+                .or_else(|| which("trans").then_some(Engine::Trans))
+                .or_else(|| (which("deepl") && std::env::var_os("DEEPL_AUTH_KEY").is_some()).then_some(Engine::Deepl))
+                .ok_or_else(|| {
+                    "no translator found: install Ollama, LibreTranslate, translateLocally, Argos Translate or translate-shell (or DeepL's tool with DEEPL_AUTH_KEY)".into()
+                }),
             "translate-shell" if which("trans") => Ok(Engine::Trans),
             "translate-shell" => Err("translate-shell (trans) isn't installed: get it from your package manager or translate-shell's site".into()),
             "deepl" if !which("deepl") => Err("DeepL's tool isn't installed: pip install deepl".into()),
@@ -89,10 +96,20 @@ impl Engine {
             Engine::Bergamot { model } if model.is_empty() => "translateLocally".into(),
             Engine::Bergamot { model } => format!("translateLocally ({})", model),
             Engine::Argos => "argos-translate".into(),
-            Engine::Command(c) => format!("`{}`", c),
+            // (the program's name: a path won't fit on the settings page)
+            Engine::Command(c) => {
+                let prog = c.split_whitespace().next().unwrap_or("");
+                format!("your command ({})", prog.rsplit(['/', '\\']).next().unwrap_or(prog))
+            }
             Engine::Trans => "translate-shell (online)".into(),
             Engine::Deepl => "DeepL (online)".into(),
         }
+    }
+
+    /// Translate one line (for the settings page's test): its own Argos
+    /// process, started and stopped for it.
+    pub fn test(&self, text: &str, from: &str, to: &str) -> Result<String, String> {
+        self.translate(text, from, to, &mut None)
     }
 
     /// Translate one line from `from` (ja, en) into `to` (`argos`: the

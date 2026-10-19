@@ -82,16 +82,16 @@ pub const ITEMS: &[Item] = &[
     Item {
         key: "translate_what",
         label: "Translate what",
-        choices: &["dialog", "all"],
+        choices: &["auto", "dialog", "all"],
         live: true,
-        help: "dialog: what characters say; all: menus and labels too (maps never; buttons still send their numbers)",
+        help: "dialog: what characters say; all: menus and labels too (never maps); auto: all unless into English",
     },
     Item {
         key: "translator",
         label: "Translator",
-        choices: &["local", "argos", "translate-shell", "deepl"],
+        choices: &["auto", "local", "argos", "translate-shell", "deepl"],
         live: true,
-        help: "local: Ollama, LibreTranslate… on this computer; translate-shell and DeepL send the dialog online",
+        help: "auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online",
     },
     Item {
         key: "sound",

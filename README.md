@@ -297,9 +297,11 @@ show the game in (off, en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
 English, so an English translation like AnonTW can be read in Spanish), and
 *Translate what* either the characters' **dialog** or **all** text (menus,
-buttons, labels too). Text is translated as it appears. By default it uses
-a translator **on this computer**, so nothing is sent online: the first it
-finds of
+buttons, labels too); *auto* (the default) is dialog when the game is shown
+in English and all text in any other language. Text is translated as it
+appears. With *Translator* on *auto* it uses whatever translator is there,
+the ones **on this computer** first (nothing is sent online then): the
+first it finds of
 
 - [Ollama](https://ollama.com) running a model (`ollama pull qwen2.5:7b`
   translates Japanese well; `EMUERA_TRANSLATE_MODEL` picks the model),
@@ -313,8 +315,10 @@ finds of
   prints its translation (`EMUERA_TRANSLATE_FROM` and `EMUERA_TRANSLATE_TO`
   hold the languages).
 
-*Translator* in F1 can instead pick an **online** service through its
-command-line tool (these send the dialog over the internet):
+and, when none of those is there, the online ones below. *Translator*
+can also name one (`local` for this computer's only, `argos`), or an
+**online** service through its command-line tool (these send the text over
+the internet):
 
 - `translate-shell`: the `trans` command (Google Translate by default;
   `EMUERA_TRANS_ENGINE=bing` and so on for another of its engines);
@@ -326,7 +330,14 @@ files, `KOJO` functions) and lines in quotes (「」 『』, or "" in English);
 menus, buttons and the rest stay as they are. *All* translates every piece
 of text, keeping its colours and buttons, and sends only the words: the
 `[100]` numbers, brackets and figures around them stay put, and buttons
-still send the same numbers. Maps and box drawings are never translated,
+still send the same numbers. **Menus keep their layout**: where a piece
+sits in a column (two spaces or more before the next one), its
+translation keeps its width, padded when shorter, using the spaces after
+it when longer, and cut with `…` only past those; at the end of a line or
+before ordinary text it takes the room it needs.
+
+**Test the translator…** in F1 translates a sample line with the chosen
+translator and shows the result and how long it took, or why it failed. Maps and box drawings are never translated,
 nor text already in the target language, and the game itself still sees
 the text it printed. Text shows untranslated until its translation comes
 in, which happens in the background; text seen again is instant. If the
@@ -364,8 +375,8 @@ running game:
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
 | Translate into | off, en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
-| Translate what | dialog, all | characters' dialog, or all text |
-| Translator | local, argos, translate-shell, deepl | which translator: any on this computer, Argos only, or an online one |
+| Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
+| Translator | auto, local, argos, translate-shell, deepl | auto: whichever is installed, this computer's first |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
