@@ -134,10 +134,10 @@ pub fn apply_trchara(csv_dir: &Path, charas: &mut [CharaTemplate]) -> Vec<String
                 key => {
                     let Some(c) = cur.map(|i| &mut charas[i]) else { continue };
                     match key {
-                        "NAME" | "名前" => c.name = f[1].to_string(),
-                        "CALLNAME" | "呼び名" => c.callname = f[1].to_string(),
-                        "NICKNAME" | "あだ名" => c.nickname = f[1].to_string(),
-                        "MASTERNAME" | "主人の呼び方" => c.mastername = f[1].to_string(),
+                        "NAME" | "名前" => (c.name, c.names_set) = (f[1].to_string(), c.names_set | 1),
+                        "CALLNAME" | "呼び名" => (c.callname, c.names_set) = (f[1].to_string(), c.names_set | 2),
+                        "NICKNAME" | "あだ名" => (c.nickname, c.names_set) = (f[1].to_string(), c.names_set | 4),
+                        "MASTERNAME" | "主人の呼び方" => (c.mastername, c.names_set) = (f[1].to_string(), c.names_set | 8),
                         "CSTR" if f.len() >= 3 => {
                             // CSTR,index,text (the text may hold commas)
                             let Ok(i) = f[1].parse::<i64>() else { continue };

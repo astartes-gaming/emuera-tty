@@ -70,7 +70,8 @@ impl Vm {
     }
 
     /// Run one system state; returns the state to go to next.
-    /// `__LOADED` is internal: after a load, run @EVENTLOAD then the shop.
+    /// `__LOADED` is internal: after a load, run @SYSTEM_LOADEND and
+    /// @EVENTLOAD (as Emuera's `beginDataLoaded`), then the shop.
     pub fn run_state(&mut self, st: &str) -> VmResult<String> {
         // like Emuera, each system phase starts with SKIPDISP off
         self.con.skip_disp = false;
@@ -88,6 +89,7 @@ impl Vm {
                 err("@EVENTFIRST not found")
             }
             "__LOADED" => {
+                self.call_opt("SYSTEM_LOADEND")?;
                 self.call_opt("EVENTLOAD")?;
                 self.shop(true)
             }

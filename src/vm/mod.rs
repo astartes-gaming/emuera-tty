@@ -95,6 +95,20 @@ pub struct Frame {
 #[derive(Default, Clone)]
 pub struct Chara {
     pub vars: HashMap<String, Arr>,
+    /// NAME, CALLNAME, NICKNAME, MASTERNAME never set (bits 1, 2, 4, 8):
+    /// null in Emuera, which leaves them out of saves
+    pub names_unset: u8,
+}
+
+/// The bit of a character name string in `Chara::names_unset`.
+pub fn name_bit(var: &str) -> u8 {
+    match var {
+        "NAME" => 1,
+        "CALLNAME" => 2,
+        "NICKNAME" => 4,
+        "MASTERNAME" => 8,
+        _ => 0,
+    }
 }
 
 /// Which array a [`Place`] is in.
@@ -138,6 +152,8 @@ pub struct Vm {
     pub frames: Vec<Frame>,
     /// ERH `#DIM` declarations by name (sizes / flags for lookups).
     pub user_dims: HashMap<String, DimDecl>,
+    /// `prog.global_dims` indices in Emuera's creation (and save) order
+    pub dim_order: std::cell::OnceCell<Vec<usize>>,
     /// inputs asked for so far, and when to run @__INJECT
     inputs_seen: u64,
     inject_at: Option<u64>,
@@ -239,6 +255,7 @@ impl Vm {
             charas: Vec::new(),
             frames: Vec::new(),
             user_dims: HashMap::default(),
+            dim_order: Default::default(),
             inputs_seen: 0,
             inject_at: std::env::var("EMUERA_INJECT_AT").ok().and_then(|n| n.parse().ok()),
             ctrain: None,
@@ -336,6 +353,7 @@ impl Vm {
         self.reloader = Some(f);
         let errors = prog.errors.len();
         self.prog = prog;
+        self.dim_order = Default::default();
         self.code_bytes = 0;
         // caches keyed by the old functions' addresses
         let dims = self.prog.global_dims.clone();
@@ -898,6 +916,11 @@ impl Vm {
             Loc::Ro(_) => err("cannot assign to read-only variable"),
             loc => {
                 let f = p.flat;
+                if let Loc::Chara(c, n) = loc {
+                    if let Some(ch) = self.charas.get_mut(*c).filter(|ch| ch.names_unset != 0) {
+                        ch.names_unset &= !name_bit(n);
+                    }
+                }
                 if let Some(a) = self.arr_at(loc) {
                     a.set(f, val);
                 }

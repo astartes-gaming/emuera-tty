@@ -475,8 +475,10 @@ impl Vm {
             a.set(idx.max(0) as usize, val);
         };
         set(&mut c, "NO", 0, Value::Int(no));
+        c.names_unset = 15;
         if let Some(ti) = self.chara_no_template(no) {
             let t = self.csv.charas[ti].clone();
+            c.names_unset = !t.names_set & 15;
             set(&mut c, "NAME", 0, Value::Str(t.name));
             set(&mut c, "CALLNAME", 0, Value::Str(t.callname));
             set(&mut c, "NICKNAME", 0, Value::Str(t.nickname));

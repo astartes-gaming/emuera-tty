@@ -47,6 +47,9 @@ pub struct CharaTemplate {
     pub callname: String,
     pub nickname: String,
     pub mastername: String,
+    /// which of the four names above the CSV gives (`NAME_BITS`, even
+    /// empty): Emuera leaves the others null, and doesn't save them
+    pub names_set: u8,
     /// (VARIABLE, index, value)
     pub ints: Vec<(String, i64, i64)>,
     pub strs: Vec<(String, i64, String)>,
@@ -334,10 +337,10 @@ impl GameCsv {
             let ival = |s: Option<&str>, d: i64| s.and_then(parse_i64).unwrap_or(d);
             match key {
                 "番号" | "NO" => c.no = parse_i64(a1).unwrap_or(0),
-                "名前" | "NAME" => c.name = a1.to_string(),
-                "呼び名" | "CALLNAME" => c.callname = a1.to_string(),
-                "あだ名" | "NICKNAME" => c.nickname = a1.to_string(),
-                "主人の呼び方" | "MASTERNAME" => c.mastername = a1.to_string(),
+                "名前" | "NAME" => (c.name, c.names_set) = (a1.to_string(), c.names_set | 1),
+                "呼び名" | "CALLNAME" => (c.callname, c.names_set) = (a1.to_string(), c.names_set | 2),
+                "あだ名" | "NICKNAME" => (c.nickname, c.names_set) = (a1.to_string(), c.names_set | 4),
+                "主人の呼び方" | "MASTERNAME" => (c.mastername, c.names_set) = (a1.to_string(), c.names_set | 8),
                 "助手" | "ISASSI" => c.ints.push(("ISASSI".into(), 0, ival(Some(a1), 1))),
                 "CSTR" => {
                     if let Some(i) = self.idx("CSTR", a1, file) {

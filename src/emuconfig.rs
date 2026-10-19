@@ -226,6 +226,11 @@ impl Values {
         v
     }
 
+    /// Is the yes/no setting `jp` (its Japanese key) on? Off when unset.
+    pub fn flag(&self, jp: &str) -> bool {
+        self.vals.get(jp).is_some_and(|(x, _)| x.trim().eq_ignore_ascii_case("YES") || x.trim().eq_ignore_ascii_case("TRUE"))
+    }
+
     /// The value in effect, and where it comes from.
     pub fn get(&self, it: &Item) -> (String, Source) {
         match self.vals.get(it.jp) {

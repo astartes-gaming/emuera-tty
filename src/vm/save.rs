@@ -171,6 +171,53 @@ fn wildcard(pat: &[char], s: &[char]) -> bool {
 /// the saved elements that fit into `a`'s shape. A saved type or shape that
 /// doesn't match is skipped, as in Emuera.
 /// [`fill`] from a text save's values.
+/// The variables a `#DIM`'s sizes and initial values name (upper-cased).
+fn dim_refs(d: &crate::ast::DimDecl) -> Vec<String> {
+    use crate::ast::{Expr, Form, FormPart};
+    fn form(f: &Form, out: &mut Vec<String>) {
+        for p in &f.parts {
+            match p {
+                FormPart::Lit(_) => {}
+                FormPart::Str(e, w, _) | FormPart::Int(e, w, _) => {
+                    expr(e, out);
+                    if let Some(w) = w {
+                        expr(w, out);
+                    }
+                }
+                FormPart::Cond(c) => {
+                    expr(&c.0, out);
+                    form(&c.1, out);
+                    form(&c.2, out);
+                }
+            }
+        }
+    }
+    fn expr(e: &Expr, out: &mut Vec<String>) {
+        match e {
+            Expr::Var(v) | Expr::IncDec(v, _, _) => {
+                out.push(v.name.to_uppercase());
+                v.idx.iter().for_each(|e| expr(e, out));
+            }
+            Expr::Form(f) => form(f, out),
+            Expr::Call(c) => c.1.iter().for_each(|e| expr(e, out)),
+            Expr::Unary(_, a) => expr(a, out),
+            Expr::Binary(_, a, b) => {
+                expr(a, out);
+                expr(b, out);
+            }
+            Expr::Ternary(a, b, c) => {
+                expr(a, out);
+                expr(b, out);
+                expr(c, out);
+            }
+            Expr::Int(_) | Expr::Str(_) | Expr::Empty => {}
+        }
+    }
+    let mut out = Vec::new();
+    d.dims.iter().chain(&d.init).for_each(|e| expr(e, &mut out));
+    out
+}
+
 fn fill_vals(a: &mut Arr, v: &super::textsav::Vals) {
     use super::textsav::Vals;
     match v {
@@ -322,21 +369,20 @@ impl Vm {
     /// A character's saved variables (Emuera's `CharacterData.SaveToStreamBinary`).
     fn put_chara(&mut self, w: &mut Writer, c: usize) {
         for name in SAVED_CHARA {
-            let a = self.chara_arr(c, name);
-            // Emuera skips strings never set (null); these two usually are
-            if matches!(*name, "NICKNAME" | "MASTERNAME") && a.get(0).as_string().is_empty() {
+            // Emuera skips strings never set (null), not empty ones
+            if self.charas[c].names_unset & super::name_bit(name) != 0 {
                 continue;
             }
+            let a = self.chara_arr(c, name);
             put(w, name, a, chara_scalar(name));
         }
-        let mut user: Vec<(String, String, bool)> = self
-            .user_dims
-            .values()
+        // in declaration order, as Emuera (UserDefinedCharaVarList)
+        let user: Vec<(String, String, bool)> = self
+            .declared_dims()
             .filter(|d| d.is_chara)
             .map(|d| (d.name.clone(), d.decl_name.clone(), d.is_savedata && !d.is_global))
             .collect();
         if !user.is_empty() {
-            user.sort();
             w.separator();
             for (name, decl, saved) in user {
                 if saved {
@@ -352,14 +398,45 @@ impl Vm {
     /// (`global` false) or global save.
     /// (upper-cased name, the name as declared: the key Emuera writes)
     fn saved_user_globals(&self, global: bool) -> Vec<(String, String)> {
-        let mut v: Vec<(String, String)> = self
-            .user_dims
-            .values()
+        self.declared_dims()
             .filter(|d| !d.is_chara && !d.is_const && d.is_savedata && d.is_global == global)
             .map(|d| (d.name.clone(), if d.decl_name.is_empty() { d.name.clone() } else { d.decl_name.clone() }))
-            .collect();
-        v.sort();
-        v
+            .collect()
+    }
+
+    /// The ERH `#DIM`s in the order Emuera creates them, which is the
+    /// order it saves them in: as declared, except that one naming a
+    /// constant declared later waits until the rest are done
+    /// (`ErhLoader.analyzeSharpDimLines` retries those at the back).
+    fn declared_dims(&self) -> impl Iterator<Item = &crate::ast::DimDecl> {
+        let order = self.dim_order.get_or_init(|| {
+            let dims = &self.prog.global_dims;
+            let names: crate::fxhash::HashSet<&str> = dims.iter().map(|d| d.name.as_str()).collect();
+            let mut known: crate::fxhash::HashSet<&str> = Default::default();
+            let mut queue: std::collections::VecDeque<usize> = (0..dims.len()).collect();
+            let mut out = Vec::with_capacity(dims.len());
+            let mut try_again = true;
+            while !queue.is_empty() {
+                let count = queue.len();
+                for _ in 0..count {
+                    let i = queue.pop_front().unwrap();
+                    let ready = !try_again || dim_refs(&dims[i]).iter().all(|n| known.contains(n.as_str()) || !names.contains(n.as_str()));
+                    if ready {
+                        known.insert(&dims[i].name);
+                        out.push(i);
+                    } else {
+                        queue.push_back(i);
+                    }
+                }
+                if queue.len() == count {
+                    try_again = false;
+                }
+            }
+            // a name declared twice: Emuera keeps the first
+            let mut seen: crate::fxhash::HashSet<&str> = Default::default();
+            out.into_iter().filter(|&i| seen.insert(&dims[i].name)).collect()
+        });
+        order.iter().map(|&i| &self.prog.global_dims[i])
     }
 
     /// Emuera-EM maps / XML / data tables of one VarExt list group.
@@ -467,6 +544,7 @@ impl Vm {
                         system_var(&key).is_some_and(|d| d.chara)
                     };
                     if known {
+                        self.charas[c].names_unset &= !super::name_bit(&key);
                         fill(self.chara_arr(c, &key), &dims, &ints, &strs, is_str);
                     }
                 }
@@ -574,7 +652,8 @@ impl Vm {
                 return Err("bad character count".into());
             }
             for c in 0..count as usize {
-                self.charas.push(Chara::default());
+                // (names stay null unless the save has them)
+                self.charas.push(Chara { names_unset: 15, ..Chara::default() });
                 self.read_chara(&mut r, c)?;
             }
             self.read_section(&mut r, false)?;
@@ -679,7 +758,7 @@ impl Vm {
                 return Err("bad character count".into());
             }
             for k in 0..count as usize {
-                self.charas.push(Chara::default());
+                self.charas.push(Chara { names_unset: 15, ..Chara::default() });
                 self.read_chara(&mut r, first + k)?;
             }
             Ok(())

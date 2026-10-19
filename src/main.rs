@@ -211,7 +211,19 @@ fn build_program(game: &std::path::Path, erb_dir: Option<&std::path::Path>, rena
     // EMUERA_THREADS=n limits the worker threads (default: all cores)
     let cores = std::env::var("EMUERA_THREADS").ok().and_then(|n| n.parse().ok()).filter(|&n: &usize| n > 0).unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     let (erhs, erbs) = match erb_dir {
-        Some(erb) => (loader::walk(erb, &["erh"]), loader::walk(erb, &["erb"])),
+        Some(erb) => {
+            // Emuera's order (it decides which of a duplicate wins, the
+            // order of event functions, and of #DIMs in saves)
+            let l = loader::Listing::of(game);
+            let (erhs, erbs) = (loader::emuera_files(erb, &["erh"], l), loader::erb_files(erb, l));
+            if !l.subdirs {
+                let skipped = loader::walk(erb, &["erb", "erh"]).len().saturating_sub(erhs.len() + erbs.len());
+                if skipped > 0 {
+                    eprintln!("note: {} ERB/ERH files in subfolders not loaded: the game's config doesn't turn on サブディレクトリを検索する (Search subfolders), so Emuera skips them too", skipped);
+                }
+            }
+            (erhs, erbs)
+        }
         None => (Vec::new(), Vec::new()),
     };
     let rel = |f: &std::path::Path| f.strip_prefix(game).unwrap_or(f).display().to_string();

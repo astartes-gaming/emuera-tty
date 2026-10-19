@@ -324,11 +324,13 @@ The game's saves (next to the game when its
 .I emuera.config
 doesn't ask for a
 .I sav
-folder).
+folder), in Emuera's binary format: an Emuera save loaded and saved again
+comes out byte for byte as Emuera writes it.
 .TP
 .IR GAME /emuera.config
-Emuera's configuration; font size, line height, colours, PRINTC widths and
-save options are honoured.
+Emuera's configuration; font size, line height, colours, PRINTC widths,
+save options and the ERB folder options (search subfolders, sort by file
+name, which set the load order as in Emuera) are honoured.
 .SH NOTES
 Developed and tested on Linux. macOS, the BSDs, Windows, Termux (Android)
 and the other systems are compile-checked only and untested. Small boards

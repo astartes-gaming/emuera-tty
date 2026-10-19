@@ -371,7 +371,10 @@ ERB/口上/K9.ERB:3	ja>en	「おはようございます、お嬢様」	"Good mo
 **Saving** uses the game's own save menu, and the files are Emuera's own
 (binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
 `dat/chara_*.dat` for SAVECHARA. Saves move both ways between emuera-tty
-and Emuera on Windows. They go where Emuera puts them: in `sav/` when
+and Emuera on Windows: loading an Emuera save and saving it again gives
+the same bytes Emuera writes (the variables in Emuera's order, character
+names never set left out as Emuera does), checked on AnonTW saves of
+day 43 and day 1336. They go where Emuera puts them: in `sav/` when
 the game's config says so (`セーブデータをsavフォルダ内に作成する`, as
 AnonTW's does), else next to the game; compressed when it asks for that
 (`セーブデータを圧縮して保存する`). Emuera-EM maps, XML documents and data
@@ -380,7 +383,17 @@ entering the shop, like Emuera's. Older emuera-tty saves (`sav/*.rsav`)
 still load, and the next save of that slot writes a `.sav`. Saves in
 Emuera's text format (games whose config turns the binary option off)
 load too; saving always writes the binary format, which Emuera reads
-whatever its config says.
+whatever its config says. After a load, `@SYSTEM_LOADEND` runs and then
+`@EVENTLOAD`, as in Emuera.
+
+ERB and ERH files load in Emuera's order: each folder's files before its
+subfolders, sorted the way Emuera sorts them when the config's
+`読み込み順をファイル名順にソートする` is on (else the order Windows lists
+them in), and folders whose name has a `#` first (Emuera-EE). Subfolders
+are read only when `サブディレクトリを検索する` is on, as in Emuera; a
+note at startup says how many files that leaves out. The order decides
+which of two functions with the same name wins, the order event
+functions run in, and the order variables are saved in.
 
 ### Settings
 
