@@ -825,8 +825,19 @@ impl Vm {
             // window chrome a terminal doesn't have: tooltips, the input
             // box's position, background images and layers
             "HTML_PRINT_ISLAND_CLEAR" | "MOVETEXTBOX" | "RESUMETEXTBOX" | "SETBGIMAGE" | "REMOVEBGIMAGE" | "CLEARBGIMAGE"
-            | "SETTEXTBOX" | "TOOLTIP_SETCOLOR" | "TOOLTIP_SETDELAY" | "TOOLTIP_SETDURATION" | "TOOLTIP_SETFONT"
-            | "TOOLTIP_SETFONTSIZE" | "TOOLTIP_CUSTOM" | "TOOLTIP_SETFORMAT" | "TOOLTIP_FORMAT" | "TOOLTIP_IMG" => self.set_result(1),
+            | "SETTEXTBOX" | "TOOLTIP_SETFONT" | "TOOLTIP_SETFONTSIZE" | "TOOLTIP_CUSTOM" | "TOOLTIP_SETFORMAT" | "TOOLTIP_FORMAT"
+            | "TOOLTIP_IMG" => self.set_result(1),
+            "TOOLTIP_SETCOLOR" => {
+                let rgb = |v: i64| crate::console::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+                let (fg, bg) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0xFFFFFF)?);
+                if !(0..=0xFFFFFF).contains(&fg) || !(0..=0xFFFFFF).contains(&bg) {
+                    return err("TOOLTIP_SETCOLOR: a colour is out of range");
+                }
+                self.con.tip_colors = Some((rgb(fg), rgb(bg)));
+            }
+            "TOOLTIP_SETDELAY" => self.con.tip_delay = self.ai(a, 0, 500)?.clamp(0, i32::MAX as i64) as u64,
+            // (Emuera keeps it within a short)
+            "TOOLTIP_SETDURATION" => self.con.tip_duration = self.ai(a, 0, 5000)?.clamp(0, i16::MAX as i64) as u64,
             "FORCE_QUIT" => return Err(Ctrl::Quit),
             "QUIT_AND_RESTART" | "FORCE_QUIT_AND_RESTART" => {
                 // start the game again from scratch: run this program anew
@@ -1413,7 +1424,7 @@ impl Vm {
             }
             "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG"
             | "UPDATECHECK" | "CLEARTEXTBOX" | "BITMAP_CACHE_ENABLE" | "FORCEKANA" | "CLEARBUTTON" => {}
-            n if n.starts_with("TOOLTIP_") => {}
+            n if n.starts_with("TOOLTIP_") && !matches!(n, "TOOLTIP_SETCOLOR" | "TOOLTIP_SETDELAY" | "TOOLTIP_SETDURATION") => {}
             "GETTIME" => {
                 // as a statement: RESULT = number, RESULTS = text
                 if let Some(Value::Int(t)) = self.builtin_fn("GETTIME", a)? {

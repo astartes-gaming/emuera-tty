@@ -264,6 +264,10 @@ pub struct Tty {
     frame_imgs: Vec<Placement>,
     /// makes overlapping pictures into one (see `gfx::Merger`)
     merger: crate::gfx::Merger,
+    /// the button the pointer rests on and since when (tooltip delay)
+    tip_since: Option<(usize, Instant)>,
+    /// the last frame showed a tooltip
+    tip_drawn: bool,
     drawn_pointer: Option<(usize, usize)>,
     frame_cursor: Option<(usize, usize)>,
     /// the window background for this frame (None: the terminal's own)
@@ -459,6 +463,8 @@ impl Tty {
             frame: Vec::new(),
             frame_imgs: Vec::new(),
             merger: Default::default(),
+            tip_since: None,
+            tip_drawn: false,
             drawn_pointer: None,
             frame_cursor: None,
             screen_bg: None,
@@ -1357,10 +1363,19 @@ impl Tty {
                 self.hover_imgs.insert(i);
             }
         }
+        // the tooltip shows once the pointer has rested on its button for
+        // TOOLTIP_SETDELAY, until TOOLTIP_SETDURATION has gone by
+        let has_tip = |b: usize| self.buttons.get(b).and_then(|v| con.tooltip_for(v)).is_some();
+        match (hover.filter(|&b| has_tip(b)), self.tip_since) {
+            (Some(b), Some((t, _))) if t == b => {}
+            (Some(b), _) => self.tip_since = Some((b, Instant::now())),
+            (None, _) => self.tip_since = None,
+        }
         let tip = match (hover, self.mouse) {
-            (Some(b), Some((mx, my))) => self.buttons.get(b).and_then(|v| con.tooltip_for(v)).map(|t| self.tooltip_box(t, mx, my)),
+            (Some(b), Some((mx, my))) if self.tip_due(con).0 => self.buttons.get(b).and_then(|v| con.tooltip_for(v)).map(|t| self.tooltip_box(t, mx, my)),
             _ => None,
         };
+        self.tip_drawn = tip.is_some();
         // pictures sit above text: the tooltip's place is cut out of them
         if let Some(t) = &tip {
             let cells = (t.left as i64 - 1, t.top as i64 - 1, (t.left + t.w) as i64 - 1, (t.top + t.lines.len()) as i64 - 1);
@@ -1372,7 +1387,7 @@ impl Tty {
         self.gfx.draw(&mut out, &placements, self.cell);
         let mut tip_rows = 0..0;
         if let Some(t) = &tip {
-            tip_rows = self.draw_tooltip(&mut out, t);
+            tip_rows = self.draw_tooltip(&mut out, t, con.tip_colors);
         }
         self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
         self.frame_cursor = None;
@@ -1548,7 +1563,12 @@ impl Tty {
         // games break tooltip lines with CR (`UNICODE(0x000D)`, AnonTW's
         // map) as well as LF; written raw, a CR sends the cursor to the
         // left edge and the rest lands over the screen
-        let tip = printable(&tip.replace("\r\n", "\n"));
+        let mut tip = tip.replace("\r\n", "\n");
+        // Emuera turns `<br>` into a line break too
+        for br in ["<br>", "<BR>", "<br/>", "<br />"] {
+            tip = tip.replace(br, "\n");
+        }
+        let tip = printable(&tip);
         for para in tip.split(['\r', '\n']) {
             let (mut cur, mut w) = (String::new(), 0usize);
             for word in para.split(' ') {
@@ -1582,9 +1602,27 @@ impl Tty {
         TipBox { lines, top, left, w }
     }
 
+    /// Should the hovered button's tooltip show now, and when that next
+    /// changes (its delay or duration running out).
+    fn tip_due(&self, con: &Console) -> (bool, Option<Instant>) {
+        let Some((_, t0)) = self.tip_since else { return (false, None) };
+        let (delay, dur) = (Duration::from_millis(con.tip_delay), Duration::from_millis(con.tip_duration));
+        let e = t0.elapsed();
+        if e < delay {
+            (false, Some(t0 + delay))
+        } else if con.tip_duration == 0 {
+            (true, None)
+        } else if e < delay + dur {
+            (true, Some(t0 + delay + dur))
+        } else {
+            (false, None)
+        }
+    }
+
     /// Write a tooltip box; returns the screen rows (0-based) it covers.
-    fn draw_tooltip(&self, out: &mut Vec<u8>, t: &TipBox) -> std::ops::Range<usize> {
-        let st = self.ov_style((20, 20, 20), (255, 245, 200), false);
+    fn draw_tooltip(&self, out: &mut Vec<u8>, t: &TipBox, colors: Option<(Rgb, Rgb)>) -> std::ops::Range<usize> {
+        let (fg, bg) = colors.map_or(((20, 20, 20), (255, 245, 200)), |(f, b)| ((f.0, f.1, f.2), (b.0, b.1, b.2)));
+        let st = self.ov_style(fg, bg, false);
         for (i, (s, sw)) in t.lines.iter().enumerate() {
             let _ = write!(out, "\x1b[{};{}H{} {}{} \x1b[0m", t.top + i, t.left, st, s, " ".repeat(t.w - 2 - sw));
         }
@@ -2189,9 +2227,15 @@ impl Frontend for Tty {
             // 10 times a second, terminals are slower than a window)
             let anim = self.animating && res.anim_timer > 0;
             let wait = if anim { wait.min(res.anim_timer.max(100) as i32) } else { wait };
+            // a tooltip's delay or duration running out
+            let tip_next = self.tip_due(con).1;
+            let wait = match tip_next {
+                Some(t) => wait.min(t.saturating_duration_since(Instant::now()).as_millis() as i32 + 1),
+                None => wait,
+            };
             let Some(k) = self.next_key(wait) else {
                 let (c, r, _, _) = winsize();
-                if (c, r) != (last_cols, last_rows) || anim {
+                if (c, r) != (last_cols, last_rows) || anim || self.tip_due(con).0 != self.tip_drawn {
                     last_cols = c;
                     last_rows = r;
                     self.render(con, res, Some(req));

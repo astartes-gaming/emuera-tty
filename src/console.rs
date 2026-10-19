@@ -114,6 +114,13 @@ pub struct Console {
     /// Colour of a hovered / selected button.
     pub focus_fg: Rgb,
     pub log_fg: Rgb,
+    /// TOOLTIP_SETCOLOR: (text, background); None: the frontend's own
+    pub tip_colors: Option<(Rgb, Rgb)>,
+    /// TOOLTIP_SETDELAY / TOOLTIP_SETDURATION (ms): a tooltip shows after
+    /// resting on a button that long, and goes after `tip_duration` (0:
+    /// stays). Emuera's defaults are a Windows tooltip's: 500 and 5000.
+    pub tip_delay: u64,
+    pub tip_duration: u64,
     /// ALIGNMENT setting for new lines.
     pub align: Align,
     pub font_size: f32,
@@ -180,6 +187,9 @@ impl Console {
             default_bg: Rgb(0, 0, 0),
             screen_bg: Rgb(0, 0, 0),
             focus_fg: Rgb(255, 255, 0),
+            tip_colors: None,
+            tip_delay: 500,
+            tip_duration: 5000,
             log_fg: Rgb(192, 192, 192),
             align: Align::Left,
             font_size: 18.0,

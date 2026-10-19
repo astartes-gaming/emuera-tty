@@ -680,8 +680,10 @@ checked.
   offset (`xpos`/`ypos`/`width`/`height`, `rect=`, `size=`) with their
   background colour, border (`border` / `bcolor`, drawn as coloured
   cells), `padding` and `margin`; `<clearbutton>`; `<button title=…>`
-  tooltips shown by the pointer; `<img srcb=…>` hover pictures; newlines
-  in the text break the line like `<br>`.
+  tooltips shown by the pointer after Emuera's delay (`TOOLTIP_SETDELAY`,
+  `TOOLTIP_SETDURATION`, `TOOLTIP_SETCOLOR`; `<br>` and CR break their
+  lines); `<img srcb=…>` hover pictures; newlines in the text break the
+  line like `<br>`.
 - Animated sprites: `ANIME` blocks in resources CSVs and
   `SPRITEANIMECREATE` / `SPRITEANIMEADDFRAME`, redrawn on the
   `SETANIMETIMER` interval (at most ten times a second).
@@ -742,4 +744,5 @@ statements as a function `@__INJECT` just before the n-th input.
 4. `DOTRAIN` jumping back into the TRAIN loop as in Emuera (it runs the
    command in place here).
 5. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
-   (`radius`), tooltip delay and fonts (`TOOLTIP_*`).
+   (`radius`). Tooltip fonts (`TOOLTIP_SETFONT`, `TOOLTIP_SETFONTSIZE`)
+   are the terminal's.
