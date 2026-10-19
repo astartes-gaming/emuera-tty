@@ -293,6 +293,8 @@ pub struct Tty {
     /// show the hovered button's value, memory and the running function
     /// in the bottom row
     pub status_info: bool,
+    /// the memory in use in the bottom row too (it is always in F1)
+    pub show_memory: bool,
     /// the bottom row's right side as last drawn: (columns the prompt may
     /// use, the function asking, the column it starts at); None: not shown
     bar: Option<(usize, String, usize)>,
@@ -495,6 +497,7 @@ impl Tty {
             contrast: 3.0,
             wheel: 3,
             status_info: true,
+            show_memory: false,
             bar: None,
             mem_seen: None,
             busy_since: None,
@@ -1993,6 +1996,7 @@ impl Tty {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "statusbar" => self.status_info = v == "on",
+            "memory" => self.show_memory = v == "on",
             "clipboard" => self.clip_mode = v.to_string(),
             "colors" => {
                 self.color = match v {
@@ -2081,7 +2085,12 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H{}│{}{}{}{}│", row, left, frame, style, t, " ".repeat(inner - used), frame);
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
-        line(&mut out, top + 1, " emuera-tty settings  (F1 / Ctrl-O)", &title);
+        // the memory emuera-tty uses, on the right of the title
+        let head = " emuera-tty settings  (F1 / Ctrl-O)";
+        let mem = crate::sys::memory_in_use().map(|b| format!("memory {} MB ", b >> 20)).unwrap_or_default();
+        let gap = inner.saturating_sub(head.chars().count() + mem.len());
+        let head = if gap > 0 { format!("{}{}{}", head, " ".repeat(gap), mem) } else { head.to_string() };
+        line(&mut out, top + 1, &head, &title);
         for (i, it) in ITEMS.iter().enumerate() {
             let later = if it.live { "" } else { "  (next start)" };
             let text = format!("  {:<18} ‹ {} ›{}", it.label, st.get(it.key), later);
@@ -2116,7 +2125,7 @@ impl Tty {
             if let Some(v) = hover.filter(|&b| self.is_button(b)).and_then(|b| self.buttons.get(b)) {
                 parts.push((format!("→ {}", printable(&v.to_string())), "\x1b[0;1m"));
             }
-            if let Some(m) = self.memory() {
+            if let Some(m) = self.memory().filter(|_| self.show_memory) {
                 parts.push((m, "\x1b[0;2m"));
             }
             if !running.is_empty() {
@@ -2627,7 +2636,7 @@ impl Frontend for Tty {
         if !con.running.is_empty() {
             s += &format!("  @{}", con.running);
         }
-        if let Some(m) = self.memory() {
+        if let Some(m) = self.memory().filter(|_| self.show_memory) {
             s += &format!("  {}", m);
         }
         let mut line = String::new();

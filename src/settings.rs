@@ -56,7 +56,14 @@ pub const ITEMS: &[Item] = &[
         label: "Bottom bar details",
         choices: &["on", "off"],
         live: true,
-        help: "the hovered button's value, memory in use and the running function",
+        help: "the hovered button's value and the running function",
+    },
+    Item {
+        key: "memory",
+        label: "Show memory",
+        choices: &["off", "on"],
+        live: true,
+        help: "show the memory in use in the bottom row (it is always on this page's title)",
     },
     Item {
         key: "sound",

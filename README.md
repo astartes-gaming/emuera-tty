@@ -248,10 +248,11 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   in a loop can always be stopped; the screen keeps updating meanwhile.
 - **The bottom row** shows, on the right, the number the button under the
   mouse sends (`→ 105`, also for buttons that don't show it, like map
-  squares), the memory emuera-tty uses, and the function asking for
-  input. While a script computes for more than a moment it says
-  `… working @FUNCTION`. (*Bottom bar details* in the settings turns
-  this off; memory shows on Linux, Android and Windows.)
+  squares) and the function asking for input. While a script computes
+  for more than a moment it says `… working @FUNCTION`. (*Bottom bar
+  details* in the settings turns this off.) The memory emuera-tty uses is
+  on the F1 page's title, and in the bottom row too with *Show memory*
+  (Linux, Android and Windows).
 
 **Sound**: PLAYSOUND / PLAYBGM play the game's `sound/` files through a
 player program the system has: `mpv` or `ffplay` (any format, including
@@ -291,7 +292,8 @@ running game:
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
-| Bottom bar details | on, off | hovered button's value, memory, running function |
+| Bottom bar details | on, off | hovered button's value, running function |
+| Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH (next start) |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |

@@ -409,6 +409,7 @@ fn run(o: Opts) -> i32 {
                 t.contrast = st.contrast_ratio();
                 t.wheel = st.get("wheel").parse().unwrap_or(3);
                 t.status_info = st.get("statusbar") == "on";
+                t.show_memory = st.get("memory") == "on";
                 t.clip_mode = st.get("clipboard").to_string();
                 Box::new(t)
             }
