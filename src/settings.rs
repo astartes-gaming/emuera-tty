@@ -66,10 +66,17 @@ pub const ITEMS: &[Item] = &[
         help: "show the memory in use in the bottom row (it is always on this page's title)",
     },
     Item {
+        key: "translate",
+        label: "Translate dialog",
+        choices: &["off", "en", "es", "pt", "fr", "de", "ru", "zh", "ko"],
+        live: true,
+        help: "character dialog only, by a translator on this computer (Ollama, LibreTranslate, translateLocally, argos-translate)",
+    },
+    Item {
         key: "sound",
         label: "Sound",
         choices: &["auto", "on", "off"],
-        live: false,
+        live: true,
         help: "PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)",
     },
     Item { key: "wheel", label: "Wheel scrolls", choices: &["3", "1", "5", "10"], live: true, help: "lines per mouse-wheel step" },

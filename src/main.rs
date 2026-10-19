@@ -32,6 +32,7 @@ mod regex;
 mod resources;
 mod retro;
 mod savemgr;
+mod mt;
 mod settings;
 mod sound;
 mod sys;
@@ -410,6 +411,10 @@ fn run(o: Opts) -> i32 {
                 t.wheel = st.get("wheel").parse().unwrap_or(3);
                 t.status_info = st.get("statusbar") == "on";
                 t.show_memory = st.get("memory") == "on";
+                if st.get("translate") != "off" {
+                    let note = t.set_translate(st.get("translate"));
+                    eprintln!("{}", note);
+                }
                 t.clip_mode = st.get("clipboard").to_string();
                 Box::new(t)
             }
@@ -438,12 +443,15 @@ fn run(o: Opts) -> i32 {
     }
     vm.strict = o.strict;
     // sound: in a terminal, through a player program (see sound.rs);
-    // EMUERA_SOUND=on/off and EMUERA_SOUND_PLAYER=mpv win over the setting
-    let want = std::env::var("EMUERA_SOUND").unwrap_or_else(|_| st.get("sound").to_string());
-    let remote = std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some();
-    if !o.headless && (want == "on" || (want == "auto" && !remote)) {
+    // EMUERA_SOUND=on/off and EMUERA_SOUND_PLAYER=mpv win over the setting,
+    // which the settings page can change while playing
+    if !o.headless {
+        vm.con.sound_on = sound::wanted(st.get("sound"));
         let named = std::env::var("EMUERA_SOUND_PLAYER").ok();
         vm.sound = sound::Player::find(named.as_deref()).map(sound::Sound::new);
+        if let Some(s) = vm.sound.as_mut() {
+            s.set_on(vm.con.sound_on);
+        }
     }
     let sd = vm.save_dir();
     vm.fe.set_game(&game, &sd);

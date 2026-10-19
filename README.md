@@ -268,9 +268,32 @@ the `.m4a` many games use), `mplayer`, `afplay` on macOS, or for WAV
 only `pw-play`, `paplay`, `aplay` and PowerShell on Windows. Install mpv
 for full sound (`pkg install mpv` on Termux). Ten effect channels and a
 looping BGM, as Emuera-EE; volume changes apply to sounds started after
-them. Off over SSH unless *Sound* in the settings says `on` (the sound
-would play on the remote machine); `EMUERA_SOUND=on|off` and
-`EMUERA_SOUND_PLAYER=mpv` override.
+them. *Sound* in F1 turns it off and on while you play (the BGM picks
+up again); it is off over SSH unless set to `on` (the sound would play on
+the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
+override.
+
+**Translating dialog**: *Translate dialog* in F1 (off, or the language:
+en, es, pt, fr, de, ru, zh, ko) translates characters' Japanese dialog as
+it appears, with a translator **on this computer**; nothing is sent
+online. It uses the first it finds of:
+
+- [Ollama](https://ollama.com) running a model (`ollama pull qwen2.5:7b`
+  translates Japanese well; `EMUERA_TRANSLATE_MODEL` picks the model),
+- a [LibreTranslate](https://libretranslate.com) server on port 5000
+  (`EMUERA_LIBRETRANSLATE=host:port` for another),
+- `translateLocally` (Bergamot, `EMUERA_TRANSLATE_MODEL`, default
+  `ja-en-tiny`), or `argos-translate` with its Japanese package,
+- or any command in `EMUERA_TRANSLATE_CMD`: it gets a line on stdin and
+  prints its translation (`EMUERA_TRANSLATE_TO` holds the language).
+
+Only dialog is translated: lines printed by a character's dialogue code
+(the `口上` files, `KOJO` functions) and lines in 「」 / 『』 quotes, when
+they hold Japanese. Maps, box drawings, menus and buttons, numbers and
+English text are left alone, and the game itself still sees the text it
+printed. Lines show untranslated until their translation comes in, which
+happens in the background; lines seen again are instant. If the
+translator fails, F1 says why on that row's help line.
 
 **Saving** uses the game's own save menu, and the files are Emuera's own
 (binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
@@ -302,7 +325,8 @@ running game:
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
-| Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH (next start) |
+| Translate dialog | off, en, es, pt, fr, de, ru, zh, ko | character dialog through a local translator (see above) |
+| Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
 | Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |

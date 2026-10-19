@@ -531,6 +531,9 @@ pub struct Function {
     pub single: bool,
     /// `#ONLY`: this handler replaces all others of the event.
     pub only: bool,
+    /// a character's dialogue (kojo: a file under 口上, or a KOJO function),
+    /// for translating dialog only
+    pub kojo: bool,
     /// `#LOCALSIZE` / `#LOCALSSIZE`: sizes of LOCAL / LOCALS (0: the default)
     pub local_size: u32,
     pub locals_size: u32,

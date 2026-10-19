@@ -1285,7 +1285,16 @@ impl Vm {
     /// Run one function: set up its frame (DYNAMIC privates, REF aliases
     /// from `pending_refs`), bind parameters, execute, pop. Returns the
     /// RETURNF value, if any.
-    pub fn call_func(&mut self, f: Rc<Function>, mut args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
+    pub fn call_func(&mut self, f: Rc<Function>, args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
+        // lines printed while a character's dialogue runs are dialog
+        let kojo = self.con.in_kojo;
+        self.con.in_kojo |= f.kojo;
+        let r = self.call_func_in(f, args);
+        self.con.in_kojo = kojo;
+        r
+    }
+
+    fn call_func_in(&mut self, f: Rc<Function>, mut args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
         let refs: HashMap<String, Loc> = if self.pending_refs.is_empty() { HashMap::default() } else { std::mem::take(&mut self.pending_refs).into_iter().collect() };
         if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
             prof::enter(&f);
@@ -1938,6 +1947,15 @@ impl Vm {
     /// frontend becomes `Ctrl::Quit`.
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
         self.note_running();
+        let r = self.raw_input_in(req);
+        // (the settings page may have turned sound off or on meanwhile)
+        if let Some(s) = self.sound.as_mut() {
+            s.set_on(self.con.sound_on);
+        }
+        r
+    }
+
+    fn raw_input_in(&mut self, req: &InputReq) -> VmResult<Option<String>> {
         // SKIPDISP skips the WAIT family along with the prints (Emuera's
         // IS_PRINT flag), and a script INPUT under it is an error
         if self.con.skip_disp {

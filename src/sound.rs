@@ -149,6 +149,7 @@ impl Voice {
             let native = times.is_none() && player.loops();
             let mut left = if native { 1 } else { times.unwrap_or(u32::MAX) };
             while left > 0 && !stop.load(Ordering::Relaxed) {
+                let began = std::time::Instant::now();
                 let Ok(c) = player.command(&f, vol, native).spawn() else { break };
                 *child.lock().unwrap() = Some(c);
                 if stop.load(Ordering::Relaxed) {
@@ -167,8 +168,9 @@ impl Voice {
                     }
                 };
                 *child.lock().unwrap() = None;
-                // a player that fails at once won't do better a second time
-                if !ok {
+                // a player that fails at once won't do better a second time,
+                // and a file over in no time isn't worth looping
+                if !ok || (times.is_none() && began.elapsed() < std::time::Duration::from_millis(200)) {
                     break;
                 }
                 left -= 1;
@@ -199,18 +201,40 @@ pub struct Sound {
     player: Player,
     se: Vec<Option<Voice>>,
     bgm: Option<Voice>,
+    /// the BGM asked for (kept while sound is off, to resume it)
+    bgm_file: Option<PathBuf>,
+    on: bool,
     pub se_volume: u8,
     pub bgm_volume: u8,
 }
 
 impl Sound {
     pub fn new(player: Player) -> Sound {
-        Sound { player, se: (0..10).map(|_| None).collect(), bgm: None, se_volume: 100, bgm_volume: 100 }
+        Sound { player, se: (0..10).map(|_| None).collect(), bgm: None, bgm_file: None, on: true, se_volume: 100, bgm_volume: 100 }
+    }
+
+    /// The Sound setting changed: off stops everything; on brings the BGM
+    /// back.
+    pub fn set_on(&mut self, on: bool) {
+        if on == self.on {
+            return;
+        }
+        self.on = on;
+        if on {
+            if let Some(f) = self.bgm_file.clone() {
+                self.play_bgm(&f);
+            }
+        } else {
+            let f = self.bgm_file.take();
+            self.stop_se();
+            self.stop_bgm();
+            self.bgm_file = f;
+        }
     }
 
     /// PLAYSOUND: play `f` `times` times on a free channel.
     pub fn play_se(&mut self, f: &Path, times: u32) {
-        if self.se_volume == 0 || !self.player.plays(f) {
+        if !self.on || self.se_volume == 0 || !self.player.plays(f) {
             return;
         }
         let k = self.se.iter().position(|v| v.as_ref().is_none_or(|v| !v.playing())).unwrap_or(0);
@@ -230,13 +254,15 @@ impl Sound {
     /// PLAYBGM: `f`, looped until STOPBGM or the next PLAYBGM.
     pub fn play_bgm(&mut self, f: &Path) {
         self.stop_bgm();
-        if self.bgm_volume == 0 || !self.player.plays(f) {
+        self.bgm_file = Some(f.to_path_buf());
+        if !self.on || self.bgm_volume == 0 || !self.player.plays(f) {
             return;
         }
         self.bgm = Some(Voice::start(&self.player, f, self.bgm_volume, None));
     }
 
     pub fn stop_bgm(&mut self) {
+        self.bgm_file = None;
         if let Some(v) = self.bgm.take() {
             v.stop();
         }
@@ -248,6 +274,14 @@ impl Drop for Sound {
         self.stop_se();
         self.stop_bgm();
     }
+}
+
+/// Is sound wanted with the Sound setting at `v`? (auto: not over SSH, where
+/// it would play on the other machine; `EMUERA_SOUND` wins)
+pub fn wanted(v: &str) -> bool {
+    let v = std::env::var("EMUERA_SOUND").unwrap_or_else(|_| v.to_string());
+    let remote = std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some();
+    v == "on" || (v == "auto" && !remote)
 }
 
 /// `name` (`se/ok.wav`, `se\ok.wav`) in the game's `sound/` folder; the

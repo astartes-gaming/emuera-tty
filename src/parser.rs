@@ -875,6 +875,7 @@ impl Parser {
                 params.push(Param { target: v, default });
             }
         }
+        let kojo = name.contains("KOJO") || self.prog.files.get(file_idx as usize).is_some_and(|p| p.contains("口上") || p.to_ascii_lowercase().contains("kojo"));
         Ok(FuncBuilder {
             soft_error: None,
             body: Body::default(),
@@ -888,6 +889,7 @@ impl Parser {
                 order: EventOrder::Normal,
                 single: false,
                 only: false,
+                kojo,
                 local_size: 0,
                 locals_size: 0,
                 file: file_idx,

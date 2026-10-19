@@ -110,6 +110,8 @@ pub struct Line {
     /// is wrapped at this width for good, so resizing the window later
     /// clips it instead of re-wrapping (which would break up ASCII maps).
     pub cols: usize,
+    /// printed by a character's dialogue (kojo) code (see `mt::is_dialog`)
+    pub kojo: bool,
 }
 
 pub struct Console {
@@ -156,6 +158,12 @@ pub struct Console {
     pub tooltips: std::collections::HashMap<String, (u64, String)>,
     /// `<nonbutton>` areas made so far (each gets its own value)
     tip_areas: u64,
+    /// dialogue (kojo) code is running (set by the VM), and it printed on
+    /// the line being made
+    pub in_kojo: bool,
+    cur_kojo: bool,
+    /// the Sound setting (the settings page turns it on and off)
+    pub sound_on: bool,
     /// the function running (or asking for input), for the bottom bar;
     /// the VM updates it now and then, not on every call
     pub running: String,
@@ -221,6 +229,9 @@ impl Console {
             tooltips: std::collections::HashMap::new(),
             tip_areas: 0,
             running: String::new(),
+            in_kojo: false,
+            cur_kojo: false,
+            sound_on: false,
             valid_gen: 0,
             buttons_since_input: false,
             last_input_site: None,
@@ -308,6 +319,7 @@ impl Console {
             }
         }
         self.cur.push(Seg::Text { text: s.to_string(), style: self.style.clone(), button, auto });
+        self.cur_kojo |= self.in_kojo;
         self.dirty = true;
     }
 
@@ -348,7 +360,8 @@ impl Console {
             self.valid_gen = self.gen;
             self.buttons_since_input = true;
         }
-        self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1 });
+        let kojo = std::mem::take(&mut self.cur_kojo) || self.in_kojo;
+        self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1, kojo });
         // trim the history in batches: dropping one line at a time shifts
         // all the others down for every line printed, which made long
         // listings crawl (seconds per screen) once the history was full
@@ -372,6 +385,7 @@ impl Console {
             gen: self.gen,
             temporary: true,
             cols: self.width + 1,
+            kojo: false,
         });
         self.last_temp = true;
         self.dirty = true;

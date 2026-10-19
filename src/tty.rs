@@ -295,6 +295,8 @@ pub struct Tty {
     pub status_info: bool,
     /// what applying a setting has to say (shown on the settings page)
     setting_note: String,
+    /// live translation of character dialog (see `mt`)
+    mt: Option<crate::mt::Mt>,
     /// the memory in use in the bottom row too (it is always in F1)
     pub show_memory: bool,
     /// the bottom row's right side as last drawn: (columns the prompt may
@@ -500,6 +502,7 @@ impl Tty {
             wheel: 3,
             status_info: true,
             setting_note: String::new(),
+            mt: None,
             show_memory: false,
             bar: None,
             mem_seen: None,
@@ -1168,7 +1171,7 @@ impl Tty {
         let cur_line = if con.cur.is_empty() {
             None
         } else {
-            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols })
+            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false })
         };
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
         let mut count = 0;
@@ -1181,7 +1184,8 @@ impl Tty {
             if count >= need {
                 break;
             }
-            let r = self.layout_line(l, con.valid_gen, scale);
+            let tr = if self.mt.is_some() { self.translated(l) } else { None };
+            let r = self.layout_line(tr.as_ref().unwrap_or(l), con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
         }
@@ -1956,6 +1960,10 @@ impl Tty {
                 st.save();
                 if it.live {
                     self.apply_setting(it.key, &v, &st);
+                    if it.key == "sound" {
+                        con.sound_on = crate::sound::wanted(&v);
+                        self.setting_note = if con.sound_on { "sound on".into() } else { "sound off".into() };
+                    }
                     note = std::mem::take(&mut self.setting_note);
                 } else {
                     note = format!("{} takes effect the next time emuera-tty starts", it.label);
@@ -2005,6 +2013,7 @@ impl Tty {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "statusbar" => self.status_info = v == "on",
+            "translate" => self.setting_note = self.set_translate(v),
             "memory" => self.show_memory = v == "on",
             "clipboard" => self.clip_mode = v.to_string(),
             "colors" => {
@@ -2035,6 +2044,49 @@ impl Tty {
             }
             _ => {}
         }
+    }
+
+    /// Translate dialog into `lang` ("off": don't). What happened, in words.
+    pub fn set_translate(&mut self, lang: &str) -> String {
+        self.mt = None;
+        self.redraw_all.set(true);
+        if lang == "off" {
+            return "dialog shows as the game prints it".into();
+        }
+        match crate::mt::Engine::find() {
+            Some(e) => {
+                let d = format!("translating dialog into {} with {}", lang, e.describe());
+                self.mt = Some(crate::mt::Mt::start(e, lang));
+                d
+            }
+            None => "no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD)".into(),
+        }
+    }
+
+    /// `l` with its translation in place of its text, if it is dialog and
+    /// translated (the console keeps what the game printed).
+    fn translated(&mut self, l: &Line) -> Option<Line> {
+        let mt = self.mt.as_mut()?;
+        let mut text = String::new();
+        let mut style = None;
+        for s in &l.segs {
+            match s {
+                Seg::Text { text: t, style: st, button: None, .. } => {
+                    text.push_str(t);
+                    style.get_or_insert_with(|| st.clone());
+                }
+                // menus (buttons), pictures and drawings stay as they are
+                _ => return None,
+            }
+        }
+        if !crate::mt::is_dialog(&text, l.kojo) {
+            return None;
+        }
+        let lead: String = text.chars().take_while(|c| c.is_whitespace()).collect();
+        let tr = mt.get(text.trim())?;
+        let mut out = l.clone();
+        out.segs = vec![Seg::Text { text: format!("{}{}", lead, tr), style: style?, button: None, auto: false }];
+        Some(out)
     }
 
     /// The SGR sequence for an overlay colour pair, in the terminal's depth.
@@ -2111,6 +2163,8 @@ impl Tty {
         }
         let help = if !note.is_empty() {
             note.to_string()
+        } else if let (true, Some(e)) = (sel < ITEMS.len() && ITEMS[sel].key == "translate", self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
+            format!("last translation failed: {}", e)
         } else if sel < ITEMS.len() {
             ITEMS[sel].help.to_string()
         } else {
@@ -2361,9 +2415,12 @@ impl Frontend for Tty {
                 Some(t) => wait.min(t.saturating_duration_since(Instant::now()).as_millis() as i32 + 1),
                 None => wait,
             };
+            // dialog being translated: look for the results now and then
+            let wait = if self.mt.as_ref().is_some_and(|m| m.busy()) { wait.min(250) } else { wait };
             let Some(k) = self.next_key(wait) else {
                 let (c, r, _, _) = winsize();
-                if (c, r) != (last_cols, last_rows) || anim || self.tip_due(con).0 != self.tip_drawn {
+                let translated = self.mt.as_mut().is_some_and(|m| m.poll());
+                if (c, r) != (last_cols, last_rows) || anim || translated || self.tip_due(con).0 != self.tip_drawn {
                     last_cols = c;
                     last_rows = r;
                     self.render(con, res, Some(req));

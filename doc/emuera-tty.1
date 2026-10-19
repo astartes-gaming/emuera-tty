@@ -232,6 +232,17 @@ The player program for sounds:
 .BR mpv ", " ffplay ", " mplayer ", " afplay ", " pw-play ", " paplay ", " aplay " or " powershell
 (default: the first of these found).
 .TP
+.BI EMUERA_TRANSLATE_CMD= command
+For
+.IR "Translate dialog" :
+a command that reads a line of dialog on stdin and prints its
+translation (instead of Ollama, LibreTranslate, translateLocally or
+argos-translate).
+.TP
+.BI EMUERA_TRANSLATE_MODEL= name
+The Ollama or translateLocally model for
+.IR "Translate dialog" .
+.TP
 .B EMUERA_LIST_BUTTONS=1
 With
 .BR \-\-headless ,
