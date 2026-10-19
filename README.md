@@ -34,9 +34,10 @@ thousands of random choices through them without errors. What it has
   sprites and graphics buffers, tooltips, the mouse (hover, click, right-click
   skip), and the games' own settings window.
 - Saves in Emuera's own format, in both directions.
-- Sound through mpv / ffplay / other players, and live **translation of
-  character dialog** with a translator on your computer (or DeepL /
-  translate-shell if you choose).
+- Sound through mpv / ffplay / other players, and live **translation** of
+  Japanese or English games into other languages (the dialog or all text)
+  with a translator on your computer (or DeepL / translate-shell if you
+  choose).
 - A game library with archives and `git pull` updates, a settings page,
   save management, and readable script errors with the call stack.
 - Linux, and builds for macOS, Windows, the BSDs, Termux and more, down to a
@@ -68,8 +69,8 @@ Expect rough edges in parts of the games nobody has played through yet
   unpack it anywhere: what emuera-tty plays is the folder containing
   `CSV/` and `ERB/` (the `Emuera.exe` next to them isn't used).
 - Optional: **mpv** (or ffplay) for the games' sound and music, and a
-  translator such as **Ollama** or **Argos Translate** to read
-  untranslated dialog (see [Playing](#4-playing)).
+  translator such as **Ollama** or **Argos Translate** to read a game in
+  another language (see [Playing](#4-playing)).
 
 ## 2. Install
 

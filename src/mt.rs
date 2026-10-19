@@ -470,7 +470,7 @@ pub fn is_dialog(text: &str, kojo: bool, src: &str) -> bool {
 pub fn split_words(s: &str) -> (&str, &str, &str) {
     let word = |c: char| c.is_alphabetic();
     let Some(a) = s.find(word) else { return (s, "", "") };
-    let b = s.char_indices().filter(|&(_, c)| word(c)).last().map_or(s.len(), |(i, c)| i + c.len_utf8());
+    let b = s.char_indices().rfind(|&(_, c)| word(c)).map_or(s.len(), |(i, c)| i + c.len_utf8());
     // a sentence keeps its closing punctuation
     let mut b2 = b;
     for (i, c) in s[b..].char_indices() {
