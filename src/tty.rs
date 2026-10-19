@@ -2013,7 +2013,8 @@ impl Tty {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "statusbar" => self.status_info = v == "on",
-            "translate" => self.setting_note = self.set_translate(v),
+            "translate" => self.setting_note = self.set_translate(v, st.get("translator")),
+            "translator" if st.get("translate") != "off" => self.setting_note = self.set_translate(st.get("translate"), v),
             "memory" => self.show_memory = v == "on",
             "clipboard" => self.clip_mode = v.to_string(),
             "colors" => {
@@ -2046,20 +2047,21 @@ impl Tty {
         }
     }
 
-    /// Translate dialog into `lang` ("off": don't). What happened, in words.
-    pub fn set_translate(&mut self, lang: &str) -> String {
+    /// Translate dialog into `lang` ("off": don't) with `translator` (the
+    /// Translator setting). What happened, in words.
+    pub fn set_translate(&mut self, lang: &str, translator: &str) -> String {
         self.mt = None;
         self.redraw_all.set(true);
         if lang == "off" {
             return "dialog shows as the game prints it".into();
         }
-        match crate::mt::Engine::find() {
-            Some(e) => {
+        match crate::mt::Engine::choose(translator) {
+            Ok(e) => {
                 let d = format!("translating dialog into {} with {}", lang, e.describe());
                 self.mt = Some(crate::mt::Mt::start(e, lang));
                 d
             }
-            None => "no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD)".into(),
+            Err(e) => e,
         }
     }
 
@@ -2163,7 +2165,7 @@ impl Tty {
         }
         let help = if !note.is_empty() {
             note.to_string()
-        } else if let (true, Some(e)) = (sel < ITEMS.len() && ITEMS[sel].key == "translate", self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
+        } else if let (true, Some(e)) = (sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator"), self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
             format!("last translation failed: {}", e)
         } else if sel < ITEMS.len() {
             ITEMS[sel].help.to_string()

@@ -412,7 +412,7 @@ fn run(o: Opts) -> i32 {
                 t.status_info = st.get("statusbar") == "on";
                 t.show_memory = st.get("memory") == "on";
                 if st.get("translate") != "off" {
-                    let note = t.set_translate(st.get("translate"));
+                    let note = t.set_translate(st.get("translate"), st.get("translator"));
                     eprintln!("{}", note);
                 }
                 t.clip_mode = st.get("clipboard").to_string();

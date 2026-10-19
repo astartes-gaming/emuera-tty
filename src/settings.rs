@@ -73,6 +73,13 @@ pub const ITEMS: &[Item] = &[
         help: "character dialog only, by a translator on this computer (Ollama, LibreTranslate, translateLocally, argos-translate)",
     },
     Item {
+        key: "translator",
+        label: "Translator",
+        choices: &["local", "translate-shell", "deepl"],
+        live: true,
+        help: "local: Ollama, LibreTranslate… on this computer; translate-shell and DeepL send the dialog online",
+    },
+    Item {
         key: "sound",
         label: "Sound",
         choices: &["auto", "on", "off"],

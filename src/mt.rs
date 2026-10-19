@@ -1,7 +1,9 @@
-//! Live translation of character dialog with a translator running on this
-//! machine (nothing is sent anywhere else): Ollama, LibreTranslate,
-//! translateLocally (Bergamot), argos-translate, or any command given in
-//! `EMUERA_TRANSLATE_CMD` (text on its stdin, translation on its stdout).
+//! Live translation of character dialog. By default with a translator
+//! running on this machine (nothing is sent anywhere else): Ollama,
+//! LibreTranslate, translateLocally (Bergamot), argos-translate, or any
+//! command given in `EMUERA_TRANSLATE_CMD` (text on its stdin, translation
+//! on its stdout). On request, online services through their command-line
+//! tools: translate-shell (`trans`) and DeepL (`deepl`).
 //!
 //! Lines are translated one at a time on a thread of their own, so the
 //! game never waits: a line shows as printed until its translation is in.
@@ -27,11 +29,30 @@ pub enum Engine {
     Argos,
     /// a shell command
     Command(String),
+    /// translate-shell (online: Google by default, `EMUERA_TRANS_ENGINE`)
+    Trans,
+    /// DeepL's own `deepl` tool (online; key in DEEPL_AUTH_KEY)
+    Deepl,
 }
 
 impl Engine {
-    /// The translator to use: `EMUERA_TRANSLATE_CMD` if set, else the first
-    /// of Ollama, LibreTranslate, translateLocally and argos-translate found.
+    /// The translator chosen in the settings (`local`, `translate-shell`,
+    /// `deepl`), or why it can't be used.
+    pub fn choose(which_one: &str) -> Result<Engine, String> {
+        match which_one {
+            "translate-shell" if which("trans") => Ok(Engine::Trans),
+            "translate-shell" => Err("translate-shell (trans) isn't installed: get it from your package manager or translate-shell's site".into()),
+            "deepl" if !which("deepl") => Err("DeepL's tool isn't installed: pip install deepl".into()),
+            "deepl" if std::env::var_os("DEEPL_AUTH_KEY").is_none() => Err("DeepL needs your API key in DEEPL_AUTH_KEY (a free key works)".into()),
+            "deepl" => Ok(Engine::Deepl),
+            _ => Engine::find().ok_or_else(|| {
+                "no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL".into()
+            }),
+        }
+    }
+
+    /// The local translator to use: `EMUERA_TRANSLATE_CMD` if set, else the
+    /// first of Ollama, LibreTranslate, translateLocally and argos-translate.
     pub fn find() -> Option<Engine> {
         if let Ok(c) = std::env::var("EMUERA_TRANSLATE_CMD") {
             if !c.trim().is_empty() {
@@ -66,6 +87,8 @@ impl Engine {
             Engine::Bergamot { model } => format!("translateLocally ({})", model),
             Engine::Argos => "argos-translate".into(),
             Engine::Command(c) => format!("`{}`", c),
+            Engine::Trans => "translate-shell (online)".into(),
+            Engine::Deepl => "DeepL (online)".into(),
         }
     }
 
@@ -94,6 +117,16 @@ impl Engine {
                 cmd.arg(if cfg!(windows) { "/C" } else { "-c" }).arg(c).env("EMUERA_TRANSLATE_TO", to);
                 run(&mut cmd, text)?
             }
+            // (the text on stdin: a line starting with - isn't an option)
+            Engine::Trans => {
+                let mut cmd = Command::new("trans");
+                cmd.args(["-b", "-no-ansi", "-no-autocorrect", "-s", "ja", "-t", to]);
+                if let Ok(e) = std::env::var("EMUERA_TRANS_ENGINE") {
+                    cmd.args(["-e", &e]);
+                }
+                run(&mut cmd, text)?
+            }
+            Engine::Deepl => run(Command::new("deepl").args(["text", "--from", "JA", "--to", &deepl_lang(to), text]), "")?,
         };
         // one line in, one line out
         let out = out.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
@@ -102,6 +135,15 @@ impl Engine {
         } else {
             Ok(out)
         }
+    }
+}
+
+/// DeepL's name for a target language (it wants the variant of some).
+fn deepl_lang(code: &str) -> String {
+    match code {
+        "en" => "EN-US".into(),
+        "pt" => "PT-BR".into(),
+        c => c.to_uppercase(),
     }
 }
 
@@ -320,6 +362,34 @@ mod tests {
         assert!(!is_dialog("咲夜は微笑んだ。", false));
         assert!(!is_dialog("Good morning, Master.", true));
         assert!(!is_dialog("┃●━Valley┛┃　┏Valley━ForWes┗┓　┏┛森", true));
+    }
+
+    /// translate-shell and DeepL get the arguments their tools expect
+    /// (stand-ins that print what they were given).
+    #[test]
+    fn online_engines_command_lines() {
+        if cfg!(windows) {
+            return;
+        }
+        let bin = std::env::temp_dir().join(format!("emuera-tty-mt-{}", std::process::id()));
+        std::fs::create_dir_all(&bin).unwrap();
+        for name in ["trans", "deepl"] {
+            let p = bin.join(name);
+            std::fs::write(&p, "#!/bin/sh\nprintf '%s|' \"$@\"; cat\n").unwrap();
+            crate::sys::set_executable(&p).unwrap();
+        }
+        let old = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![bin.clone()];
+        paths.extend(std::env::split_paths(&old));
+        // (tests run on threads: only this one changes PATH and the key)
+        std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
+        std::env::set_var("DEEPL_AUTH_KEY", "test");
+        let t = Engine::choose("translate-shell").unwrap().translate("「やあ」", "en").unwrap();
+        assert_eq!(t, "-b|-no-ansi|-no-autocorrect|-s|ja|-t|en|「やあ」");
+        let d = Engine::choose("deepl").unwrap().translate("「やあ」", "pt").unwrap();
+        assert_eq!(d, "text|--from|JA|--to|PT-BR|「やあ」|");
+        std::env::set_var("PATH", old);
+        let _ = std::fs::remove_dir_all(&bin);
     }
 
     #[test]

@@ -287,6 +287,14 @@ online. It uses the first it finds of:
 - or any command in `EMUERA_TRANSLATE_CMD`: it gets a line on stdin and
   prints its translation (`EMUERA_TRANSLATE_TO` holds the language).
 
+*Translator* in F1 can instead pick an **online** service through its
+command-line tool (these send the dialog over the internet):
+
+- `translate-shell`: the `trans` command (Google Translate by default;
+  `EMUERA_TRANS_ENGINE=bing` and so on for another of its engines);
+- `deepl`: DeepL's own `deepl` tool (`pip install deepl`) with your API
+  key in `DEEPL_AUTH_KEY` (the free key works).
+
 Only dialog is translated: lines printed by a character's dialogue code
 (the `口上` files, `KOJO` functions) and lines in 「」 / 『』 quotes, when
 they hold Japanese. Maps, box drawings, menus and buttons, numbers and
@@ -326,6 +334,7 @@ running game:
 | Bottom bar details | on, off | hovered button's value, running function |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
 | Translate dialog | off, en, es, pt, fr, de, ru, zh, ko | character dialog through a local translator (see above) |
+| Translator | local, translate-shell, deepl | which translator: one on this computer, or an online one |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
