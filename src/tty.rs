@@ -2137,7 +2137,7 @@ impl Tty {
         }
     }
 
-    /// Translate as the settings say (Translate into / from / what,
+    /// Translate as the settings say (Translate to / from / what,
     /// Translator). What happened, in words.
     pub fn set_translate(&mut self, st: &crate::settings::Settings) -> String {
         self.mt = None;

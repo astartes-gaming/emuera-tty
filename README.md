@@ -292,7 +292,7 @@ up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
-**Translating the game**: in F1, *Translate into* picks the language to
+**Translating the game**: in F1, *Translate to* picks the language to
 show the game in (off, en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
 English, so an English translation like AnonTW can be read in Spanish), and
@@ -374,7 +374,7 @@ running game:
 | Bottom bar details | on, off | hovered button's value, running function |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
 | Translator | auto, local, argos, translate-shell, deepl | auto: whichever is installed, this computer's first |
-| Translate into | off, en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
+| Translate to | off, en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
 | Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |

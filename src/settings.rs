@@ -74,7 +74,7 @@ pub const ITEMS: &[Item] = &[
     },
     Item {
         key: "translate",
-        label: "Translate into",
+        label: "Translate to",
         choices: &["off", "en", "es", "pt", "fr", "de", "it", "ru", "ja", "zh", "ko"],
         live: true,
         help: "the language to show the game in (with the translator below); off: as the game prints it",
