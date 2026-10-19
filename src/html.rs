@@ -332,6 +332,8 @@ impl Vm {
             bcolor: attrs.get("bcolor").and_then(|c| color_from_str(c.split(',').next().unwrap_or(""))).or(Some(self.con.style.fg)),
             border: [border[0] > 0.0, border[1] > 0.0, border[2] > 0.0, border[3] > 0.0],
             pad: to_cells(sides("padding")),
+            // a corner smaller than half a cell wouldn't show
+            round: sides("radius").map(|r| r >= cell_px / 2.0),
         };
         let ins = deco.insets();
         x += margin[3] as f32 * cell_px;

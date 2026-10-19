@@ -49,6 +49,9 @@ pub struct Program {
 /// System string variables (all others are integer). Whether a variable is a
 /// string decides how `X = …` parses: string `=` takes FORM text.
 pub fn is_system_str_var(n: &str) -> bool {
+    if let Some((base, _)) = n.split_once('@') {
+        return matches!(base, "LOCALS" | "ARGS");
+    }
     matches!(
         n,
         "STR" | "SAVESTR" | "RESULTS" | "TSTR" | "LOCALS" | "ARGS" | "GLOBALS" | "NAME" | "CALLNAME" | "NICKNAME"

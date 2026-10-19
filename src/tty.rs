@@ -138,6 +138,20 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
         }
         out.push(row);
     }
+    // rounded corners: a quarter block in the corner cell's colour
+    if height > 1 && cols > 1 {
+        for (k, glyph) in ['▗', '▖', '▘', '▝'].into_iter().enumerate() {
+            if !deco.round[k] {
+                continue;
+            }
+            let row = if k < 2 { out.first_mut() } else { out.last_mut() };
+            let cell = row.and_then(|r| if k == 0 || k == 3 { r.cells.first_mut() } else { r.cells.last_mut() });
+            if let Some(c) = cell.filter(|c| c.ch == ' ' && c.style.bg.is_some()) {
+                c.ch = glyph;
+                c.style.fg = c.style.bg.take().unwrap();
+            }
+        }
+    }
     out
 }
 

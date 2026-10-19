@@ -70,6 +70,9 @@ pub struct DivBox {
     pub border: [bool; 4],
     /// padding top, right, bottom, left
     pub pad: [usize; 4],
+    /// rounded corners (`radius`): top left, top right, bottom right,
+    /// bottom left, as Emuera orders them
+    pub round: [bool; 4],
 }
 
 impl DivBox {

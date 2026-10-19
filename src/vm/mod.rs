@@ -559,7 +559,7 @@ impl Vm {
                 return true;
             }
         }
-        matches!(name, "LOCAL" | "LOCALS" | "ARG" | "ARGS")
+        matches!(name.split_once('@').map_or(name, |(b, _)| b), "LOCAL" | "LOCALS" | "ARG" | "ARGS")
             || self.user_dims.contains_key(name)
             || system_var(name).is_some()
             || pseudo_var(name)
@@ -808,7 +808,41 @@ impl Vm {
             let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
             return Ok(Place { loc: Loc::Global(slot), flat });
         }
+        if let Some((base, func)) = name.split_once('@') {
+            return self.locate_other_local(v, base, func);
+        }
         err(format!("undefined variable '{}'", name))
+    }
+
+    /// `LOCAL@FUNC` (LOCALS, ARG, ARGS): that function's own LOCAL, the
+    /// storage it uses itself (Emuera allows it, with a warning).
+    fn locate_other_local(&mut self, v: &VarRef, base: &str, func: &str) -> VmResult<Place> {
+        if !matches!(base, "LOCAL" | "LOCALS" | "ARG" | "ARGS") {
+            return err(format!("{}: only LOCAL, LOCALS, ARG and ARGS can be another function's (@{})", v.name, func));
+        }
+        let Some(f) = self.prog.funcs.get(func).and_then(|fs| fs.first()).cloned() else {
+            return err(format!("{}: there is no function @{}", v.name, func));
+        };
+        let k = (f.name.to_string(), base.to_string());
+        let slot = match self.static_index.get(&k) {
+            Some(&s) => s,
+            None => {
+                self.statics.push(None);
+                self.static_index.insert(k, self.statics.len() - 1);
+                self.statics.len() - 1
+            }
+        };
+        if self.statics[slot].is_none() {
+            self.statics[slot] = Some(match base {
+                "LOCAL" => Arr::new(false, &[if f.local_size > 0 { f.local_size as usize } else { 1000 }]),
+                "LOCALS" => Arr::new(true, &[if f.locals_size > 0 { f.locals_size as usize } else { 100 }]),
+                "ARG" => Arr::new(false, &[1000]),
+                _ => Arr::new(true, &[100]),
+            });
+        }
+        let idx = self.eval_indices(v, 0, None)?;
+        let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", v.name, e), false))?;
+        Ok(Place { loc: Loc::Static(slot), flat })
     }
 
     /// Character variables: `CFLAG:c:i` names the character, `CFLAG:i`

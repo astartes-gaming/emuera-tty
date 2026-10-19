@@ -679,15 +679,17 @@ checked.
 - HTML_PRINT as in Emuera-EM: `px` sizes, `<div>` boxes laid out at their
   offset (`xpos`/`ypos`/`width`/`height`, `rect=`, `size=`) with their
   background colour, border (`border` / `bcolor`, drawn as coloured
-  cells), `padding` and `margin`; `<clearbutton>`; `<button title=…>`
+  cells), rounded corners (`radius`, a quarter block), `padding` and
+  `margin`; `<clearbutton>`; `<button title=…>`
   tooltips shown by the pointer after Emuera's delay (`TOOLTIP_SETDELAY`,
   `TOOLTIP_SETDURATION`, `TOOLTIP_SETCOLOR`; `<br>` and CR break their
-  lines); `<img srcb=…>` hover pictures; newlines in the text break the
+  lines; the font is the terminal's); `<img srcb=…>` hover pictures; newlines in the text break the
   line like `<br>`.
 - Animated sprites: `ANIME` blocks in resources CSVs and
   `SPRITEANIMECREATE` / `SPRITEANIMEADDFRAME`, redrawn on the
   `SETANIMETIMER` interval (at most ten times a second).
-- `#LOCALSIZE` / `#LOCALSSIZE`.
+- `#LOCALSIZE` / `#LOCALSSIZE`; `LOCAL@FUNC` (and `LOCALS@`, `ARG@`,
+  `ARGS@`) for another function's own.
 - TRAIN as in Emuera: commands numbered by their position in TRAIN.csv
   (other numbers go to `@USERCOM`), NEXTCOM, the WAIT after a command,
   and the per-step resets (UP / DOWN / LOSEBASE, SOURCE, NOWEX, STAIN to
@@ -743,6 +745,3 @@ statements as a function `@__INJECT` just before the n-th input.
    of CPU (its own object system looks names up in 1000-entry arrays
    hundreds of thousands of times); compiling variables to slots ahead of
    time would be the next step.
-4. `LOCAL@FUNC` (no known game uses it), rounded `<div>` corners
-   (`radius`). Tooltip fonts (`TOOLTIP_SETFONT`, `TOOLTIP_SETFONTSIZE`)
-   are the terminal's.

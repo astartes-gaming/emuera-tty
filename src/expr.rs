@@ -401,9 +401,17 @@ impl<'a> ExprParser<'a> {
                 e => Expr::Unary(UnOp::Neg, Box::new(e)),
             });
         }
-        let Some(name) = self.ident() else {
+        let Some(mut name) = self.ident() else {
             return Err(format!("unexpected '{}' in expression", self.rest()));
         };
+        // LOCAL@FUNC (LOCALS, ARG, ARGS too): another function's own
+        if self.peek() == Some('@') && matches!(name.to_uppercase().as_str(), "LOCAL" | "LOCALS" | "ARG" | "ARGS") {
+            self.pos += 1;
+            match self.ident() {
+                Some(f) => name = format!("{}@{}", name, f),
+                None => return Err(format!("{}@: no function name", name)),
+            }
+        }
         // #DEFINE macro expansion
         if let Some(body) = self.defs.get(&name) {
             if self.depth > 32 {
