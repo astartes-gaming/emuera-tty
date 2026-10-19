@@ -3169,8 +3169,9 @@ impl Vm {
                 i(t.y * 10_000_000_000_000 + t.mo * 100_000_000_000 + t.d * 1_000_000_000 + t.h * 10_000_000 + t.mi * 100_000 + t.s * 1000 + t.ms)
             }
             "GETTIMES" => {
+                // Emuera: DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")
                 let t = now();
-                s(format!("{:04}年{:02}月{:02}日 {:02}:{:02}:{:02}", t.y, t.mo, t.d, t.h, t.mi, t.s))
+                s(format!("{:04}/{:02}/{:02} {:02}:{:02}:{:02}", t.y, t.mo, t.d, t.h, t.mi, t.s))
             }
             "GETMILLISECOND" => {
                 let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
