@@ -373,10 +373,10 @@ running game:
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
+| Translator | auto, local, argos, translate-shell, deepl | auto: whichever is installed, this computer's first |
 | Translate into | off, en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
 | Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
-| Translator | auto, local, argos, translate-shell, deepl | auto: whichever is installed, this computer's first |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |

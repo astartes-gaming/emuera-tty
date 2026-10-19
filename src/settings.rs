@@ -66,6 +66,13 @@ pub const ITEMS: &[Item] = &[
         help: "show the memory in use in the bottom row (it is always on this page's title)",
     },
     Item {
+        key: "translator",
+        label: "Translator",
+        choices: &["auto", "local", "argos", "translate-shell", "deepl"],
+        live: true,
+        help: "auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online",
+    },
+    Item {
         key: "translate",
         label: "Translate into",
         choices: &["off", "en", "es", "pt", "fr", "de", "it", "ru", "ja", "zh", "ko"],
@@ -85,13 +92,6 @@ pub const ITEMS: &[Item] = &[
         choices: &["auto", "dialog", "all"],
         live: true,
         help: "dialog: what characters say; all: menus and labels too (never maps); auto: all unless into English",
-    },
-    Item {
-        key: "translator",
-        label: "Translator",
-        choices: &["auto", "local", "argos", "translate-shell", "deepl"],
-        live: true,
-        help: "auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online",
     },
     Item {
         key: "sound",
