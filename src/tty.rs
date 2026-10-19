@@ -1424,6 +1424,11 @@ impl Tty {
                 let mut tmp = [0u8; 4];
                 let at_pointer = pointer.is_some_and(|(px, py)| py == sr && px >= col && px < col + cell.w.max(1) as usize);
                 if at_pointer {
+                    if cell.ch.is_whitespace() {
+                        let blank = Style { fg: self.pointer_fg(cell.style.bg), ..cell.style.clone() };
+                        self.sgr(&mut out, &blank, None);
+                        last_style = None;
+                    }
                     out.extend_from_slice(b"\x1b[7m");
                     pointer_drawn = true;
                 }
@@ -1517,7 +1522,10 @@ impl Tty {
         if let (Some((px, py)), false) = (pointer, pointer_drawn) {
             // pointer over blank space
             if py < view_h {
-                let _ = write!(out, "\x1b[{};{}H\x1b[0;7m \x1b[0m", py + 1, px + 1);
+                let _ = write!(out, "\x1b[{};{}H", py + 1, px + 1);
+                let blank = Style { fg: self.pointer_fg(None), bg: None, bold: false, italic: false, underline: false, strike: false };
+                self.sgr(&mut out, &blank, None);
+                out.extend_from_slice(b"\x1b[7m \x1b[0m");
             }
         }
         // status / input line
@@ -1986,7 +1994,12 @@ impl Tty {
                     _ => None,
                 };
                 let _ = write!(out, "\x1b[{};{}H\x1b[0m", r + 1, c + 1);
-                self.sgr(&mut out, &cell.style, ov);
+                if on_new && cell.ch.is_whitespace() {
+                    let blank = Style { fg: self.pointer_fg(cell.style.bg), ..cell.style.clone() };
+                    self.sgr(&mut out, &blank, None);
+                } else {
+                    self.sgr(&mut out, &cell.style, ov);
+                }
                 if on_new {
                     out.extend_from_slice(b"\x1b[7m");
                 }
@@ -2006,7 +2019,7 @@ impl Tty {
             if let (Some((px, py)), false) = (pos, covered[k]) {
                 let _ = write!(out, "\x1b[{};{}H", py + 1, px + 1);
                 // a blank in the window background, inverted for the pointer
-                let blank = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
+                let blank = Style { fg: self.pointer_fg(None), bg: None, bold: false, italic: false, underline: false, strike: false };
                 self.sgr(&mut out, &blank, None);
                 out.extend_from_slice(if inverse { b"\x1b[7m \x1b[0m" } else { b" \x1b[0m" });
                 touched.push((px, py, 1));
@@ -2052,6 +2065,17 @@ impl Tty {
         if !hit.is_empty() {
             self.gfx.after_flush(&hit, self.cell);
             self.pointer_over_images(&hit);
+        }
+    }
+
+    /// The colour of the pointer over blank space (it shows inverted, as a
+    /// block): light on a dark background `bg` (else the window's), dark on
+    /// a light one. Not the blank's own text colour: that may be the
+    /// background's (black on the console's black, so it vanished).
+    fn pointer_fg(&self, bg: Option<Rgb>) -> Rgb {
+        match bg.or(self.screen_bg) {
+            Some(Rgb(r, g, b)) if r as u32 * 299 + g as u32 * 587 + b as u32 * 114 > 128_000 => Rgb(0, 0, 0),
+            _ => Rgb(204, 204, 204),
         }
     }
 
