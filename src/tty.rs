@@ -363,6 +363,15 @@ fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>) -> (usize, usize, char
     (tw, extra, fill)
 }
 
+/// A tooltip laid out: its lines (text, columns) and its box (1-based
+/// top row and left column, width in columns).
+struct TipBox {
+    lines: Vec<(String, usize)>,
+    top: usize,
+    left: usize,
+    w: usize,
+}
+
 /// Text from the game safe to write into a box: a tab becomes a space,
 /// other control characters go (CR and LF stay for the caller to split
 /// lines at); written raw they would move the cursor.
@@ -1263,6 +1272,18 @@ impl Tty {
                 if crop_h == 0 {
                     continue;
                 }
+                // a picture in a button: all of it is the button (hover,
+                // tooltip, click), as in Emuera, not just its text row
+                if let Some(b) = im.button {
+                    let cw = self.cell.0.max(1) as usize;
+                    let (c0, c1) = (im.col, (im.col + (pw as usize).div_ceil(cw)).min(cols));
+                    let (r0, r1) = (top as usize / ch as usize, (top as usize + crop_h as usize).div_ceil(ch as usize).min(view_h));
+                    for r in r0..r1 {
+                        if let Some(m) = self.btn_map.get_mut(r) {
+                            m.push((c0, c1, b));
+                        }
+                    }
+                }
                 if self.no_images {
                     continue;
                 }
@@ -1328,11 +1349,7 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
         }
         // overlapping layers (portraits) go to the terminal as one picture
-        let placements = self.merger.merge(placements, self.cell);
-        if self.force_frame {
-            self.gfx.reset(&mut out);
-        }
-        self.gfx.draw(&mut out, &placements, self.cell);
+        let mut placements = self.merger.merge(placements, self.cell);
         // buttons with tooltips need a full redraw when hovered, and the
         // hovered one shows its tooltip by the pointer
         for (i, v) in self.buttons.iter().enumerate() {
@@ -1340,11 +1357,22 @@ impl Tty {
                 self.hover_imgs.insert(i);
             }
         }
+        let tip = match (hover, self.mouse) {
+            (Some(b), Some((mx, my))) => self.buttons.get(b).and_then(|v| con.tooltip_for(v)).map(|t| self.tooltip_box(t, mx, my)),
+            _ => None,
+        };
+        // pictures sit above text: the tooltip's place is cut out of them
+        if let Some(t) = &tip {
+            let cells = (t.left as i64 - 1, t.top as i64 - 1, (t.left + t.w) as i64 - 1, (t.top + t.lines.len()) as i64 - 1);
+            placements = placements.into_iter().map(|p| self.merger.cut(p, cells, self.cell)).collect();
+        }
+        if self.force_frame {
+            self.gfx.reset(&mut out);
+        }
+        self.gfx.draw(&mut out, &placements, self.cell);
         let mut tip_rows = 0..0;
-        if let (Some(b), Some((mx, my))) = (hover, self.mouse) {
-            if let Some(tip) = self.buttons.get(b).and_then(|v| con.tooltip_for(v)) {
-                tip_rows = self.draw_tooltip(&mut out, tip, mx, my);
-            }
+        if let Some(t) = &tip {
+            tip_rows = self.draw_tooltip(&mut out, t);
         }
         self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
         self.frame_cursor = None;
@@ -1513,7 +1541,8 @@ impl Tty {
 
     /// A tooltip box next to the pointer at 0-based cell (`mx`, `my`):
     /// below it, or above when there is no room.
-    fn draw_tooltip(&self, out: &mut Vec<u8>, tip: &str, mx: usize, my: usize) -> std::ops::Range<usize> {
+    /// Where a tooltip goes and its lines (see [`Tty::draw_tooltip`]).
+    fn tooltip_box(&self, tip: &str, mx: usize, my: usize) -> TipBox {
         let maxw = self.cols.saturating_sub(4).clamp(10, 60);
         let mut lines: Vec<(String, usize)> = Vec::new();
         // games break tooltip lines with CR (`UNICODE(0x000D)`, AnonTW's
@@ -1550,11 +1579,16 @@ impl Tty {
         let view = self.rows.saturating_sub(1);
         let top = if my + 2 + h <= view { my + 2 } else { (my + 1).saturating_sub(h).max(1) };
         let left = (mx + 2).min(self.cols.saturating_sub(w)).max(1);
+        TipBox { lines, top, left, w }
+    }
+
+    /// Write a tooltip box; returns the screen rows (0-based) it covers.
+    fn draw_tooltip(&self, out: &mut Vec<u8>, t: &TipBox) -> std::ops::Range<usize> {
         let st = self.ov_style((20, 20, 20), (255, 245, 200), false);
-        for (i, (t, tw)) in lines.iter().enumerate() {
-            let _ = write!(out, "\x1b[{};{}H{} {}{} \x1b[0m", top + i, left, st, t, " ".repeat(w - 2 - tw));
+        for (i, (s, sw)) in t.lines.iter().enumerate() {
+            let _ = write!(out, "\x1b[{};{}H{} {}{} \x1b[0m", t.top + i, t.left, st, s, " ".repeat(t.w - 2 - sw));
         }
-        top - 1..top - 1 + h
+        t.top - 1..t.top - 1 + t.lines.len()
     }
 
     /// Damage tracking: drop from `out` the rows (byte ranges `rows` within

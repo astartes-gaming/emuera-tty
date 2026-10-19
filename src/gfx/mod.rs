@@ -171,6 +171,47 @@ impl Merger {
     }
 }
 
+impl Merger {
+    /// `p` with the pixels under the cells `cells` (columns, rows: start
+    /// inclusive, end exclusive, 0-based) made transparent. A tooltip is
+    /// text, and pictures sit above text: cut out of the picture, it
+    /// shows. Cells map to pixels through the box of cells the picture is
+    /// shown in, as terminals stretch it to fill that box.
+    pub fn cut(&mut self, p: Placement, cells: (i64, i64, i64, i64), cell: (u32, u32)) -> Placement {
+        let (cw, ch) = (cell.0.max(1) as f64, cell.1.max(1) as f64);
+        let (w, h) = (p.img.width() as f64, p.crop_h as f64);
+        let (bc, br) = ((w / cw).ceil().max(1.0), (h / ch).ceil().max(1.0));
+        let sx = |c: i64| (((c - p.col as i64) as f64 * w / bc).round() as i64).clamp(0, w as i64);
+        let sy = |r: i64| (((r - p.row as i64) as f64 * h / br - p.y_off as f64 * h / (br * ch)).round() as i64).clamp(0, h as i64);
+        let (x0, x1) = (sx(cells.0), sx(cells.2));
+        let (y0, y1) = (sy(cells.1), sy(cells.3));
+        if x0 >= x1 || y0 >= y1 {
+            return p;
+        }
+        // (rows of the image: the visible part starts at crop_top)
+        let (y0, y1) = (y0 + p.crop_top as i64, y1 + p.crop_top as i64);
+        let key = format!("{}|cut{},{},{},{}", p.key, x0, y0, x1, y1);
+        let img = match self.cache.get(&key) {
+            Some(i) => i.clone(),
+            None => {
+                let mut c = (*p.img).clone();
+                for yy in y0..y1.min(c.height() as i64) {
+                    for xx in x0..x1 {
+                        c.put_pixel(xx as u32, yy as u32, image::Rgba([0, 0, 0, 0]));
+                    }
+                }
+                let i = Rc::new(c);
+                if self.cache.len() >= 48 {
+                    self.cache.clear();
+                }
+                self.cache.insert(key.clone(), i.clone());
+                i
+            }
+        };
+        Placement { key, img, ..p }
+    }
+}
+
 /// Draw rows `top..top + h` of `src` over `dst` at (`dx`, `dy`), blending
 /// by alpha ("over", straight alpha).
 fn blend_rows(dst: &mut RgbaImage, src: &RgbaImage, top: u32, h: u32, dx: u32, dy: u32) {
