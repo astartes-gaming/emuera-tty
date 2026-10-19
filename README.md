@@ -18,17 +18,32 @@
 > If it works for you anyway: nice. If it doesn't: that's the expected
 > outcome of a proof of concept.
 
-A from-scratch reimplementation of the **Emuera** ERB engine in Rust, aimed at
-running **eratohoTW** in a terminal: the Linux framebuffer console (fbcon /
-fbterm) and graphics-capable terminals (kitty, WezTerm, Ghostty, foot, xterm
-with sixel, yaft…).
+A from-scratch reimplementation of the **Emuera** ERB engine in Rust that
+plays era games in a terminal: graphics-capable terminals (kitty, Konsole,
+WezTerm, Ghostty, foot, iTerm2, xterm with sixel…), plain ones (pictures are
+left out, text and colours stay), the Linux framebuffer console, and even old
+serial terminals.
 
-Status: **proof of concept**. The language core, game flow, save/load, the
-terminal UI and all three image backends run. AnonTW (eratohoTW, English)
-gets through new-game setup to the in-game screen, where basic commands
-(resting, moving between rooms, menus) work; deeper gameplay is largely
-untested. Large parts of the Emuera command set are still missing (see
-*Roadmap*).
+Status: **proof of concept**, but it plays. Tested mostly with **AnonTW**
+(eratohoTW in English), **pops-tw** (eraNAS) and **eraTohoK**: new games,
+days, training, shops, maps and saves work, and automated play runs
+thousands of random choices through them without errors. What it has
+(details under *Implemented*):
+
+- Emuera / Emuera-EM / EE scripts, HTML_PRINT with `<div>` boxes, pictures,
+  sprites and graphics buffers, tooltips, the mouse (hover, click, right-click
+  skip), and the games' own settings window.
+- Saves in Emuera's own format, in both directions.
+- Sound through mpv / ffplay / other players, and live **translation of
+  character dialog** with a translator on your computer (or DeepL /
+  translate-shell if you choose).
+- A game library with archives and `git pull` updates, a settings page,
+  save management, and readable script errors with the call stack.
+- Linux, and builds for macOS, Windows, the BSDs, Termux and more, down to a
+  Raspberry Pi Zero.
+
+Expect rough edges in parts of the games nobody has played through yet
+(see *Roadmap*).
 
 # Guide
 
@@ -52,6 +67,9 @@ untested. Large parts of the Emuera command set are still missing (see
   keep the downloaded archive (`.zip`, `.tar.gz`, `.7z`, …) as it is, or
   unpack it anywhere: what emuera-tty plays is the folder containing
   `CSV/` and `ERB/` (the `Emuera.exe` next to them isn't used).
+- Optional: **mpv** (or ffplay) for the games' sound and music, and a
+  translator such as **Ollama** or **Argos Translate** to read
+  untranslated dialog (see [Playing](#4-playing)).
 
 ## 2. Install
 
@@ -275,8 +293,8 @@ override.
 
 **Translating dialog**: *Translate dialog* in F1 (off, or the language:
 en, es, pt, fr, de, ru, zh, ko) translates characters' Japanese dialog as
-it appears, with a translator **on this computer**; nothing is sent
-online. It uses the first it finds of:
+it appears. By default it uses a translator **on this computer**, so
+nothing is sent online: the first it finds of
 
 - [Ollama](https://ollama.com) running a model (`ollama pull qwen2.5:7b`
   translates Japanese well; `EMUERA_TRANSLATE_MODEL` picks the model),
@@ -335,7 +353,7 @@ running game:
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
-| Translate dialog | off, en, es, pt, fr, de, ru, zh, ko | character dialog through a local translator (see above) |
+| Translate dialog | off, en, es, pt, fr, de, ru, zh, ko | translate character dialog into that language (see above) |
 | Translator | local, argos, translate-shell, deepl | which translator: any on this computer, Argos only, or an online one |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
@@ -734,7 +752,10 @@ checked.
 - PRINT family (V/S/FORM/FORMS × K/D × L/W/C/LC, SINGLE, PLAIN), PRINTDATA,
   STRDATA, PRINTBUTTON, PRINT_IMG, HTML_PRINT, DRAWLINE, colours/styles,
   ALIGNMENT, REUSELASTLINE, CLEARLINE.
-- INPUT/INPUTS/TINPUT/ONEINPUT/WAIT/TWAIT/INPUTMOUSEKEY (approx.).
+- INPUT/INPUTS/TINPUT/ONEINPUT/WAIT/TWAIT/INPUTMOUSEKEY (approx.); INPUTS'
+  default answer is FORM text, as in Emuera.
+- Sound: PLAYSOUND / PLAYBGM / STOPSOUND / STOPBGM / SETSOUNDVOLUME /
+  SETBGMVOLUME / EXISTSOUND (see *Sound* above); GETMEMORYUSAGE.
 - Characters: ADD/DEL/SWAP/COPY/SORT/PICKUP, CSV* lookups, FINDCHARA.
 - Strings, math, arrays (VARSET, ARRAYSHIFT/REMOVE/SORT/COPY, SPLIT, …).
   `TOSTR` takes .NET format strings exactly as Emuera does: standard
@@ -809,10 +830,12 @@ for scripted play.
 1. Run it on the other systems (macOS, Windows, the BSDs, Termux, Haiku,
    Redox) and on a real Raspberry Pi Zero: they compile (the Pi build
    also runs under emulation), nobody has played on them yet.
-2. Play deeper into AnonTW and pops-tw. AnonTW's 5 remaining parse errors
-   and pops-tw's 16 are mistakes in the games' own scripts (Emuera reports
-   them too).
-3. Speed of script-heavy games: pops-tw's new game takes about 14
+2. Play deeper into AnonTW, pops-tw and eraTohoK, and more games.
+   AnonTW's 5 remaining parse errors and pops-tw's 16 are mistakes in the
+   games' own scripts (Emuera reports them too); eraTohoK has none.
+3. Dialog translation and sound with real translators and players on
+   other systems: tested here with stand-ins and mpv only.
+4. Speed of script-heavy games: pops-tw's new game takes about 14
    seconds of CPU (its own object system looks names up in 1000-entry
    arrays hundreds of thousands of times, through a million statements);
    compiling variables to slots ahead of time would be the next step.
