@@ -876,7 +876,7 @@ fn git_pull(root: &Path) -> Result<String, String> {
         let lines: Vec<&str> = err.lines().collect();
         let why = match lines.iter().position(|l| l.starts_with("error:") || l.starts_with("fatal:")) {
             Some(k) => {
-                let mut w = lines[k].splitn(2, ':').nth(1).unwrap_or("").trim().to_string();
+                let mut w = lines[k].split_once(':').map_or("", |x| x.1).trim().to_string();
                 for f in lines[k + 1..].iter().take_while(|l| l.starts_with('\t') || l.starts_with("  ")).take(3) {
                     w += " ";
                     w += f.trim();
