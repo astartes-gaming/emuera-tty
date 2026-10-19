@@ -346,8 +346,8 @@ character says before the next wait (a speech over several lines) are
 sent together, so a sentence split over lines is translated whole and
 with its context. The translation comes back line by line when the
 translator keeps the lines, and is spread over them by length when it
-doesn't (Argos). The log has one entry per batch, its lines separated by
-the translator's own line breaks flattened to spaces.
+doesn't (Argos). The log has one entry per batch, its lines joined by
+spaces.
 
 Maps and box drawings are never translated, nor text already in the
 target language, and the game itself still sees the text it printed. Text
