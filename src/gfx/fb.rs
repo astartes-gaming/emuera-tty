@@ -30,6 +30,44 @@ pub struct Fb {
     r: (u32, u32),
     g: (u32, u32),
     b: (u32, u32),
+    /// the pointer arrow, made for one cell size
+    arrow: Option<((u32, u32), image::RgbaImage)>,
+}
+
+/// The mouse pointer: X outline, . fill, space see-through.
+const ARROW: [&str; 19] = [
+    "X           ",
+    "XX          ",
+    "X.X         ",
+    "X..X        ",
+    "X...X       ",
+    "X....X      ",
+    "X.....X     ",
+    "X......X    ",
+    "X.......X   ",
+    "X........X  ",
+    "X.........X ",
+    "X......XXXXX",
+    "X...X..X    ",
+    "X..XX..X    ",
+    "X.X  X..X   ",
+    "XX   X..X   ",
+    "X     X..X  ",
+    "      X..X  ",
+    "       XX   ",
+];
+
+/// The arrow scaled to fill one cell.
+fn arrow(cell: (u32, u32)) -> image::RgbaImage {
+    let (w, h) = (cell.0.max(1), cell.1.max(1));
+    image::RgbaImage::from_fn(w, h, |x, y| {
+        let row = ARROW[(y * ARROW.len() as u32 / h) as usize].as_bytes();
+        match row[(x * row.len() as u32 / w) as usize] {
+            b'X' => image::Rgba([0, 0, 0, 255]),
+            b'.' => image::Rgba([255, 255, 255, 255]),
+            _ => image::Rgba([0, 0, 0, 0]),
+        }
+    })
 }
 
 impl Fb {
@@ -71,6 +109,7 @@ impl Fb {
             xoff: var[4],
             yoff: var[5],
             bpp,
+            arrow: None,
             line,
             r: (var[8], var[9]),
             g: (var[11], var[12]),
@@ -165,6 +204,21 @@ impl Backend for Fb {
     fn name(&self) -> &'static str {
         "fb"
     }
+    fn draw_pointer(&mut self, cell: (u32, u32), at: (usize, usize)) {
+        // after the console has painted the cell's text
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        if self.arrow.as_ref().is_none_or(|a| a.0 != cell) {
+            self.arrow = Some((cell, arrow(cell)));
+        }
+        let img = self.arrow.take().unwrap();
+        self.blit(&img.1, at.0 as i32 * cell.0 as i32, at.1 as i32 * cell.1 as i32, 0, cell.1);
+        self.arrow = Some(img);
+    }
+
+    fn draws_pointer(&self) -> bool {
+        true
+    }
+
     fn after_flush(&mut self, ps: &[Placement], cell: (u32, u32)) {
         // give the console a moment to finish painting text
         std::thread::sleep(std::time::Duration::from_millis(15));

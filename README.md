@@ -397,6 +397,7 @@ running game:
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
+| Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
 | Translator | auto, local, argos, translate-shell, deepl | auto: whichever is installed, this computer's first |
 | Translate to | off, en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
@@ -722,7 +723,19 @@ Modifier keys held during a click are ignored. On the console, gpm needs
 nothing else; the `/dev/input/mice` fallback needs read access to the
 device, i.e. the `input` group — note that it can read *all* input
 devices, keyboards included. `EMUERA_MOUSE=mice` forces the console mouse
-anywhere, `EMUERA_MOUSE=off` (or `term`) disables it.
+anywhere, `EMUERA_MOUSE=off` (or `term`) disables it. With framebuffer
+pictures the pointer is drawn as an arrow over them (as an inverted cell
+it disappeared under pictures).
+
+**No mouse?** *Keyboard pointer* in F1 (`auto` turns it on by itself on the
+Linux console when no mouse can be found) puts a pointer on the screen
+that the **cursor keys** move a cell at a time; **Insert** clicks under it,
+and so does **Shift+Enter** where the terminal sends it apart from Enter
+(Konsole, xterm; not the Linux console). Enter keeps its own job, and
+PgUp / PgDn still scroll. Hovering shows tooltips and the button's number
+as with a mouse, and picture menus (pops-tw's title) take the clicks too.
+(A key held alone, such as right Shift, can't be used: terminals send
+nothing for it.)
 
 ## Graphics backends
 

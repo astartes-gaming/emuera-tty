@@ -295,6 +295,9 @@ enum Key {
     /// Tab: continue and skip messages until a choice (as a right click)
     Skip,
     Mouse { btn: u16, x: u16, y: u16, press: bool },
+    /// Insert, or Shift+Enter where the terminal tells it from Enter: a
+    /// click with the keyboard pointer
+    Click,
     Other,
 }
 
@@ -365,6 +368,8 @@ pub struct Tty {
     /// show the hovered button's value, memory and the running function
     /// in the bottom row
     pub status_info: bool,
+    /// the keyboard pointer (see `kbd_pointer`)
+    pub kbd_ptr: bool,
     /// what applying a setting has to say (shown on the settings page)
     setting_note: String,
     /// live translation of character dialog (see `mt`): the translator, and
@@ -577,6 +582,7 @@ impl Tty {
             contrast: 3.0,
             wheel: 3,
             status_info: true,
+            kbd_ptr: false,
             setting_note: String::new(),
             mt: None,
             tr_to: String::new(),
@@ -631,7 +637,7 @@ impl Tty {
         }
         // alt screen, hide cursor; mouse reports: buttons, drag, any motion,
         // in SGR (1006) or urxvt (1015) form where supported, else X10
-        write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h\x1b[2J");
+        write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h\x1b[>4;1m\x1b[2J");
         Ok(t)
     }
 
@@ -929,6 +935,10 @@ impl Tty {
                                     (_, b'D') => Key::Left,
                                     (_, b'H') => Key::Home,
                                     (_, b'F') => Key::End,
+                                    // Insert; Shift+Enter as xterm's modifyOtherKeys and
+                                    // CSI-u terminals send it
+                                    (p, b'~') if p == b"2" || p == b"27;2;13" => Key::Click,
+                                    (p, b'u') if p == b"13;2" => Key::Click,
                                     (p, b'~') if p == b"5" => Key::PageUp,
                                     (p, b'~') if p == b"6" => Key::PageDown,
                                     (p, b'~') if p == b"1" || p == b"7" => Key::Home,
@@ -947,6 +957,8 @@ impl Tty {
                         b'B' => Key::Down,
                         b'C' => Key::Right,
                         b'D' => Key::Left,
+                        // Konsole's Shift+Enter (and the keypad's Enter)
+                        b'M' => Key::Click,
                         _ => Key::Other,
                     }, 3)
                 } else {
@@ -1325,7 +1337,8 @@ impl Tty {
         let mut placements = cbg_places;
         // the console mouse (gpm or the raw device) has no pointer of its
         // own on screen: draw one
-        let pointer = if self.mice.is_some() { self.mouse } else { None };
+        // (the framebuffer draws it as an arrow over the pictures instead)
+        let pointer = if self.own_pointer() && !self.gfx.draws_pointer() { self.mouse } else { None };
         let mut pointer_drawn = false;
         // each row's bytes, for damage tracking (see `skip_unchanged_rows`)
         let mut row_bytes: Vec<(usize, usize)> = Vec::with_capacity(view_h);
@@ -1519,7 +1532,7 @@ impl Tty {
         if let Some(t) = &tip {
             tip_rows = self.draw_tooltip(&mut out, t, con.tip_colors);
         }
-        self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
+        self.drawn_pointer = if self.own_pointer() { self.mouse.filter(|p| p.1 < view_h) } else { None };
         self.frame_cursor = None;
         // cursor at end of input
         if req.map(|r| r.kind != InputKind::Wait).unwrap_or(false) {
@@ -1536,6 +1549,8 @@ impl Tty {
             for p in &placements {
                 p.key.hash(&mut h);
             }
+            // (a pointer drawn as an arrow isn't in the text)
+            self.drawn_pointer.hash(&mut h);
             h.finish()
         };
         // (unless a box drawn over it has closed: what it covered must
@@ -1554,6 +1569,9 @@ impl Tty {
         write_all(&out);
         crate::sys::drain_stdout();
         self.gfx.after_flush(&placements, self.cell);
+        if let Some(p) = self.drawn_pointer.filter(|_| self.gfx.draws_pointer()) {
+            self.gfx.draw_pointer(self.cell, p);
+        }
         self.frame_imgs = placements;
         con.dirty = false;
     }
@@ -1892,7 +1910,9 @@ impl Tty {
     /// that lost or gained the hover highlight (re-blitting framebuffer
     /// images under them). A full redraw makes the images flicker.
     fn repaint_hover(&mut self, focus: Rgb) {
-        let new_ptr = if self.mice.is_some() { self.mouse.filter(|p| p.1 < self.rows.saturating_sub(1)) } else { None };
+        let new_ptr = if self.own_pointer() { self.mouse.filter(|p| p.1 < self.rows.saturating_sub(1)) } else { None };
+        // the framebuffer draws the pointer as an arrow: cells aren't inverted
+        let invert = !self.gfx.draws_pointer();
         let new_hover = self.mouse.and_then(|(x, y)| self.button_at(x, y));
         let old_hover = self.hover;
         if new_ptr == self.drawn_pointer && new_hover == old_hover {
@@ -1921,7 +1941,7 @@ impl Tty {
                 };
                 let _ = write!(out, "\x1b[{};{}H\x1b[0m", r + 1, c + 1);
                 self.sgr(&mut out, &cell.style, ov);
-                if on_new {
+                if on_new && invert {
                     out.extend_from_slice(b"\x1b[7m");
                 }
                 let mut tmp = [0u8; 4];
@@ -1942,7 +1962,7 @@ impl Tty {
                 // a blank in the window background, inverted for the pointer
                 let blank = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
                 self.sgr(&mut out, &blank, None);
-                out.extend_from_slice(if inverse { b"\x1b[7m \x1b[0m" } else { b" \x1b[0m" });
+                out.extend_from_slice(if inverse && invert { b"\x1b[7m \x1b[0m" } else { b" \x1b[0m" });
                 touched.push((px, py, 1));
             }
         }
@@ -1979,6 +1999,9 @@ impl Tty {
             .collect();
         if !hit.is_empty() {
             self.gfx.after_flush(&hit, self.cell);
+        }
+        if let Some(p) = new_ptr.filter(|_| !invert) {
+            self.gfx.draw_pointer(self.cell, p);
         }
     }
 
@@ -2134,6 +2157,7 @@ impl Tty {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "statusbar" => self.status_info = v == "on",
+            "kbdpointer" => self.set_kbd_pointer(v),
             "translate" | "translator" => self.setting_note = self.set_translate(st),
             "translate_from" | "translate_what" => {
                 self.tr_from = st.get("translate_from").to_string();
@@ -2538,6 +2562,45 @@ impl Tty {
         row.iter().find(|(s, e, _)| x >= *s && x < *e).map(|(_, _, b)| *b)
     }
 
+    /// The Keyboard pointer setting: on, off, or auto (on on the Linux
+    /// console when there is no mouse there).
+    pub fn set_kbd_pointer(&mut self, v: &str) {
+        let console = self.term == "linux" || self.term.starts_with("fbterm");
+        self.kbd_ptr = v == "on" || (v == "auto" && console && self.mice.is_none());
+        if self.kbd_ptr && self.mouse.is_none() {
+            self.mouse = Some((self.cols / 2, self.rows / 2));
+        }
+        self.redraw_all.set(true);
+    }
+
+    /// Is the mouse pointer ours to draw? (the console mouse, or the
+    /// keyboard pointer: no terminal shows a pointer for those)
+    fn own_pointer(&self) -> bool {
+        self.mice.is_some() || self.kbd_ptr
+    }
+
+    /// The keyboard pointer: with it on, the cursor keys move the pointer a
+    /// cell and Insert or Shift+Enter click under it, as mouse events (Enter
+    /// keeps its own uses). `raw`: a picture menu's input.
+    fn kbd_pointer(&mut self, k: Key, _raw: bool) -> Key {
+        if !self.kbd_ptr {
+            return k;
+        }
+        let (x, y) = self.mouse.unwrap_or((self.cols / 2, self.rows / 2));
+        let (dx, dy): (isize, isize) = match k {
+            Key::Up => (0, -1),
+            Key::Down => (0, 1),
+            Key::Left => (-1, 0),
+            Key::Right => (1, 0),
+            Key::Click => return Key::Mouse { btn: 0, x: x as u16 + 1, y: y as u16 + 1, press: true },
+            k => return k,
+        };
+        let nx = (x as isize + dx).clamp(0, self.cols.saturating_sub(1) as isize) as usize;
+        let ny = (y as isize + dy).clamp(0, self.rows.saturating_sub(2) as isize) as usize;
+        // a move with no button held (SGR motion)
+        Key::Mouse { btn: 35, x: nx as u16 + 1, y: ny as u16 + 1, press: true }
+    }
+
     /// The clickable button at a cell (not a `<nonbutton>` area).
     fn click_at(&self, x: usize, y: usize) -> Option<usize> {
         self.button_at(x, y).filter(|&b| self.is_button(b))
@@ -2720,7 +2783,7 @@ impl Frontend for Tty {
             };
             // dialog being translated: look for the results now and then
             let wait = if self.mt.as_ref().is_some_and(|m| m.busy()) { wait.min(250) } else { wait };
-            let Some(k) = self.next_key(wait) else {
+            let Some(k) = self.next_key(wait).map(|k| self.kbd_pointer(k, false)) else {
                 let (c, r, _, _) = winsize();
                 let translated = self.mt.as_mut().is_some_and(|m| m.poll());
                 if (c, r) != (last_cols, last_rows) || anim || translated || self.tip_due(con).0 != self.tip_drawn {
@@ -2805,7 +2868,7 @@ impl Frontend for Tty {
                             self.mouse = Some((x, y));
                             // the console pointer is drawn by us: move it, but
                             // only once a burst of motion has been read
-                            if self.mice.is_some() || self.button_at(x, y) != self.hover {
+                            if self.own_pointer() || self.button_at(x, y) != self.hover {
                                 pointer_owed = true;
                             }
                         }
@@ -2909,7 +2972,7 @@ impl Frontend for Tty {
                 }
                 None => 200,
             };
-            let Some(k) = self.next_key(wait) else { continue };
+            let Some(k) = self.next_key(wait).map(|k| self.kbd_pointer(k, true)) else { continue };
             let key = |code: i64| RawInput::Key { code, data: code };
             match k {
                 Key::CtrlC => return RawInput::Quit,
@@ -2970,6 +3033,7 @@ impl Frontend for Tty {
                 Key::Up => return key(38),
                 Key::Right => return key(39),
                 Key::Down => return key(40),
+                Key::Click => return key(45),
                 Key::Skip => return key(9),
                 Key::Char(c) => {
                     let (code, data) = char_keycode(c);
@@ -3045,7 +3109,7 @@ impl Frontend for Tty {
         self.active = false;
         let mut out = Vec::new();
         self.gfx.shutdown(&mut out);
-        out.extend_from_slice(b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
+        out.extend_from_slice(b"\x1b[>4m\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
         write_all(&out);
         if let Some(n) = &self.notice {
             eprintln!("emuera-tty: {}", n);

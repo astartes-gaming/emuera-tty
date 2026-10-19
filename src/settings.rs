@@ -100,6 +100,13 @@ pub const ITEMS: &[Item] = &[
         live: true,
         help: "PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)",
     },
+    Item {
+        key: "kbdpointer",
+        label: "Keyboard pointer",
+        choices: &["auto", "on", "off"],
+        live: true,
+        help: "cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on the Linux console without a mouse",
+    },
     Item { key: "wheel", label: "Wheel scrolls", choices: &["3", "1", "5", "10"], live: true, help: "lines per mouse-wheel step" },
     Item { key: "mouse", label: "Console mouse", choices: &["auto", "off"], live: false, help: "gpm / /dev/input/mice on the Linux console" },
     Item {
