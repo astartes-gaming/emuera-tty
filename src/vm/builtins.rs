@@ -917,10 +917,12 @@ impl Vm {
                 self.set_result(ok as i64);
             }
             "SETANIMETIMER" => self.res.anim_timer = self.ai(a, 0, 0)?,
+            // (a nonzero second argument makes Emuera ignore keys until the
+            // time is up; a key ends the wait here all the same)
             "TWAIT" => {
                 let t = self.ai(a, 0, 1000)?.max(0) as u64;
-                let force = self.ai(a, 1, 0)?;
-                let _ = force;
+                self.ai(a, 1, 0)?;
+                self.comend_wait = false;
                 if !self.con.cur.is_empty() {
                     self.con.newline();
                 }
@@ -928,7 +930,6 @@ impl Vm {
                     kind: crate::frontend::InputKind::Wait,
                     one: true,
                     timeout_ms: Some(t),
-                    mouse: false,
                     stop_skip: false,
                 })?;
             }

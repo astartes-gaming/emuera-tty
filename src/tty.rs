@@ -2440,7 +2440,7 @@ impl Frontend for Tty {
             match k {
                 Key::CtrlC => return RawInput::Quit,
                 Key::Title | Key::Restart | Key::Reload => {
-                    let req = InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true, stop_skip: false };
+                    let req = InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false };
                     let r = self.anchor_hotkey(con, res, &req, &k);
                     self.force_frame = true;
                     self.render(con, res, None);
@@ -2451,7 +2451,7 @@ impl Frontend for Tty {
                     }
                 }
                 Key::Settings => {
-                    match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, mouse: true, stop_skip: false }) {
+                    match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false }) {
                         OverlayExit::Quit => return RawInput::Quit,
                         OverlayExit::Config => return RawInput::Hotkey(crate::frontend::Hotkey::Config),
                         _ => {

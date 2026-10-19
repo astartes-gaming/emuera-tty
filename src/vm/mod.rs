@@ -1971,7 +1971,7 @@ impl Vm {
         if !self.con.cur.is_empty() {
             self.con.newline();
         }
-        self.raw_input(&InputReq { kind: InputKind::Wait, one: true, timeout_ms: None, mouse: false, stop_skip: force })?;
+        self.raw_input(&InputReq { kind: InputKind::Wait, one: true, timeout_ms: None, stop_skip: force })?;
         Ok(())
     }
 
@@ -1979,7 +1979,7 @@ impl Vm {
     /// the default; full-width digits are accepted. Callers store RESULT.
     pub fn input_int(&mut self, default: Option<i64>, timeout: Option<u64>, one: bool) -> VmResult<i64> {
         loop {
-            let r = self.raw_input(&InputReq { kind: InputKind::Int, one, timeout_ms: timeout, mouse: false, stop_skip: false })?;
+            let r = self.raw_input(&InputReq { kind: InputKind::Int, one, timeout_ms: timeout, stop_skip: false })?;
             self.is_timeout = r.is_none();
             let s = match r {
                 None => return Ok(default.unwrap_or(0)),
@@ -2009,7 +2009,7 @@ impl Vm {
     /// INPUTS-style string input; empty input gives the default. Callers
     /// store RESULTS.
     pub fn input_str(&mut self, default: Option<String>, timeout: Option<u64>, one: bool) -> VmResult<String> {
-        let r = self.raw_input(&InputReq { kind: InputKind::Str, one, timeout_ms: timeout, mouse: false, stop_skip: false })?;
+        let r = self.raw_input(&InputReq { kind: InputKind::Str, one, timeout_ms: timeout, stop_skip: false })?;
         self.is_timeout = r.is_none();
         Ok(match r {
             None => default.unwrap_or_default(),

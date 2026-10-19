@@ -225,7 +225,9 @@ it.
 Emuera games are menus of numbered choices like `[100] Wake Up`.
 
 - **Choose**: type the number and press Enter, or **click** it. Buttons
-  under the mouse are highlighted.
+  under the mouse are highlighted; a picture that is a button can be
+  clicked anywhere on it. Resting the mouse on a button with a tooltip
+  shows it after half a second (or the game's delay).
 - **Continue** (when the game waits after text, `▼ (Enter)` at the
   bottom): Enter, any key, or a click.
 - **Skip to the next choice**: right-click (or Tab) where the game waits:

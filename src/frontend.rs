@@ -27,10 +27,6 @@ pub struct InputReq {
     pub one: bool,
     /// TINPUT / TWAIT: give up after this long
     pub timeout_ms: Option<u64>,
-    /// INPUTMOUSEKEY: report clicks/keys. Set by the VM; frontends treat
-    /// it like an ordinary input for now.
-    #[allow(dead_code)]
-    pub mouse: bool,
     /// FORCEWAIT: a wait message skipping stops at
     pub stop_skip: bool,
 }
@@ -123,7 +119,7 @@ pub trait Frontend {
     /// timeout. Without a mouse: a typed number counts as clicking that
     /// button, Enter / other text as key presses.
     fn input_raw(&mut self, con: &mut Console, res: &mut Resources, timeout_ms: Option<u64>) -> RawInput {
-        let req = InputReq { kind: InputKind::Str, one: false, timeout_ms, mouse: true, stop_skip: false };
+        let req = InputReq { kind: InputKind::Str, one: false, timeout_ms, stop_skip: false };
         match self.input(con, res, &req) {
             InputResult::Quit => RawInput::Quit,
             InputResult::Hotkey(h) => RawInput::Hotkey(h),
