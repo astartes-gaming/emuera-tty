@@ -52,7 +52,7 @@ impl fmt::Display for Value {
 /// Non-local control flow and errors, propagated with `?`.
 #[derive(Debug, Clone)]
 pub enum Ctrl {
-    /// BEGIN <state>: unwind to the system loop and switch state
+    /// `BEGIN state`: unwind to the system loop and switch state
     Begin(String),
     /// QUIT
     Quit,

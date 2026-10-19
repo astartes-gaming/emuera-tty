@@ -382,7 +382,7 @@ pub fn parse_print_name(cmd: &str) -> Option<(char, PrintFlags)> {
     Some((mid, fl))
 }
 
-/// PRINTDATA[K|D][L|W] → flags, or None for other commands.
+/// `PRINTDATA[K|D][L|W]` → flags, or None for other commands.
 fn print_data_flags(cmd: &str) -> Option<PrintFlags> {
     let s = cmd.strip_prefix("PRINTDATA")?;
     let mut fl = PrintFlags::default();

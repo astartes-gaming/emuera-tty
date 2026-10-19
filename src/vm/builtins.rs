@@ -421,9 +421,8 @@ impl Vm {
         Ok((p.loc, base, row_len))
     }
 
-    /// Elements `start..end` of `v`'s row (end defaults to the row length):
-    /// (location, flat index of `start`, values).
-    /// The flat element range `start..end` of `v`'s row, to read in place.
+    /// The flat element range `start..end` of `v`'s row (end defaults to the
+    /// row length), to read in place.
     fn row_range(&mut self, v: &VarRef, start: i64, end: Option<i64>) -> VmResult<(Loc, std::ops::Range<usize>)> {
         let (loc, base, len) = self.array_row(v)?;
         let end = end.unwrap_or(len as i64).min(len as i64).max(0) as usize;

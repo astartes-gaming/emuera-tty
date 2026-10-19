@@ -640,10 +640,6 @@ impl Vm {
         Ok(c as usize)
     }
 
-    /// Resolve a variable reference to a [`Place`]. Lookup order: REF
-    /// aliases, the current function's privates and LOCAL/ARG, ERH `#DIM`s,
-    /// CSV name tables (ABLNAME…), read-only pseudo variables, system
-    /// variables. Unknown names are an error.
     /// How `v`'s name resolves in the running function (cached: the same
     /// name in the same function always means the same kind of variable).
     fn var_info(&mut self, v: &VarRef) -> VarInfo {
@@ -689,6 +685,11 @@ impl Vm {
         VarInfo { table: ni.table, private, is_static, skey, user: ni.user, csv_name: ni.csv_name, pseudo: ni.pseudo, system: ni.system }
     }
 
+    /// Resolve a variable reference to a [`Place`]. Lookup order: REF
+    /// aliases, the current function's privates and LOCAL/ARG, ERH `#DIM`s,
+    /// CSV name tables (ABLNAME…), read-only pseudo variables, system
+    /// variables, another function's LOCAL (`LOCAL@FUNC`). Unknown names
+    /// are an error.
     pub fn locate(&mut self, v: &VarRef) -> VmResult<Place> {
         let name = &*v.name;
         let info = self.var_info(v);
