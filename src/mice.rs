@@ -109,10 +109,12 @@ impl Mice {
         let mut c = Vec::with_capacity(16);
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // every event
         // moves also go to gpm's default handler, which draws its own
-        // pointer (only root may: the kernel's selection pointer); clicks
-        // don't, so they make no selection
+        // pointer (only root may: the kernel's selection pointer): GPM_HARD
+        // makes gpm pass it events the client gets too. Clicks don't go,
+        // so they make no selection
         const GPM_MOVE: u16 = 1;
-        c.extend_from_slice(&GPM_MOVE.to_ne_bytes());
+        const GPM_HARD: u16 = 256;
+        c.extend_from_slice(&(GPM_MOVE | GPM_HARD).to_ne_bytes());
         c.extend_from_slice(&0u16.to_ne_bytes());
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // any modifiers
         c.extend_from_slice(&(std::process::id() as i32).to_ne_bytes());

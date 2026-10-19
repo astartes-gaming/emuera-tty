@@ -370,6 +370,8 @@ pub struct Tty {
     pub status_info: bool,
     /// the keyboard pointer (see `kbd_pointer`)
     pub kbd_ptr: bool,
+    /// draw the console mouse's pointer even with gpm (Console pointer)
+    pub draw_pointer: bool,
     /// what applying a setting has to say (shown on the settings page)
     setting_note: String,
     /// live translation of character dialog (see `mt`): the translator, and
@@ -583,6 +585,7 @@ impl Tty {
             wheel: 3,
             status_info: true,
             kbd_ptr: false,
+            draw_pointer: false,
             setting_note: String::new(),
             mt: None,
             tr_to: String::new(),
@@ -2158,6 +2161,10 @@ impl Tty {
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "statusbar" => self.status_info = v == "on",
             "kbdpointer" => self.set_kbd_pointer(v),
+            "pointer" => {
+                self.draw_pointer = v == "drawn";
+                self.redraw_all.set(true);
+            }
             "translate" | "translator" => self.setting_note = self.set_translate(st),
             "translate_from" | "translate_what" => {
                 self.tr_from = st.get("translate_from").to_string();
@@ -2577,7 +2584,7 @@ impl Tty {
     /// /dev/input/mice, or the keyboard pointer: nothing else shows one;
     /// gpm draws its own)
     fn own_pointer(&self) -> bool {
-        self.mice.as_ref().is_some_and(|m| !m.draws_pointer()) || self.kbd_ptr
+        self.mice.as_ref().is_some_and(|m| self.draw_pointer || !m.draws_pointer()) || self.kbd_ptr
     }
 
     /// The keyboard pointer: with it on, the cursor keys move the pointer a

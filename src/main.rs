@@ -412,6 +412,7 @@ fn run(o: Opts) -> i32 {
                 t.status_info = st.get("statusbar") == "on";
                 t.show_memory = st.get("memory") == "on";
                 t.set_kbd_pointer(st.get("kbdpointer"));
+                t.draw_pointer = st.get("pointer") == "drawn";
                 if st.get("translate") != "off" {
                     let note = t.set_translate(&st);
                     eprintln!("{}", note);
