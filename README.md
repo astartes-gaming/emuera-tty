@@ -716,7 +716,7 @@ text.
 | xterm, kitty, WezTerm, foot, Ghostty, Alacritty, GNOME/KDE terminals, tmux | SGR (1006) mouse reports |
 | urxvt and other 1015 terminals | urxvt (1015) reports |
 | older terminals | legacy X10 reports |
-| Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client, draws its own pointer |
+| Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client (the console's own mouse reports stay off, or gpm would send them clicks only), draws its own pointer |
 | Linux console / fbterm **without** gpm | reads `/dev/input/mice` directly (wheel included), draws its own pointer |
 
 Modifier keys held during a click are ignored. On the console, gpm needs

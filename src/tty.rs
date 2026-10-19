@@ -654,7 +654,14 @@ impl Tty {
         }
         // alt screen, hide cursor; mouse reports: buttons, drag, any motion,
         // in SGR (1006) or urxvt (1015) form where supported, else X10
-        write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h\x1b[2J");
+        write_all(b"\x1b[?1049h\x1b[?25l\x1b[2J");
+        // the terminal's mouse reports — but not with a console mouse of our
+        // own: on the Linux console they make gpm send the mouse to the
+        // console (clicks only, as X10 reports) instead of to us, and the
+        // pointer never moved
+        if t.mice.is_none() {
+            write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h");
+        }
         // xterm's modifyOtherKeys (Shift+Enter apart from Enter); not for
         // the Linux console, which has no such mode
         if !is_vt {
