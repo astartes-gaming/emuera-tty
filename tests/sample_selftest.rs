@@ -1,44 +1,7 @@
 //! Runs the sample game headlessly: the ERB self-test, and a save / load
 //! round trip through Emuera's save format.
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-
-/// A fresh copy of `sample/` (the tests write save files into it).
-fn sample_copy(tag: &str) -> PathBuf {
-    fn copy(from: &Path, to: &Path) {
-        std::fs::create_dir_all(to).unwrap();
-        for e in std::fs::read_dir(from).unwrap() {
-            let e = e.unwrap();
-            let t = to.join(e.file_name());
-            if e.file_type().unwrap().is_dir() {
-                copy(&e.path(), &t);
-            } else {
-                std::fs::copy(e.path(), t).unwrap();
-            }
-        }
-    }
-    let dir = std::env::temp_dir().join(format!("emuera-tty-test-{}-{}", tag, std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    copy(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/sample")), &dir);
-    dir
-}
-
-fn run(dir: &Path, input: &[u8]) -> String {
-    let exe = env!("CARGO_BIN_EXE_emuera-tty");
-    let mut child = Command::new(exe)
-        .arg(dir)
-        .args(["--headless", "--echo"])
-        .env("EMUERA_SEED", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
-    let out = child.wait_with_output().unwrap();
-    String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
-}
+mod common;
+use common::{game, run, sample_copy, temp_dir};
 
 #[test]
 fn sample_selftest_passes() {
@@ -95,18 +58,14 @@ fn save_load_roundtrip() {
 /// command runs in place of what came next; inside a command it is an error.
 #[test]
 fn dotrain_runs_after_the_event() {
-    let dir = std::env::temp_dir().join(format!("emuera-tty-test-dotrain-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("CSV")).unwrap();
-    std::fs::create_dir_all(dir.join("ERB")).unwrap();
-    std::fs::write(dir.join("CSV/Train.csv"), "0,A\n1,B\n999,C\n").unwrap();
+    let dir = temp_dir("dotrain");
     let erb = "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = -1\n\
         @SHOW_STATUS\nFLAG:0 += 1\nPRINTFORML status {FLAG:0}\nSIF FLAG:0 == 1\n  DOTRAIN 1\nSIF FLAG:0 == 1\n  PRINTL rest of status\nSIF FLAG:0 == 3\n  QUIT\n\
         @SHOW_USERCOM\nPRINTL usercom list\n\
         @USERCOM\nPRINTFORML usercom {RESULT}\nSIF RESULT == 50\n  DOTRAIN 999\nPRINTL rest of usercom\n\
         @COM1\nPRINTL com1\nRETURN 1\n@COM999\nPRINTL com999\nRETURN 1\n@COM0\nDOTRAIN 1\nRETURN 1\n\
         @EVENTCOMEND\nPRINTFORML comend {SELECTCOM}\n";
-    std::fs::write(dir.join("ERB/T.ERB"), erb).unwrap();
+    game(&dir, &[("CSV/Train.csv", "0,A\n1,B\n999,C\n"), ("ERB/T.ERB", erb)]);
     let text = run(&dir, b"\n50\n\n0\n\n");
     let order =
         ["status 1", "rest of status", "com1", "comend 1", "status 2", "usercom list", "usercom 50", "rest of usercom", "com999", "comend 999", "status 3"];
@@ -117,10 +76,7 @@ fn dotrain_runs_after_the_event() {
     }
     let _ = std::fs::remove_dir_all(&dir);
     // DOTRAIN inside @COMn: Emuera refuses it
-    std::fs::create_dir_all(dir.join("CSV")).unwrap();
-    std::fs::create_dir_all(dir.join("ERB")).unwrap();
-    std::fs::write(dir.join("CSV/Train.csv"), "0,A\n1,B\n").unwrap();
-    std::fs::write(dir.join("ERB/T.ERB"), "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = 0\n@COM0\nDOTRAIN 1\nRETURN 1\n").unwrap();
+    game(&dir, &[("CSV/Train.csv", "0,A\n1,B\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = 0\n@COM0\nDOTRAIN 1\nRETURN 1\n")]);
     let text = run(&dir, b"\n\n");
     assert!(text.contains("DOTRAIN can only be used"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);

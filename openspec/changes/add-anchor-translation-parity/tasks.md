@@ -2,7 +2,7 @@
 
 ## 1. Test scaffolding
 
-- [ ] 1.1 Move the inline-game helpers from `tests/sample_selftest.rs` (`run`, plus a new `game(dir, files: &[(&str, &str)])` that writes CSV/ERB files into a temp dir) into `tests/common/mod.rs`, and use them from `sample_selftest.rs`. Verify: `cargo test` passes with the same three tests.
+- [x] 1.1 Move the inline-game helpers from `tests/sample_selftest.rs` (`run`, plus a new `game(dir, files: &[(&str, &str)])` that writes CSV/ERB files into a temp dir) into `tests/common/mod.rs`, and use them from `sample_selftest.rs`. Verify: `cargo test` passes with the same three tests.
 - [ ] 1.2 Record a baseline: `--headless` output of `sample/` plus an 800-input AnonTW and a pops-tw new-game session, with `EMUERA_SEED=1`, saved outside the repo (neither game has TR files). Follow CLAUDE.md's *Testing beyond `cargo test`* rules: scratch copies of the games, at most two memory-capped processes. pops-tw's INPUTMOUSEKEY title can't be passed headless, so drive that session with `tools/gamed.py`. Verify: the files exist and two runs of the same build produce identical output.
 
 ## 2. TR table loading (spec: TR table files, TR file problems are warnings; design D6)
