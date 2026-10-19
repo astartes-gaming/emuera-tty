@@ -170,7 +170,8 @@ impl Picker {
                     let ok = is_game_dir(&g);
                     let title = if ok { game_title(&g).unwrap_or_else(|| "Emuera game".into()) } else { "(folder missing)".into() };
                     let last = if self.st.last.as_ref() == Some(&g) { "  · last played" } else { "" };
-                    self.entries.push(Entry { label: format!("★ {}   {}{}", title, g.display(), last), kind: Kind::Game { path: g, ok } });
+                    let git = if ok && git_root(&g).is_some() { "  · git" } else { "" };
+                    self.entries.push(Entry { label: format!("★ {}   {}{}{}", title, g.display(), last, git), kind: Kind::Game { path: g, ok } });
                 }
                 self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), kind: Kind::AddGame });
                 self.entries.push(Entry { label: "⚙ Settings".into(), kind: Kind::OpenSettings });
@@ -253,7 +254,7 @@ impl Picker {
         }
         let mut s = String::from("\x1b[H\x1b[0m\x1b[2J");
         match self.mode {
-            Mode::Library => s += &format!("\x1b[1memuera-tty — your games\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n", fit("Enter to play · a add a game · d remove from the list · s settings", cols)),
+            Mode::Library => s += &format!("\x1b[1memuera-tty — your games\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n", fit("Enter to play · a add a game · u update (git) · d remove from the list · s settings", cols)),
             Mode::Settings => s += &format!("\x1b[1mSettings\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n", fit(&crate::settings::config_path().map(|p| p.display().to_string()).unwrap_or_default(), cols)),
             Mode::Browse => s += &format!("\x1b[1mChoose an Emuera game folder or archive\x1b[0m  (★ = game, ▣ = archive)\r\n\x1b[2m{}\x1b[0m\r\n", fit(&self.dir.display().to_string(), cols)),
         }
@@ -277,7 +278,7 @@ impl Picker {
             s += "  (empty)\r\n";
         }
         let help = match self.mode {
-            Mode::Library => "↑↓ move  Enter play  a add  d remove  s settings  q quit",
+            Mode::Library => "↑↓ move  Enter play  a add  u update  d remove  s settings  q quit",
             Mode::Settings => "↑↓ move  ←/→ or Enter change  Esc back",
             Mode::Browse if self.adding => "↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back",
             Mode::Browse => "↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit",
@@ -394,6 +395,26 @@ impl Picker {
                     self.load();
                     self.sel = sel.min(self.entries.len().saturating_sub(1));
                     self.note = format!("Removed {} from the list (its files are still there).", p.display());
+                }
+                Err(None)
+            }
+            (Mode::Library, Act::Letter('u')) => {
+                if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(self.sel) {
+                    let p = path.clone();
+                    self.note = match git_root(&p) {
+                        None => "This game isn't a git checkout: nothing to update from.".into(),
+                        Some(root) => {
+                            let (cols, rows) = term_size();
+                            out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", rows.saturating_sub(1), fit(&format!("Updating {} (git pull)…", root.display()), cols)).as_bytes());
+                            match git_pull(&root) {
+                                Ok(m) => m,
+                                Err(e) => format!("\x1b[31m{}\x1b[0m", e),
+                            }
+                        }
+                    };
+                    let sel = self.sel;
+                    self.load();
+                    self.sel = sel.min(self.entries.len().saturating_sub(1));
                 }
                 Err(None)
             }
@@ -823,6 +844,56 @@ pub fn upgrade() -> Result<String, String> {
     run_cmd(Command::new(cargo).arg("build").arg("--release").arg("--manifest-path").arg(src.join("Cargo.toml")))?;
     let built = src.join("target").join("release").join(crate::sys::EXE_NAME);
     install_from(&built)
+}
+
+/// The git checkout a game folder belongs to: the folder itself or one of
+/// the two above it (a game kept in a subfolder of its repository), never
+/// further up, so a home folder under git isn't taken for the game's.
+fn git_root(game: &Path) -> Option<PathBuf> {
+    which("git")?;
+    game.ancestors().take(3).find(|d| d.join(".git").exists()).map(Path::to_path_buf)
+}
+
+/// `git pull --ff-only` in `root`, without prompts (no password or editor
+/// can be asked for here). Ok: what changed; Err: why it didn't.
+fn git_pull(root: &Path) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let git = |args: &[&str]| {
+        let mut c = Command::new("git");
+        c.arg("-C").arg(root).args(args).stdin(Stdio::null()).env("GIT_TERMINAL_PROMPT", "0");
+        if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+            c.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
+        }
+        c.output().map_err(|e| format!("git: {}", e))
+    };
+    let head = |o: std::process::Output| String::from_utf8_lossy(&o.stdout).trim().to_string();
+    let before = head(git(&["rev-parse", "HEAD"])?);
+    let o = git(&["pull", "--ff-only"])?;
+    if !o.status.success() {
+        // git's own explanation (its error: / fatal: line and the files
+        // listed under it), not the fetch progress or hints
+        let err = String::from_utf8_lossy(&o.stderr);
+        let lines: Vec<&str> = err.lines().collect();
+        let why = match lines.iter().position(|l| l.starts_with("error:") || l.starts_with("fatal:")) {
+            Some(k) => {
+                let mut w = lines[k].splitn(2, ':').nth(1).unwrap_or("").trim().to_string();
+                for f in lines[k + 1..].iter().take_while(|l| l.starts_with('\t') || l.starts_with("  ")).take(3) {
+                    w += " ";
+                    w += f.trim();
+                }
+                w
+            }
+            None => lines.iter().rev().map(|l| l.trim()).find(|l| !l.is_empty() && !l.starts_with("hint:")).unwrap_or("").to_string(),
+        };
+        return Err(format!("Update failed: {}", if why.is_empty() { "git pull didn't work".to_string() } else { why }));
+    }
+    let after = head(git(&["rev-parse", "HEAD"])?);
+    if before == after {
+        return Ok("Already up to date.".into());
+    }
+    let n = head(git(&["rev-list", "--count", &format!("{}..{}", before, after)])?);
+    let files = head(git(&["diff", "--shortstat", &before, &after])?);
+    Ok(format!("Updated: {} new commit{} ({}).", n, if n == "1" { "" } else { "s" }, files))
 }
 
 /// First `name` on PATH.

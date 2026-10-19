@@ -197,9 +197,17 @@ you play or add goes into your **library**. Once there are two or more,
 |---|---|
 | Enter (or click twice) | play the selected game |
 | `a` / **＋ Add a game…** | open the folder picker above to add a folder or archive |
+| `u` | update a game kept in a git checkout (`git pull --ff-only`; marked **· git**) |
 | `d` / Delete | take the game off the list (its files and saves stay) |
 | `s` / **⚙ Settings** | the settings page (see [Settings](#settings)) |
 | `q` / Esc | quit |
+
+**Games cloned with git** (`git clone` of a game's repository) update with
+`u` in the launcher: it pulls the new commits and says how many came in.
+It only fast-forwards and never asks for a password, so a game you have
+edited, or a repository that needs a login, reports why it couldn't
+update instead (commit or stash your edits, or run `git pull` yourself).
+Saves in the game folder that the repository ignores are left alone.
 
 Inside a game, **F1** (or Ctrl-O) → *Switch game…* goes back to the
 launcher. Other ways to start:
