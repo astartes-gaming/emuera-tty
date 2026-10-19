@@ -177,4 +177,32 @@ impl Backend for Fb {
             self.blit(&p.img, x, y, p.crop_top, p.crop_h);
         }
     }
+    fn invert_cell(&mut self, col: usize, row: usize, cell: (u32, u32)) {
+        let bytes = (self.bpp / 8) as usize;
+        // flip the colour bits only (not padding or alpha)
+        let bits = |(off, len): (u32, u32)| if len == 0 { 0 } else { ((1u32 << len) - 1) << off };
+        let mask = bits(self.r) | bits(self.g) | bits(self.b);
+        let (x0, y0) = (col * cell.0 as usize, row * cell.1 as usize);
+        for y in y0..(y0 + cell.1 as usize).min(self.yres as usize) {
+            let line = (y + self.yoff as usize) * self.line;
+            for x in x0..(x0 + cell.0 as usize).min(self.xres as usize) {
+                let off = line + (x + self.xoff as usize) * bytes;
+                if off + bytes > self.len {
+                    continue;
+                }
+                unsafe {
+                    let dst = self.mem.add(off);
+                    match bytes {
+                        4 => (dst as *mut u32).write_unaligned((dst as *const u32).read_unaligned() ^ mask),
+                        3 => {
+                            for k in 0..3 {
+                                *dst.add(k) ^= (mask >> (8 * k)) as u8;
+                            }
+                        }
+                        _ => (dst as *mut u16).write_unaligned((dst as *const u16).read_unaligned() ^ mask as u16),
+                    }
+                }
+            }
+        }
+    }
 }

@@ -44,6 +44,9 @@ pub trait Backend {
     fn draw(&mut self, _out: &mut Vec<u8>, _p: &[Placement], _cell: (u32, u32)) {}
     /// Called after the frame has been written and drained to the tty.
     fn after_flush(&mut self, _p: &[Placement], _cell: (u32, u32)) {}
+    /// Invert the colours of the cell at (`col`, `row`) in pixels, for a
+    /// pointer over a picture that was painted over the text (fb only).
+    fn invert_cell(&mut self, _col: usize, _row: usize, _cell: (u32, u32)) {}
 
     /// The screen was cleared or may be out of step (Ctrl-L): place
     /// everything again on the next frame.

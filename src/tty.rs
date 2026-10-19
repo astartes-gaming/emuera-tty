@@ -1619,6 +1619,7 @@ impl Tty {
         write_all(&out);
         crate::sys::drain_stdout();
         self.gfx.after_flush(&placements, self.cell);
+        self.pointer_over_images(&placements);
         self.frame_imgs = placements;
         con.dirty = false;
     }
@@ -2050,6 +2051,29 @@ impl Tty {
             .collect();
         if !hit.is_empty() {
             self.gfx.after_flush(&hit, self.cell);
+            self.pointer_over_images(&hit);
+        }
+    }
+
+    /// The framebuffer paints pictures over the text, the pointer's
+    /// inverted cell included: invert it again in pixels when it is under
+    /// one of the pictures `ps` just painted.
+    fn pointer_over_images(&mut self, ps: &[Placement]) {
+        let Some((px, py)) = self.drawn_pointer else { return };
+        let (cw, ch) = (self.cell.0.max(1) as i32, self.cell.1.max(1) as i32);
+        let (cx, cy) = (px as i32 * cw, py as i32 * ch);
+        // (where they are see-through the text's inverted cell shows)
+        let mut opaque = 0;
+        for y in cy..cy + ch {
+            for x in cx..cx + cw {
+                opaque += ps.iter().any(|p| {
+                    let (ix, iy) = (x - p.col * cw, y - (p.row.max(0) * ch + p.y_off) + p.crop_top as i32);
+                    ix >= 0 && iy >= p.crop_top as i32 && iy < (p.crop_top + p.crop_h) as i32 && (ix as u32) < p.img.width() && (iy as u32) < p.img.height() && p.img.get_pixel(ix as u32, iy as u32).0[3] >= 128
+                }) as i32;
+            }
+        }
+        if opaque * 2 > cw * ch {
+            self.gfx.invert_cell(px, py, self.cell);
         }
     }
 
