@@ -322,6 +322,10 @@ pub struct Tty {
     color: ColorMode,
     scroll: usize,
     buf: String,
+    /// the last input timed out (TINPUT): what was typed stays for the
+    /// next, as Emuera's input box keeps it (AnonTW's animated map is a
+    /// TINPUT loop)
+    keep_buf: bool,
     pending: Vec<u8>,
     /// keys decoded but not yet handed out (console mouse events)
     queued: std::collections::VecDeque<Key>,
@@ -611,6 +615,7 @@ impl Tty {
             color,
             scroll: 0,
             buf: String::new(),
+            keep_buf: false,
             pending: Vec::new(),
             queued: std::collections::VecDeque::new(),
             mice: None,
@@ -2951,7 +2956,9 @@ impl Frontend for Tty {
     /// click, any key/click for WAIT, or a timeout. Scrolling keys and the
     /// wheel move through the log meanwhile.
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
-        self.buf.clear();
+        if !std::mem::take(&mut self.keep_buf) || req.kind == InputKind::Wait {
+            self.buf.clear();
+        }
         self.scroll = 0;
         self.render(con, res, Some(req));
         self.copy_text(con, if req.kind == InputKind::Wait { crate::clipboard::Trigger::Wait } else { crate::clipboard::Trigger::Input });
@@ -2979,6 +2986,7 @@ impl Frontend for Tty {
                 Some(d) => {
                     let now = Instant::now();
                     if now >= d {
+                        self.keep_buf = true;
                         return InputResult::Timeout;
                     }
                     ((d - now).as_millis() as i32).min(200)
