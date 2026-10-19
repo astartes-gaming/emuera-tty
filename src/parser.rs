@@ -238,7 +238,7 @@ impl LazySrc {
         };
         let same = std::fs::metadata(&file.path).is_ok_and(|m| m.len() == file.len && m.modified().ok() == file.mtime);
         if !same {
-            return self.from_changed(f, file);
+            return self.changed_body(f, file);
         }
         let text = match read_range(&file.path, self.start, self.end) {
             Ok(b) => crate::loader::decode_as(&b, file.sjis),
@@ -252,7 +252,7 @@ impl LazySrc {
         };
         let Ok((mut b, rest)) = head else {
             drop(p);
-            return self.from_changed(f, file);
+            return self.changed_body(f, file);
         };
         let end = rest.iter().position(|(_, l)| l.starts_with('@')).unwrap_or(rest.len());
         p.statements(&mut b, &file.rel, &rest[..end]);
@@ -268,7 +268,7 @@ impl LazySrc {
 
     /// The body of `f` from its file as it is now: the file changed since
     /// the game was loaded.
-    fn from_changed(&self, f: &Function, file: &LazyFile) -> Body {
+    fn changed_body(&self, f: &Function, file: &LazyFile) -> Body {
         let ctx = &*self.ctx;
         let mut changed = lock(&ctx.changed);
         if !changed.iter().any(|(i, _)| *i == self.file) {
@@ -494,10 +494,9 @@ impl Parser {
             // most lines are plain code: skip blanks / comments before
             // allocating anything (the `{ }` join and `[...]` checks below
             // still see every other line)
-            if trimmed.is_empty() || (trimmed.starts_with(';') && !trimmed.starts_with(";!;") && !trimmed.starts_with(";^;") && !trimmed.starts_with(";#;")) {
-                if join.is_none() {
-                    continue;
-                }
+            let comment = trimmed.starts_with(';') && !trimmed.starts_with(";!;") && !trimmed.starts_with(";^;") && !trimmed.starts_with(";#;");
+            if (trimmed.is_empty() || comment) && join.is_none() {
+                continue;
             }
             let mut line = trimmed.to_string();
             // Emuera never trims line ends: text a PRINT / DATA line shows

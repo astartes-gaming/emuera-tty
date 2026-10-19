@@ -706,7 +706,7 @@ impl Resources {
     pub fn cbg_add(&mut self, l: CbgLayer) {
         self.cbg.push(l);
         // stable: equal depths keep their order
-        self.cbg.sort_by(|a, b| b.z.cmp(&a.z));
+        self.cbg.sort_by_key(|l| std::cmp::Reverse(l.z));
     }
 
     /// The pixels a CBG source shows now, and a fingerprint of them (so an

@@ -93,14 +93,7 @@ impl<'a> ExprParser<'a> {
     }
 
     fn starts_with(&self, t: &str) -> bool {
-        let mut i = self.pos;
-        for c in t.chars() {
-            if self.s.get(i) != Some(&c) {
-                return false;
-            }
-            i += 1;
-        }
-        true
+        t.chars().enumerate().all(|(k, c)| self.s.get(self.pos + k) == Some(&c))
     }
 
     /// Skip whitespace and consume `t` if it comes next.

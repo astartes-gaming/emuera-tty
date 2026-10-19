@@ -264,7 +264,7 @@ impl Values {
         let bytes = if sjis { encoding_rs::SHIFT_JIS.encode(&out).0.into_owned() } else { [&[0xEF, 0xBB, 0xBF][..], out.as_bytes()].concat() };
         std::fs::write(&self.path, bytes).map_err(|e| format!("{}: {}", self.path.display(), e))?;
         // what is in effect now
-        let csv = self.path.parent().map(|g| Values::read(g));
+        let csv = self.path.parent().map(Values::read);
         if let Some(n) = csv {
             self.vals = n.vals;
         }

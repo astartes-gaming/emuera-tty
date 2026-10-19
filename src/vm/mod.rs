@@ -364,9 +364,7 @@ impl Vm {
         self.globals.clear();
         self.charas.clear();
         // function-owned LOCAL/ARG and static #DIMs go back to defaults too
-        for a in &mut self.statics {
-            *a = None;
-        }
+        self.statics.fill(None);
         for (k, v) in keep {
             self.globals.insert(k, v);
         }
@@ -2150,7 +2148,7 @@ impl NameInfo {
         NameInfo {
             table,
             local_family: ((p >> 6) & 7) as u8,
-            user: (p & 1 << 9 != 0).then(|| (p & 1 << 10 != 0, ((p >> 11) & 3) as usize)),
+            user: (p & 1 << 9 != 0).then_some((p & 1 << 10 != 0, ((p >> 11) & 3) as usize)),
             csv_name: p & 1 << 13 != 0,
             pseudo: p & 1 << 14 != 0,
             system: (sys != 0).then(|| &vars::SYSTEM_VARS[sys as usize - 1]),

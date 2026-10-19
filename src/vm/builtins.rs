@@ -1847,7 +1847,7 @@ impl Vm {
                 let v = self.ai(a, 0, 0)?;
                 let (n, nb) = (self.as_(a, 1, "")?, self.as_(a, 2, "")?);
                 let (x, y, z) = (self.ai(a, 3, 0)? as i32, self.ai(a, 4, 0)? as i32, z_of(self.ai(a, 5, 0)?)?);
-                let hover = (!nb.is_empty()).then(|| CbgSrc::Sprite(nb));
+                let hover = (!nb.is_empty()).then_some(CbgSrc::Sprite(nb));
                 self.res.cbg_add(CbgLayer { src: CbgSrc::Sprite(n), x, y, z, button: Some((v, hover)) });
                 i(1)
             }
@@ -3766,7 +3766,7 @@ pub fn format_number(v: i64, fmt: &str) -> String {
                 let digits = v.unsigned_abs().to_string();
                 match prec {
                     Some(p) if p > 0 && digits.len() > p => {
-                        return format!("{}{}", neg, sci(&digits, p - 1, if letter == 'g' { 'e' } else { 'E' }, true, 2, true).trim_end_matches(['0']).to_string());
+                        return format!("{}{}", neg, sci(&digits, p - 1, if letter == 'g' { 'e' } else { 'E' }, true, 2, true).trim_end_matches(['0']));
                     }
                     _ => return v.to_string(),
                 }
@@ -3997,7 +3997,7 @@ fn format_custom(v: i64, fmt: &str) -> String {
         thousand_seps = false;
     }
     let frac_places = digit_count - decimal_pos;
-    let min_int = if first_zero < decimal_pos { decimal_pos - first_zero } else { 0 };
+    let min_int = decimal_pos.saturating_sub(first_zero);
     let min_frac = last_zero.saturating_sub(decimal_pos);
 
     // the value as decimal digits with the point `point` digits from the
@@ -4005,7 +4005,7 @@ fn format_custom(v: i64, fmt: &str) -> String {
     let mut digits: Vec<u8> = v.unsigned_abs().to_string().bytes().map(|b| b - b'0').collect();
     let mut point: i64 = digits.len() as i64;
     let mut exponent: i64 = 0;
-    if let Some(_) = exp {
+    if exp.is_some() {
         // scientific: as many integer digits as there are integer placeholders
         let lead = decimal_pos.max(1) as i64;
         if digits.iter().all(|&d| d == 0) {
@@ -4263,10 +4263,8 @@ pub(crate) fn emu_str_int(s: &str, strict: bool) -> Option<i64> {
             v = d as i64;
         }
     }
-    if k < c.len() {
-        if c[k] != '.' || !c[k + 1..].iter().all(|ch| ch.is_ascii_digit()) {
-            return None;
-        }
+    if k < c.len() && (c[k] != '.' || !c[k + 1..].iter().all(|ch| ch.is_ascii_digit())) {
+        return None;
     }
     Some(v)
 }

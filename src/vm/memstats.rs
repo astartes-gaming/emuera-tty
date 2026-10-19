@@ -35,7 +35,7 @@ impl Vm {
             let _ = writeln!(out, "  @{:<23} {} instructions", name, n);
         }
         let mut globals: Vec<(&str, usize)> = self.globals.iter().map(|(n, a)| (n.as_str(), a.bytes())).collect();
-        globals.sort_by(|a, b| b.1.cmp(&a.1));
+        globals.sort_by_key(|g| std::cmp::Reverse(g.1));
         let _ = writeln!(out, "global variables: {} ({})", globals.len(), mb(globals.iter().map(|g| g.1).sum()));
         for (name, b) in globals.iter().take(12) {
             let _ = writeln!(out, "  {:<24} {}", name, mb(*b));

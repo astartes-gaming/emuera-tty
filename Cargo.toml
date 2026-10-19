@@ -41,3 +41,13 @@ inherits = "release"
 lto = false
 codegen-units = 16
 debug = "line-tables-only"
+
+[lints.clippy]
+# their suggestions need a newer Rust than some systems ship (1.87+)
+manual_is_multiple_of = "allow"
+chunks_exact_to_as_chunks = "allow"
+# style only: the long signatures and nested types read fine as they are
+type_complexity = "allow"
+too_many_arguments = "allow"
+# loops whose index is used for more than indexing
+needless_range_loop = "allow"

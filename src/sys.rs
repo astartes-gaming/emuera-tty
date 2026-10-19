@@ -403,7 +403,7 @@ mod imp {
                 return false;
             }
             for r in &recs[..got as usize] {
-                if r.EventType as u32 != KEY_EVENT as u32 {
+                if r.EventType as u32 != KEY_EVENT {
                     continue;
                 }
                 let k = unsafe { r.Event.KeyEvent };

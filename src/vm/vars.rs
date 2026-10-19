@@ -336,9 +336,7 @@ impl Globals {
         self.arrs[s].take()
     }
     pub fn clear(&mut self) {
-        for a in &mut self.arrs {
-            *a = None;
-        }
+        self.arrs.fill(None);
     }
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Arr)> {
         self.slots.iter().filter_map(|(k, &s)| self.arrs[s].as_ref().map(|a| (k, a)))

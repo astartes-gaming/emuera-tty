@@ -252,7 +252,7 @@ impl Vm {
                             // each value in pixels (`px`) or percent of the font size
                             let params: Vec<f32> = attrs
                                 .get("param")
-                                .map(|p| p.split(',').filter_map(|x| mixed_num(x)).map(|(v, px)| if px { v } else { fs * v / 100.0 }).collect())
+                                .map(|p| p.split(',').filter_map(mixed_num).map(|(v, px)| if px { v } else { fs * v / 100.0 }).collect())
                                 .unwrap_or_default();
                             if ty == "space" {
                                 let w = params.first().copied().unwrap_or(fs);

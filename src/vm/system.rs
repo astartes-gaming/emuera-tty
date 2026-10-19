@@ -548,7 +548,7 @@ impl Vm {
     /// it goes before the number (単位の位置, default yes).
     pub fn money_label(&self) -> (String, bool) {
         let label = self.replace_value("お金の単位").or_else(|| self.csv.gamebase.get("お金の単位").cloned()).unwrap_or_else(|| "$".into());
-        let first = self.replace_value("単位の位置").map_or(true, |s| !matches!(s.to_uppercase().as_str(), "後" | "NO" | "FALSE" | "0" | "AFTER"));
+        let first = self.replace_value("単位の位置").is_none_or(|s| !matches!(s.to_uppercase().as_str(), "後" | "NO" | "FALSE" | "0" | "AFTER"));
         (label, first)
     }
 

@@ -268,7 +268,7 @@ impl DataTable {
                 if matches!(v, V::Null) {
                     return b(false);
                 }
-                let s = v.to_string();
+                let s = v.text();
                 let (s, p) = if self.case_sensitive { (s, pat.clone()) } else { (s.to_lowercase(), pat.to_lowercase()) };
                 b(like(&s, &p) != *neg)
             }
@@ -419,7 +419,7 @@ impl<'a> V<'a> {
             V::Str(s) => !s.is_empty(),
         }
     }
-    fn to_string(self) -> String {
+    fn text(self) -> String {
         match self {
             V::Null => String::new(),
             V::Int(i) => i.to_string(),

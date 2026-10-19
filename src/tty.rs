@@ -1033,7 +1033,7 @@ impl Tty {
                 if pad > 0 {
                     let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
                     let mut nc: Vec<Cell> = (0..pad).map(|_| Cell { ch: ' ', w: 1, style: st.clone(), button: None }).collect();
-                    nc.extend(r.cells.drain(..));
+                    nc.append(&mut r.cells);
                     r.cells = nc;
                     for im in r.imgs.iter_mut() {
                         im.col += pad;

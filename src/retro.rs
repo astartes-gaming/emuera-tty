@@ -550,7 +550,7 @@ impl Charset {
                 '･' => a("."),
                 '█' | '▉' | '▇' | '▓' | '■' | '▮' => {
                     let cell = self.alt(b'0').map(|x| vec![x]).unwrap_or_else(|| a("#"));
-                    std::iter::repeat(cell).take(w).flatten().collect()
+                    std::iter::repeat_n(cell, w).flatten().collect()
                 }
                 '▒' => self.alt(b'a').map(|x| vec![x; w]).unwrap_or_else(|| a(&":".repeat(w))),
                 '░' => self.alt(b'h').or(self.alt(b'a')).map(|x| vec![x; w]).unwrap_or_else(|| a(&".".repeat(w))),
@@ -1244,7 +1244,7 @@ impl Retro {
             0x10 => Key::Up,       // ^P
             0x0e => Key::Down,     // ^N
             0x1b => Key::Esc,
-            b if b >= 0x20 && b < 0x7f => Key::Char(b as char),
+            b if (0x20..0x7f).contains(&b) => Key::Char(b as char),
             b if b >= 0xc0 => {
                 // UTF-8 from a modern terminal: take the whole character
                 let need = if b >= 0xf0 { 3 } else if b >= 0xe0 { 2 } else { 1 };

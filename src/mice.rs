@@ -80,7 +80,7 @@ impl Mice {
                 break;
             }
             reply.extend_from_slice(&b[..n as usize]);
-            if reply.len() >= knock.len() + 1 {
+            if reply.len() > knock.len() {
                 break;
             }
         }

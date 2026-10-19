@@ -400,7 +400,7 @@ fn skip_cond(s: &[u8], mut i: usize, to_else: bool) -> usize {
 /// line running at `baud` (`affected` lines for `*`). Below the entry's
 /// padding_baud_rate, or with no_pad_char, delays are dropped.
 pub fn pad(s: &[u8], baud: u32, ti: &TermInfo, affected: u32) -> Vec<u8> {
-    let use_pad = !ti.flag(B_NPC) && ti.num(N_PB).map_or(true, |pb| baud >= pb as u32);
+    let use_pad = !ti.flag(B_NPC) && ti.num(N_PB).is_none_or(|pb| baud >= pb as u32);
     let pad_char = ti.str(S_PAD).and_then(|p| p.first().copied()).unwrap_or(0);
     let mut out = Vec::with_capacity(s.len());
     let mut i = 0;
@@ -414,7 +414,7 @@ pub fn pad(s: &[u8], baud: u32, ti: &TermInfo, affected: u32) -> Vec<u8> {
                     let ms = if per_line { ms * affected.max(1) as f64 } else { ms };
                     // 10 bits per character on the wire
                     let n = (ms * baud as f64 / 10_000.0).ceil() as usize;
-                    out.extend(std::iter::repeat(pad_char).take(n));
+                    out.extend(std::iter::repeat_n(pad_char, n));
                 }
                 i += end + 1;
                 continue;
@@ -452,7 +452,7 @@ mod tests {
         let Ok(vt) = TermInfo::load("vt100") else { return };
         assert_eq!(vt.num(N_COLS), Some(80));
         assert!(vt.flag(B_AM));
-        assert_eq!(tparm(vt.str(S_CUP).unwrap(), &[0, 0]).starts_with(b"\x1b[1;1H"), true);
+        assert!(tparm(vt.str(S_CUP).unwrap(), &[0, 0]).starts_with(b"\x1b[1;1H"));
         if let Ok(adm) = TermInfo::load("adm3a") {
             assert!(adm.str(S_EL).is_none());
             assert_eq!(tparm(adm.str(S_CUP).unwrap(), &[2, 3]), b"\x1b=\"#");
