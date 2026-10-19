@@ -2011,7 +2011,9 @@ impl Tty {
                 touched.push((px, py, 1));
             }
         }
-        if new_hover != old_hover && self.status_info {
+        // (on the Linux console every move, for the mouse counter there)
+        let console = self.term == "linux" || self.term.starts_with("fbterm");
+        if self.status_info && (new_hover != old_hover || console) {
             self.draw_bar(&mut out, new_hover);
         }
         if let Some((r, c)) = self.frame_cursor {
