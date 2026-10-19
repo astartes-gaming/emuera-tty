@@ -725,7 +725,10 @@ device, i.e. the `input` group — note that it can read *all* input
 devices, keyboards included. `EMUERA_MOUSE=mice` forces the console mouse
 anywhere, `EMUERA_MOUSE=off` (or `term`) disables it. The pointer on the
 console is a blinking inverted cell that emuera-tty draws (gpm's own
-would be wiped out by every redraw).
+would be wiped out by every redraw). If the mouse misbehaves there,
+`EMUERA_MOUSE_LOG=mouse.log emuera-tty` writes what it does (where the
+events come from, each event, where the pointer was drawn) for a bug
+report.
 
 **No mouse?** *Keyboard pointer* in F1 (`auto` turns it on by itself on the
 Linux console when no mouse can be found) puts a pointer on the screen

@@ -34,6 +34,17 @@ pub struct Mice {
 }
 
 impl Mice {
+    /// Where the events come from, for the mouse log.
+    pub fn describe(&self) -> &'static str {
+        if self.gpm {
+            "gpm"
+        } else if self.wheel {
+            "/dev/input/mice (wheel)"
+        } else {
+            "/dev/input/mice"
+        }
+    }
+
 
     /// Use the console mouse (gpm or the raw device)? On a VT;
     /// `EMUERA_MOUSE=mice` forces it, `=off` / `=term` disables it.

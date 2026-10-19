@@ -370,6 +370,9 @@ pub struct Tty {
     pub status_info: bool,
     /// the keyboard pointer (see `kbd_pointer`)
     pub kbd_ptr: bool,
+    /// EMUERA_MOUSE_LOG: what the mouse did, for finding out why a pointer
+    /// misbehaves where it can't be watched (the Linux console)
+    mouse_log: Option<std::fs::File>,
     /// our pointer blinks: shown now, and when that changes
     ptr_on: bool,
     blink_at: Instant,
@@ -586,8 +589,9 @@ impl Tty {
             wheel: 3,
             status_info: true,
             kbd_ptr: false,
+            mouse_log: std::env::var_os("EMUERA_MOUSE_LOG").and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()),
             ptr_on: true,
-            blink_at: Instant::now(),
+            blink_at: Instant::now() + Duration::from_millis(530),
             setting_note: String::new(),
             mt: None,
             tr_to: String::new(),
@@ -642,7 +646,13 @@ impl Tty {
         }
         // alt screen, hide cursor; mouse reports: buttons, drag, any motion,
         // in SGR (1006) or urxvt (1015) form where supported, else X10
-        write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h\x1b[>4;1m\x1b[2J");
+        write_all(b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h\x1b[2J");
+        // xterm's modifyOtherKeys (Shift+Enter apart from Enter); not for
+        // the Linux console, which has no such mode
+        if !is_vt {
+            write_all(b"\x1b[>4;1m");
+        }
+        t.mlog(&format!("TERM={} gfx={} cell={:?} size={}x{} mouse={}", term, t.gfx.name(), t.cell, t.cols, t.rows, t.mice.as_ref().map_or_else(|| t.notice.clone().unwrap_or_else(|| "none".into()), |m| m.describe().to_string())));
         Ok(t)
     }
 
@@ -656,10 +666,10 @@ impl Tty {
         }
         if r.extra {
             let (cell, cols, rows) = (self.cell, self.cols, self.rows);
-            if let Some(m) = &mut self.mice {
-                for (btn, x, y, press) in m.read(cell, cols, rows) {
-                    self.queued.push_back(Key::Mouse { btn, x, y, press });
-                }
+            let evs = self.mice.as_mut().map(|m| m.read(cell, cols, rows)).unwrap_or_default();
+            for (btn, x, y, press) in evs {
+                self.mlog(&format!("event btn={} cell=({},{}) press={}", btn, x, y, press));
+                self.queued.push_back(Key::Mouse { btn, x, y, press });
             }
         }
         if !r.input {
@@ -1553,6 +1563,10 @@ impl Tty {
             tip_rows = self.draw_tooltip(&mut out, t, con.tip_colors);
         }
         self.drawn_pointer = pointer.filter(|p| p.1 < view_h);
+        if self.mouse_log.is_some() {
+            let (m, d, own) = (self.mouse, self.drawn_pointer, self.own_pointer());
+            self.mlog(&format!("frame: mouse={:?} pointer drawn at {:?} (ours={} on={})", m, d, own, self.ptr_on));
+        }
         self.frame_cursor = None;
         // cursor at end of input
         if req.map(|r| r.kind != InputKind::Wait).unwrap_or(false) {
@@ -1993,6 +2007,10 @@ impl Tty {
             if let Some(h) = self.row_hash.get_mut(r) {
                 *h = 0;
             }
+        }
+        if self.mouse_log.is_some() {
+            let d = self.drawn_pointer;
+            self.mlog(&format!("repaint: pointer {:?} -> {:?}, hover {:?} -> {:?}", d, new_ptr, old_hover, new_hover));
         }
         self.drawn_pointer = new_ptr;
         self.hover = new_hover;
@@ -2617,6 +2635,15 @@ impl Tty {
         w
     }
 
+    /// A line in the mouse log (EMUERA_MOUSE_LOG), with the time.
+    fn mlog(&mut self, what: &str) {
+        if let Some(f) = self.mouse_log.as_mut() {
+            use std::io::Write;
+            let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() % 1000.0);
+            let _ = writeln!(f, "{:8.3} {}", t, what);
+        }
+    }
+
     /// The pointer moved: show it, and keep it on for a moment.
     fn show_pointer(&mut self) {
         self.ptr_on = true;
@@ -3158,7 +3185,10 @@ impl Frontend for Tty {
         self.active = false;
         let mut out = Vec::new();
         self.gfx.shutdown(&mut out);
-        out.extend_from_slice(b"\x1b[>4m\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
+        if !(self.term == "linux" || self.term.starts_with("fbterm")) {
+            out.extend_from_slice(b"\x1b[>4m");
+        }
+        out.extend_from_slice(b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
         write_all(&out);
         if let Some(n) = &self.notice {
             eprintln!("emuera-tty: {}", n);
