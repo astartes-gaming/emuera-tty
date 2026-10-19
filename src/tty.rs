@@ -293,6 +293,8 @@ pub struct Tty {
     /// show the hovered button's value, memory and the running function
     /// in the bottom row
     pub status_info: bool,
+    /// what applying a setting has to say (shown on the settings page)
+    setting_note: String,
     /// the memory in use in the bottom row too (it is always in F1)
     pub show_memory: bool,
     /// the bottom row's right side as last drawn: (columns the prompt may
@@ -497,6 +499,7 @@ impl Tty {
             contrast: 3.0,
             wheel: 3,
             status_info: true,
+            setting_note: String::new(),
             show_memory: false,
             bar: None,
             mem_seen: None,
@@ -524,7 +527,8 @@ impl Tty {
         if xp > 0 && yp > 0 {
             t.cell = (xp / cols as u32, yp / rows as u32);
         }
-        t.setup_gfx(gfx_pref, &term);
+        let gfx_note = t.setup_gfx(gfx_pref, &term);
+        eprintln!("{}", gfx_note);
         t.ambi = t.detect_ambiguous();
         // (every width is 1 there: nothing to measure)
         if t.ambi != Ambi::Narrow {
@@ -689,10 +693,13 @@ impl Tty {
 
     /// Choose the image backend: framebuffer on a VT, otherwise probe for
     /// kitty graphics, then sixel (DA1 attribute 4); also learn the cell
-    /// size in pixels so images can be scaled.
-    fn setup_gfx(&mut self, pref: &str, term: &str) {
+    /// size in pixels so images can be scaled. Returns what was chosen (and
+    /// why the framebuffer wasn't), for stderr at start or the settings
+    /// page later: printed while the game is on screen it would land on it.
+    fn setup_gfx(&mut self, pref: &str, term: &str) -> String {
         let is_vt = term == "linux" || term.starts_with("fbterm");
-        let try_fb = |t: &mut Tty| -> bool {
+        let mut why = String::new();
+        let mut try_fb = |t: &mut Tty| -> bool {
             match gfx::fb::Fb::open() {
                 Ok(fb) => {
                     t.cell = ((fb.xres / t.cols as u32).max(1), (fb.yres / t.rows as u32).max(1));
@@ -701,13 +708,14 @@ impl Tty {
                     true
                 }
                 Err(e) => {
-                    eprintln!("framebuffer unavailable: {}", e);
+                    let hint = if e.to_string().contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
+                    why = format!("; framebuffer unavailable: {}{}", e, hint);
                     false
                 }
             }
         };
         match pref {
-            "none" => return,
+            "none" => return "graphics backend: none".into(),
             "kitty" => self.gfx = Box::new(gfx::kitty::Kitty::new()),
             "iterm" => self.gfx = Box::new(gfx::iterm::Iterm::new()),
             "sixel" => self.gfx = Box::new(gfx::sixel::Sixel::new()),
@@ -758,7 +766,7 @@ impl Tty {
                 }
             }
         }
-        eprintln!("graphics backend: {} (cell {}x{} px)", self.gfx.name(), self.cell.0, self.cell.1);
+        format!("graphics backend: {} (cell {}x{} px){}", self.gfx.name(), self.cell.0, self.cell.1, why)
     }
 
     /// Decode the next key or mouse event, waiting up to `timeout_ms`.
@@ -1948,6 +1956,7 @@ impl Tty {
                 st.save();
                 if it.live {
                     self.apply_setting(it.key, &v, &st);
+                    note = std::mem::take(&mut self.setting_note);
                 } else {
                     note = format!("{} takes effect the next time emuera-tty starts", it.label);
                 }
@@ -2022,7 +2031,7 @@ impl Tty {
                 self.fb_cell_fixed = false;
                 let pref = if v == "auto" && self.gfx_pref != "auto" { self.gfx_pref.clone() } else { v.to_string() };
                 let term = self.term.clone();
-                self.setup_gfx(&pref, &term);
+                self.setting_note = self.setup_gfx(&pref, &term);
             }
             _ => {}
         }
