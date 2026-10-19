@@ -1422,11 +1422,9 @@ impl Vm {
                 let (file, line) = body.lines.get(pc).copied().unwrap_or((f.file, f.line));
                 let path = |file: u32| self.prog.files.get(file as usize).cloned().unwrap_or_default();
                 let mut msg = format!("{}:{}: @{}: {}", path(file), line, f.name, m);
-                // as Emuera: the line itself, the function, then the calls
-                // that led here (innermost first)
-                if let Some(src) = self.source_line(&path(file), line) {
-                    msg += &format!("\n    {}", src.trim());
-                }
+                // as Emuera: the function, then the calls that led here
+                // (innermost first); the line itself is added when the
+                // error is shown (see `run`)
                 msg += &format!("\nCurrent function: @{} ({}:{})", f.name, path(f.file), f.line);
                 let callers = self.frames.len().saturating_sub(1);
                 if callers > 0 {
@@ -1448,7 +1446,7 @@ impl Vm {
     }
 
     /// Line `n` of a game file as it is on disk now, for error reports.
-    fn source_line(&self, rel: &str, n: u32) -> Option<String> {
+    pub fn source_line(&self, rel: &str, n: u32) -> Option<String> {
         let raw = std::fs::read(self.game_dir.join(rel)).ok()?;
         let text = crate::loader::decode(&raw);
         text.lines().nth((n as usize).checked_sub(1)?).map(|l| l.trim_start_matches('\u{feff}').to_string())

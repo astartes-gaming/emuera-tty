@@ -34,6 +34,15 @@ impl Vm {
                     self.con.skip_disp = false;
                     let st = self.con.style.clone();
                     self.con.style.fg = Rgb(255, 80, 80);
+                    // the line the error is on, under its "file:line: …"
+                    let mut m = m;
+                    let mut head = m.splitn(3, ':');
+                    if let (Some(file), Some(Ok(n))) = (head.next(), head.next().map(|n| n.parse::<u32>())) {
+                        if let Some(src) = self.source_line(file, n) {
+                            let end = m.find('\n').unwrap_or(m.len());
+                            m.insert_str(end, &format!("\n    {}", src.trim()));
+                        }
+                    }
                     for l in format!("*** script error ***\n{}", m).lines() {
                         self.con.print_ex(l, false);
                         self.con.newline();
