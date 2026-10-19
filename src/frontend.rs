@@ -201,7 +201,7 @@ impl Frontend for Headless {
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
         if !con.cur.is_empty() {
             // show partial line as a prompt
-            let partial = Line { segs: con.cur.clone(), align: con.align, gen: con.gen, temporary: false, cols: con.width + 1, kojo: false };
+            let partial = Line { segs: con.cur.clone(), align: con.align, gen: con.gen, temporary: false, cols: con.width + 1, kojo: false, src: 0 };
             self.flush(con, res);
             print!("{}", Self::line_out(&partial));
         } else {

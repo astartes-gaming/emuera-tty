@@ -1221,7 +1221,7 @@ impl Tty {
         let cur_line = if con.cur.is_empty() {
             None
         } else {
-            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false })
+            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0 })
         };
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
         let mut count = 0;
@@ -1234,7 +1234,7 @@ impl Tty {
             if count >= need {
                 break;
             }
-            let tr = if self.mt.is_some() { self.translated(l) } else { None };
+            let tr = if self.mt.is_some() { self.translated(l, &con.src_files) } else { None };
             let r = self.layout_line(tr.as_ref().unwrap_or(l), con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
@@ -2164,10 +2164,13 @@ impl Tty {
     /// once, in its first colour. All text: each piece on its own, so
     /// buttons and colours stay, and only the words, not the numbers and
     /// brackets around them.
-    fn translated(&mut self, l: &Line) -> Option<Line> {
+    fn translated(&mut self, l: &Line, files: &[String]) -> Option<Line> {
         use crate::mt::{is_dialog, is_drawing, source_of, split_words};
         let (from, to, all) = (self.tr_from.clone(), self.tr_to.clone(), self.tr_all);
         let mt = self.mt.as_mut()?;
+        // where the line was printed, for EMUERA_TRANSLATE_LOG
+        let place = (mt.logging() && l.src != 0).then(|| format!("{}:{}", files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()), l.src & 0xFFFF_FFFF));
+        let place = place.as_deref();
         let whole: String = l.segs.iter().filter_map(|s| if let Seg::Text { text, .. } = s { Some(text.as_str()) } else { None }).collect();
         if is_drawing(&whole) {
             return None;
@@ -2223,7 +2226,7 @@ impl Tty {
                 }
                 let (pre, words, post) = split_words(text);
                 let Some(src) = source_of(words, &from, &to) else { continue };
-                let Some(tr) = mt.get(words, src) else { continue };
+                let Some(tr) = mt.get(words, src, place) else { continue };
                 let (want, got) = (width(words), width(tr));
                 let mut post = post.to_string();
                 let tr = if got <= want {
@@ -2279,7 +2282,7 @@ impl Tty {
             return None;
         }
         let lead: String = whole.chars().take_while(|c| c.is_whitespace()).collect();
-        let tr = mt.get(whole.trim(), src)?;
+        let tr = mt.get(whole.trim(), src, place)?;
         let mut out = l.clone();
         out.segs = vec![Seg::Text { text: format!("{}{}", lead, tr), style: style?, button: None, auto: false }];
         Some(out)

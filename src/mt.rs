@@ -31,8 +31,12 @@ pub enum Engine {
     Command(String),
     /// translate-shell (online: Google by default, `EMUERA_TRANS_ENGINE`)
     Trans,
-    /// DeepL's own `deepl` tool (online; key in DEEPL_AUTH_KEY)
-    Deepl,
+    /// DeepL through curl: its API with the key in DEEPL_AUTH_KEY, else the
+    /// free keyless endpoint DeepL's browser extension uses (unofficial: it
+    /// may be rate-limited or change; egg-translator uses it too)
+    Deepl { key: Option<String> },
+    /// DeepL's own `deepl` tool (when there is no curl; needs the key)
+    DeeplCli,
 }
 
 impl Engine {
@@ -43,15 +47,23 @@ impl Engine {
         match which_one {
             "auto" => Engine::find()
                 .or_else(|| which("trans").then_some(Engine::Trans))
-                .or_else(|| (which("deepl") && std::env::var_os("DEEPL_AUTH_KEY").is_some()).then_some(Engine::Deepl))
+                .or_else(|| Engine::choose("deepl").ok())
                 .ok_or_else(|| {
-                    "no translator found: install Ollama, LibreTranslate, translateLocally, Argos Translate or translate-shell (or DeepL's tool with DEEPL_AUTH_KEY)".into()
+                    "no translator found: install Ollama, LibreTranslate, translateLocally, Argos Translate or translate-shell (or curl, for DeepL)".into()
                 }),
             "translate-shell" if which("trans") => Ok(Engine::Trans),
             "translate-shell" => Err("translate-shell (trans) isn't installed: get it from your package manager or translate-shell's site".into()),
-            "deepl" if !which("deepl") => Err("DeepL's tool isn't installed: pip install deepl".into()),
-            "deepl" if std::env::var_os("DEEPL_AUTH_KEY").is_none() => Err("DeepL needs your API key in DEEPL_AUTH_KEY (a free key works)".into()),
-            "deepl" => Ok(Engine::Deepl),
+            // the API key first; without one DeepL's free keyless endpoint
+            "deepl" => {
+                let key = std::env::var("DEEPL_AUTH_KEY").ok().filter(|k| !k.trim().is_empty());
+                if which("curl") {
+                    Ok(Engine::Deepl { key })
+                } else if key.is_some() && which("deepl") {
+                    Ok(Engine::DeeplCli)
+                } else {
+                    Err("DeepL needs curl (or DeepL's deepl tool and DEEPL_AUTH_KEY)".into())
+                }
+            }
             "argos" if which("argos-translate") || Argos::python().is_some() => Ok(Engine::Argos),
             "argos" => Err("Argos Translate isn't installed: pipx install argostranslate, then argospm install translate-ja_en".into()),
             _ => Engine::find().ok_or_else(|| {
@@ -102,7 +114,9 @@ impl Engine {
                 format!("your command ({})", prog.rsplit(['/', '\\']).next().unwrap_or(prog))
             }
             Engine::Trans => "translate-shell (online)".into(),
-            Engine::Deepl => "DeepL (online)".into(),
+            Engine::Deepl { key: Some(_) } => "DeepL API (online)".into(),
+            Engine::Deepl { key: None } => "DeepL, no key (online, unofficial)".into(),
+            Engine::DeeplCli => "DeepL's tool (online)".into(),
         }
     }
 
@@ -164,7 +178,8 @@ impl Engine {
                 }
                 run(&mut cmd, text)?
             }
-            Engine::Deepl => run(Command::new("deepl").args(["text", "--from", &from.to_uppercase(), "--to", &deepl_lang(to), text]), "")?,
+            Engine::Deepl { key } => deepl(text, from, to, key.as_deref())?,
+            Engine::DeeplCli => run(Command::new("deepl").args(["text", "--from", &from.to_uppercase(), "--to", &deepl_lang(to), text]), "")?,
         };
         // one line in, one line out
         let out = out.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
@@ -174,6 +189,49 @@ impl Engine {
             Ok(out)
         }
     }
+}
+
+/// DeepL through curl (no TLS of our own). With a key: its API (keys
+/// ending in :fx are free ones, on their own server). Without: the keyless
+/// endpoint DeepL's browser extension uses, asked the way egg-translator
+/// asks it (https://gitgud.io/Shakes4cc/egg-translator).
+fn deepl(text: &str, from: &str, to: &str, key: Option<&str>) -> Result<String, String> {
+    let mut cmd = Command::new("curl");
+    cmd.args(["-sS", "--max-time", "60", "-X", "POST", "-H", "Content-Type: application/json", "-w", "\n%{http_code}", "--data-binary", "@-"]);
+    let body = match key {
+        Some(k) => {
+            let host = if k.trim().ends_with(":fx") { "api-free.deepl.com" } else { "api.deepl.com" };
+            cmd.arg("-H").arg(format!("Authorization: DeepL-Auth-Key {}", k.trim()));
+            cmd.arg(format!("https://{}/v2/translate", host));
+            format!("{{\"text\":[{}],\"source_lang\":{},\"target_lang\":{}}}", json_str(text), json_str(&from.to_uppercase()), json_str(&deepl_lang(to)))
+        }
+        None => {
+            cmd.args([
+                "-H",
+                "Authorization: None",
+                "-H",
+                "User-Agent: DeepL/1627620 CFNetwork/3826.500.62.2.1 Darwin/24.4.0",
+                "-H",
+                "Accept: */*",
+                "-H",
+                "Referer: https://www.deepl.com/",
+                "https://oneshot-free.www.deepl.com/v1/translate",
+            ]);
+            format!("{{\"text\":[{}],\"source_lang\":{},\"target_lang\":{}}}", json_str(text), json_str(&from.to_uppercase()), json_str(&to.to_uppercase()))
+        }
+    };
+    let out = run(&mut cmd, &body)?;
+    let (resp, status) = out.trim_end().rsplit_once('\n').unwrap_or(("", out.trim()));
+    match status.trim() {
+        "200" => {}
+        "429" if key.is_none() => return Err("DeepL is limiting requests without a key: wait a while, or set DEEPL_AUTH_KEY".into()),
+        "429" => return Err("DeepL is limiting requests: wait a while".into()),
+        "403" if key.is_some() => return Err("DeepL refused the key in DEEPL_AUTH_KEY".into()),
+        "456" => return Err("DeepL: this key's character quota is used up".into()),
+        s => return Err(format!("DeepL answered HTTP {}", s)),
+    }
+    // {"translations":[{"detected_source_language":"JA","text":"…"}]}
+    json_field(resp, "text").ok_or_else(|| "DeepL gave no translation".into())
 }
 
 /// DeepL's name for a target language (it wants the variant of some).
@@ -385,29 +443,48 @@ pub struct Mt {
     seen: HashMap<String, State>,
     /// the last failure, for the settings page
     pub last_error: Option<String>,
+    /// EMUERA_TRANSLATE_LOG: the log, the language translated into, and
+    /// for each line asked for, where it was printed and its language
+    log: Option<std::fs::File>,
+    lang: String,
+    asked: HashMap<String, (String, &'static str)>,
 }
 
 impl Mt {
     pub fn start(engine: Engine, lang: &str) -> Mt {
         let (to, rx) = channel::<(String, &'static str)>();
         let (tx, from) = channel();
-        let (e, lang) = (engine, lang.to_string());
+        let (e, target) = (engine, lang.to_string());
         let _ = std::thread::Builder::new().name("translate".into()).spawn(move || {
             let mut argos = None;
             for (text, from) in rx {
-                let r = e.translate(&text, from, &lang, &mut argos);
+                let r = e.translate(&text, from, &target, &mut argos);
                 if tx.send((text, r)).is_err() {
                     break;
                 }
             }
         });
-        Mt { to, from, seen: HashMap::default(), last_error: None }
+        // the log: appended to, a header line each session
+        let log = std::env::var_os("EMUERA_TRANSLATE_LOG").and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
+        let mut mt = Mt { to, from, seen: HashMap::default(), last_error: None, log, lang: lang.to_string(), asked: HashMap::default() };
+        if let Some(f) = mt.log.as_mut() {
+            let _ = writeln!(f, "# emuera-tty translations into {}: where printed\tlanguages\toriginal\ttranslation", lang);
+        }
+        mt
+    }
+
+    /// Is the translation log on? (then [`Mt::get`] wants the place)
+    pub fn logging(&self) -> bool {
+        self.log.is_some()
     }
 
     /// The translation of `text` (in language `from`) if it is in; asks
-    /// for it if never asked.
-    pub fn get(&mut self, text: &str, from: &'static str) -> Option<&str> {
+    /// for it if never asked. `place`: where it was printed, for the log.
+    pub fn get(&mut self, text: &str, from: &'static str, place: Option<&str>) -> Option<&str> {
         if !self.seen.contains_key(text) {
+            if self.log.is_some() {
+                self.asked.insert(text.to_string(), (place.unwrap_or("-").to_string(), from));
+            }
             // (bounded: a long session forgets the oldest… all of them)
             if self.seen.len() > 20_000 {
                 self.seen.clear();
@@ -429,9 +506,15 @@ impl Mt {
             any = true;
             match r {
                 Ok(t) => {
+                    if let (Some(f), Some((place, from))) = (self.log.as_mut(), self.asked.remove(&text)) {
+                        // one line each: tabs and line breaks in the text as spaces
+                        let flat = |s: &str| s.replace(['\t', '\r', '\n'], " ");
+                        let _ = writeln!(f, "{}\t{}>{}\t{}\t{}", place, from, self.lang, flat(&text), flat(&t));
+                    }
                     self.seen.insert(text, State::Done(t));
                 }
                 Err(e) => {
+                    self.asked.remove(&text);
                     self.last_error = Some(e);
                     self.seen.insert(text, State::Failed);
                 }
@@ -542,21 +625,30 @@ mod tests {
         }
         let bin = std::env::temp_dir().join(format!("emuera-tty-mt-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
-        for name in ["trans", "deepl"] {
-            let p = bin.join(name);
-            std::fs::write(&p, "#!/bin/sh\nprintf '%s|' \"$@\"; cat\n").unwrap();
-            crate::sys::set_executable(&p).unwrap();
-        }
+        let p = bin.join("trans");
+        std::fs::write(&p, "#!/bin/sh\nprintf '%s|' \"$@\"; cat\n").unwrap();
+        crate::sys::set_executable(&p).unwrap();
+        // curl: answers DeepL's way, the request's last header and target
+        // language in the text
+        let p = bin.join("curl");
+        let script = "#!/bin/sh\nfor a; do case \"$a\" in https://*) url=\"$a\";; esac; done\nbody=$(cat)\nlang=$(printf '%s' \"$body\" | sed 's/.*target_lang\":\"\\([^\"]*\\).*/\\1/')\nprintf '{\"translations\":[{\"text\":\"%s %s\"}]}\\n200' \"$url\" \"$lang\"\n";
+        std::fs::write(&p, script).unwrap();
+        crate::sys::set_executable(&p).unwrap();
         let old = std::env::var_os("PATH").unwrap_or_default();
         let mut paths = vec![bin.clone()];
         paths.extend(std::env::split_paths(&old));
         // (tests run on threads: only this one changes PATH and the key)
         std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
-        std::env::set_var("DEEPL_AUTH_KEY", "test");
         let t = Engine::choose("translate-shell").unwrap().translate("「やあ」", "ja", "en", &mut None).unwrap();
         assert_eq!(t, "-b|-no-ansi|-no-autocorrect|-s|ja|-t|en|「やあ」");
+        // no key: the keyless endpoint; a free key: the free API server
+        std::env::remove_var("DEEPL_AUTH_KEY");
+        let d = Engine::choose("deepl").unwrap().translate("「やあ」", "ja", "en", &mut None).unwrap();
+        assert_eq!(d, "https://oneshot-free.www.deepl.com/v1/translate EN");
+        std::env::set_var("DEEPL_AUTH_KEY", "abc:fx");
         let d = Engine::choose("deepl").unwrap().translate("「やあ」", "ja", "pt", &mut None).unwrap();
-        assert_eq!(d, "text|--from|JA|--to|PT-BR|「やあ」|");
+        assert_eq!(d, "https://api-free.deepl.com/v2/translate PT-BR");
+        std::env::remove_var("DEEPL_AUTH_KEY");
         std::env::set_var("PATH", old);
         let _ = std::fs::remove_dir_all(&bin);
     }
@@ -593,14 +685,14 @@ mod tests {
         let e = Engine::Command("tr a-z A-Z".into());
         assert_eq!(e.translate("hello there\n", "ja", "en", &mut None).unwrap(), "HELLO THERE");
         let mut mt = Mt::start(e, "en");
-        assert_eq!(mt.get("abc", "ja"), None);
+        assert_eq!(mt.get("abc", "ja", None), None);
         for _ in 0..100 {
             if mt.poll() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        assert_eq!(mt.get("abc", "ja"), Some("ABC"));
+        assert_eq!(mt.get("abc", "ja", None), Some("ABC"));
         assert!(!mt.busy());
     }
 }

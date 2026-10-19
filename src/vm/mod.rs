@@ -1472,6 +1472,11 @@ impl Vm {
                 return Ok(None);
             }
             self.frames.last_mut().unwrap().pc = pc + 1;
+            if self.con.track_src {
+                if let Some(&p) = body.lines.get(pc) {
+                    self.con.src = p;
+                }
+            }
             self.ticks = self.ticks.wrapping_add(1);
             if self.ticks & 0xFFF == 0 {
                 self.tick()?;

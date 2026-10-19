@@ -442,6 +442,11 @@ fn run(o: Opts) -> i32 {
         }
     }
     vm.strict = o.strict;
+    // EMUERA_TRANSLATE_LOG: lines remember where they were printed from
+    if std::env::var_os("EMUERA_TRANSLATE_LOG").is_some() {
+        vm.con.track_src = true;
+        vm.con.src_files = vm.prog.files.clone();
+    }
     // sound: in a terminal, through a player program (see sound.rs);
     // EMUERA_SOUND=on/off and EMUERA_SOUND_PLAYER=mpv win over the setting,
     // which the settings page can change while playing

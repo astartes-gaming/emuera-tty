@@ -112,6 +112,9 @@ pub struct Line {
     pub cols: usize,
     /// printed by a character's dialogue (kojo) code (see `mt::is_dialog`)
     pub kojo: bool,
+    /// the script line that printed it, (file index + 1) << 32 | line; 0
+    /// when not known (kept only for EMUERA_TRANSLATE_LOG)
+    pub src: u64,
 }
 
 pub struct Console {
@@ -164,6 +167,12 @@ pub struct Console {
     cur_kojo: bool,
     /// the Sound setting (the settings page turns it on and off)
     pub sound_on: bool,
+    /// EMUERA_TRANSLATE_LOG: the VM keeps `src` (file index, line) at the
+    /// statement running, so lines know where they were printed from;
+    /// `src_files` names the files
+    pub track_src: bool,
+    pub src: (u32, u32),
+    pub src_files: Vec<String>,
     /// the function running (or asking for input), for the bottom bar;
     /// the VM updates it now and then, not on every call
     pub running: String,
@@ -232,6 +241,9 @@ impl Console {
             in_kojo: false,
             cur_kojo: false,
             sound_on: false,
+            track_src: false,
+            src: (0, 0),
+            src_files: Vec::new(),
             valid_gen: 0,
             buttons_since_input: false,
             last_input_site: None,
@@ -361,7 +373,8 @@ impl Console {
             self.buttons_since_input = true;
         }
         let kojo = std::mem::take(&mut self.cur_kojo) || self.in_kojo;
-        self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1, kojo });
+        let src = if self.track_src { ((self.src.0 as u64 + 1) << 32) | self.src.1 as u64 } else { 0 };
+        self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1, kojo, src });
         // trim the history in batches: dropping one line at a time shifts
         // all the others down for every line printed, which made long
         // listings crawl (seconds per screen) once the history was full
@@ -386,6 +399,7 @@ impl Console {
             temporary: true,
             cols: self.width + 1,
             kojo: false,
+            src: 0,
         });
         self.last_temp = true;
         self.dirty = true;

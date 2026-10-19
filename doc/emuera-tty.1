@@ -239,6 +239,17 @@ a command that reads a line of dialog on stdin and prints its
 translation (instead of Ollama, LibreTranslate, translateLocally or
 argos-translate).
 .TP
+.BI EMUERA_TRANSLATE_LOG= file
+Append every new translation to
+.IR file :
+the script file and line that printed it, the languages, the original
+and the translation, separated by tabs.
+.TP
+.B DEEPL_AUTH_KEY
+A DeepL API key for the
+.B deepl
+translator (without one it uses DeepL's free keyless endpoint).
+.TP
 .BI EMUERA_TRANSLATE_MODEL= name
 The Ollama or translateLocally model for
 .IR "Translate to" .

@@ -322,8 +322,13 @@ the internet):
 
 - `translate-shell`: the `trans` command (Google Translate by default;
   `EMUERA_TRANS_ENGINE=bing` and so on for another of its engines);
-- `deepl`: DeepL's own `deepl` tool (`pip install deepl`) with your API
-  key in `DEEPL_AUTH_KEY` (the free key works).
+- `deepl`: DeepL, through `curl`. With your API key in `DEEPL_AUTH_KEY`
+  (a free key works) it uses DeepL's API; without one, the free keyless
+  endpoint DeepL's browser extension uses, asked the way
+  [egg-translator](https://gitgud.io/Shakes4cc/egg-translator) does. That
+  one is unofficial: it limits how fast you can go and may change; F1
+  says so when it refuses. (Without curl, DeepL's own `deepl` tool and the
+  key do.)
 
 *Dialog* is the lines printed by a character's dialogue code (the `口上`
 files, `KOJO` functions) and lines in quotes (「」 『』, or "" in English);
@@ -336,12 +341,24 @@ translation keeps its width, padded when shorter, using the spaces after
 it when longer, and cut with `…` only past those; at the end of a line or
 before ordinary text it takes the room it needs.
 
+Maps and box drawings are never translated, nor text already in the
+target language, and the game itself still sees the text it printed. Text
+shows untranslated until its translation comes in, which happens in the
+background; text seen again is instant. If the translator fails, F1 says
+why on that row's help line.
+
 **Test the translator…** in F1 translates a sample line with the chosen
-translator and shows the result and how long it took, or why it failed. Maps and box drawings are never translated,
-nor text already in the target language, and the game itself still sees
-the text it printed. Text shows untranslated until its translation comes
-in, which happens in the background; text seen again is instant. If the
-translator fails, F1 says why on that row's help line.
+translator and shows the result and how long it took, or why it failed.
+
+**A log for translators**: `EMUERA_TRANSLATE_LOG=translations.tsv
+emuera-tty` appends every new translation to that file, one per line:
+the ERB file and line that printed the text, the languages, the original
+and the translation, separated by tabs, ready to find and fix in the
+game's scripts:
+
+```text
+ERB/口上/K9.ERB:3	ja>en	「おはようございます、お嬢様」	"Good morning, my lady."
+```
 
 **Saving** uses the game's own save menu, and the files are Emuera's own
 (binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
