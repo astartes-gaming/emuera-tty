@@ -131,10 +131,15 @@ impl Engine {
     fn translate(&self, text: &str, from: &str, to: &str, argos: &mut Option<Argos>) -> Result<String, String> {
         let out = match self {
             Engine::Ollama { model } => {
+                let n = text.lines().count();
+                let what = if n > 1 { format!("these {} lines", n) } else { "this line".to_string() };
+                let keep = if n > 1 { format!(" Reply with exactly {} lines, one for each, in order.", n) } else { String::new() };
                 let prompt = format!(
-                    "Translate this line of {} text from a game into natural {}. Keep names, numbers and symbols as they are. Reply with the translation only, no notes.\n\n{}",
+                    "Translate {} of {} text from a game into natural {}. Keep names, numbers and symbols as they are. Reply with the translation only, no notes.{}\n\n{}",
+                    what,
                     language_name(from),
                     language_name(to),
+                    keep,
                     text
                 );
                 let body = format!("{{\"model\":{},\"prompt\":{},\"stream\":false,\"options\":{{\"temperature\":0.2}}}}", json_str(model), json_str(&prompt));
@@ -181,8 +186,9 @@ impl Engine {
             Engine::Deepl { key } => deepl(text, from, to, key.as_deref())?,
             Engine::DeeplCli => run(Command::new("deepl").args(["text", "--from", &from.to_uppercase(), "--to", &deepl_lang(to), text]), "")?,
         };
-        // one line in, one line out
-        let out = out.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
+        // one line in, one line out; several lines (a speech) keep theirs
+        let sep = if text.contains('\n') { "\n" } else { " " };
+        let out = out.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(sep);
         if out.is_empty() {
             Err("empty translation".into())
         } else {

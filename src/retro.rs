@@ -934,7 +934,7 @@ impl Retro {
         let mut chunks = Vec::new();
         let mut count = 0;
         if !con.cur.is_empty() {
-            let l = Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0 };
+            let l = Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0, wait: con.waits };
             let r = self.layout(&l, con, self.cols);
             count += r.len();
             chunks.push(r);
@@ -1266,7 +1266,7 @@ impl Retro {
         self.print_new(con);
         let mut prompt = Vec::new();
         if !con.cur.is_empty() {
-            let l = Line { segs: con.cur.clone(), align: con.align, gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0 };
+            let l = Line { segs: con.cur.clone(), align: con.align, gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0, wait: con.waits };
             let rows = self.layout(&l, con, self.cols);
             for (k, r) in rows.iter().enumerate() {
                 prompt.extend(Self::plain(r));

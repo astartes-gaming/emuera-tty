@@ -341,6 +341,14 @@ translation keeps its width, padded when shorter, using the spaces after
 it when longer, and cut with `…` only past those; at the end of a line or
 before ordinary text it takes the room it needs.
 
+Dialog goes to the translator **a click at a time**: the lines a
+character says before the next wait (a speech over several lines) are
+sent together, so a sentence split over lines is translated whole and
+with its context. The translation comes back line by line when the
+translator keeps the lines, and is spread over them by length when it
+doesn't (Argos). The log has one entry per batch, its lines separated by
+the translator's own line breaks flattened to spaces.
+
 Maps and box drawings are never translated, nor text already in the
 target language, and the game itself still sees the text it printed. Text
 shows untranslated until its translation comes in, which happens in the

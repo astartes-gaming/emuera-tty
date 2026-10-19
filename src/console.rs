@@ -115,6 +115,9 @@ pub struct Line {
     /// the script line that printed it, (file index + 1) << 32 | line; 0
     /// when not known (kept only for EMUERA_TRANSLATE_LOG)
     pub src: u64,
+    /// how many waits and inputs came before it: the lines one click shows
+    /// share it (translation batches)
+    pub wait: u32,
 }
 
 pub struct Console {
@@ -172,6 +175,8 @@ pub struct Console {
     /// `src_files` names the files
     pub track_src: bool,
     pub src: (u32, u32),
+    /// waits and inputs so far (see `Line::wait`)
+    pub waits: u32,
     pub src_files: Vec<String>,
     /// the function running (or asking for input), for the bottom bar;
     /// the VM updates it now and then, not on every call
@@ -243,6 +248,7 @@ impl Console {
             sound_on: false,
             track_src: false,
             src: (0, 0),
+            waits: 0,
             src_files: Vec::new(),
             valid_gen: 0,
             buttons_since_input: false,
@@ -374,7 +380,7 @@ impl Console {
         }
         let kojo = std::mem::take(&mut self.cur_kojo) || self.in_kojo;
         let src = if self.track_src { ((self.src.0 as u64 + 1) << 32) | self.src.1 as u64 } else { 0 };
-        self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1, kojo, src });
+        self.lines.push(Line { segs, align, gen: self.gen, temporary: false, cols: self.width + 1, kojo, src, wait: self.waits });
         // trim the history in batches: dropping one line at a time shifts
         // all the others down for every line printed, which made long
         // listings crawl (seconds per screen) once the history was full
@@ -400,6 +406,7 @@ impl Console {
             cols: self.width + 1,
             kojo: false,
             src: 0,
+            wait: self.waits,
         });
         self.last_temp = true;
         self.dirty = true;

@@ -70,6 +70,35 @@ fn all_text(st: &crate::settings::Settings) -> bool {
     }
 }
 
+/// Where a line was printed ("ERB/x.ERB:12"), for EMUERA_TRANSLATE_LOG.
+fn place_of(l: &Line, files: &[String]) -> Option<String> {
+    (l.src != 0).then(|| format!("{}:{}", files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()), l.src & 0xFFFF_FFFF))
+}
+
+/// `t` spread over lines as wide as `widths` say, in proportion: words
+/// (characters, for text without spaces) go to the line whose share of
+/// the whole they fall in.
+fn spread(t: &str, widths: &[usize], width: impl Fn(&str) -> usize) -> Vec<String> {
+    let n = widths.len().max(1);
+    let total = widths.iter().sum::<usize>().max(1);
+    // words; text written without spaces (Japanese, Chinese) by character
+    let tokens: Vec<String> = if t.contains(' ') || t.is_ascii() { t.split_inclusive(' ').map(str::to_string).collect() } else { t.chars().map(|c| c.to_string()).collect() };
+    let all = width(t).max(1);
+    let mut out = vec![String::new(); n];
+    let (mut k, mut done, mut share) = (0usize, 0usize, widths[0]);
+    for tok in tokens {
+        let w = width(&tok);
+        // past this line's share of the translation (by its middle): next line
+        while k + 1 < n && !out[k].trim().is_empty() && (2 * done + w) * total > 2 * share * all {
+            k += 1;
+            share += widths[k];
+        }
+        out[k].push_str(&tok);
+        done += w;
+    }
+    out.iter().map(|s| s.trim().to_string()).collect()
+}
+
 /// `s` broken into lines of at most `w` columns at spaces (a word longer
 /// than that is cut), `most` lines at most, the last ending in … if more
 /// was left.
@@ -1221,7 +1250,7 @@ impl Tty {
         let cur_line = if con.cur.is_empty() {
             None
         } else {
-            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0 })
+            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0, wait: con.waits })
         };
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
         let mut count = 0;
@@ -1230,11 +1259,17 @@ impl Tty {
             count += r.len();
             chunks.push(r);
         }
-        for l in con.lines.iter().rev() {
+        // dialog translated in batches (the lines that may show)
+        let blocks = if self.mt.is_some() { self.translate_blocks(con, con.lines.len().saturating_sub(need)) } else { crate::fxhash::HashMap::default() };
+        for (i, l) in con.lines.iter().enumerate().rev() {
             if count >= need {
                 break;
             }
-            let tr = if self.mt.is_some() { self.translated(l, &con.src_files) } else { None };
+            let tr = match blocks.get(&i) {
+                Some(t) => Some(t.clone()),
+                None if self.mt.is_some() => self.translated(l, &con.src_files),
+                None => None,
+            };
             let r = self.layout_line(tr.as_ref().unwrap_or(l), con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
@@ -2159,23 +2194,105 @@ impl Tty {
         }
     }
 
-    /// `l` with translations in place of its text, as far as they are in
-    /// (the console keeps what the game printed). Dialog: the whole line at
-    /// once, in its first colour. All text: each piece on its own, so
-    /// buttons and colours stay, and only the words, not the numbers and
-    /// brackets around them.
+    /// The line's text, language and first colour if it is dialog to
+    /// translate whole: only text (no buttons, pictures), not a drawing,
+    /// in a language to translate, and dialog (see `mt::is_dialog`).
+    fn dialog_of(&self, l: &Line) -> Option<(&'static str, String, Style)> {
+        let mut text = String::new();
+        let mut style = None;
+        for s in &l.segs {
+            match s {
+                Seg::Text { text: t, style: st, button: None, .. } => {
+                    text.push_str(t);
+                    style.get_or_insert_with(|| st.clone());
+                }
+                _ => return None,
+            }
+        }
+        if crate::mt::is_drawing(&text) || text.trim().is_empty() {
+            return None;
+        }
+        let src = crate::mt::source_of(&text, &self.tr_from, &self.tr_to)?;
+        crate::mt::is_dialog(&text, l.kojo, src).then(|| (src, text, style.unwrap()))
+    }
+
+    /// Display columns of `s`, as the screen lays it out.
+    fn text_width(&self, s: &str) -> usize {
+        s.chars()
+            .map(|c| {
+                let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied()) };
+                tw + extra
+            })
+            .sum()
+    }
+
+    /// Dialog translated in batches: the lines printed between two waits or
+    /// inputs (one click: a speech over several lines) that are dialog in one
+    /// language go to the translator together, so sentences split over
+    /// lines are translated whole. Returns the lines from `start` on that
+    /// have their translation in, by index. A translation with as many
+    /// lines goes back line by line; one without is spread over the lines
+    /// in proportion to their lengths.
+    fn translate_blocks(&mut self, con: &Console, start: usize) -> crate::fxhash::HashMap<usize, Line> {
+        let mut out = crate::fxhash::HashMap::default();
+        let lines = &con.lines;
+        let dialog: Vec<Option<(&'static str, String, Style)>> = (start..lines.len()).map(|i| self.dialog_of(&lines[i])).collect();
+        // a speech that began above `start` starts there (unchecked: rare)
+        let mut i = 0;
+        while i < dialog.len() {
+            let Some((src, _, _)) = &dialog[i] else {
+                i += 1;
+                continue;
+            };
+            let (src, wait) = (*src, lines[start + i].wait);
+            let mut j = i + 1;
+            while j < dialog.len() && j - i < 40 && lines[start + j].wait == wait && dialog[j].as_ref().is_some_and(|d| d.0 == src) {
+                j += 1;
+            }
+            let texts: Vec<&str> = (i..j).map(|k| dialog[k].as_ref().unwrap().1.trim()).collect();
+            let joined = texts.join("\n");
+            let place = self.mt.as_ref().is_some_and(|m| m.logging()).then(|| place_of(&lines[start + i], &con.src_files)).flatten();
+            let tr = self.mt.as_mut().and_then(|m| m.get(&joined, src, place.as_deref()).map(str::to_string));
+            if let Some(tr) = tr {
+                let n = j - i;
+                let got: Vec<&str> = tr.split('\n').collect();
+                let parts: Vec<String> = if got.len() == n {
+                    got.iter().map(|s| s.to_string()).collect()
+                } else {
+                    let widths: Vec<usize> = texts.iter().map(|t| self.text_width(t)).collect();
+                    spread(&got.join(" "), &widths, |s| self.text_width(s))
+                };
+                for (k, part) in (i..j).zip(parts) {
+                    let (_, text, style) = dialog[k].as_ref().unwrap();
+                    let lead: String = text.chars().take_while(|c| c.is_whitespace()).collect();
+                    let mut l = lines[start + k].clone();
+                    l.segs = vec![Seg::Text { text: format!("{}{}", lead, part), style: style.clone(), button: None, auto: false }];
+                    out.insert(start + k, l);
+                }
+            }
+            i = j;
+        }
+        out
+    }
+
+    /// All-text mode: `l` with each piece of text translated on its own (as
+    /// far as translations are in), so buttons and colours stay, and only
+    /// the words, not the numbers and brackets around them. Dialog lines
+    /// are left to `translate_blocks`.
     fn translated(&mut self, l: &Line, files: &[String]) -> Option<Line> {
-        use crate::mt::{is_dialog, is_drawing, source_of, split_words};
-        let (from, to, all) = (self.tr_from.clone(), self.tr_to.clone(), self.tr_all);
-        let mt = self.mt.as_mut()?;
-        // where the line was printed, for EMUERA_TRANSLATE_LOG
-        let place = (mt.logging() && l.src != 0).then(|| format!("{}:{}", files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()), l.src & 0xFFFF_FFFF));
+        use crate::mt::{is_drawing, source_of, split_words};
+        if !self.tr_all || self.dialog_of(l).is_some() {
+            return None;
+        }
+        let (from, to) = (self.tr_from.clone(), self.tr_to.clone());
+        let place = self.mt.as_ref().is_some_and(|m| m.logging()).then(|| place_of(l, files)).flatten();
         let place = place.as_deref();
+        let mt = self.mt.as_mut()?;
         let whole: String = l.segs.iter().filter_map(|s| if let Seg::Text { text, .. } = s { Some(text.as_str()) } else { None }).collect();
         if is_drawing(&whole) {
             return None;
         }
-        if all {
+        {
             // menus keep their columns: where a piece is followed by a gap
             // (two spaces or more, then more on the line) its translation
             // keeps its width — padded if shorter, taking the gap's spaces
@@ -2265,27 +2382,8 @@ impl Tty {
                 *text = format!("{}{}{}", pre, tr, post);
                 changed = true;
             }
-            return changed.then_some(out);
+            changed.then_some(out)
         }
-        let mut style = None;
-        for s in &l.segs {
-            match s {
-                Seg::Text { style: st, button: None, .. } => {
-                    style.get_or_insert_with(|| st.clone());
-                }
-                // menus (buttons), pictures and drawings stay as they are
-                _ => return None,
-            }
-        }
-        let src = source_of(&whole, &from, &to)?;
-        if !is_dialog(&whole, l.kojo, src) {
-            return None;
-        }
-        let lead: String = whole.chars().take_while(|c| c.is_whitespace()).collect();
-        let tr = mt.get(whole.trim(), src, place)?;
-        let mut out = l.clone();
-        out.segs = vec![Seg::Text { text: format!("{}{}", lead, tr), style: style?, button: None, auto: false }];
-        Some(out)
     }
 
     /// The SGR sequence for an overlay colour pair, in the terminal's depth.
@@ -3008,5 +3106,19 @@ mod tests {
     fn no_filler_when_terminal_draws_ambiguous_wide() {
         assert_eq!(char_cells('━', Ambi::Wide, None), (2, 0, '━'));
         assert_eq!(char_cells('■', Ambi::Wide, None), (2, 0, '■'));
+    }
+}
+
+#[cfg(test)]
+mod translate_tests {
+    /// A translation without the speech's line breaks is spread over its
+    /// lines by their lengths.
+    #[test]
+    fn spread_by_length() {
+        let w = |s: &str| s.chars().count();
+        assert_eq!(super::spread("one two three four", &[10, 10], w), ["one two", "three four"]);
+        assert_eq!(super::spread("a b c d e f", &[2, 10], w), ["a", "b c d e f"]);
+        assert_eq!(super::spread("あいうえおか", &[3, 3], w), ["あいう", "えおか"]);
+        assert_eq!(super::spread("solo", &[5, 5, 5], w), ["solo", "", ""]);
     }
 }

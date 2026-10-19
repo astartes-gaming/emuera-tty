@@ -1952,6 +1952,7 @@ impl Vm {
     /// frontend becomes `Ctrl::Quit`.
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
         self.note_running();
+        self.con.waits = self.con.waits.wrapping_add(1);
         let r = self.raw_input_in(req);
         // (the settings page may have turned sound off or on meanwhile)
         if let Some(s) = self.sound.as_mut() {
