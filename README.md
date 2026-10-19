@@ -1027,12 +1027,22 @@ menu choices in a throwaway copy and reports script errors.
 1. Run it on the other systems (macOS, Windows, the BSDs, Termux, Haiku,
    Redox) and on a real Raspberry Pi Zero: they compile (the Pi build
    also runs under emulation), nobody has played on them yet.
-2. Play deeper into AnonTW, pops-tw and eraTohoK, and more games.
+2. A good way to play on Android phones, through Termux: players keep
+   asking for an up-to-date eraBASIC player there, and saves would move
+   between phone and PC. Nothing is known to be missing, but nobody has
+   tried it on a phone. What needs checking: a phone's narrow screen
+   (games are laid out for a wide window), taps arriving as clicks for
+   buttons and picture menus, F1 and Ctrl keys from Termux's extra-keys
+   row, Japanese text widths in Termux's font, whether its terminal draws
+   sixel pictures, and games kept in shared storage (`/sdcard`). A
+   separate Android app would come later, if at all: the engine never
+   talks to the terminal directly, so another frontend could be added.
+3. Play deeper into AnonTW, pops-tw and eraTohoK, and more games.
    AnonTW's 5 remaining parse errors and pops-tw's 16 are mistakes in the
    games' own scripts (Emuera reports them too); eraTohoK has none.
-3. Dialog translation and sound with real translators and players on
+4. Dialog translation and sound with real translators and players on
    other systems: tested here with stand-ins and mpv only.
-4. Speed of script-heavy games: pops-tw's new game takes about 14
+5. Speed of script-heavy games: pops-tw's new game takes about 14
    seconds of CPU (its own object system looks names up in 1000-entry
    arrays hundreds of thousands of times, through a million statements);
    compiling variables to slots ahead of time would be the next step.
