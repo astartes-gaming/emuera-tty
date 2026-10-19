@@ -7,6 +7,29 @@ eraBasic "ERB" games) that runs in a terminal. Fidelity to Emuera is the
 goal: script semantics, layout, and save files that move both ways between
 emuera-tty and Emuera.
 
+## Dependencies
+
+Package names are Debian/Ubuntu's.
+
+- **Building:** Rust from rustup (stable; developed on 1.99) and git. Crate
+  dependencies come through cargo; there are no system libraries to
+  install.
+- **The test scripts in `tools/`:** Python 3 and pyte (`python3-pyte`,
+  or `pip install pyte`) for `gamed.py` and `console_mouse.py`;
+  `savdiff.py` needs only Python 3. `gamed.py` reads `/proc`, so it runs
+  on Linux only.
+- **Other CPUs:** `rustup target add <target>` (musl targets, e.g.
+  `arm-unknown-linux-musleabihf`, `riscv64gc-unknown-linux-musl`);
+  `rust-lld` comes with the rustup toolchain. Running them needs
+  `qemu-user`. Tier-3 targets (m68k, MIPS…) need a nightly toolchain
+  (`cargo +nightly check -Z build-std=std,panic_abort --target …`).
+- **Testing in a real Konsole off-screen:** `xvfb`, `konsole`, `xdotool`,
+  `imagemagick` (its `import`), `dbus-daemon` (`dbus-run-session`).
+- **Optional at run time:** `gpm` for the Linux-console mouse, `mpv` or
+  `ffplay` for game sound, and a translator (Ollama, Argos Translate,
+  LibreTranslate, translate-shell, or DeepL through curl) for the
+  translation settings.
+
 ## Commands
 
 ```sh
