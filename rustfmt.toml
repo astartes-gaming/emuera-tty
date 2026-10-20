@@ -1,0 +1,7 @@
+# `cargo fmt` formats the code; run it before committing. The settings
+# match the style the code was written in before rustfmt was adopted:
+# long lines, short constructs kept on one line, and lists of names
+# (COMMANDS, FUNCTIONS…) packed several to a line.
+max_width = 160
+use_small_heuristics = "Max"
+short_array_element_width_threshold = 32

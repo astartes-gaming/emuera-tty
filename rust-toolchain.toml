@@ -1,0 +1,8 @@
+# Read by rustup (ignored by distribution packages of Rust, which need
+# their own clippy and rustfmt packages): `cargo` in this folder uses
+# stable Rust and installs the lint and format tools if they're missing.
+# `cargo +nightly …` still overrides it for the tier-3 targets.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
