@@ -13,7 +13,7 @@ Package names are Debian/Ubuntu's.
 
 - **Building:** Rust from rustup (stable; developed on 1.99) and git. Crate
   dependencies come through cargo; there are no system libraries to
-  install.
+  install. `rust-toolchain.toml` makes rustup add clippy and rustfmt.
 - **The test scripts in `tools/`:** Python 3 and pyte (`python3-pyte`,
   or `pip install pyte`) for `gamed.py` and `console_mouse.py`;
   `savdiff.py` needs only Python 3. `gamed.py` reads `/proc`, so it runs
@@ -39,6 +39,7 @@ cargo test --release                        # unit tests + tests/sample_selftest
 cargo test --release emuera_name_order      # one test by name
 cargo test --release --test sample_selftest # only the sample-game integration tests
 cargo clippy --release                      # lint config lives in Cargo.toml [lints.clippy]
+cargo fmt                                   # format before committing (rustfmt.toml: 160 columns)
 ./target/release/emuera-tty --install       # install to ~/.local/bin
 ```
 
@@ -153,7 +154,7 @@ with a very large stack.
 - **Docs track behaviour.** User-visible changes update `README.md` and the
   man page `doc/emuera-tty.1` (`--manual` prints it).
 - **The maintainer's round:** fix, look for optimisations, update the
-  README, test, commit, push to `origin master`, then
+  README, test, `cargo fmt`, commit, push to `origin master`, then
   `./target/release/emuera-tty --install`. Commit messages: a one-line
   summary, then a short paragraph on why.
 
