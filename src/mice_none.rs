@@ -15,6 +15,10 @@ impl Mice {
     pub fn open_gpm() -> Result<Mice, String> {
         Self::open()
     }
+    /// Where the events come from (never asked: there are none).
+    pub fn describe(&self) -> &'static str {
+        "none"
+    }
     pub fn fd(&self) -> i32 {
         -1
     }

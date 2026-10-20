@@ -333,6 +333,10 @@ pub enum Instr {
     Return(Vec<Expr>),
     /// RETURNF x: the value of a #FUNCTION(S) call.
     ReturnF(Option<Expr>),
+    /// The end of a function that isn't a #FUNCTION: RETURN 0, except
+    /// while a #FUNCTION is being evaluated (Emuera's IsFunctionMethod
+    /// covers everything it calls), when RESULT is left alone.
+    End,
     /// BEGIN TRAIN / SHOP / …: unwind to the system loop and switch state.
     Begin(String),
     Restart,

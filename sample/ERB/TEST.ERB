@@ -14,6 +14,9 @@ CALL CHECK, "isskip", LOCAL == 1 && ISSKIP() == 0
 RESULT = 5
 CALL FALLS_OFF_END
 CALL CHECK, "fall-off end is RETURN 0", RESULT == 0
+RESULT = 5
+LOCAL = CALLS_FALLER()
+CALL CHECK, "fall-off end inside #FUNCTION keeps RESULT", RESULT == 5
 CALL CHECK, "strcount", STRCOUNT("36:120:", "(^|:)(36|x)($|:)") == 1 && STRCOUNT("abcabc", "bc") == 2 && STRCOUNT("a.b", "\\.") == 1
 ;--- strings
 LOCALS = abc
@@ -445,3 +448,8 @@ RETURN A:0 * 100000 + A:1 * 10000 + A:2 * 1000 + A:3 * 100 + A:4 * 10 + A:5
 
 @FALLS_OFF_END
 LOCAL = 1
+
+@CALLS_FALLER
+#FUNCTION
+CALL FALLS_OFF_END
+RETURNF 1

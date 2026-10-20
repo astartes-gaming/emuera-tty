@@ -1785,6 +1785,12 @@ impl Vm {
                 };
                 return Ok(Some(v));
             }
+            Instr::End => {
+                if !self.frames.iter().any(|fr| fr.func.is_function) {
+                    self.set_result(0);
+                }
+                return Ok(Some(None));
+            }
             Instr::Begin(s) => return Err(Ctrl::Begin(s.clone())),
             Instr::Restart => self.set_pc(0),
             Instr::Quit => return Err(Ctrl::Quit),
