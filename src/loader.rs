@@ -44,8 +44,7 @@ pub fn find_dir_ci(base: &Path, name: &str) -> Option<PathBuf> {
     let rd = fs::read_dir(base).ok()?;
     for e in rd.flatten() {
         // e.path().is_dir() follows symlinks (a linked resources/ folder)
-        if e.file_name().to_string_lossy().eq_ignore_ascii_case(name) && e.path().is_dir()
-        {
+        if e.file_name().to_string_lossy().eq_ignore_ascii_case(name) && e.path().is_dir() {
             return Some(e.path());
         }
     }
@@ -85,7 +84,11 @@ impl Listing {
 /// the order Windows lists an NTFS folder in, by upper-cased code units.
 pub fn name_order(a: &str, b: &str, sort: bool) -> std::cmp::Ordering {
     if !sort {
-        let up = |s: &str| s.encode_utf16().map(|u| char::from_u32(u as u32).map_or(u as u32, |c| c.to_uppercase().next().map_or(u as u32, |c| c as u32))).collect::<Vec<u32>>();
+        let up = |s: &str| {
+            s.encode_utf16()
+                .map(|u| char::from_u32(u as u32).map_or(u as u32, |c| c.to_uppercase().next().map_or(u as u32, |c| c as u32)))
+                .collect::<Vec<u32>>()
+        };
         return up(a).cmp(&up(b)).then_with(|| a.cmp(b));
     }
     fn key(c: char) -> (u8, u32) {
@@ -154,7 +157,8 @@ fn list_into(dir: &Path, exts: &[&str], l: Listing, out: &mut Vec<PathBuf>) {
 pub fn erb_files(erb: &Path, l: Listing) -> Vec<PathBuf> {
     fn hash_dirs(d: &Path, deep: bool, sort: bool, out: &mut Vec<PathBuf>) {
         let Ok(rd) = fs::read_dir(d) else { return };
-        let mut dirs: Vec<(String, PathBuf)> = rd.flatten().filter(|e| e.path().is_dir()).map(|e| (e.file_name().to_string_lossy().into_owned(), e.path())).collect();
+        let mut dirs: Vec<(String, PathBuf)> =
+            rd.flatten().filter(|e| e.path().is_dir()).map(|e| (e.file_name().to_string_lossy().into_owned(), e.path())).collect();
         dirs.sort_by(|a, b| name_order(&a.0, &b.0, sort));
         for (name, p) in dirs {
             if name.contains('#') {
@@ -236,7 +240,11 @@ pub fn sjis_len(s: &str) -> usize {
             let mut buf = [0u8; 4];
             let enc = c.encode_utf8(&mut buf);
             let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(enc);
-            if unmappable { c.len_utf16() } else { bytes.len() }
+            if unmappable {
+                c.len_utf16()
+            } else {
+                bytes.len()
+            }
         })
         .sum()
 }

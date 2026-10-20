@@ -49,9 +49,10 @@ impl Player {
         let path = std::env::var_os("PATH")?;
         let dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
         let exe = if cfg!(windows) { ".exe" } else { "" };
-        PLAYERS.iter().filter(|(_, n)| named.is_none_or(|w| w == *n)).find_map(|&(kind, name)| {
-            dirs.iter().map(|d| d.join(format!("{}{}", name, exe))).find(|p| p.is_file()).map(|path| Player { kind, path })
-        })
+        PLAYERS
+            .iter()
+            .filter(|(_, n)| named.is_none_or(|w| w == *n))
+            .find_map(|&(kind, name)| dirs.iter().map(|d| d.join(format!("{}{}", name, exe))).find(|p| p.is_file()).map(|path| Player { kind, path }))
     }
 
     /// Can it play this file? (the simple players read WAV and little else)

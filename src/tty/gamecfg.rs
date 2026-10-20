@@ -203,7 +203,13 @@ impl Tty {
             };
             let (v, src) = vals.get(it);
             let is_sel = first + k == sel;
-            let base = if is_sel { &hilite } else if src == Source::Fixed { &dim } else { &normal };
+            let base = if is_sel {
+                &hilite
+            } else if src == Source::Fixed {
+                &dim
+            } else {
+                &normal
+            };
             let row_bg = if is_sel { hl } else { bg };
             let from = match src {
                 Source::Emuera => "",

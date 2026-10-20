@@ -82,7 +82,8 @@ fn spread(t: &str, widths: &[usize], width: impl Fn(&str) -> usize) -> Vec<Strin
     let n = widths.len().max(1);
     let total = widths.iter().sum::<usize>().max(1);
     // words; text written without spaces (Japanese, Chinese) by character
-    let tokens: Vec<String> = if t.contains(' ') || t.is_ascii() { t.split_inclusive(' ').map(str::to_string).collect() } else { t.chars().map(|c| c.to_string()).collect() };
+    let tokens: Vec<String> =
+        if t.contains(' ') || t.is_ascii() { t.split_inclusive(' ').map(str::to_string).collect() } else { t.chars().map(|c| c.to_string()).collect() };
     let all = width(t).max(1);
     let mut out = vec![String::new(); n];
     let (mut k, mut done, mut share) = (0usize, 0usize, widths[0]);
@@ -154,7 +155,12 @@ struct DivAt {
 /// `rows` high (else as tall as the content needs).
 fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, rows: Option<usize>) -> Vec<DRow> {
     let ins = deco.insets();
-    let blank = |bg: Option<Rgb>| Cell { ch: ' ', w: 1, style: Style { fg: Rgb(0, 0, 0), bg, bold: false, italic: false, underline: false, strike: false }, button: None };
+    let blank = |bg: Option<Rgb>| Cell {
+        ch: ' ',
+        w: 1,
+        style: Style { fg: Rgb(0, 0, 0), bg, bold: false, italic: false, underline: false, strike: false },
+        button: None,
+    };
     let edge = blank(deco.bcolor);
     let fill = blank(deco.bg);
     let height = rows.unwrap_or(content.len() + ins[0] + ins[2]).max(ins[0] + ins[2] + 1);
@@ -294,7 +300,12 @@ enum Key {
     Reload,
     /// Tab: continue and skip messages until a choice (as a right click)
     Skip,
-    Mouse { btn: u16, x: u16, y: u16, press: bool },
+    Mouse {
+        btn: u16,
+        x: u16,
+        y: u16,
+        press: bool,
+    },
     /// Insert, or Shift+Enter where the terminal tells it from Enter: a
     /// click with the keyboard pointer
     Click,
@@ -544,12 +555,14 @@ struct TipBox {
 /// other control characters go (CR and LF stay for the caller to split
 /// lines at); written raw they would move the cursor.
 pub(crate) fn printable(s: &str) -> String {
-    s.chars().filter_map(|c| match c {
-        '\t' => Some(' '),
-        '\r' | '\n' => Some(c),
-        c if c.is_control() => None,
-        c => Some(c),
-    }).collect()
+    s.chars()
+        .filter_map(|c| match c {
+            '\t' => Some(' '),
+            '\r' | '\n' => Some(c),
+            c if c.is_control() => None,
+            c => Some(c),
+        })
+        .collect()
 }
 
 /// Strategy for East Asian "ambiguous width" characters (`━ ■ ※ …`).
@@ -717,7 +730,15 @@ impl Tty {
         if !is_vt {
             write_all(b"\x1b[>4;1m");
         }
-        t.mlog(&format!("TERM={} gfx={} cell={:?} size={}x{} mouse={}", term, t.gfx.name(), t.cell, t.cols, t.rows, t.mice.as_ref().map_or_else(|| t.notice.clone().unwrap_or_else(|| "none".into()), |m| m.describe().to_string())));
+        t.mlog(&format!(
+            "TERM={} gfx={} cell={:?} size={}x{} mouse={}",
+            term,
+            t.gfx.name(),
+            t.cell,
+            t.cols,
+            t.rows,
+            t.mice.as_ref().map_or_else(|| t.notice.clone().unwrap_or_else(|| "none".into()), |m| m.describe().to_string())
+        ));
         Ok(t)
     }
 
@@ -814,10 +835,7 @@ impl Tty {
             }
         }
         let text = String::from_utf8_lossy(&std::mem::take(&mut self.pending)).to_string();
-        let cols: Vec<u32> = text
-            .split('R')
-            .filter_map(|r| r.rfind("\x1b[").and_then(|i| r[i + 2..].split(';').nth(1)).and_then(|c| c.parse().ok()))
-            .collect();
+        let cols: Vec<u32> = text.split('R').filter_map(|r| r.rfind("\x1b[").and_then(|i| r[i + 2..].split(';').nth(1)).and_then(|c| c.parse().ok())).collect();
         if cols.len() == chars.len() {
             for (c, col) in chars.iter().zip(cols) {
                 let w = col.saturating_sub(1).min(2) as u8;
@@ -977,11 +995,14 @@ impl Tty {
                             }
                             return self.next_key(0);
                         }
-                        (match b[3] {
-                            b'A' => Key::Settings,
-                            b'E' => Key::Reload,
-                            _ => Key::Other,
-                        }, 4)
+                        (
+                            match b[3] {
+                                b'A' => Key::Settings,
+                                b'E' => Key::Reload,
+                                _ => Key::Other,
+                            },
+                            4,
+                        )
                     } else if b.get(2) == Some(&b'M') {
                         // X10 / normal mouse: ESC [ M Cb Cx Cy, each value + 32
                         if b.len() < 6 {
@@ -1047,16 +1068,19 @@ impl Tty {
                         }
                     }
                 } else if b[1] == b'O' && b.len() >= 3 {
-                    (match b[2] {
-                        b'P' => Key::Settings,
-                        b'A' => Key::Up,
-                        b'B' => Key::Down,
-                        b'C' => Key::Right,
-                        b'D' => Key::Left,
-                        // Konsole's Shift+Enter (and the keypad's Enter)
-                        b'M' => Key::Click,
-                        _ => Key::Other,
-                    }, 3)
+                    (
+                        match b[2] {
+                            b'P' => Key::Settings,
+                            b'A' => Key::Up,
+                            b'B' => Key::Down,
+                            b'C' => Key::Right,
+                            b'D' => Key::Left,
+                            // Konsole's Shift+Enter (and the keypad's Enter)
+                            b'M' => Key::Click,
+                            _ => Key::Other,
+                        },
+                        3,
+                    )
                 } else {
                     (Key::Esc, 1)
                 }
@@ -1132,16 +1156,20 @@ impl Tty {
                     // Emuera's "ボタンの途中で行を折りかえさない": a button that
                     // doesn't fit the rest of the row starts the next one
                     // whole (its pieces in other colours count with it)
-                    let starts_button = button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
+                    let starts_button =
+                        button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
                     if self.button_wrap && starts_button && col > 0 {
                         let mut w = 0;
                         for s2 in &line.segs[si..] {
                             match s2 {
                                 Seg::Text { text: t2, button: b2, .. } if b2 == button => {
-                                    w += t2.chars().map(|c| {
-                                        let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied()) };
-                                        tw + extra
-                                    }).sum::<usize>();
+                                    w += t2
+                                        .chars()
+                                        .map(|c| {
+                                            let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied()) };
+                                            tw + extra
+                                        })
+                                        .sum::<usize>();
                                 }
                                 _ => break,
                             }
@@ -1359,7 +1387,16 @@ impl Tty {
         let cur_line = if con.cur.is_empty() {
             None
         } else {
-            Some(Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0, wait: con.waits })
+            Some(Line {
+                segs: con.cur.clone(),
+                align: con.cur_align.unwrap_or(con.align),
+                gen: con.gen,
+                temporary: false,
+                cols: self.cols,
+                kojo: false,
+                src: 0,
+                wait: con.waits,
+            })
         };
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
         let mut count = 0;
@@ -1730,7 +1767,14 @@ impl Tty {
                     let half = t.size as f32 / 2.0; // px per half-width char
                     let w_px = crate::loader::sjis_len(text) as f32 * half;
                     let mid = l.x as f32 + t.x as f32 + lead as f32 * half + w_px / 2.0;
-                    let st = Style { fg: Rgb(t.color[0], t.color[1], t.color[2]), bg: None, bold: t.size as f32 > con.font_size, italic: false, underline: false, strike: false };
+                    let st = Style {
+                        fg: Rgb(t.color[0], t.color[1], t.color[2]),
+                        bg: None,
+                        bold: t.size as f32 > con.font_size,
+                        italic: false,
+                        underline: false,
+                        strike: false,
+                    };
                     let cells = self.text_cells(text, &st);
                     let width: usize = cells.iter().map(|c| c.w as usize).sum();
                     let col = (mid / cw - width as f32 / 2.0).round().max(0.0);
@@ -1921,15 +1965,27 @@ impl Tty {
     /// the pictures changed for backends that draw them into the cells
     /// (framebuffer, sixel, iTerm2), so old pixels go.
     #[allow(clippy::too_many_arguments)]
-    fn skip_unchanged_rows(&mut self, out: Vec<u8>, span: (usize, usize), rows: &[(usize, usize)], placements: &[Placement], cols: usize, tip_rows: std::ops::Range<usize>) -> Vec<u8> {
+    fn skip_unchanged_rows(
+        &mut self,
+        out: Vec<u8>,
+        span: (usize, usize),
+        rows: &[(usize, usize)],
+        placements: &[Placement],
+        cols: usize,
+        tip_rows: std::ops::Range<usize>,
+    ) -> Vec<u8> {
         use std::hash::{Hash, Hasher};
-        let full = self.force_frame || self.redraw_all.replace(false) | self.box_closed.replace(false) || self.row_hash.len() != rows.len() || self.hash_cols != cols;
+        let full =
+            self.force_frame || self.redraw_all.replace(false) | self.box_closed.replace(false) || self.row_hash.len() != rows.len() || self.hash_cols != cols;
         let ch = self.cell.1.max(1) as i32;
         // rows under pictures, before and now, when the pictures changed
         let mut img_rows = vec![false; rows.len()];
         let cell_images = !matches!(self.gfx.name(), "kitty" | "none");
         let changed = placements.len() != self.frame_imgs.len()
-            || placements.iter().zip(&self.frame_imgs).any(|(a, b)| a.key != b.key || (a.col, a.row, a.y_off, a.crop_top, a.crop_h) != (b.col, b.row, b.y_off, b.crop_top, b.crop_h));
+            || placements
+                .iter()
+                .zip(&self.frame_imgs)
+                .any(|(a, b)| a.key != b.key || (a.col, a.row, a.y_off, a.crop_top, a.crop_h) != (b.col, b.row, b.y_off, b.crop_top, b.crop_h));
         if cell_images && changed {
             for p in placements.iter().chain(&self.frame_imgs) {
                 let last = p.row + (p.y_off + p.crop_h as i32 + ch - 1) / ch;
@@ -2160,7 +2216,12 @@ impl Tty {
             for x in cx..cx + cw {
                 opaque += ps.iter().any(|p| {
                     let (ix, iy) = (x - p.col * cw, y - (p.row.max(0) * ch + p.y_off) + p.crop_top as i32);
-                    ix >= 0 && iy >= p.crop_top as i32 && iy < (p.crop_top + p.crop_h) as i32 && (ix as u32) < p.img.width() && (iy as u32) < p.img.height() && p.img.get_pixel(ix as u32, iy as u32).0[3] >= 128
+                    ix >= 0
+                        && iy >= p.crop_top as i32
+                        && iy < (p.crop_top + p.crop_h) as i32
+                        && (ix as u32) < p.img.width()
+                        && (iy as u32) < p.img.height()
+                        && p.img.get_pixel(ix as u32, iy as u32).0[3] >= 128
                 }) as i32;
             }
         }
@@ -2286,13 +2347,31 @@ impl Tty {
                         Ok(e) => {
                             // a sample in the game's language, into the one chosen
                             let from = if st.get("translate_from") == "en" { "en" } else { "ja" };
-                            let sample = if from == "en" { "Good morning! What would you like to do today?" } else { "「おはようございます。今日は何をしましょうか？」" };
+                            let sample = if from == "en" {
+                                "Good morning! What would you like to do today?"
+                            } else {
+                                "「おはようございます。今日は何をしましょうか？」"
+                            };
                             let to = match st.get("translate") {
-                                "off" => if from == "en" { "es" } else { "en" },
+                                "off" => {
+                                    if from == "en" {
+                                        "es"
+                                    } else {
+                                        "en"
+                                    }
+                                }
                                 t => t,
                             }
                             .to_string();
-                            let to = if to == from { if from == "en" { "es".into() } else { "en".into() } } else { to };
+                            let to = if to == from {
+                                if from == "en" {
+                                    "es".into()
+                                } else {
+                                    "en".into()
+                                }
+                            } else {
+                                to
+                            };
                             let (tx, rx) = std::sync::mpsc::channel();
                             let what = e.describe();
                             let _ = std::thread::Builder::new().name("translate-test".into()).spawn(move || {
@@ -2488,10 +2567,12 @@ impl Tty {
             // line, or before ordinary text, it just takes the room it needs.
             let (ambi, widths) = (self.ambi, self.widths.clone());
             let width = |s: &str| -> usize {
-                s.chars().map(|c| {
-                    let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, ambi, widths.get(&c).copied()) };
-                    tw + extra
-                }).sum()
+                s.chars()
+                    .map(|c| {
+                        let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, ambi, widths.get(&c).copied()) };
+                        tw + extra
+                    })
+                    .sum()
             };
             let lead_spaces = |s: &str| s.len() - s.trim_start_matches(' ').len();
             let mut out = l.clone();
@@ -2576,24 +2657,27 @@ impl Tty {
 
     /// The SGR sequence for an overlay colour pair, in the terminal's depth.
     fn ov_style(&self, fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool) -> String {
-            let b = if bold { "1;" } else { "" };
-            match self.color {
-                ColorMode::True => format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2),
-                ColorMode::C256 if self.fbterm => format!("\x1b[0;{}m\x1b[1;{}}}\x1b[2;{}}}", b.trim_end_matches(';'), rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2))),
-                ColorMode::C256 => format!(
-                    "\x1b[0;{}38;5;{};48;5;{}m",
-                    b,
-                    rgb256(Rgb(fg.0, fg.1, fg.2)),
-                    rgb256(Rgb(bg.0, bg.1, bg.2))
-                ),
-                // 16 colours: white / yellow on black, black on white
-                ColorMode::C16 => {
-                    let f = if fg == (0, 0, 0) { 30 } else if fg.2 < 100 { 93 } else { 97 };
-                    let k = if bg == (0, 0, 0) || bg.0 < 128 { 40 } else { 47 };
-                    format!("\x1b[0;{}{};{}m", b, f, k)
-                }
+        let b = if bold { "1;" } else { "" };
+        match self.color {
+            ColorMode::True => format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2),
+            ColorMode::C256 if self.fbterm => {
+                format!("\x1b[0;{}m\x1b[1;{}}}\x1b[2;{}}}", b.trim_end_matches(';'), rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2)))
+            }
+            ColorMode::C256 => format!("\x1b[0;{}38;5;{};48;5;{}m", b, rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2))),
+            // 16 colours: white / yellow on black, black on white
+            ColorMode::C16 => {
+                let f = if fg == (0, 0, 0) {
+                    30
+                } else if fg.2 < 100 {
+                    93
+                } else {
+                    97
+                };
+                let k = if bg == (0, 0, 0) || bg.0 < 128 { 40 } else { 47 };
+                format!("\x1b[0;{}{};{}m", b, f, k)
             }
         }
+    }
 
     /// Draw the overlay box; returns its top row (1-based, the title row)
     /// for mapping clicks.
@@ -2604,7 +2688,10 @@ impl Tty {
         let w = self.cols.saturating_sub(4).clamp(30, 72);
         let help = if !note.is_empty() {
             note.to_string()
-        } else if let (true, Some(e)) = (sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator" | "translate_from" | "translate_what"), self.mt.as_ref().and_then(|m| m.last_error.as_ref())) {
+        } else if let (true, Some(e)) = (
+            sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator" | "translate_from" | "translate_what"),
+            self.mt.as_ref().and_then(|m| m.last_error.as_ref()),
+        ) {
             format!("last translation failed: {}", e)
         } else if sel < ITEMS.len() {
             ITEMS[sel].help.to_string()
@@ -2698,7 +2785,12 @@ impl Tty {
         parts.push(("F1 settings".to_string(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
-            let k = parts.iter().position(|(s, _)| s.starts_with('@')).or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB"))).or_else(|| parts.iter().position(|(s, _)| s == "F1 settings")).unwrap_or(0);
+            let k = parts
+                .iter()
+                .position(|(s, _)| s.starts_with('@'))
+                .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB")))
+                .or_else(|| parts.iter().position(|(s, _)| s == "F1 settings"))
+                .unwrap_or(0);
             parts.remove(k);
         }
         // what was there before goes first
@@ -2830,8 +2922,22 @@ impl Tty {
 /// grey ramp (the cube has only black below 95, so dark map tiles and
 /// shading would all turn black).
 fn rgb256(c: Rgb) -> u8 {
-    let q = |v: u8| -> u8 { if v < 48 { 0 } else if v < 115 { 1 } else { (v - 35) / 40 } };
-    let lv = |k: u8| -> i32 { if k == 0 { 0 } else { 55 + 40 * k as i32 } };
+    let q = |v: u8| -> u8 {
+        if v < 48 {
+            0
+        } else if v < 115 {
+            1
+        } else {
+            (v - 35) / 40
+        }
+    };
+    let lv = |k: u8| -> i32 {
+        if k == 0 {
+            0
+        } else {
+            55 + 40 * k as i32
+        }
+    };
     let (r, g, b) = (c.0 as i32, c.1 as i32, c.2 as i32);
     let cube = (q(c.0), q(c.1), q(c.2));
     let d_cube = (lv(cube.0) - r).pow(2) + (lv(cube.1) - g).pow(2) + (lv(cube.2) - b).pow(2);
@@ -2892,7 +2998,10 @@ mod colour_tests {
 
     fn row(text: &str) -> DRow {
         let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
-        DRow { cells: text.chars().map(|ch| Cell { ch, w: if ch.is_ascii() { 1 } else { 2 }, style: st.clone(), button: None }).collect(), ..Default::default() }
+        DRow {
+            cells: text.chars().map(|ch| Cell { ch, w: if ch.is_ascii() { 1 } else { 2 }, style: st.clone(), button: None }).collect(),
+            ..Default::default()
+        }
     }
 
     fn text(r: &DRow) -> String {
@@ -3205,16 +3314,14 @@ impl Frontend for Tty {
                         None => {}
                     }
                 }
-                Key::Settings => {
-                    match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false }) {
-                        OverlayExit::Quit => return RawInput::Quit,
-                        OverlayExit::Config => return RawInput::Hotkey(crate::frontend::Hotkey::Config),
-                        _ => {
-                            self.force_frame = true;
-                            self.render(con, res, None);
-                        }
+                Key::Settings => match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false }) {
+                    OverlayExit::Quit => return RawInput::Quit,
+                    OverlayExit::Config => return RawInput::Hotkey(crate::frontend::Hotkey::Config),
+                    _ => {
+                        self.force_frame = true;
+                        self.render(con, res, None);
                     }
-                }
+                },
                 Key::CtrlL => {
                     self.force_frame = true;
                     self.render(con, res, None);

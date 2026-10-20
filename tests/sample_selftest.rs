@@ -108,7 +108,8 @@ fn dotrain_runs_after_the_event() {
         @EVENTCOMEND\nPRINTFORML comend {SELECTCOM}\n";
     std::fs::write(dir.join("ERB/T.ERB"), erb).unwrap();
     let text = run(&dir, b"\n50\n\n0\n\n");
-    let order = ["status 1", "rest of status", "com1", "comend 1", "status 2", "usercom list", "usercom 50", "rest of usercom", "com999", "comend 999", "status 3"];
+    let order =
+        ["status 1", "rest of status", "com1", "comend 1", "status 2", "usercom list", "usercom 50", "rest of usercom", "com999", "comend 999", "status 3"];
     let mut at = 0;
     for o in order {
         let p = text[at..].find(o).unwrap_or_else(|| panic!("{:?} missing after byte {}:\n{}", o, at, text));

@@ -137,7 +137,17 @@ pub fn backup_all(dir: &Path, root: &Path, tag: &str) -> Result<(PathBuf, usize)
 /// The backups under `root`, newest first: (folder, number of saves).
 pub fn backups(root: &Path) -> Vec<(PathBuf, usize)> {
     let mut v: Vec<(PathBuf, usize)> = std::fs::read_dir(root)
-        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).map(|p| { let n = list(&p).len(); (p, n) }).filter(|(_, n)| *n > 0).collect())
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .map(|p| {
+                    let n = list(&p).len();
+                    (p, n)
+                })
+                .filter(|(_, n)| *n > 0)
+                .collect()
+        })
         .unwrap_or_default();
     v.sort_by(|a, b| b.0.cmp(&a.0));
     v
@@ -237,7 +247,9 @@ pub fn save_dir_of(game: &Path) -> PathBuf {
     match sav {
         Some(d) => d,
         // no sav/ yet: saves next to the game if there are some, else sav/
-        None if game.read_dir().map(|mut r| r.any(|e| e.ok().is_some_and(|e| slot_of(&e.file_name().to_string_lossy()).is_some()))).unwrap_or(false) => game.to_path_buf(),
+        None if game.read_dir().map(|mut r| r.any(|e| e.ok().is_some_and(|e| slot_of(&e.file_name().to_string_lossy()).is_some()))).unwrap_or(false) => {
+            game.to_path_buf()
+        }
         None => game.join("sav"),
     }
 }

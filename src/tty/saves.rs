@@ -143,12 +143,22 @@ impl Tty {
         let bks = sm::backups(root);
         if bks.is_empty() {
             let mut s = 0;
-            return match self.list_box(con, res, req, "Restore a backup", &["(no backups yet)".to_string()], 1, &mut s, &format!("backups go to {}", root.display())) {
+            return match self.list_box(
+                con,
+                res,
+                req,
+                "Restore a backup",
+                &["(no backups yet)".to_string()],
+                1,
+                &mut s,
+                &format!("backups go to {}", root.display()),
+            ) {
                 Pick::Quit => Err(true),
                 _ => Err(false),
             };
         }
-        let rows: Vec<String> = bks.iter().map(|(p, n)| format!("{}  ({} files)", p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(), n)).collect();
+        let rows: Vec<String> =
+            bks.iter().map(|(p, n)| format!("{}  ({} files)", p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(), n)).collect();
         let mut s = 0;
         match self.list_box(con, res, req, "Restore a backup", &rows, rows.len(), &mut s, &format!("in {}", root.display())) {
             Pick::Row(k) => Ok(bks[k].0.clone()),
@@ -196,7 +206,13 @@ impl Tty {
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         line(&mut out, top + 1, &format!(" {}", title), &tstyle);
         for (i, r) in rows.iter().enumerate().skip(start).take(vis) {
-            let st = if i == sel { &hilite } else if i >= first_action { &action } else { &normal };
+            let st = if i == sel {
+                &hilite
+            } else if i >= first_action {
+                &action
+            } else {
+                &normal
+            };
             line(&mut out, top + 2 + i - start, &format!("  {}", r), st);
         }
         line(&mut out, top + 2 + vis, &format!(" {}", if help.is_empty() { "↑↓ choose  Enter pick  Esc back" } else { help }), &helpc);
@@ -206,14 +222,34 @@ impl Tty {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn list_box(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, rows: &[String], first_action: usize, sel: &mut usize, help: &str) -> Pick {
+    pub(super) fn list_box(
+        &mut self,
+        con: &mut Console,
+        res: &mut Resources,
+        req: &InputReq,
+        title: &str,
+        rows: &[String],
+        first_action: usize,
+        sel: &mut usize,
+        help: &str,
+    ) -> Pick {
         let r = self.list_box_in(con, res, req, title, rows, first_action, sel, help);
         self.box_closed.set(true);
         r
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn list_box_in(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, title: &str, rows: &[String], first_action: usize, sel: &mut usize, help: &str) -> Pick {
+    fn list_box_in(
+        &mut self,
+        con: &mut Console,
+        res: &mut Resources,
+        req: &InputReq,
+        title: &str,
+        rows: &[String],
+        first_action: usize,
+        sel: &mut usize,
+        help: &str,
+    ) -> Pick {
         let n = rows.len();
         if n == 0 {
             return Pick::Back;

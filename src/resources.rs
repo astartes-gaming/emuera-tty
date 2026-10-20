@@ -442,7 +442,14 @@ fn system_font_file(name: &str) -> Option<ab_glyph::FontVec> {
         c.push((dir.join("meiryo.ttc"), 0));
         c.push((dir.join("YuGothM.ttc"), 0));
     } else if cfg!(target_os = "macos") {
-        for f in ["/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/Supplemental/Osaka.ttf", "/Library/Fonts/Osaka.ttf", "/Library/Fonts/Arial Unicode.ttf", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"] {
+        for f in [
+            "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/System/Library/Fonts/Supplemental/Osaka.ttf",
+            "/Library/Fonts/Osaka.ttf",
+            "/Library/Fonts/Arial Unicode.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        ] {
             c.push((f.into(), 0));
         }
     }
@@ -457,7 +464,8 @@ pub fn fixed_pitch(name: &str) -> bool {
     if n.is_empty() {
         return true;
     }
-    let proportional = n.contains("pgothic") || n.contains("pmincho") || n.contains("ｐゴシック") || n.contains("ｐ明朝") || n.contains("pゴシック") || n.contains("p明朝");
+    let proportional =
+        n.contains("pgothic") || n.contains("pmincho") || n.contains("ｐゴシック") || n.contains("ｐ明朝") || n.contains("pゴシック") || n.contains("p明朝");
     let japanese_fixed = n.contains("gothic") || n.contains("ゴシック") || n.contains("mincho") || n.contains("明朝") || n.contains("mono");
     japanese_fixed && !proportional
 }
@@ -474,7 +482,8 @@ pub fn text_size(text: &str, name: &str, size: f32) -> (i64, i64) {
     use ab_glyph::{Font, ScaleFont};
     let Some(font) = font_for(name) else { return ((crate::loader::sjis_len(text) as f32 * size / 2.0) as i64, size as i64) };
     let sf = font.as_scaled(em_scale(&*font, size));
-    let w: f32 = if fixed_pitch(name) { text.chars().map(|c| fixed_advance(c, size)).sum() } else { text.chars().map(|c| sf.h_advance(font.glyph_id(c))).sum() };
+    let w: f32 =
+        if fixed_pitch(name) { text.chars().map(|c| fixed_advance(c, size)).sum() } else { text.chars().map(|c| sf.h_advance(font.glyph_id(c))).sum() };
     (w.ceil() as i64, sf.height().ceil() as i64)
 }
 
@@ -878,7 +887,16 @@ impl Resources {
 
     /// Draw `src` (an image, known by `key` + `version`) into buffer
     /// `dst`, reusing the scaled cut-out from an earlier identical draw.
-    pub fn draw_cached(&mut self, dst: i64, key: &str, version: u64, src: PartSrc, dest: (i32, i32, i32, i32), srect: (i32, i32, i32, i32), cm: Option<&[[f32; 5]; 5]>) {
+    pub fn draw_cached(
+        &mut self,
+        dst: i64,
+        key: &str,
+        version: u64,
+        src: PartSrc,
+        dest: (i32, i32, i32, i32),
+        srect: (i32, i32, i32, i32),
+        cm: Option<&[[f32; 5]; 5]>,
+    ) {
         let k = (key.to_string(), version, srect, dest.2, dest.3);
         let part = match self.parts.get(&k) {
             Some(p) => p.clone(),
@@ -1054,7 +1072,11 @@ impl Resources {
                 if let Some(d) = self.dims.get(&sp.file) {
                     return Some(*d);
                 }
-                if let Ok(d) = image::ImageReader::open(&sp.file).and_then(|r| r.with_guessed_format()).map_err(image::ImageError::IoError).and_then(|r| r.into_dimensions()) {
+                if let Ok(d) = image::ImageReader::open(&sp.file)
+                    .and_then(|r| r.with_guessed_format())
+                    .map_err(image::ImageError::IoError)
+                    .and_then(|r| r.into_dimensions())
+                {
                     self.dims.insert(sp.file.clone(), d);
                     return Some(d);
                 }
@@ -1087,7 +1109,10 @@ impl Resources {
                     .map(|t| {
                         let files = &files;
                         sc.spawn(move || {
-                            (t..files.len()).step_by(cores).map(|i| (files[i].clone(), image::open(&files[i]).map(|im| im.to_rgba8()).map_err(|e| e.to_string()))).collect::<Vec<_>>()
+                            (t..files.len())
+                                .step_by(cores)
+                                .map(|i| (files[i].clone(), image::open(&files[i]).map(|im| im.to_rgba8()).map_err(|e| e.to_string())))
+                                .collect::<Vec<_>>()
                         })
                     })
                     .collect();
@@ -1131,7 +1156,10 @@ impl Resources {
                 .map(|t| {
                     let srcs = &srcs;
                     sc.spawn(move || {
-                        (t..srcs.len()).step_by(cores).map(|i| (i, image::imageops::resize(srcs[i].0, srcs[i].1, srcs[i].2, image::imageops::FilterType::Triangle))).collect::<Vec<_>>()
+                        (t..srcs.len())
+                            .step_by(cores)
+                            .map(|i| (i, image::imageops::resize(srcs[i].0, srcs[i].1, srcs[i].2, image::imageops::FilterType::Triangle)))
+                            .collect::<Vec<_>>()
                     })
                 })
                 .collect();
@@ -1198,7 +1226,8 @@ mod tests {
         let d = std::env::temp_dir().join(format!("emuera-anime-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         RgbaImage::from_pixel(20, 10, image::Rgba([9, 9, 9, 255])).save(d.join("sheet.png")).unwrap();
-        std::fs::write(d.join("a.csv"), "HALO,ANIME,10,10\nHALO,sheet.png,0,0,10,10,0,0,1000000\nHALO,sheet.png,10,0,10,10,2,3,50\nSTILL,sheet.png,0,0,5,5\n").unwrap();
+        std::fs::write(d.join("a.csv"), "HALO,ANIME,10,10\nHALO,sheet.png,0,0,10,10,0,0,1000000\nHALO,sheet.png,10,0,10,10,2,3,50\nSTILL,sheet.png,0,0,5,5\n")
+            .unwrap();
         let mut r = Resources::load(Some(&d));
         assert!(r.exists("halo"));
         assert_eq!(r.anime["HALO"].frames.len(), 2);

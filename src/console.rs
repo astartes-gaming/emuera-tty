@@ -50,11 +50,25 @@ fn is_button(b: &Option<Value>) -> bool {
 pub enum Seg {
     /// `auto`: plain printed text that may still contain `[N]` markers to
     /// turn into buttons when the line ends (see `auto_buttons`).
-    Text { text: String, style: Style, button: Option<Value>, auto: bool },
+    Text {
+        text: String,
+        style: Style,
+        button: Option<Value>,
+        auto: bool,
+    },
     /// Image: sizes in Emuera pixels (font-size based).
     /// `hover`: the `srcb` picture, shown while the button is under the pointer.
-    Image { name: String, w: f32, h: f32, ypos: f32, button: Option<Value>, hover: Option<String> },
-    Space { w: f32 },
+    Image {
+        name: String,
+        w: f32,
+        h: f32,
+        ypos: f32,
+        button: Option<Value>,
+        hover: Option<String>,
+    },
+    Space {
+        w: f32,
+    },
     /// PRINT_RECT / `<shape type='rect'>`. The terminal UI draws one cell
     /// row, so `h` is kept for frontends that can do better.
     Rect {
@@ -69,7 +83,15 @@ pub enum Seg {
     /// cell and row sizes CLIENTWIDTH / CLIENTHEIGHT count in), at most
     /// `rows` rows. Takes no width in the line. `html` is its source, for
     /// HTML_GETPRINTEDSTR.
-    Div { dx: i32, dy: i32, cols: usize, rows: Option<usize>, lines: Vec<Line>, html: String, deco: Box<DivBox> },
+    Div {
+        dx: i32,
+        dy: i32,
+        cols: usize,
+        rows: Option<usize>,
+        lines: Vec<Line>,
+        html: String,
+        deco: Box<DivBox>,
+    },
 }
 
 /// A `<div>`'s background, border and padding, in cells.
@@ -828,17 +850,11 @@ mod tests {
         // one marker: the whole text is the button
         assert_eq!(parts("  [1] Continue"), vec![("  [1] Continue", Some(1))]);
         // descriptions after their markers (AnonTW's main menu)
-        assert_eq!(
-            parts("[100] - Wake Up   [102] - Home Settings"),
-            vec![("[100] - Wake Up   ", Some(100)), ("[102] - Home Settings", Some(102))]
-        );
+        assert_eq!(parts("[100] - Wake Up   [102] - Home Settings"), vec![("[100] - Wake Up   ", Some(100)), ("[102] - Home Settings", Some(102))]);
         // descriptions before their markers (the command list)
         assert_eq!(parts("Rest[403]   Diary[406]"), vec![("Rest[403]", Some(403)), ("   Diary[406]", Some(406))]);
         // text on both sides: a run of 2+ spaces ends each button
-        assert_eq!(
-            parts("Pick: [1] Yes  [2] No  now"),
-            vec![("Pick: [1] Yes", Some(1)), ("  [2] No", Some(2)), ("  now", None)]
-        );
+        assert_eq!(parts("Pick: [1] Yes  [2] No  now"), vec![("Pick: [1] Yes", Some(1)), ("  [2] No", Some(2)), ("  now", None)]);
         assert_eq!(parts("[0x10] hex"), vec![("[0x10] hex", Some(16))]);
         // not numbers / unbalanced brackets: no buttons
         assert_eq!(parts("[Status] [x]"), vec![("[Status] [x]", None)]);
@@ -900,7 +916,11 @@ mod tests {
 fn luminance(c: Rgb) -> f32 {
     let lin = |v: u8| {
         let v = v as f32 / 255.0;
-        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
     };
     0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
 }

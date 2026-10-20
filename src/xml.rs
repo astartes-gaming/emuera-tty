@@ -1099,10 +1099,7 @@ mod tests {
         assert!(insert_node(&mut d, &last[0], parse_fragment("<g>7</g>").unwrap().remove(0), 0));
         let first = select(&d, "/root/*[1]").unwrap();
         assert!(remove(&mut d, &first[0], false));
-        assert_eq!(
-            doc_to_string(&d),
-            r#"<root><e o="b" f="y">s2<g>6</g></e><e o="c">s3<g>7</g></e></root>"#
-        );
+        assert_eq!(doc_to_string(&d), r#"<root><e o="b" f="y">s2<g>6</g></e><e o="c">s3<g>7</g></e></root>"#);
         let t = select(&d, "/root/e[@o='c']/text()").unwrap();
         assert!(set_node(&mut d, &t[0], "z&", 0).unwrap());
         assert!(doc_to_string(&d).contains(">z&amp;<g>"));

@@ -371,12 +371,8 @@ impl Vm {
             if dotrain.is_some() {
                 continue;
             }
-            let mut coms: Vec<(i64, String)> = self
-                .csv
-                .tables
-                .get("TRAIN")
-                .map(|t| t.by_index.iter().map(|(k, v)| (*k, v.clone())).collect())
-                .unwrap_or_default();
+            let mut coms: Vec<(i64, String)> =
+                self.csv.tables.get("TRAIN").map(|t| t.by_index.iter().map(|(k, v)| (*k, v.clone())).collect()).unwrap_or_default();
             coms.sort();
             // position in TRAIN.csv → command number, for the allowed ones
             let mut avail: Vec<Option<i64>> = vec![None; coms.len()];
@@ -552,7 +548,11 @@ impl Vm {
 
     /// A `_Replace.csv` setting by its Japanese or English name.
     pub fn replace_value(&self, jp: &str) -> Option<String> {
-        self.csv.replace.get(jp).or_else(|| self.csv.replace.iter().find(|(k, _)| crate::config_names::canonical(k) == jp).map(|(_, v)| v)).map(|v| v.trim().to_string())
+        self.csv
+            .replace
+            .get(jp)
+            .or_else(|| self.csv.replace.iter().find(|(k, _)| crate::config_names::canonical(k) == jp).map(|(_, v)| v))
+            .map(|v| v.trim().to_string())
     }
 
     /// The currency unit (`_Replace.csv` お金の単位, default `$`) and whether
@@ -566,7 +566,11 @@ impl Vm {
     /// `amount` with the currency unit, as MONEYSTR / PRINT_SHOPITEM write it.
     pub fn with_money_label(&self, amount: &str) -> String {
         let (label, first) = self.money_label();
-        if first { format!("{}{}", label, amount) } else { format!("{}{}", amount, label) }
+        if first {
+            format!("{}{}", label, amount)
+        } else {
+            format!("{}{}", amount, label)
+        }
     }
 
     /// PRINT_SHOPITEM: the items whose ITEMSALES is set, PRINTCPERLINE per
@@ -578,7 +582,11 @@ impl Vm {
             let i = *i;
             if self.get_global_i("ITEMSALES", i.max(0) as usize) != 0 {
                 let price = self.get_global_i("ITEMPRICE", i.max(0) as usize);
-                let s = crate::vm::pad(&format!("[{}] {}({})", i, self.csv.tr.or_same("ITEM", name), self.with_money_label(&price.to_string())), self.con.printc_len + 1, crate::ast::Align::Left);
+                let s = crate::vm::pad(
+                    &format!("[{}] {}({})", i, self.csv.tr.or_same("ITEM", name), self.with_money_label(&price.to_string())),
+                    self.con.printc_len + 1,
+                    crate::ast::Align::Left,
+                );
                 self.con.print(&s);
                 shown += 1;
                 if shown % self.con.printc_per_line.max(1) == 0 {

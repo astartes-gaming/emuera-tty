@@ -434,11 +434,10 @@ fn emu_width(c: char) -> usize {
 
 // Kunrei romaji for ぁ (U+3041) … ゖ (U+3096); katakana are 0x60 above.
 const KANA: [&str; 86] = [
-    "a ", "a ", "i ", "i ", "u ", "u ", "e ", "e ", "o ", "o ", "ka", "ga", "ki", "gi", "ku", "gu", "ke", "ge", "ko", "go",
-    "sa", "za", "si", "zi", "su", "zu", "se", "ze", "so", "zo", "ta", "da", "ti", "di", "' ", "tu", "du", "te", "de", "to",
-    "do", "na", "ni", "nu", "ne", "no", "ha", "ba", "pa", "hi", "bi", "pi", "hu", "bu", "pu", "he", "be", "pe", "ho", "bo",
-    "po", "ma", "mi", "mu", "me", "mo", "ya", "ya", "yu", "yu", "yo", "yo", "ra", "ri", "ru", "re", "ro", "wa", "wa", "wi",
-    "we", "wo", "n ", "vu", "ka", "ke",
+    "a ", "a ", "i ", "i ", "u ", "u ", "e ", "e ", "o ", "o ", "ka", "ga", "ki", "gi", "ku", "gu", "ke", "ge", "ko", "go", "sa", "za", "si", "zi", "su", "zu",
+    "se", "ze", "so", "zo", "ta", "da", "ti", "di", "' ", "tu", "du", "te", "de", "to", "do", "na", "ni", "nu", "ne", "no", "ha", "ba", "pa", "hi", "bi", "pi",
+    "hu", "bu", "pu", "he", "be", "pe", "ho", "bo", "po", "ma", "mi", "mu", "me", "mo", "ya", "ya", "yu", "yu", "yo", "yo", "ra", "ri", "ru", "re", "ro", "wa",
+    "wa", "wi", "we", "wo", "n ", "vu", "ka", "ke",
 ];
 
 // half-width katakana ｦ (U+FF66) … ﾝ (U+FF9D): the sound's first letter
@@ -813,13 +812,16 @@ impl Retro {
                 Seg::Text { text, style, button, .. } => {
                     // a button that doesn't fit the rest of the row starts
                     // the next one whole (the game's button wrapping setting)
-                    let starts = button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
+                    let starts =
+                        button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
                     let used = rows.last().unwrap().len();
                     if con.button_wrap && starts && used > 0 {
                         let w: usize = line.segs[si..]
                             .iter()
                             .map_while(|s2| match s2 {
-                                Seg::Text { text: t2, button: b2, .. } if b2 == button => Some(t2.chars().map(|c| if c == '\t' { 4 } else { emu_width(c) }).sum::<usize>()),
+                                Seg::Text { text: t2, button: b2, .. } if b2 == button => {
+                                    Some(t2.chars().map(|c| if c == '\t' { 4 } else { emu_width(c) }).sum::<usize>())
+                                }
                                 _ => None,
                             })
                             .sum();
@@ -934,7 +936,16 @@ impl Retro {
         let mut chunks = Vec::new();
         let mut count = 0;
         if !con.cur.is_empty() {
-            let l = Line { segs: con.cur.clone(), align: con.cur_align.unwrap_or(con.align), gen: con.gen, temporary: false, cols: self.cols, kojo: false, src: 0, wait: con.waits };
+            let l = Line {
+                segs: con.cur.clone(),
+                align: con.cur_align.unwrap_or(con.align),
+                gen: con.gen,
+                temporary: false,
+                cols: self.cols,
+                kojo: false,
+                src: 0,
+                wait: con.waits,
+            };
             let r = self.layout(&l, con, self.cols);
             count += r.len();
             chunks.push(r);
@@ -1203,13 +1214,7 @@ impl Retro {
                 }
             }
         }
-        if let Some((n, k)) = self
-            .keys
-            .iter()
-            .filter(|(s, _)| self.pending.starts_with(s))
-            .max_by_key(|(s, _)| s.len())
-            .map(|(s, k)| (s.len(), k))
-        {
+        if let Some((n, k)) = self.keys.iter().filter(|(s, _)| self.pending.starts_with(s)).max_by_key(|(s, _)| s.len()).map(|(s, k)| (s.len(), k)) {
             let k = match k {
                 Key::Up => Key::Up,
                 Key::Down => Key::Down,
@@ -1247,7 +1252,13 @@ impl Retro {
             b if (0x20..0x7f).contains(&b) => Key::Char(b as char),
             b if b >= 0xc0 => {
                 // UTF-8 from a modern terminal: take the whole character
-                let need = if b >= 0xf0 { 3 } else if b >= 0xe0 { 2 } else { 1 };
+                let need = if b >= 0xf0 {
+                    3
+                } else if b >= 0xe0 {
+                    2
+                } else {
+                    1
+                };
                 let mut bytes = vec![b];
                 while bytes.len() <= need && !self.pending.is_empty() {
                     bytes.push(self.pending.remove(0));

@@ -54,13 +54,57 @@ pub fn is_system_str_var(n: &str) -> bool {
     }
     matches!(
         n,
-        "STR" | "SAVESTR" | "RESULTS" | "TSTR" | "LOCALS" | "ARGS" | "GLOBALS" | "NAME" | "CALLNAME" | "NICKNAME"
-            | "MASTERNAME" | "CSTR" | "DRAWLINESTR" | "WINDOW_TITLE" | "MONEYLABEL" | "GAMEBASE_AUTHOR"
-            | "GAMEBASE_INFO" | "GAMEBASE_YEAR" | "GAMEBASE_TITLE" | "LASTLOAD_TEXT" | "SAVEDATA_TEXT"
-            | "ABLNAME" | "TALENTNAME" | "EXPNAME" | "MARKNAME" | "PALAMNAME" | "TRAINNAME" | "BASENAME"
-            | "SOURCENAME" | "EXNAME" | "ITEMNAME" | "EQUIPNAME" | "TEQUIPNAME" | "FLAGNAME" | "TFLAGNAME"
-            | "CFLAGNAME" | "TCVARNAME" | "CSTRNAME" | "STAINNAME" | "STRNAME" | "TSTRNAME" | "SAVESTRNAME"
-            | "GLOBALNAME" | "GLOBALSNAME" | "DAYNAME" | "TIMENAME" | "MONEYNAME" | "CDFLAGNAME1" | "CDFLAGNAME2" | "TSTRNAME_" | "STR_"
+        "STR"
+            | "SAVESTR"
+            | "RESULTS"
+            | "TSTR"
+            | "LOCALS"
+            | "ARGS"
+            | "GLOBALS"
+            | "NAME"
+            | "CALLNAME"
+            | "NICKNAME"
+            | "MASTERNAME"
+            | "CSTR"
+            | "DRAWLINESTR"
+            | "WINDOW_TITLE"
+            | "MONEYLABEL"
+            | "GAMEBASE_AUTHOR"
+            | "GAMEBASE_INFO"
+            | "GAMEBASE_YEAR"
+            | "GAMEBASE_TITLE"
+            | "LASTLOAD_TEXT"
+            | "SAVEDATA_TEXT"
+            | "ABLNAME"
+            | "TALENTNAME"
+            | "EXPNAME"
+            | "MARKNAME"
+            | "PALAMNAME"
+            | "TRAINNAME"
+            | "BASENAME"
+            | "SOURCENAME"
+            | "EXNAME"
+            | "ITEMNAME"
+            | "EQUIPNAME"
+            | "TEQUIPNAME"
+            | "FLAGNAME"
+            | "TFLAGNAME"
+            | "CFLAGNAME"
+            | "TCVARNAME"
+            | "CSTRNAME"
+            | "STAINNAME"
+            | "STRNAME"
+            | "TSTRNAME"
+            | "SAVESTRNAME"
+            | "GLOBALNAME"
+            | "GLOBALSNAME"
+            | "DAYNAME"
+            | "TIMENAME"
+            | "MONEYNAME"
+            | "CDFLAGNAME1"
+            | "CDFLAGNAME2"
+            | "TSTRNAME_"
+            | "STR_"
     )
 }
 
@@ -69,17 +113,52 @@ pub fn is_system_str_var(n: &str) -> bool {
 enum Ctl {
     /// `test`: the pending JumpIfNot of the current IF/ELSEIF branch;
     /// `ends`: jumps from the end of each branch to ENDIF.
-    If { test: Option<usize>, ends: Vec<usize> },
-    Select { slot: usize, test: Option<usize>, ends: Vec<usize>, first: bool },
-    For { begin: usize, slot: usize, var: Rc<VarRef>, breaks: Vec<usize>, conts: Vec<usize> },
-    While { top: usize, test: usize, breaks: Vec<usize>, conts: Vec<usize> },
-    Do { top: usize, breaks: Vec<usize>, conts: Vec<usize> },
+    If {
+        test: Option<usize>,
+        ends: Vec<usize>,
+    },
+    Select {
+        slot: usize,
+        test: Option<usize>,
+        ends: Vec<usize>,
+        first: bool,
+    },
+    For {
+        begin: usize,
+        slot: usize,
+        var: Rc<VarRef>,
+        breaks: Vec<usize>,
+        conts: Vec<usize>,
+    },
+    While {
+        top: usize,
+        test: usize,
+        breaks: Vec<usize>,
+        conts: Vec<usize>,
+    },
+    Do {
+        top: usize,
+        breaks: Vec<usize>,
+        conts: Vec<usize>,
+    },
     /// TRYC*… CATCH … ENDCATCH: `call` gets its catch target patched.
-    TryC { call: usize, ends: Vec<usize> },
+    TryC {
+        call: usize,
+        ends: Vec<usize>,
+    },
     /// PRINTDATA (`flags`) / STRDATA (`var`): collects DATA lines until
     /// ENDDATA; DATALIST…ENDLIST groups several lines into one entry.
-    Data { var: Option<Rc<VarRef>>, flags: Option<PrintFlags>, entries: Vec<Vec<Form>>, list: Option<Vec<Form>> },
-    CallList { kind: CallKind, goto: bool, entries: Vec<(CallTarget, Vec<Expr>)> },
+    Data {
+        var: Option<Rc<VarRef>>,
+        flags: Option<PrintFlags>,
+        entries: Vec<Vec<Form>>,
+        list: Option<Vec<Form>>,
+    },
+    CallList {
+        kind: CallKind,
+        goto: bool,
+        entries: Vec<(CallTarget, Vec<Expr>)>,
+    },
 }
 
 /// The function being compiled.
@@ -279,7 +358,10 @@ impl LazySrc {
             let mut q = lock(&ctx.parser).fork();
             q.parse_erb_text(self.file, &file.rel, &crate::loader::decode(&raw), None);
             let mut errors = lock(&ctx.errors);
-            errors.push(format!("{} changed since the game was loaded: its functions are read as they are now when they first run (F5 reloads all the scripts)", file.rel));
+            errors.push(format!(
+                "{} changed since the game was loaded: its functions are read as they are now when they first run (F5 reloads all the scripts)",
+                file.rel
+            ));
             errors.append(&mut q.prog.errors);
             LAZY_ERRORS.store(true, std::sync::atomic::Ordering::Relaxed);
             changed.push((self.file, std::mem::take(&mut q.prog.funcs)));
@@ -317,11 +399,8 @@ fn strip_comment(s: &str) -> &str {
 
 /// Split "CMD rest" -> (CMD uppercase, rest after exactly one separator char).
 fn split_cmd(line: &str) -> (String, &str) {
-    let end = line
-        .char_indices()
-        .find(|(_, c)| c.is_whitespace() || *c == '\u{3000}' || (!crate::expr::is_ident_char(*c)))
-        .map(|(i, _)| i)
-        .unwrap_or(line.len());
+    let end =
+        line.char_indices().find(|(_, c)| c.is_whitespace() || *c == '\u{3000}' || (!crate::expr::is_ident_char(*c))).map(|(i, _)| i).unwrap_or(line.len());
     let cmd = line[..end].to_uppercase();
     let mut rest = &line[end..];
     if let Some(c) = rest.chars().next() {
@@ -410,8 +489,21 @@ fn keeps_line_end(line: &str) -> bool {
 fn raw_arg_cmd(cmd: &str) -> bool {
     matches!(
         cmd,
-        "DATA" | "CUSTOMDRAWLINE" | "ALIGNMENT" | "STRLEN" | "STRLENU" | "TIMES" | "DEBUGPRINT" | "DEBUGPRINTL"
-            | "SETCOLORBYNAME" | "SETBGCOLORBYNAME" | "BEGIN" | "SORTCHARA" | "PRINTBUTTONS" | "DOTRAIN_" | "BITMAP_CACHE_ENABLE"
+        "DATA"
+            | "CUSTOMDRAWLINE"
+            | "ALIGNMENT"
+            | "STRLEN"
+            | "STRLENU"
+            | "TIMES"
+            | "DEBUGPRINT"
+            | "DEBUGPRINTL"
+            | "SETCOLORBYNAME"
+            | "SETBGCOLORBYNAME"
+            | "BEGIN"
+            | "SORTCHARA"
+            | "PRINTBUTTONS"
+            | "DOTRAIN_"
+            | "BITMAP_CACHE_ENABLE"
     )
 }
 
@@ -419,8 +511,17 @@ fn raw_arg_cmd(cmd: &str) -> bool {
 fn form_arg_cmd(cmd: &str) -> bool {
     matches!(
         cmd,
-        "DATAFORM" | "THROW" | "DRAWLINEFORM" | "STRLENFORM" | "STRLENFORMU" | "PUTFORM" | "REUSELASTLINE"
-            | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "ENCODETOUNI" | "SAVENOS_"
+        "DATAFORM"
+            | "THROW"
+            | "DRAWLINEFORM"
+            | "STRLENFORM"
+            | "STRLENFORMU"
+            | "PUTFORM"
+            | "REUSELASTLINE"
+            | "DEBUGPRINTFORM"
+            | "DEBUGPRINTFORML"
+            | "ENCODETOUNI"
+            | "SAVENOS_"
     )
 }
 
@@ -875,7 +976,8 @@ impl Parser {
                 params.push(Param { target: v, default });
             }
         }
-        let kojo = name.contains("KOJO") || self.prog.files.get(file_idx as usize).is_some_and(|p| p.contains("口上") || p.to_ascii_lowercase().contains("kojo"));
+        let kojo =
+            name.contains("KOJO") || self.prog.files.get(file_idx as usize).is_some_and(|p| p.contains("口上") || p.to_ascii_lowercase().contains("kojo"));
         Ok(FuncBuilder {
             soft_error: None,
             body: Body::default(),
@@ -1056,7 +1158,10 @@ impl Parser {
             b.ctl.push(Ctl::Data { var, flags: None, entries: vec![], list: None });
             return Ok(());
         }
-        if !matches!(cmd.as_str(), "PRINTBUTTON" | "PRINTBUTTONC" | "PRINTBUTTONLC" | "PRINT_IMG" | "PRINT_RECT" | "PRINT_SPACE" | "PRINTCPERLINE" | "PRINTCLENGTH") {
+        if !matches!(
+            cmd.as_str(),
+            "PRINTBUTTON" | "PRINTBUTTONC" | "PRINTBUTTONLC" | "PRINT_IMG" | "PRINT_RECT" | "PRINT_SPACE" | "PRINTCPERLINE" | "PRINTCLENGTH"
+        ) {
             if let Some((mid, fl)) = parse_print_name(&cmd) {
                 let content = match mid {
                     'R' => PrintContent::Raw(rest.to_string()),
@@ -1245,7 +1350,11 @@ impl Parser {
                 for c in b.ctl.iter_mut().rev() {
                     match c {
                         Ctl::For { breaks, conts, .. } | Ctl::While { breaks, conts, .. } | Ctl::Do { breaks, conts, .. } => {
-                            if cmd == "BREAK" { breaks.push(j) } else { conts.push(j) }
+                            if cmd == "BREAK" {
+                                breaks.push(j)
+                            } else {
+                                conts.push(j)
+                            }
                             found = true;
                             break;
                         }
@@ -1257,8 +1366,8 @@ impl Parser {
                 }
                 Self::after_stmt(b);
             }
-            "CALL" | "JUMP" | "TRYCALL" | "TRYJUMP" | "CALLF" | "TRYCALLF" | "CALLFORM" | "JUMPFORM" | "TRYCALLFORM"
-            | "TRYJUMPFORM" | "CALLFORMF" | "TRYCALLFORMF" | "TRYCCALL" | "TRYCJUMP" | "TRYCCALLFORM" | "TRYCJUMPFORM" => {
+            "CALL" | "JUMP" | "TRYCALL" | "TRYJUMP" | "CALLF" | "TRYCALLF" | "CALLFORM" | "JUMPFORM" | "TRYCALLFORM" | "TRYJUMPFORM" | "CALLFORMF"
+            | "TRYCALLFORMF" | "TRYCCALL" | "TRYCJUMP" | "TRYCCALLFORM" | "TRYCJUMPFORM" => {
                 let form = cmd.contains("FORM");
                 let (target, args) = self.call_target(arg_c, form)?;
                 let kind = if cmd.contains("JUMP") {
@@ -1557,7 +1666,11 @@ impl Parser {
     }
 
     fn expr_or_zero(&self, s: &str) -> Result<Expr, String> {
-        if s.is_empty() { Ok(Expr::Int(0)) } else { self.expr(s) }
+        if s.is_empty() {
+            Ok(Expr::Int(0))
+        } else {
+            self.expr(s)
+        }
     }
 
     fn var(&self, s: &str) -> Result<Rc<VarRef>, String> {
@@ -1638,11 +1751,7 @@ impl Parser {
             }
         }
         let name = s[..end].trim();
-        let target = if form {
-            CallTarget::Form(upper_form(parse_form(name, &self.prog.defines)?))
-        } else {
-            CallTarget::Static(name.to_uppercase())
-        };
+        let target = if form { CallTarget::Form(upper_form(parse_form(name, &self.prog.defines)?)) } else { CallTarget::Static(name.to_uppercase()) };
         let mut argsrc = s[end..].trim();
         if paren {
             argsrc = argsrc[1..].trim_end();
@@ -1650,20 +1759,12 @@ impl Parser {
         } else if let Some(r) = argsrc.strip_prefix(',') {
             argsrc = r;
         }
-        let args = if argsrc.trim().is_empty() {
-            vec![]
-        } else {
-            parse_expr_list(argsrc, &self.prog.defines)?.into_iter().map(upper_expr).collect()
-        };
+        let args = if argsrc.trim().is_empty() { vec![] } else { parse_expr_list(argsrc, &self.prog.defines)?.into_iter().map(upper_expr).collect() };
         Ok((target, args))
     }
 
     fn goto_target(&self, s: &str, form: bool) -> Result<CallTarget, String> {
-        Ok(if form {
-            CallTarget::Form(upper_form(parse_form(s.trim(), &self.prog.defines)?))
-        } else {
-            CallTarget::Static(s.trim().to_uppercase())
-        })
+        Ok(if form { CallTarget::Form(upper_form(parse_form(s.trim(), &self.prog.defines)?)) } else { CallTarget::Static(s.trim().to_uppercase()) })
     }
 }
 

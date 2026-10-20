@@ -530,6 +530,14 @@ mod imp {
         use windows_sys::Win32::System::SystemInformation::GetLocalTime;
         let mut t = unsafe { std::mem::zeroed() };
         unsafe { GetLocalTime(&mut t) };
-        DateTime { y: t.wYear as i64, mo: t.wMonth as i64, d: t.wDay as i64, h: t.wHour as i64, mi: t.wMinute as i64, s: t.wSecond as i64, ms: t.wMilliseconds as i64 }
+        DateTime {
+            y: t.wYear as i64,
+            mo: t.wMonth as i64,
+            d: t.wDay as i64,
+            h: t.wHour as i64,
+            mi: t.wMinute as i64,
+            s: t.wSecond as i64,
+            ms: t.wMilliseconds as i64,
+        }
     }
 }
