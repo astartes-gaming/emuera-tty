@@ -616,7 +616,7 @@ impl Vm {
             "HTML_PRINT" => {
                 // (Emuera-Anchor: a FORM string's %…% names are translated)
                 let s = match a.first() {
-                    Some(Expr::Form(f)) if !self.csv.tr.is_empty() => self.eval_form_tr(f)?,
+                    Some(Expr::Form(f)) if self.csv.tr.active() => self.eval_form_tr(f)?,
                     _ => self.as_(a, 0, "")?,
                 };
                 self.html_print(&s);

@@ -91,14 +91,18 @@ Emuera-Anchor's translation files are read from the game's
 .I CSV/
 folder:
 .IR Abl_TR.csv ", " Talent_TR.csv ", ..."
-(\fIoriginal\fB,\fItranslation\fR lines) translate CSV names when they
-are printed,
+(\fIoriginal\fB,\fItranslation\fR lines, kept as written after the
+original's leading spaces; \fB;\fR starts a comment) translate CSV names
+when they are printed,
 .I ALL_TR.csv
 any other printed \fB%...%\fR value, and
 .I TRCHARA*.csv
 the characters' names.
 .B TR_NAME(\fIcode\fB, \fIindex or name\fB)
 gives scripts a translated name.
+Lines from a \fB{\fR line to a \fB}\fR line are read as one, as in Anchor.
+A \fI_TR.csv\fR line without exactly one comma, a misplaced \fB{\fR or \fB}\fR,
+or a name given twice, is reported when the game loads and skipped.
 .SH MANAGING SAVES
 \fBF1\fR \(-> \fBManage saves\fR lists the game's saves with their date and
 the comment Emuera shows. For one save: copy or move it to another slot,

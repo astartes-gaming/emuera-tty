@@ -57,7 +57,7 @@ Anchor folds constants with translation when it first builds a call. emuera-tty 
 
 ### D6. Lenient, warned TR loading
 
-As decided with the maintainer: malformed lines and duplicate keys become load warnings (first definition kept), shown like other load warnings, and the game starts. Values are no longer trimmed (Anchor doesn't trim). For keys, one trailing `\r` is removed (CRLF files) and nothing else. TRCHARA replaces only the fields a block gives; Anchor's blanking is not reproduced.
+As decided with the maintainer: malformed lines and duplicate keys become load warnings (first definition kept), shown like other load warnings, and the game starts. Values are no longer trimmed (Anchor doesn't trim). Lines are read as Anchor's EraStreamReader reads them, so files tested in Anchor read the same: split where .NET's ReadLine splits (`\r\n`, `\n`, a lone `\r`), white space (space, tab, U+3000) before the original dropped, `{` … `}` blocks joined into one line; nothing else is trimmed. One deliberate difference: a stray byte-order mark at a line's start is dropped too, where Anchor would keep it in a key that then never matches. TRCHARA replaces only the fields a block gives; Anchor's blanking is not reproduced.
 
 ### D7. PRINT_ABL & co. stay translated
 

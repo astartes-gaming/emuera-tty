@@ -268,6 +268,7 @@ impl GameCsv {
         g.charas.sort_by_key(|c| c.no);
         // Emuera-Anchor translations
         g.tr = crate::translate::Tr::load(csv_dir);
+        g.warnings.append(&mut g.tr.warnings);
         let w = crate::translate::apply_trchara(csv_dir, &mut g.charas);
         g.warnings.extend(w);
         // EmueraEE: *.ERD name tables for user variables.

@@ -547,8 +547,15 @@ settings.
 Games translated with Emuera-Anchor's system play translated here too:
 
 - `Abl_TR.csv`, `Talent_TR.csv`, `Item_TR.csv`… (any CSV name table, also
-  `Palam`/`Param`, `Str`, `CSTR`, `Flag`…): `original,translation` lines,
-  `;` starts a comment. A name is translated when it is printed
+  `Palam`/`Param`, `Str`, `CSTR`, `Flag`…) in the `CSV/` folder itself
+  (not its subfolders, as Anchor): `original,translation` lines, `;`
+  starts a comment. As in Anchor, only spaces before the original are
+  dropped: `技巧, Technique` translates to " Technique", which some games
+  use for alignment. Lines from a `{` line to a `}` line are read as
+  one, as Anchor's file reader does. A line without exactly one comma, a
+  misplaced `{` or `}`, or a name given twice, is shown as a warning when the game loads (with the file and
+  line) and skipped; Anchor refuses to start the game instead.
+  A name is translated when it is printed
   (`%ABLNAME:2%`, PRINTS, PRINT_ABL, the TRAIN command list, the shop),
   not when a script stores or compares it, so the scripts keep working
   on the original names and saves stay as Emuera writes them.

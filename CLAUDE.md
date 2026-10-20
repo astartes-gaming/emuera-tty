@@ -9,18 +9,26 @@ emuera-tty and Emuera.
 
 ## Dependencies
 
-Package names are Debian/Ubuntu's.
+Package names are Debian/Ubuntu's (Fedora's where they differ).
 
-- **Building:** Rust from rustup (stable; developed on 1.99) and git. Crate
+- **Building:** stable Rust (developed on 1.99) and git. Crate
   dependencies come through cargo; there are no system libraries to
-  install. `rust-toolchain.toml` makes rustup add clippy and rustfmt.
-  Some systems ship older Rust: the clippy lints whose suggestions need
-  Rust 1.87+ are turned off in `Cargo.toml`, so don't reach for newer std
-  APIs casually.
+  install. Some systems ship older Rust: the clippy lints whose
+  suggestions need Rust 1.87+ are turned off in `Cargo.toml`, so don't
+  reach for newer std APIs casually.
+- **Development tools:** clippy (`cargo clippy`, the linter) and rustfmt
+  (`cargo fmt`, the formatter). With rustup, `rust-toolchain.toml`
+  installs both on the first `cargo` run here. With the distribution's
+  Rust (`rustc` + `cargo` packages), install the `rust-clippy` and
+  `rustfmt` packages (Fedora: `clippy`, `rustfmt`). Run `cargo fmt`
+  before committing (settings in `rustfmt.toml`); the one-time reformat
+  is in `.git-blame-ignore-revs`, which `git config blame.ignoreRevsFile
+  .git-blame-ignore-revs` makes `git blame` skip. There are no
+  `[dev-dependencies]` crates: the tests use only std.
 - **The test scripts in `tools/`:** Python 3 and pyte (`python3-pyte`,
-  or `pip install pyte`) for `gamed.py` and `console_mouse.py`;
-  `savdiff.py` needs only Python 3. `gamed.py` reads `/proc`, so it runs
-  on Linux only.
+  or `pip install -r tools/requirements.txt`) for `gamed.py` and
+  `console_mouse.py`; `savdiff.py` needs only Python 3. `gamed.py` reads
+  `/proc`, so it runs on Linux only.
 - **Other CPUs:** `rustup target add <target>` (musl targets, e.g.
   `arm-unknown-linux-musleabihf`, `riscv64gc-unknown-linux-musl`);
   `rust-lld` comes with the rustup toolchain. Running them needs
@@ -175,6 +183,13 @@ with a very large stack.
   the source, the source wins. Emuera itself can't run on Linux here (no
   .NET/Wine), so compatibility is checked against its source and against
   files it wrote.
+- **Bug-for-bug only where games need it.** Copy Emuera's (or Anchor's)
+  behaviour, quirks included, where not doing so would make a game not
+  work or not work as expected. Otherwise differing to fix a bug or do
+  the right thing is fine, as long as saves stay compatible both ways and
+  nothing the games rely on in Emuera breaks. Record every deliberate
+  difference with its reason: Anchor's in `doc/anchor.md` (*Deliberate
+  differences*), EM/EE's in `doc/differences.md`.
 - **Saves are byte-compatible with Emuera, both ways.** Players switch
   between Emuera.exe and emuera-tty on the same saves. Never write anything
   Emuera can't load. Any change near `vm/save.rs`, `erasav.rs`,

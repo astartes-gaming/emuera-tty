@@ -7,14 +7,14 @@ Plays games translated with Emuera-Anchor's `*_TR.csv` system the way Anchor sho
 ## ADDED Requirements
 
 ### Requirement: Translation only in translated games
-All behaviour in this capability SHALL apply only when the game's CSV folder (or a subfolder) holds at least one `*_TR.csv` or `TRCHARA*.csv` file. A game without them SHALL behave exactly as if this capability did not exist.
+All behaviour in this capability SHALL apply only when the game has at least one `*_TR.csv` file in its CSV folder itself, or a `TRCHARA*.csv` file in the CSV folder or a subfolder. A game without them SHALL behave exactly as if this capability did not exist.
 
 #### Scenario: Game without TR files
 - **WHEN** a game with no `*_TR.csv` or `TRCHARA*.csv` runs `LOCALS '= TALENTNAME:5` and `PRINTFORML %LOCALS%`
 - **THEN** LOCALS holds the Talent.csv name and the printed line is that name
 
 ### Requirement: TR table files
-A file `<TABLE>_TR.csv` SHALL translate the CSV name table it names. `<TABLE>` is one of Abl, Talent, Exp, Mark, Palam, Param, Item, Train, Base, Source, Ex, EQUIP, TEQUIP, Flag, TFLAG, Cflag, Tcvar, CSTR, Stain, Cdflag1, Cdflag2, Str, TSTR, SaveStr, GLOBAL, GLOBALS or ALL, matched case-insensitively. Each line is `original,translation`. Text from `;` on is a comment. Neither side is trimmed.
+A file `<TABLE>_TR.csv` in the CSV folder itself, not its subfolders, SHALL translate the CSV name table it names. `<TABLE>` is one of Abl, Talent, Exp, Mark, Palam, Param, Item, Train, Base, Source, Ex, EQUIP, TEQUIP, Flag, TFLAG, Cflag, Tcvar, CSTR, Stain, Cdflag1, Cdflag2, Str, TSTR, SaveStr, GLOBAL, GLOBALS or ALL, matched case-insensitively. Each line is `original,translation`. Text from `;` on is a comment. Only white space before the original is dropped.
 
 #### Scenario: Comment and untrimmed value
 - **WHEN** `Abl_TR.csv` holds `技巧, Technique; skill`
@@ -24,8 +24,16 @@ A file `<TABLE>_TR.csv` SHALL translate the CSV name table it names. `<TABLE>` i
 - **WHEN** a line starts with `;`
 - **THEN** it is skipped
 
+#### Scenario: Indented line
+- **WHEN** a line reads `  感覚,Sense `
+- **THEN** the key `感覚` maps to `Sense ` (Anchor's line reader skips leading white space, nothing else)
+
+#### Scenario: TR file in a subfolder
+- **WHEN** the game has `CSV/sub/Talent_TR.csv` and no other TR files
+- **THEN** it is not read, and the game counts as untranslated
+
 ### Requirement: TR file problems are warnings
-A line without exactly one comma (after the comment is removed), or a key already defined in the same file, SHALL produce a load warning naming the file and line. The game SHALL still start. A bad line SHALL be skipped, and for duplicates the first definition SHALL be kept.
+A line without exactly one comma (after the comment is removed), a misplaced `{` or `}` line, or a key already defined in the same file, SHALL produce a load warning naming the file and line. The game SHALL still start. A bad line SHALL be skipped, and for duplicates the first definition SHALL be kept.
 
 #### Scenario: Duplicate key
 - **WHEN** `Talent_TR.csv` defines `処女` twice
@@ -34,6 +42,10 @@ A line without exactly one comma (after the comment is removed), or a key alread
 #### Scenario: Line with two commas
 - **WHEN** a line reads `a,b,c`
 - **THEN** a warning names the file and line, and the line is ignored
+
+#### Scenario: Joined lines
+- **WHEN** a `{` line, the lines `技巧,` and `Technique`, and a `}` line follow each other
+- **THEN** they are read as one line `技巧, Technique ` (a space after each), as Anchor's EraStreamReader joins them
 
 ### Requirement: Translate flag
 Each string evaluation SHALL run with a translate flag. The flag SHALL be on for statements the engine runs, including in CALLed, JUMPed and event functions. A statement SHALL evaluate its arguments with the flag only if it is: a PRINT-family statement other than plain `PRINT text`, PRINTDATA, HTML_PRINT, a string assignment, or RETURNF. PRINTPLAIN / PRINTPLAINFORM SHALL always translate. Every other evaluation SHALL run with the flag off.

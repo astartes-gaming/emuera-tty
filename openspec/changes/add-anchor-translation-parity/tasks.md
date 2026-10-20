@@ -3,14 +3,14 @@
 ## 1. Test scaffolding
 
 - [x] 1.1 Move the inline-game helpers from `tests/sample_selftest.rs` (`run`, plus a new `game(dir, files: &[(&str, &str)])` that writes CSV/ERB files into a temp dir) into `tests/common/mod.rs`, and use them from `sample_selftest.rs`. Verify: `cargo test` passes with the same three tests.
-- [x] 1.2 Record a baseline in `../emuera-tty-baseline/` (see its `BASELINE.md`): `--headless` output of `sample/`, AnonTW and eraTohoK (no TR files), 800 seeded random inputs each through `drive.py`, with the before binary kept as `bin/emuera-tty.before`. Follow CLAUDE.md's *Testing beyond `cargo test`* rules: scratch copies, one memory-capped process at a time. Also record pops-tw, which ships Anchor TR files and TRCHARA, as a "before" snapshot: a 40-step `tools/gamed.py` session replayed by `replay.sh` (its title can't be passed headless). It is not reproducible, because its random numbers drift with wall time in the TUI. Verify: two runs of each headless game are identical under `compare.sh`, and the pops-tw transcript and slot-1 save exist.
+- [x] 1.2 Record a baseline in `../emuera-tty-baseline/` (see its `BASELINE.md`): `--headless` output of AnonTW and eraTohoK (no TR files; `sample/` too, for reference, though it has TR files), 800 seeded random inputs each through `drive.py`, with the before binary kept as `bin/emuera-tty.before`. Follow CLAUDE.md's *Testing beyond `cargo test`* rules: scratch copies, one memory-capped process at a time. Also record pops-tw, which ships Anchor TR files and TRCHARA, as a "before" snapshot: a 40-step `tools/gamed.py` session replayed by `replay.sh` (its title can't be passed headless). It is not reproducible, because its random numbers drift with wall time in the TUI. Verify: two runs of each headless game are identical under `compare.sh`, and the pops-tw transcript and slot-1 save exist.
 
 ## 2. TR table loading (spec: TR table files, TR file problems are warnings; design D6)
 
-- [ ] 2.1 In `src/translate.rs`, stop trimming keys and values (drop only one trailing `\r`), match `<TABLE>_TR.csv` names case-insensitively, and collect load warnings for lines without exactly one comma and for duplicate keys (first kept). Show them like the other load warnings. Verify: unit tests for an untrimmed value, a comment, a duplicate key and a two-comma line.
-- [ ] 2.2 Remove `Tr::name`'s fallback to ALL, and keep ALL available as its own lookup. Verify: the unit test "No ALL fallback for a name read" passes, and the existing `tr_files` test is updated to match.
-- [ ] 2.3 Add the gate the specs share: one `Vm` / `csvdata` predicate "game has TR or TRCHARA files". Verify: a test game without TR files gives `LOCALS '= TALENTNAME:5` and prints the CSV name (scenario "Game without TR files").
-- [ ] 2.4 README "Translated games": document the warnings and the untrimmed values. Verify: the text matches the implemented messages.
+- [x] 2.1 In `src/translate.rs`, stop trimming keys and values (drop only one trailing `\r`), match `<TABLE>_TR.csv` names case-insensitively, and collect load warnings for lines without exactly one comma and for duplicate keys (first kept). Show them like the other load warnings. Verify: unit tests for an untrimmed value, a comment, a duplicate key and a two-comma line.
+- [x] 2.2 Remove `Tr::name`'s fallback to ALL, and keep ALL available as its own lookup. Verify: the unit test "No ALL fallback for a name read" passes, and the existing `tr_files` test is updated to match.
+- [x] 2.3 Add the gate the specs share: one `Vm` / `csvdata` predicate "game has TR or TRCHARA files". Verify: a test game without TR files gives `LOCALS '= TALENTNAME:5` and prints the CSV name (scenario "Game without TR files").
+- [x] 2.4 README "Translated games": document the warnings and the untrimmed values. Verify: the text matches the implemented messages.
 
 ## 3. The translate flag (spec: Translate flag, Translated string assignment, Flag passed through expressions, What a flagged read translates; design D1, D2, D9)
 
@@ -57,7 +57,7 @@
 
 ## 10. Integration
 
-- [ ] 10.1 Compare against the task 1.2 baseline: `./run.sh <new binary> GAME after` for `sample`, `anon-tw` and `eraTohoK`, then `compare.sh` against each `a` run. Verify: all three report "same".
+- [ ] 10.1 Compare against the task 1.2 baseline: `./run.sh <new binary> GAME after` for `anon-tw` and `eraTohoK` (the games without TR files; `sample/` has TR files and is checked by its self-test), then `compare.sh` against each `a` run. Verify: both report "same".
 - [ ] 10.2 Run `cargo test`, `cargo clippy` (no new warnings), and `cargo check --target x86_64-pc-windows-msvc` and one big-endian target (`powerpc64-unknown-linux-musl`). Verify: all succeed.
 - [ ] 10.3 Run `replay.sh <new binary> after` for pops-tw and read its screens side by side with `out/pops-tw.a.txt`, noting anything Anchor would translate that is still untranslated, and anything translated that Anchor wouldn't. Random numbers differ between runs, so ignore differences in weather, shop stock and similar. Load and re-save `out/pops-tw.after.sav` and compare with `tools/savdiff.py`, keeping the same noise in mind. If a player can supply a save Anchor wrote in pops-tw, load it, re-save it and compare: string values translated in one and not the other point to a gap in the translate-flag rules. Verify: notes in the PR, with each problem either fixed or filed.
 - [ ] 10.4 Update `doc/anchor.md`: mark each gap closed, and add anything learned in 10.3. Verify: no "Gap:" lines remain except those the proposal leaves out of scope.

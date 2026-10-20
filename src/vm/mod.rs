@@ -1193,17 +1193,19 @@ impl Vm {
     }
 
     /// Emuera-Anchor: a printed `%…%` value, translated — a CSV name
-    /// (`%ABLNAME:2%`) through its table's *_TR.csv, anything else
-    /// through ALL_TR.csv.
+    /// (`%ABLNAME:2%`) through its table's *_TR.csv, then (as Anchor's
+    /// FormatPercent) the value through ALL_TR.csv.
     fn translated(&self, e: &Expr, s: String) -> String {
         let tr = &self.csv.tr;
-        if tr.is_empty() {
+        if !tr.active() {
             return s;
         }
         if let Expr::Var(v) = e {
             if v.name.ends_with("NAME") {
                 if let Some(t) = crate::csvdata::table_for_var(&v.name) {
-                    return tr.name(t, &s).map(str::to_string).unwrap_or(s);
+                    if let Some(n) = tr.name(t, &s) {
+                        return n.to_string();
+                    }
                 }
             }
         }
@@ -1559,7 +1561,7 @@ impl Vm {
                 let s = match content {
                     PrintContent::Raw(s) => s.clone(),
                     // (Emuera-Anchor: printed names are translated)
-                    PrintContent::Form(fm) if !self.csv.tr.is_empty() => self.eval_form_tr(fm)?,
+                    PrintContent::Form(fm) if self.csv.tr.active() => self.eval_form_tr(fm)?,
                     PrintContent::Form(fm) => self.eval_form(fm)?,
                     PrintContent::Expr(e) => {
                         let s = self.eval_str(e)?;
@@ -1586,7 +1588,7 @@ impl Vm {
                             text.push('\n');
                         }
                         first = false;
-                        if self.csv.tr.is_empty() {
+                        if !self.csv.tr.active() {
                             text.push_str(&self.eval_form(l)?);
                         } else {
                             self.eval_form_into(l, &mut text, true)?;

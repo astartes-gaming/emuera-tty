@@ -1,0 +1,4 @@
+# Python packages for the test tools: `pip install -r tools/requirements.txt`
+# (or the distribution's package: python3-pyte). gamed.py and
+# console_mouse.py read the terminal screen with it; savdiff.py needs none.
+pyte

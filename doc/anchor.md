@@ -19,16 +19,24 @@ lacks parts of them.
   subfolders): `Abl Talent Exp Mark Palam Param Item Train Base Source Ex
   EQUIP TEQUIP Flag TFLAG Cflag Tcvar CSTR Stain Cdflag1 Cdflag2 Str TSTR
   SaveStr GLOBAL GLOBALS ALL` + `_TR.csv`.
+- Lines come from `EraStreamReader.ReadEnabledLine` (`Sub/EraStreamReader.cs:62`):
+  split by .NET's ReadLine (`\r\n`, `\n` or a lone `\r`), blank lines
+  skipped, white space (space, tab, U+3000) before the text dropped, and
+  the lines from a `{` line to a `}` line joined, a space after each. A
+  `{` line holding anything else, a stray `}`, a `{` inside a block or a
+  missing `}` is an error.
 - A line is `original,translation`. Text after `;` is a comment, and a
-  line starting with `;` is skipped. Neither side is trimmed.
+  line starting with `;` is skipped. Nothing else is trimmed.
 - A line without exactly one comma, or a key given twice, is an
   exception: **the game does not start**.
 - A `_TR.csv` for any other table is ignored. pops-tw ships
   `Juel_TR.csv`, which Anchor never reads (Juel isn't in the list).
 
-emuera-tty (`src/translate.rs`): also reads subfolders, trims both sides
-and a trailing comma, keeps the first of two duplicate keys, and gives no
-warnings. *Gap: only the warnings; see design D6.*
+emuera-tty (`src/translate.rs` `enabled_lines`, `Tr::load`): the same,
+except that every error above is a load warning naming the file and line,
+the line or block is skipped (the first of two duplicate keys is kept),
+and the game starts; and a stray byte-order mark at a line's start is
+dropped. See *Deliberate differences* below.
 
 ## 2. When a name is translated: the translate flag
 
@@ -196,6 +204,24 @@ original or "" instead of an error. *Gap: the errors.*
   are Windows UI; emuera-tty's own messages are English already.
 - Number parsing that ignores the Windows locale. A .NET bug; it doesn't
   apply to Rust.
+
+## Deliberate differences
+
+Where emuera-tty does something other than Anchor on purpose, and why.
+The rule: copy Anchor where not doing so would make a game not work, or
+not work as expected; differ to fix a bug or do the right thing, as long
+as saves stay compatible both ways and nothing the games rely on in
+Anchor breaks. Differences from Emuera-EM/EE are in
+[differences.md](differences.md).
+
+| What | Anchor | emuera-tty | Why |
+|---|---|---|---|
+| Games without `*_TR.csv` / `TRCHARA*.csv` | the translation machinery always runs (the translate flag, the memory, `PARAM`→`PALAM` renaming) | none of it runs (`Tr::active`) | Such games then behave exactly as in Emuera-EM/EE, output and saves byte for byte (design D8) |
+| A malformed TR line (not one comma, misplaced `{` / `}`) or a key given twice (§1) | the game does not start | a load warning with file and line; the line or block is skipped, the first key kept | One bad line costs one translation instead of the whole game (design D6) |
+| A byte-order mark at the start of a line other than the first (§1) | kept, as part of the key | dropped | A key starting with an invisible BOM can never match: files pasted together would silently lose a translation |
+| A TRCHARA block without NAME, CALLNAME, NICKNAME or MASTERNAME (§6) | that field is set to "" | the CSV value is kept | Anchor's blanking erases names the translator didn't mean to touch (design D6) |
+| PRINT_ABL / TALENT / MARK / EXP (§8) | the CSV names, untranslated | translated | Display only: a translated game looks translated, and scripts never see these strings (design D7) |
+| `PARAM`→`PALAM` renaming (§5) | in every game | only in games with `PARAM.CSV` or TR files | Keeps every other game byte-identical; games that need the renaming have one of those (design D8) |
 
 ## Shared with Emuera-EE, partly missing in emuera-tty
 
