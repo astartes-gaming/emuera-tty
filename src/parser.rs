@@ -1023,8 +1023,10 @@ impl Parser {
                 .collect();
             self.prog.errors.push(format!("{}: @{}: unclosed block(s): {}", path, b.f.name, kinds.join(", ")));
         }
-        // falling off the end returns without touching RESULT
-        b.emit(Instr::ReturnF(None));
+        // falling off the end is RETURN 0, as in Emuera (RESULT = 0; not
+        // for a #FUNCTION): games test RESULT after functions that only
+        // RETURN 1 on a match (AnonTW's ITEMDATA item filters)
+        b.emit(if b.f.is_function { Instr::ReturnF(None) } else { Instr::Return(Vec::new()) });
         // the program is kept for the whole run: no spare capacity
         b.body.code.shrink_to_fit();
         b.body.lines.shrink_to_fit();
