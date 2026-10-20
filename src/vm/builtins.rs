@@ -3251,13 +3251,18 @@ impl Vm {
             }),
             "CURRENTREDRAW" => i(self.con.redraw as i64),
             "CHKFONT" => i(1),
-            "MESSKIP" => i(self.mes_skip as i64),
+            // (MOUSESKIP: Emuera's old name for it)
+            "MESSKIP" | "MOUSESKIP" => i(self.mes_skip as i64),
             // pixels from the window's bottom-left (y is negative)
             "MOUSEX" | "MOUSEY" => {
                 let (x, y) = self.fe.mouse_cell().map(|c| self.cell_px(c)).unwrap_or((0, 0));
                 i(if name == "MOUSEX" { x } else { y })
             }
-            "ISSKIP" | "MOUSESKIP" | "GETKEY" | "GETKEYTRIGGERED" | "MOUSEB" => i(0),
+            // Emuera's ISSKIP is SKIPDISP's state (Process.SkipPrint), not
+            // message skipping: AnonTW's hidden command checks print only
+            // when it is off (and pop the line being printed otherwise)
+            "ISSKIP" => i(self.con.skip_disp as i64),
+            "GETKEY" | "GETKEYTRIGGERED" | "MOUSEB" => i(0),
             "ISACTIVE" => i(1),
             "PRINTCPERLINE" => i(self.con.printc_per_line as i64),
             "PRINTCLENGTH" => i(self.con.printc_len as i64),

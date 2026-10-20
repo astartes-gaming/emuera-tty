@@ -2246,6 +2246,7 @@ impl Tty {
             "Game settings…  (Emuera's settings window: emuera.config)",
             "Manage saves…  (copy, export, back up, restore)",
             "Test the translator…  (translates a sample line)",
+            "Clear the translation cache  (translate the screen again)",
             "Back to the title  (Ctrl-T)",
             "Restart the game  (Ctrl-R)",
             "Reload ERB files  (F5 / Ctrl-E)",
@@ -2386,11 +2387,18 @@ impl Tty {
                             test = Some((rx, Instant::now(), what));
                         }
                     },
-                    3 => break OverlayExit::Title,
-                    4 => break OverlayExit::Restart,
-                    5 => break OverlayExit::Reload,
-                    6 => break OverlayExit::SwitchGame,
-                    7 => break OverlayExit::Quit,
+                    3 => {
+                        note = match self.mt.as_mut() {
+                            Some(m) => format!("translation cache cleared ({} lines): what is on screen is translated again", m.clear()),
+                            None => "translation is off: no cache to clear".into(),
+                        };
+                        self.force_frame = true;
+                    }
+                    4 => break OverlayExit::Title,
+                    5 => break OverlayExit::Restart,
+                    6 => break OverlayExit::Reload,
+                    7 => break OverlayExit::SwitchGame,
+                    8 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }

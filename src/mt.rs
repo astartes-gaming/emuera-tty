@@ -529,6 +529,15 @@ impl Mt {
         any
     }
 
+    /// Forget every translation (and failure), so lines are asked for
+    /// again; how many there were. Answers still on their way are kept.
+    pub fn clear(&mut self) -> usize {
+        let n = self.seen.len();
+        self.seen.retain(|_, s| matches!(s, State::Waiting));
+        self.last_error = None;
+        n - self.seen.len()
+    }
+
     /// Are lines still being translated?
     pub fn busy(&self) -> bool {
         self.seen.values().any(|s| matches!(s, State::Waiting))

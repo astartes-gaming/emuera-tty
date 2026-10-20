@@ -357,6 +357,9 @@ why on that row's help line.
 
 **Test the translator…** in F1 translates a sample line with the chosen
 translator and shows the result and how long it took, or why it failed.
+**Clear the translation cache** forgets every translation made this
+session (they are kept in memory only), so what is on screen is
+translated again: after changing translator or fixing one that failed.
 
 **A log for translators**: `EMUERA_TRANSLATE_LOG=translations.tsv
 emuera-tty` appends every new translation to that file, one per line:
