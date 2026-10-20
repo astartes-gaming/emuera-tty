@@ -3022,10 +3022,18 @@ impl Vm {
                     None => i(-1),
                 }
             }
+            // Emuera: the number of matches of a regular expression (AnonTW
+            // builds patterns like `(^|:)(36|…)($|:)` to look in lists)
             "STRCOUNT" => {
                 let x = self.as_(a, 0, "")?;
                 let sub = self.as_(a, 1, "")?;
-                i(if sub.is_empty() { 0 } else { x.matches(&sub).count() as i64 })
+                match crate::regex::literal(&sub).filter(|l| !l.is_empty()) {
+                    Some(lit) => i(x.matches(lit.as_str()).count() as i64),
+                    None => {
+                        let re = crate::regex::get(&sub).or_else(|e| err(format!("STRCOUNT: {}", e)))?;
+                        i(crate::regex::count(&re, &x) as i64)
+                    }
+                }
             }
             // Emuera: a .NET regular expression replace; the 4th argument
             // 1 takes the replacements from a string array (one per match),

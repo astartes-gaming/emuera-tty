@@ -11,6 +11,7 @@ SKIPDISP 1
 LOCAL = ISSKIP()
 SKIPDISP 0
 CALL CHECK, "isskip", LOCAL == 1 && ISSKIP() == 0
+CALL CHECK, "strcount", STRCOUNT("36:120:", "(^|:)(36|x)($|:)") == 1 && STRCOUNT("abcabc", "bc") == 2 && STRCOUNT("a.b", "\\.") == 1
 ;--- strings
 LOCALS = abc
 LOCALS += "def"
