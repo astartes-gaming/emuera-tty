@@ -108,7 +108,11 @@ impl<'a> ExprParser<'a> {
     }
 
     pub fn expect(&mut self, t: &str) -> PResult<()> {
-        if self.eat(t) { Ok(()) } else { Err(format!("expected '{}' near '{}'", t, self.rest())) }
+        if self.eat(t) {
+            Ok(())
+        } else {
+            Err(format!("expected '{}' near '{}'", t, self.rest()))
+        }
     }
 
     /// Read an identifier (not starting with a digit), if there is one.
@@ -127,7 +131,11 @@ impl<'a> ExprParser<'a> {
                 break;
             }
         }
-        if self.pos > start { Some(self.s[start..self.pos].iter().collect()) } else { None }
+        if self.pos > start {
+            Some(self.s[start..self.pos].iter().collect())
+        } else {
+            None
+        }
     }
 
     /// Comma-separated expression list (allows empty entries).
@@ -292,8 +300,7 @@ impl<'a> ExprParser<'a> {
             }
         }
         let digits: String = self.s[ds..self.pos].iter().collect();
-        let mut v = i64::from_str_radix(&digits, radix)
-            .map_err(|_| format!("bad number '{}'", self.s[start..self.pos].iter().collect::<String>()))?;
+        let mut v = i64::from_str_radix(&digits, radix).map_err(|_| format!("bad number '{}'", self.s[start..self.pos].iter().collect::<String>()))?;
         // Emuera: 1p3 == 1<<3, 1e3 == 1000
         if radix == 10 {
             if let Some(c @ ('p' | 'P' | 'e' | 'E')) = self.peek() {
@@ -697,11 +704,7 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
                 let start = i + 2;
                 let q = scan_expr(&ch, start, '?').ok_or("unterminated \\@ in FORM")?;
                 let k = scan_form(&ch, q + 1, FormEnd::SharpOrYenAt).ok_or("unterminated \\@ in FORM")?;
-                let (a_end, end) = if ch[k] == '#' {
-                    (k, scan_form(&ch, k + 1, FormEnd::YenAt).ok_or("unterminated \\@ in FORM")?)
-                } else {
-                    (k, k)
-                };
+                let (a_end, end) = if ch[k] == '#' { (k, scan_form(&ch, k + 1, FormEnd::YenAt).ok_or("unterminated \\@ in FORM")?) } else { (k, k) };
                 let text = |a: usize, b: usize| ch[a..b].iter().collect::<String>().trim().to_string();
                 let cond = parse_expr(&text(start, q), defs)?;
                 let a = text(q + 1, a_end);

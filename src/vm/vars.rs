@@ -21,10 +21,7 @@ pub struct Arr {
 impl Arr {
     pub fn new(is_str: bool, dims: &[usize]) -> Arr {
         let n: usize = dims.iter().product::<usize>().max(1);
-        Arr {
-            data: if is_str { Data::S(vec![String::new(); n]) } else { Data::I(vec![0; n]) },
-            dims: dims.to_vec(),
-        }
+        Arr { data: if is_str { Data::S(vec![String::new(); n]) } else { Data::I(vec![0; n]) }, dims: dims.to_vec() }
     }
 
     pub fn is_str(&self) -> bool {

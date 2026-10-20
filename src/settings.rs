@@ -28,7 +28,13 @@ pub struct Item {
 }
 
 pub const ITEMS: &[Item] = &[
-    Item { key: "images", label: "Images", choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"], live: true, help: "how pictures are drawn (auto: whatever the terminal supports)" },
+    Item {
+        key: "images",
+        label: "Images",
+        choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"],
+        live: true,
+        help: "how pictures are drawn (auto: whatever the terminal supports)",
+    },
     Item { key: "colors", label: "Colours", choices: &["auto", "truecolor", "256", "16"], live: true, help: "colour depth sent to the terminal" },
     Item {
         key: "contrast",
@@ -51,13 +57,7 @@ pub const ITEMS: &[Item] = &[
         live: true,
         help: "put printed text on the clipboard (OSC 52); game: as emuera.config says",
     },
-    Item {
-        key: "statusbar",
-        label: "Bottom bar details",
-        choices: &["on", "off"],
-        live: true,
-        help: "the hovered button's value and the running function",
-    },
+    Item { key: "statusbar", label: "Bottom bar details", choices: &["on", "off"], live: true, help: "the hovered button's value and the running function" },
     Item {
         key: "memory",
         label: "Show memory",
@@ -93,13 +93,7 @@ pub const ITEMS: &[Item] = &[
         live: true,
         help: "dialog: what characters say; all: menus and labels too (never maps); auto: all unless into English",
     },
-    Item {
-        key: "sound",
-        label: "Sound",
-        choices: &["auto", "on", "off"],
-        live: true,
-        help: "PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)",
-    },
+    Item { key: "sound", label: "Sound", choices: &["auto", "on", "off"], live: true, help: "PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)" },
     Item {
         key: "kbdpointer",
         label: "Keyboard pointer",

@@ -27,14 +27,13 @@ pub struct TextSave {
 /// eramaker's character part: strings, integers, then integer arrays.
 const CHARA_STR: &[&str] = &["NAME", "CALLNAME"];
 const CHARA_INT: &[&str] = &["ISASSI", "NO"];
-const CHARA_INT_ARR: &[&str] = &[
-    "BASE", "MAXBASE", "ABL", "TALENT", "EXP", "MARK", "PALAM", "SOURCE", "EX", "CFLAG", "JUEL", "RELATION", "EQUIP", "TEQUIP", "STAIN", "GOTJUEL", "NOWEX",
-];
+const CHARA_INT_ARR: &[&str] =
+    &["BASE", "MAXBASE", "ABL", "TALENT", "EXP", "MARK", "PALAM", "SOURCE", "EX", "CFLAG", "JUEL", "RELATION", "EQUIP", "TEQUIP", "STAIN", "GOTJUEL", "NOWEX"];
 /// eramaker's global part: 60 integer arrays (codes 0x00-0x3B), SAVESTR.
 const GLOBAL_INT_ARR: &[&str] = &[
-    "DAY", "MONEY", "ITEM", "FLAG", "TFLAG", "UP", "PALAMLV", "EXPLV", "EJAC", "DOWN", "RESULT", "COUNT", "TARGET", "ASSI", "MASTER", "NOITEM",
-    "LOSEBASE", "SELECTCOM", "ASSIPLAY", "PREVCOM", "", "", "TIME", "ITEMSALES", "PLAYER", "NEXTCOM", "PBAND", "BOUGHT", "", "", "A", "B", "C",
-    "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "", "", "", "",
+    "DAY", "MONEY", "ITEM", "FLAG", "TFLAG", "UP", "PALAMLV", "EXPLV", "EJAC", "DOWN", "RESULT", "COUNT", "TARGET", "ASSI", "MASTER", "NOITEM", "LOSEBASE",
+    "SELECTCOM", "ASSIPLAY", "PREVCOM", "", "", "TIME", "ITEMSALES", "PLAYER", "NEXTCOM", "PBAND", "BOUGHT", "", "", "A", "B", "C", "D", "E", "F", "G", "H",
+    "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "", "", "", "",
 ];
 
 const FINISHER: &str = "__FINISHED";
@@ -73,7 +72,13 @@ impl<'a> Lines<'a> {
     fn seek_emu(&mut self) -> Option<u32> {
         for l in self.it.by_ref() {
             let l = l.trim_end_matches('\r');
-            for (m, v) in [("__EMUERA_STRAT__", 1700), ("__EMUERA_1708_STRAT__", 1708), ("__EMUERA_1729_STRAT__", 1729), ("__EMUERA_1803_STRAT__", 1803), ("__EMUERA_1808_STRAT__", 1808)] {
+            for (m, v) in [
+                ("__EMUERA_STRAT__", 1700),
+                ("__EMUERA_1708_STRAT__", 1708),
+                ("__EMUERA_1729_STRAT__", 1729),
+                ("__EMUERA_1803_STRAT__", 1803),
+                ("__EMUERA_1808_STRAT__", 1808),
+            ] {
                 if l == m {
                     return Some(v);
                 }
@@ -91,11 +96,8 @@ fn scalars(l: &mut Lines, out: &mut Vec<(String, Vals)>, int: bool) -> Result<()
             return Ok(());
         }
         let (k, v) = s.split_once(':').ok_or("broken save data (no ':')")?;
-        let vals = if int {
-            Vals::I(vec![1], vec![v.trim().parse().map_err(|_| format!("not a number: {:?}", v))?])
-        } else {
-            Vals::S(vec![1], vec![v.to_string()])
-        };
+        let vals =
+            if int { Vals::I(vec![1], vec![v.trim().parse().map_err(|_| format!("not a number: {:?}", v))?]) } else { Vals::S(vec![1], vec![v.to_string()]) };
         out.push((k.to_uppercase(), vals));
     }
 }
@@ -320,9 +322,21 @@ mod tests {
         t.extend(["saved".into(), FINISHER.into()]);
         t.push("__EMUERA_1808_STRAT__".into());
         // character: str, int, str arrays, int arrays, str 2D, int 2D
-        t.extend(["NICKNAME:Miko", SEPARATOR, SEPARATOR, "CSTR", "x", FINISHER, SEPARATOR, "TCVAR", "5", FINISHER, SEPARATOR, SEPARATOR, "CDFLAG", "1,2", "", "3", FINISHER, SEPARATOR].map(String::from));
+        t.extend(
+            [
+                "NICKNAME:Miko", SEPARATOR, SEPARATOR, "CSTR", "x", FINISHER, SEPARATOR, "TCVAR", "5", FINISHER, SEPARATOR, SEPARATOR, "CDFLAG", "1,2", "",
+                "3", FINISHER, SEPARATOR,
+            ]
+            .map(String::from),
+        );
         // globals: str, int, str arr, int arr, str2D, int2D, str3D, int3D
-        t.extend([SEPARATOR, SEPARATOR, "TSTR", "t0", FINISHER, SEPARATOR, SEPARATOR, SEPARATOR, "DA", "4,5", FINISHER, SEPARATOR, SEPARATOR, "TA", "0{", "1,2", "}", "1{", "}", FINISHER, SEPARATOR].map(String::from));
+        t.extend(
+            [
+                SEPARATOR, SEPARATOR, "TSTR", "t0", FINISHER, SEPARATOR, SEPARATOR, SEPARATOR, "DA", "4,5", FINISHER, SEPARATOR, SEPARATOR, "TA", "0{", "1,2",
+                "}", "1{", "}", FINISHER, SEPARATOR,
+            ]
+            .map(String::from),
+        );
         // user SAVEDATA: str, int, str2D, int2D, str3D, int3D
         t.extend([SEPARATOR, "MYVAR", "9", "8", FINISHER, SEPARATOR, SEPARATOR, SEPARATOR, SEPARATOR, SEPARATOR].map(String::from));
         t.join("\r\n")

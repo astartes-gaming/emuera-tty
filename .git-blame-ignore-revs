@@ -1,0 +1,6 @@
+# Commits `git blame` should look past (formatting only). Use with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub and GitLab read this file on their own.
+
+# Formatting: the whole tree through rustfmt
+d55cfa0e8d3fbde6b5199d637238a6b33681fe38

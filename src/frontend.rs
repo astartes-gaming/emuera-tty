@@ -38,11 +38,21 @@ pub struct InputReq {
 pub enum RawInput {
     /// `btn`: 0 left, 1 middle, 2 right; `button`: the printed button
     /// clicked, if any
-    Click { btn: u8, cell: (usize, usize), button: Option<crate::vm::value::Value> },
+    Click {
+        btn: u8,
+        cell: (usize, usize),
+        button: Option<crate::vm::value::Value>,
+    },
     /// +1 up, -1 down
-    Wheel { up: bool, cell: (usize, usize) },
+    Wheel {
+        up: bool,
+        cell: (usize, usize),
+    },
     /// Windows key code (Keys enum) and with modifiers (KeyData)
-    Key { code: i64, data: i64 },
+    Key {
+        code: i64,
+        data: i64,
+    },
     Timeout,
     Quit,
     /// an Emuera-Anchor hotkey for the VM
@@ -162,14 +172,7 @@ pub struct Headless {
 
 impl Headless {
     pub fn new(echo_input: bool) -> Headless {
-        Headless {
-            printed: 0,
-            gen_seen: 0,
-            dropped_seen: 0,
-            echo_input,
-            lines_in: Box::new(std::io::BufReader::new(std::io::stdin())),
-            width: 80,
-        }
+        Headless { printed: 0, gen_seen: 0, dropped_seen: 0, echo_input, lines_in: Box::new(std::io::BufReader::new(std::io::stdin())), width: 80 }
     }
 
     fn line_out(l: &Line) -> String {
@@ -201,7 +204,8 @@ impl Frontend for Headless {
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
         if !con.cur.is_empty() {
             // show partial line as a prompt
-            let partial = Line { segs: con.cur.clone(), align: con.align, gen: con.gen, temporary: false, cols: con.width + 1, kojo: false, src: 0, wait: con.waits };
+            let partial =
+                Line { segs: con.cur.clone(), align: con.align, gen: con.gen, temporary: false, cols: con.width + 1, kojo: false, src: 0, wait: con.waits };
             self.flush(con, res);
             print!("{}", Self::line_out(&partial));
         } else {

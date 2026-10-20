@@ -48,7 +48,10 @@ enum Mode {
 #[derive(Clone, PartialEq)]
 enum Kind {
     /// library: a game to launch (`ok`: the folder is still there)
-    Game { path: PathBuf, ok: bool },
+    Game {
+        path: PathBuf,
+        ok: bool,
+    },
     AddGame,
     OpenSettings,
     /// settings: `crate::settings::ITEMS[i]`
@@ -57,9 +60,14 @@ enum Kind {
     /// play the current folder (it is a game)
     PlayHere,
     Up,
-    Dir { path: PathBuf, game: bool },
+    Dir {
+        path: PathBuf,
+        game: bool,
+    },
     /// a .zip / .tar.gz / … that may hold a game
-    Archive { path: PathBuf },
+    Archive {
+        path: PathBuf,
+    },
 }
 
 /// What a key or click asks for.
@@ -106,11 +114,7 @@ pub fn launcher() -> Option<PathBuf> {
 
 /// Where the browser opens: next to the last game, else home.
 fn browse_start(st: &crate::settings::Settings) -> PathBuf {
-    st.last
-        .as_ref()
-        .and_then(|g| g.parent().map(|p| p.to_path_buf()))
-        .or_else(crate::sys::home_dir)
-        .unwrap_or_else(|| PathBuf::from("."))
+    st.last.as_ref().and_then(|g| g.parent().map(|p| p.to_path_buf())).or_else(crate::sys::home_dir).unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
@@ -198,24 +202,17 @@ impl Picker {
         if self.dir.parent().is_some() {
             self.entries.push(Entry { label: "../".into(), kind: Kind::Up });
         }
-        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&self.dir)
-            .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())
-            .unwrap_or_default();
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&self.dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
         dirs.retain(|d| self.hidden || !d.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')));
         dirs.sort_by_key(|d| d.file_name().map(|n| n.to_string_lossy().to_lowercase()));
         for d in dirs {
             let name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let game = is_game_dir(&d);
-            let label = if game {
-                format!("★ {}/   ({})", name, game_title(&d).unwrap_or_else(|| "Emuera game".into()))
-            } else {
-                format!("  {}/", name)
-            };
+            let label = if game { format!("★ {}/   ({})", name, game_title(&d).unwrap_or_else(|| "Emuera game".into())) } else { format!("  {}/", name) };
             self.entries.push(Entry { label, kind: Kind::Dir { path: d, game } });
         }
-        let mut archives: Vec<PathBuf> = std::fs::read_dir(&self.dir)
-            .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| crate::archive::is_archive(p)).collect())
-            .unwrap_or_default();
+        let mut archives: Vec<PathBuf> =
+            std::fs::read_dir(&self.dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| crate::archive::is_archive(p)).collect()).unwrap_or_default();
         archives.retain(|a| self.hidden || !a.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')));
         archives.sort_by_key(|a| a.file_name().map(|n| n.to_string_lossy().to_lowercase()));
         for a in archives {
@@ -254,9 +251,24 @@ impl Picker {
         }
         let mut s = String::from("\x1b[H\x1b[0m\x1b[2J");
         match self.mode {
-            Mode::Library => s += &format!("\x1b[1memuera-tty — your games\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n", fit("Enter to play · a add a game · u update (git) · d remove from the list · s settings", cols)),
-            Mode::Settings => s += &format!("\x1b[1mSettings\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n", fit(&crate::settings::config_path().map(|p| p.display().to_string()).unwrap_or_default(), cols)),
-            Mode::Browse => s += &format!("\x1b[1mChoose an Emuera game folder or archive\x1b[0m  (★ = game, ▣ = archive)\r\n\x1b[2m{}\x1b[0m\r\n", fit(&self.dir.display().to_string(), cols)),
+            Mode::Library => {
+                s += &format!(
+                    "\x1b[1memuera-tty — your games\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
+                    fit("Enter to play · a add a game · u update (git) · d remove from the list · s settings", cols)
+                )
+            }
+            Mode::Settings => {
+                s += &format!(
+                    "\x1b[1mSettings\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
+                    fit(&crate::settings::config_path().map(|p| p.display().to_string()).unwrap_or_default(), cols)
+                )
+            }
+            Mode::Browse => {
+                s += &format!(
+                    "\x1b[1mChoose an Emuera game folder or archive\x1b[0m  (★ = game, ▣ = archive)\r\n\x1b[2m{}\x1b[0m\r\n",
+                    fit(&self.dir.display().to_string(), cols)
+                )
+            }
         }
         for (i, e) in self.entries.iter().enumerate().skip(self.top).take(rows) {
             let line = fit(&e.label, cols.saturating_sub(1));
@@ -405,7 +417,8 @@ impl Picker {
                         None => "This game isn't a git checkout: nothing to update from.".into(),
                         Some(root) => {
                             let (cols, rows) = term_size();
-                            out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", rows.saturating_sub(1), fit(&format!("Updating {} (git pull)…", root.display()), cols)).as_bytes());
+                            out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", rows.saturating_sub(1), fit(&format!("Updating {} (git pull)…", root.display()), cols))
+                                .as_bytes());
                             match git_pull(&root) {
                                 Ok(m) => m,
                                 Err(e) => format!("\x1b[31m{}\x1b[0m", e),

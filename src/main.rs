@@ -12,8 +12,8 @@ mod atomic64;
 mod clipboard;
 mod config_names;
 mod console;
-mod emuconfig;
 mod csvdata;
+mod emuconfig;
 mod expr;
 mod frontend;
 mod fxhash;
@@ -26,21 +26,21 @@ mod mice;
 #[cfg(not(target_os = "linux"))]
 #[path = "mice_none.rs"]
 mod mice;
+mod mt;
 mod parser;
 mod picker;
 mod regex;
 mod resources;
 mod retro;
 mod savemgr;
-mod mt;
 mod settings;
 mod sound;
 mod sys;
 mod terminfo;
 mod translate;
 mod tty;
-mod xml;
 mod vm;
+mod xml;
 
 use std::path::PathBuf;
 
@@ -206,10 +206,21 @@ fn parse_args() -> Opts {
 /// and how many files there were. Also used by the reload-ERB hotkey.
 /// `lazy`: function bodies are compiled when first called (less memory,
 /// quicker start); else all now (`--check`).
-fn build_program(game: &std::path::Path, erb_dir: Option<&std::path::Path>, rename: &[(String, String)], debug: bool, lazy: bool, phase: &mut dyn FnMut(&str)) -> (parser::Program, usize) {
+fn build_program(
+    game: &std::path::Path,
+    erb_dir: Option<&std::path::Path>,
+    rename: &[(String, String)],
+    debug: bool,
+    lazy: bool,
+    phase: &mut dyn FnMut(&str),
+) -> (parser::Program, usize) {
     let mut p = parser::Parser::new(rename, debug);
     // EMUERA_THREADS=n limits the worker threads (default: all cores)
-    let cores = std::env::var("EMUERA_THREADS").ok().and_then(|n| n.parse().ok()).filter(|&n: &usize| n > 0).unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
+    let cores = std::env::var("EMUERA_THREADS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .filter(|&n: &usize| n > 0)
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     let (erhs, erbs) = match erb_dir {
         Some(erb) => {
             // Emuera's order (it decides which of a duplicate wins, the
@@ -247,17 +258,23 @@ fn build_program(game: &std::path::Path, erb_dir: Option<&std::path::Path>, rena
     // ERB files are independent once the headers are known: read and parse
     // them on all cores in contiguous chunks (a file at a time per core),
     // then merge in file order
-    let items: Vec<(u32, &std::path::PathBuf, usize)> = erbs.iter().enumerate().map(|(j, f)| ((erhs.len() + j) as u32, f, std::fs::metadata(f).map_or(1, |m| m.len() as usize))).collect();
-    let forks: Vec<parser::Program> = parallel_chunks(&items, cores, |it| it.2, |chunk| {
-        let mut q = p.fork();
-        for (i, f, _) in chunk {
-            match std::fs::read(f) {
-                Ok(raw) => q.parse_erb_file(*i, &rel(f), f, &raw),
-                Err(e) => eprintln!("{}: {}", f.display(), e),
+    let items: Vec<(u32, &std::path::PathBuf, usize)> =
+        erbs.iter().enumerate().map(|(j, f)| ((erhs.len() + j) as u32, f, std::fs::metadata(f).map_or(1, |m| m.len() as usize))).collect();
+    let forks: Vec<parser::Program> = parallel_chunks(
+        &items,
+        cores,
+        |it| it.2,
+        |chunk| {
+            let mut q = p.fork();
+            for (i, f, _) in chunk {
+                match std::fs::read(f) {
+                    Ok(raw) => q.parse_erb_file(*i, &rel(f), f, &raw),
+                    Err(e) => eprintln!("{}: {}", f.display(), e),
+                }
             }
-        }
-        q.prog
-    });
+            q.prog
+        },
+    );
     for prog in forks {
         p.absorb(prog);
     }
@@ -323,7 +340,9 @@ fn run(o: Opts) -> i32 {
     let Some(game) = choose_game(&o) else { return 0 };
     // development builds (--features profile): EMUERA_PPROF=<file>
     #[cfg(feature = "profile")]
-    let _pprof = std::env::var("EMUERA_PPROF").ok().map(|f| (f, pprof::ProfilerGuardBuilder::default().frequency(4000).blocklist(&["libc", "libgcc", "pthread", "vdso"]).build().unwrap()));
+    let _pprof = std::env::var("EMUERA_PPROF")
+        .ok()
+        .map(|f| (f, pprof::ProfilerGuardBuilder::default().frequency(4000).blocklist(&["libc", "libgcc", "pthread", "vdso"]).build().unwrap()));
     if let Some(cmd) = o.saves {
         return saves_cmd(cmd, &game);
     }

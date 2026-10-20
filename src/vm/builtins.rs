@@ -28,67 +28,61 @@ use std::sync::Arc as Rc;
 
 /// Statement-only commands (functions callable as statements are separate).
 pub const COMMANDS: &[&str] = &[
-    "DRAWLINE", "CUSTOMDRAWLINE", "DRAWLINEFORM", "CLEARLINE", "REDRAW", "SETCOLOR", "RESETCOLOR", "SETBGCOLOR",
-    "RESETBGCOLOR", "SETCOLORBYNAME", "SETBGCOLORBYNAME", "FONTBOLD", "FONTITALIC", "FONTREGULAR", "FONTSTYLE", "SETFONT",
-    "ALIGNMENT", "PRINTBUTTON", "PRINTBUTTONC", "PRINTBUTTONLC", "PRINT_IMG", "PRINT_RECT", "PRINT_SPACE", "HTML_PRINT",
-    "BAR", "BARL", "REUSELASTLINE", "SKIPDISP", "OUTPUTLOG", "DEBUGPRINT", "DEBUGPRINTL", "DEBUGPRINTFORM",
-    "DEBUGPRINTFORML", "DEBUGCLEAR", "ASSERT", "TOOLTIP_SETCOLOR", "TOOLTIP_SETDELAY", "TOOLTIP_SETDURATION",
-    "TOOLTIP_SETFONT", "TOOLTIP_SETFONTSIZE", "TOOLTIP_CUSTOM", "TOOLTIP_SETFORMAT", "TOOLTIP_FORMAT", "TOOLTIP_IMG", "SETANIMETIMER",
-    "CLEARTEXTBOX", "UPDATECHECK", "INPUT", "INPUTS", "TINPUT", "TINPUTS", "ONEINPUT", "ONEINPUTS", "TONEINPUT",
-    "TONEINPUTS", "BINPUT", "BINPUTS", "ONEBINPUT", "ONEBINPUTS", "INPUTANY", "BREAKBUTTON", "SKIPLOG", "FORCE_QUIT",
-    "PRINT_ABL", "PRINT_TALENT", "PRINT_MARK", "PRINT_EXP", "PRINT_PALAM", "PRINT_ITEM", "HTML_PRINT_ISLAND",
-    "HTML_PRINT_ISLAND_CLEAR", "MOVETEXTBOX", "RESUMETEXTBOX", "SETBGIMAGE", "REMOVEBGIMAGE", "CLEARBGIMAGE",
-    "FORCE_QUIT_AND_RESTART", "CALLSHARP", "REF", "REFBYNAME", "SAVEVAR", "LOADVAR", "WAIT", "FORCEWAIT", "TWAIT", "WAITANYKEY", "INPUTMOUSEKEY", "DOTRAIN", "CALLTRAIN", "STOPCALLTRAIN",
-    "SAVEGAME", "LOADGAME", "SAVEDATA", "LOADDATA", "DELDATA", "SAVEGLOBAL", "LOADGLOBAL", "RESETDATA", "RESETGLOBAL",
-    "VARSET", "CVARSET", "ARRAYSHIFT", "ARRAYREMOVE", "ARRAYSORT", "ARRAYCOPY", "SWAP", "TIMES",
-    "SETBIT", "CLEARBIT", "INVERTBIT", "SPLIT", "RANDOMIZE", "INITRAND", "DUMPRAND", "STRLEN", "STRLENU", "STRLENFORM",
-    "STRLENFORMU", "PUTFORM", "ADDCHARA", "ADDSPCHARA", "ADDDEFCHARA", "ADDVOIDCHARA", "DELCHARA", "DELALLCHARA",
-    "PICKUPCHARA", "SWAPCHARA", "COPYCHARA", "ADDCOPYCHARA", "SORTCHARA", "RESET_STAIN", "UPCHECK", "CUPCHECK",
-    "CALLEVENT", "CLEARBUTTON", "SAVECHARA", "LOADCHARA", "MOUSESKIP_", "BITMAP_CACHE_ENABLE", "FORCEKANA",
-    "SETCOLOR_", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
-    "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_",
-    "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM", "AWAIT", "VARSETEX", "SPRITEANIMECREATE", "SPRITEANIMEADDFRAME",
+    "DRAWLINE", "CUSTOMDRAWLINE", "DRAWLINEFORM", "CLEARLINE", "REDRAW", "SETCOLOR", "RESETCOLOR", "SETBGCOLOR", "RESETBGCOLOR", "SETCOLORBYNAME",
+    "SETBGCOLORBYNAME", "FONTBOLD", "FONTITALIC", "FONTREGULAR", "FONTSTYLE", "SETFONT", "ALIGNMENT", "PRINTBUTTON", "PRINTBUTTONC", "PRINTBUTTONLC",
+    "PRINT_IMG", "PRINT_RECT", "PRINT_SPACE", "HTML_PRINT", "BAR", "BARL", "REUSELASTLINE", "SKIPDISP", "OUTPUTLOG", "DEBUGPRINT", "DEBUGPRINTL",
+    "DEBUGPRINTFORM", "DEBUGPRINTFORML", "DEBUGCLEAR", "ASSERT", "TOOLTIP_SETCOLOR", "TOOLTIP_SETDELAY", "TOOLTIP_SETDURATION", "TOOLTIP_SETFONT",
+    "TOOLTIP_SETFONTSIZE", "TOOLTIP_CUSTOM", "TOOLTIP_SETFORMAT", "TOOLTIP_FORMAT", "TOOLTIP_IMG", "SETANIMETIMER", "CLEARTEXTBOX", "UPDATECHECK", "INPUT",
+    "INPUTS", "TINPUT", "TINPUTS", "ONEINPUT", "ONEINPUTS", "TONEINPUT", "TONEINPUTS", "BINPUT", "BINPUTS", "ONEBINPUT", "ONEBINPUTS", "INPUTANY",
+    "BREAKBUTTON", "SKIPLOG", "FORCE_QUIT", "PRINT_ABL", "PRINT_TALENT", "PRINT_MARK", "PRINT_EXP", "PRINT_PALAM", "PRINT_ITEM", "HTML_PRINT_ISLAND",
+    "HTML_PRINT_ISLAND_CLEAR", "MOVETEXTBOX", "RESUMETEXTBOX", "SETBGIMAGE", "REMOVEBGIMAGE", "CLEARBGIMAGE", "FORCE_QUIT_AND_RESTART", "CALLSHARP", "REF",
+    "REFBYNAME", "SAVEVAR", "LOADVAR", "WAIT", "FORCEWAIT", "TWAIT", "WAITANYKEY", "INPUTMOUSEKEY", "DOTRAIN", "CALLTRAIN", "STOPCALLTRAIN", "SAVEGAME",
+    "LOADGAME", "SAVEDATA", "LOADDATA", "DELDATA", "SAVEGLOBAL", "LOADGLOBAL", "RESETDATA", "RESETGLOBAL", "VARSET", "CVARSET", "ARRAYSHIFT", "ARRAYREMOVE",
+    "ARRAYSORT", "ARRAYCOPY", "SWAP", "TIMES", "SETBIT", "CLEARBIT", "INVERTBIT", "SPLIT", "RANDOMIZE", "INITRAND", "DUMPRAND", "STRLEN", "STRLENU",
+    "STRLENFORM", "STRLENFORMU", "PUTFORM", "ADDCHARA", "ADDSPCHARA", "ADDDEFCHARA", "ADDVOIDCHARA", "DELCHARA", "DELALLCHARA", "PICKUPCHARA", "SWAPCHARA",
+    "COPYCHARA", "ADDCOPYCHARA", "SORTCHARA", "RESET_STAIN", "UPCHECK", "CUPCHECK", "CALLEVENT", "CLEARBUTTON", "SAVECHARA", "LOADCHARA", "MOUSESKIP_",
+    "BITMAP_CACHE_ENABLE", "FORCEKANA", "SETCOLOR_", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
+    "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_", "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM", "AWAIT",
+    "VARSETEX", "SPRITEANIMECREATE", "SPRITEANIMEADDFRAME",
 ];
 
 pub const FUNCTIONS: &[&str] = &[
-    "ABS", "SIGN", "MAX", "MIN", "LIMIT", "INRANGE", "POWER", "SQRT", "CBRT", "LOG", "LOG10", "EXPONENT", "RAND",
-    "GETBIT", "SUMARRAY", "MAXARRAY", "MINARRAY", "MATCH", "CMATCH", "SUMCARRAY", "MAXCARRAY", "MINCARRAY",
-    "GROUPMATCH", "NOSAMES", "ALLSAMES", "FINDELEMENT", "FINDLASTELEMENT", "INRANGEARRAY", "INRANGECARRAY", "VARSIZE",
-    "STRLENS", "STRLENSU", "SUBSTRING", "SUBSTRINGU", "STRFIND", "STRFINDU", "STRCOUNT", "REPLACE", "TOSTR", "TOINT",
-    "ISNUMERIC", "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "CHARATU", "STRJOIN", "ESCAPE", "UNICODE", "ENCODETOUNI",
-    "CONVERT", "STRFORM", "MONEYSTR", "BARSTR", "LINEISEMPTY", "CSVNAME", "CSVCALLNAME", "CSVNICKNAME",
-    "CSVMASTERNAME", "CSVBASE", "CSVABL", "CSVTALENT", "CSVEXP", "CSVMARK", "CSVJUEL", "CSVCFLAG", "CSVCSTR", "CSVEQUIP",
-    "CSVRELATION", "CSVEX", "FINDCHARA", "FINDLASTCHARA", "EXISTCSV", "GETCHARA", "GETSPCHARA", "GETTIME", "GETTIMES",
-    "GETMILLISECOND", "GETSECOND", "GETCOLOR", "GETDEFCOLOR", "GETBGCOLOR", "GETDEFBGCOLOR", "GETFOCUSCOLOR", "GETSTYLE",
-    "GETFONT", "CURRENTALIGN", "CURRENTREDRAW", "CHKFONT", "ISSKIP", "MOUSESKIP", "MESSKIP", "GETKEY", "GETKEYTRIGGERED",
-    "MOUSEX", "MOUSEY", "ISACTIVE", "PRINTCPERLINE", "PRINTCLENGTH", "SAVENOS", "GETNUM", "GETPALAMLV", "GETEXPLV",
-    "CHKDATA", "SPRITECREATED", "SPRITEWIDTH", "SPRITEHEIGHT", "GETCONFIG", "GETCONFIGS", "HTML_ESCAPE",
-    "HTML_TOPLAINTEXT", "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TAGSPLIT", "EXISTFUNCTION", "EXISTVAR",
-    "GETVAR", "GETVARS", "SETVAR", "ISDEFINED", "STRREPEAT", "GETLINESTR", "REGEXPMATCH", "CHKCHARADATA", "FIND_CHARADATA",
-    "GCREATED", "GWIDTH", "GHEIGHT", "GETCHARA_", "__FORMS", "ARRAYMSORTEX", "GETMEMORYUSAGE", "CLEARMEMORY", "TRIM",
-    "EXISTSOUND", "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH",
-    "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE", "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE",
-    "MAP_GETKEYS", "MAP_TOXML", "COLOR_FROMNAME", "COLOR_FROMRGB", "HTML_STRINGLEN", "GETMETH", "GETMETHS",
-    "GETDOINGFUNCTION", "TR_NAME", "CLIENTWIDTH", "CLIENTHEIGHT", "EXISTFILE", "SPRITEPOSX", "SPRITEPOSY", "GGETCOLOR", "GETTEXTBOX",
-    "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES", "DT_COLUMN_EXIST",
-    "DT_COLUMN_REMOVE", "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET",
-    "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT",
-    "XML_DOCUMENT", "XML_RELEASE", "XML_EXIST", "XML_TOSTR", "XML_GET", "XML_GET_BYNAME", "XML_SET", "XML_SET_BYNAME",
-    "XML_ADDNODE", "XML_ADDNODE_BYNAME", "XML_REMOVENODE", "XML_REMOVENODE_BYNAME", "XML_REPLACE", "XML_REPLACE_BYNAME",
-    "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
+    "ABS", "SIGN", "MAX", "MIN", "LIMIT", "INRANGE", "POWER", "SQRT", "CBRT", "LOG", "LOG10", "EXPONENT", "RAND", "GETBIT", "SUMARRAY", "MAXARRAY", "MINARRAY",
+    "MATCH", "CMATCH", "SUMCARRAY", "MAXCARRAY", "MINCARRAY", "GROUPMATCH", "NOSAMES", "ALLSAMES", "FINDELEMENT", "FINDLASTELEMENT", "INRANGEARRAY",
+    "INRANGECARRAY", "VARSIZE", "STRLENS", "STRLENSU", "SUBSTRING", "SUBSTRINGU", "STRFIND", "STRFINDU", "STRCOUNT", "REPLACE", "TOSTR", "TOINT", "ISNUMERIC",
+    "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "CHARATU", "STRJOIN", "ESCAPE", "UNICODE", "ENCODETOUNI", "CONVERT", "STRFORM", "MONEYSTR", "BARSTR",
+    "LINEISEMPTY", "CSVNAME", "CSVCALLNAME", "CSVNICKNAME", "CSVMASTERNAME", "CSVBASE", "CSVABL", "CSVTALENT", "CSVEXP", "CSVMARK", "CSVJUEL", "CSVCFLAG",
+    "CSVCSTR", "CSVEQUIP", "CSVRELATION", "CSVEX", "FINDCHARA", "FINDLASTCHARA", "EXISTCSV", "GETCHARA", "GETSPCHARA", "GETTIME", "GETTIMES", "GETMILLISECOND",
+    "GETSECOND", "GETCOLOR", "GETDEFCOLOR", "GETBGCOLOR", "GETDEFBGCOLOR", "GETFOCUSCOLOR", "GETSTYLE", "GETFONT", "CURRENTALIGN", "CURRENTREDRAW", "CHKFONT",
+    "ISSKIP", "MOUSESKIP", "MESSKIP", "GETKEY", "GETKEYTRIGGERED", "MOUSEX", "MOUSEY", "ISACTIVE", "PRINTCPERLINE", "PRINTCLENGTH", "SAVENOS", "GETNUM",
+    "GETPALAMLV", "GETEXPLV", "CHKDATA", "SPRITECREATED", "SPRITEWIDTH", "SPRITEHEIGHT", "GETCONFIG", "GETCONFIGS", "HTML_ESCAPE", "HTML_TOPLAINTEXT",
+    "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TAGSPLIT", "EXISTFUNCTION", "EXISTVAR", "GETVAR", "GETVARS", "SETVAR", "ISDEFINED", "STRREPEAT",
+    "GETLINESTR", "REGEXPMATCH", "CHKCHARADATA", "FIND_CHARADATA", "GCREATED", "GWIDTH", "GHEIGHT", "GETCHARA_", "__FORMS", "ARRAYMSORTEX", "GETMEMORYUSAGE",
+    "CLEARMEMORY", "TRIM", "EXISTSOUND", "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH",
+    "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE", "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE", "MAP_GETKEYS", "MAP_TOXML",
+    "COLOR_FROMNAME", "COLOR_FROMRGB", "HTML_STRINGLEN", "GETMETH", "GETMETHS", "GETDOINGFUNCTION", "TR_NAME", "CLIENTWIDTH", "CLIENTHEIGHT", "EXISTFILE",
+    "SPRITEPOSX", "SPRITEPOSY", "GGETCOLOR", "GETTEXTBOX", "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES",
+    "DT_COLUMN_EXIST", "DT_COLUMN_REMOVE", "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET", "DT_CELL_ISNULL",
+    "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT", "XML_DOCUMENT", "XML_RELEASE", "XML_EXIST", "XML_TOSTR",
+    "XML_GET", "XML_GET_BYNAME", "XML_SET", "XML_SET_BYNAME", "XML_ADDNODE", "XML_ADDNODE_BYNAME", "XML_REMOVENODE", "XML_REMOVENODE_BYNAME", "XML_REPLACE",
+    "XML_REPLACE_BYNAME", "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
     // graphics buffers (methods, usable as statements: result in RESULT)
-    "GCREATE", "GCREATEFROMFILE", "GDISPOSE", "GCLEAR", "GFILLRECTANGLE", "GDRAWSPRITE", "GDRAWG", "GDRAWGWITHMASK",
-    "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD", "SPRITECREATE", "SPRITEDISPOSE", "ARRAYMSORT", "GDRAWLINE", "GDRAWTEXT",
-    "GDASHSTYLE", "GDRAWGWITHROTATE", "GSETPEN", "GSETFONT", "GGETBRUSH", "GGETPEN", "GGETPENWIDTH", "GGETFONT",
-    "GGETFONTSIZE", "GGETFONTSTYLE", "GGETTEXTSIZE", "SPRITEDISPOSEALL", "SPRITEGETCOLOR", "SPRITEMOVE", "SPRITESETPOS",
-    "FLOWINPUT", "FLOWINPUTS", "GETNUMB", "HOTKEY_STATE", "HOTKEY_STATE_INIT", "ERDNAME", "EXISTMETH", "UNICODEBYTE",
-    "ENUMFUNCWITH", "ENUMFUNCENDSWITH", "ENUMVARBEGINSWITH", "ENUMVARWITH", "ENUMVARENDSWITH", "ENUMMACROBEGINSWITH",
-    "ENUMMACROWITH", "ENUMMACROENDSWITH", "ENUMFILES", "HTML_SUBSTRING", "HTML_STRINGLINES", "GETDISPLAYLINE", "MAP_FROMXML",
+    "GCREATE", "GCREATEFROMFILE", "GDISPOSE", "GCLEAR", "GFILLRECTANGLE", "GDRAWSPRITE", "GDRAWG", "GDRAWGWITHMASK", "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD",
+    "SPRITECREATE", "SPRITEDISPOSE", "ARRAYMSORT", "GDRAWLINE", "GDRAWTEXT", "GDASHSTYLE", "GDRAWGWITHROTATE", "GSETPEN", "GSETFONT", "GGETBRUSH", "GGETPEN",
+    "GGETPENWIDTH", "GGETFONT", "GGETFONTSIZE", "GGETFONTSTYLE", "GGETTEXTSIZE", "SPRITEDISPOSEALL", "SPRITEGETCOLOR", "SPRITEMOVE", "SPRITESETPOS",
+    "FLOWINPUT", "FLOWINPUTS", "GETNUMB", "HOTKEY_STATE", "HOTKEY_STATE_INIT", "ERDNAME", "EXISTMETH", "UNICODEBYTE", "ENUMFUNCWITH", "ENUMFUNCENDSWITH",
+    "ENUMVARBEGINSWITH", "ENUMVARWITH", "ENUMVARENDSWITH", "ENUMMACROBEGINSWITH", "ENUMMACROWITH", "ENUMMACROENDSWITH", "ENUMFILES", "HTML_SUBSTRING",
+    "HTML_STRINGLINES", "GETDISPLAYLINE", "MAP_FROMXML",
 ];
 
 /// Built-in functions that return a string (Emuera's ReturnType), for
 /// EXISTMETH.
-const STR_FUNCTIONS: &[&str] = &["CSVNAME", "CSVCALLNAME", "CSVNICKNAME", "CSVMASTERNAME", "CSVCSTR", "GETFONT", "BARSTR", "CURRENTALIGN", "MONEYSTR", "GETTIMES", "SUBSTRING", "SUBSTRINGU", "TOSTR", "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "REPLACE", "UNICODE", "CONVERT", "ESCAPE", "CHARATU", "GETLINESTR", "STRFORM", "STRJOIN", "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TOPLAINTEXT", "HTML_ESCAPE", "MOUSEB", "LOADTEXT", "HTML_SUBSTRING", "GETVARS", "XML_TOSTR", "MAP_GET", "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS", "TR_NAME"];
+const STR_FUNCTIONS: &[&str] = &[
+    "CSVNAME", "CSVCALLNAME", "CSVNICKNAME", "CSVMASTERNAME", "CSVCSTR", "GETFONT", "BARSTR", "CURRENTALIGN", "MONEYSTR", "GETTIMES", "SUBSTRING",
+    "SUBSTRINGU", "TOSTR", "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "REPLACE", "UNICODE", "CONVERT", "ESCAPE", "CHARATU", "GETLINESTR", "STRFORM", "STRJOIN",
+    "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TOPLAINTEXT", "HTML_ESCAPE", "MOUSEB", "LOADTEXT", "HTML_SUBSTRING", "GETVARS", "XML_TOSTR", "MAP_GET",
+    "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS", "TR_NAME",
+];
 
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
 /// every statement while parsing)
@@ -661,11 +655,8 @@ impl Vm {
                     }
                     return Ok(());
                 }
-                let (timeout, default) = if timed {
-                    (Some(self.ai(a, 0, 1000)?.max(0) as u64), Some(self.ai(a, 1, 0)?))
-                } else {
-                    (None, self.arg(a, 0)?.map(|v| v.as_int()))
-                };
+                let (timeout, default) =
+                    if timed { (Some(self.ai(a, 0, 1000)?.max(0) as u64), Some(self.ai(a, 1, 0)?)) } else { (None, self.arg(a, 0)?.map(|v| v.as_int())) };
                 let v = self.input_int(default, timeout, one)?;
                 if timed && self.is_timeout && a.len() >= 4 {
                     let msg = self.as_(a, 3, "")?;
@@ -831,8 +822,18 @@ impl Vm {
             }
             // window chrome a terminal doesn't have: tooltips, the input
             // box's position, background images and layers
-            "HTML_PRINT_ISLAND_CLEAR" | "MOVETEXTBOX" | "RESUMETEXTBOX" | "SETBGIMAGE" | "REMOVEBGIMAGE" | "CLEARBGIMAGE"
-            | "SETTEXTBOX" | "TOOLTIP_SETFONT" | "TOOLTIP_SETFONTSIZE" | "TOOLTIP_CUSTOM" | "TOOLTIP_SETFORMAT" | "TOOLTIP_FORMAT"
+            "HTML_PRINT_ISLAND_CLEAR"
+            | "MOVETEXTBOX"
+            | "RESUMETEXTBOX"
+            | "SETBGIMAGE"
+            | "REMOVEBGIMAGE"
+            | "CLEARBGIMAGE"
+            | "SETTEXTBOX"
+            | "TOOLTIP_SETFONT"
+            | "TOOLTIP_SETFONTSIZE"
+            | "TOOLTIP_CUSTOM"
+            | "TOOLTIP_SETFORMAT"
+            | "TOOLTIP_FORMAT"
             | "TOOLTIP_IMG" => self.set_result(1),
             "TOOLTIP_SETCOLOR" => {
                 let rgb = |v: i64| crate::console::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
@@ -933,12 +934,7 @@ impl Vm {
                 if !self.con.cur.is_empty() {
                     self.con.newline();
                 }
-                self.raw_input(&crate::frontend::InputReq {
-                    kind: crate::frontend::InputKind::Wait,
-                    one: true,
-                    timeout_ms: Some(t),
-                    stop_skip: false,
-                })?;
+                self.raw_input(&crate::frontend::InputReq { kind: crate::frontend::InputKind::Wait, one: true, timeout_ms: Some(t), stop_skip: false })?;
             }
             // RESULT:0 = 1 click (1: button 0x100000 left / 0x200000 right /
             // 0x400000 middle, 2-3: x, y from the window's bottom-left, 4:
@@ -1215,7 +1211,8 @@ impl Vm {
                 let s = self.as_(a, 0, "")?;
                 let sep = self.as_(a, 1, ",")?;
                 let v = self.avar(a, 2)?;
-                let parts: Vec<String> = if sep.is_empty() { s.chars().map(|c| c.to_string()).collect() } else { s.split(sep.as_str()).map(|x| x.to_string()).collect() };
+                let parts: Vec<String> =
+                    if sep.is_empty() { s.chars().map(|c| c.to_string()).collect() } else { s.split(sep.as_str()).map(|x| x.to_string()).collect() };
                 let (loc, base, _) = self.array_row(&v)?;
                 let start = {
                     let p = self.locate(&v)?;
@@ -1253,7 +1250,8 @@ impl Vm {
                         break;
                     };
                     if opt == "DEFAULT" {
-                        let v = dt.check_value(c, Some(v)).map_err(|_| Ctrl::Error(format!("DT_COLUMN_OPTIONS: wrong value type for {}.{}", key, cname), false))?;
+                        let v =
+                            dt.check_value(c, Some(v)).map_err(|_| Ctrl::Error(format!("DT_COLUMN_OPTIONS: wrong value type for {}.{}", key, cname), false))?;
                         dt.columns[c].default = v;
                     } else {
                         return err(format!("DT_COLUMN_OPTIONS: unknown option {}", opt));
@@ -1432,8 +1430,18 @@ impl Vm {
                 let n = self.as_(a, 0, "")?.to_uppercase();
                 self.call_name(&n, vec![])?;
             }
-            "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG"
-            | "UPDATECHECK" | "CLEARTEXTBOX" | "BITMAP_CACHE_ENABLE" | "FORCEKANA" | "CLEARBUTTON" => {}
+            "DEBUGPRINT"
+            | "DEBUGPRINTL"
+            | "DEBUGPRINTFORM"
+            | "DEBUGPRINTFORML"
+            | "DEBUGCLEAR"
+            | "ASSERT"
+            | "OUTPUTLOG"
+            | "UPDATECHECK"
+            | "CLEARTEXTBOX"
+            | "BITMAP_CACHE_ENABLE"
+            | "FORCEKANA"
+            | "CLEARBUTTON" => {}
             n if n.starts_with("TOOLTIP_") && !matches!(n, "TOOLTIP_SETCOLOR" | "TOOLTIP_SETDELAY" | "TOOLTIP_SETDURATION") => {}
             "GETTIME" => {
                 // as a statement: RESULT = number, RESULTS = text
@@ -1537,7 +1545,15 @@ impl Vm {
     /// Sizes are Emuera's "mixed numbers" `(value, is_px)`: pixels with
     /// `px`, else percent of the font size. No height (or 0) is one font
     /// size tall; no width keeps the sprite's aspect ratio.
-    pub fn print_img(&mut self, name: &str, w: Option<(f32, bool)>, h: Option<(f32, bool)>, ypos: Option<(f32, bool)>, button: Option<Value>, hover: Option<String>) {
+    pub fn print_img(
+        &mut self,
+        name: &str,
+        w: Option<(f32, bool)>,
+        h: Option<(f32, bool)>,
+        ypos: Option<(f32, bool)>,
+        button: Option<Value>,
+        hover: Option<String>,
+    ) {
         let fs = self.con.font_size;
         let px = |(v, is_px): (f32, bool)| if is_px { v } else { fs * v / 100.0 };
         let (sw, sh) = self.res.sprite_size(name).unwrap_or((fs as u32, fs as u32));
@@ -1613,11 +1629,7 @@ impl Vm {
                     return s(keys.join(","));
                 }
                 // MAP_GETKEYS map, doit  -> RESULTS:*;  MAP_GETKEYS map, ARR, doit -> ARR:*
-                let (target, flag) = if a.len() >= 3 {
-                    (self.avar(a, 1)?, 2)
-                } else {
-                    (Rc::new(VarRef::new("RESULTS".into(), vec![])), 1)
-                };
+                let (target, flag) = if a.len() >= 3 { (self.avar(a, 1)?, 2) } else { (Rc::new(VarRef::new("RESULTS".into(), vec![])), 1) };
                 if self.ai(a, flag, 0)? == 0 {
                     return s(String::new());
                 }
@@ -1754,7 +1766,11 @@ impl Vm {
                 (Value::Int(p), Value::Int(q)) => p.cmp(q),
                 (p, q) => p.as_string().cmp(&q.as_string()),
             };
-            if asc { o } else { o.reverse() }
+            if asc {
+                o
+            } else {
+                o.reverse()
+            }
         });
         let order: Vec<usize> = keys.into_iter().map(|(_, i)| i).collect();
         let targets: Vec<VarRef> = if ex {
@@ -2061,12 +2077,7 @@ impl Vm {
                         // the source over the base size, both scaled with
                         // the destination (CroppedImage.GraphicsDraw)
                         let dest = if (px, py) != (0, 0) && bw != 0 && bh != 0 {
-                            (
-                                dest.0 + (px as i32) * dest.2 / bw,
-                                dest.1 + (py as i32) * dest.3 / bh,
-                                dest.2 * sw / bw,
-                                dest.3 * sh / bh,
-                            )
+                            (dest.0 + (px as i32) * dest.2 / bw, dest.1 + (py as i32) * dest.3 / bh, dest.2 * sw / bw, dest.3 * sh / bh)
                         } else {
                             dest
                         };
@@ -2100,7 +2111,15 @@ impl Vm {
                         let sg = if src == gid { None } else { self.res.graphics.remove(&src) };
                         let texts = match &sg {
                             Some(g) => {
-                                self.res.draw_cached(gid, &format!("G:{}", src), ver, crate::resources::PartSrc::G(g), (r[0], r[1], r[2], r[3]), (r[4], r[5], r[6], r[7]), cm.as_ref());
+                                self.res.draw_cached(
+                                    gid,
+                                    &format!("G:{}", src),
+                                    ver,
+                                    crate::resources::PartSrc::G(g),
+                                    (r[0], r[1], r[2], r[3]),
+                                    (r[4], r[5], r[6], r[7]),
+                                    cm.as_ref(),
+                                );
                                 g.texts.clone()
                             }
                             None => {
@@ -2196,11 +2215,17 @@ impl Vm {
                         // the mask's blue channel is the source's opacity
                         let (src, mask) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);
                         let p = ints(self, 3, 2)?;
-                        let (Some(s), Some(m)) = (self.res.graphics.get(&src).map(|g| g.img().clone()), self.res.graphics.get(&mask).map(|g| g.img().clone())) else {
+                        let (Some(s), Some(m)) = (self.res.graphics.get(&src).map(|g| g.img().clone()), self.res.graphics.get(&mask).map(|g| g.img().clone()))
+                        else {
                             return i(0);
                         };
                         let g = self.res.graphics.get_mut(&gid).unwrap();
-                        if s.dimensions() != m.dimensions() || p[0] < 0 || p[1] < 0 || p[0] as u32 + s.width() > g.width() || p[1] as u32 + s.height() > g.height() {
+                        if s.dimensions() != m.dimensions()
+                            || p[0] < 0
+                            || p[1] < 0
+                            || p[0] as u32 + s.width() > g.width()
+                            || p[1] as u32 + s.height() > g.height()
+                        {
                             return i(0);
                         }
                         let img = g.img_mut();
@@ -2824,7 +2849,11 @@ impl Vm {
                     let (lo, hi) = (from.min(vs.len()), to.min(vs.len()));
                     let tail = hi.max(from) < to && unset;
                     if last {
-                        if tail { Some(to - 1) } else { vs[lo..hi].iter().rposition(m).map(|p| lo + p) }
+                        if tail {
+                            Some(to - 1)
+                        } else {
+                            vs[lo..hi].iter().rposition(m).map(|p| lo + p)
+                        }
                     } else {
                         vs[lo..hi].iter().position(m).map(|p| lo + p).or(tail.then_some(hi.max(from)))
                     }
@@ -2836,12 +2865,20 @@ impl Vm {
                     }
                     super::vars::Data::S(vs) => {
                         let m = |x: &str| match (&lit, &re) {
-                            (Some(l), _) => if exact { x == l } else { x.contains(l.as_str()) },
-                            (None, Some(re)) => if exact {
-                                re.find(x).ok().flatten().is_some_and(|m| m.as_str().len() == x.len())
-                            } else {
-                                crate::regex::is_match(re, x)
-                            },
+                            (Some(l), _) => {
+                                if exact {
+                                    x == l
+                                } else {
+                                    x.contains(l.as_str())
+                                }
+                            }
+                            (None, Some(re)) => {
+                                if exact {
+                                    re.find(x).ok().flatten().is_some_and(|m| m.as_str().len() == x.len())
+                                } else {
+                                    crate::regex::is_match(re, x)
+                                }
+                            }
                             (None, None) => false,
                         };
                         search(vs, base + st, base + en, last, |x| m(x), m(""))
@@ -2864,7 +2901,13 @@ impl Vm {
                     Some(e) => self.eval_index_pub(e, &v.name)?.max(0) as usize,
                     None => 0,
                 };
-                let (target, st_k) = if name == "CMATCH" { (self.arg(a, 1)?, 2) } else if name == "INRANGECARRAY" { (None, 3) } else { (None, 1) };
+                let (target, st_k) = if name == "CMATCH" {
+                    (self.arg(a, 1)?, 2)
+                } else if name == "INRANGECARRAY" {
+                    (None, 3)
+                } else {
+                    (None, 1)
+                };
                 let st = self.ai(a, st_k, 0)?.max(0) as usize;
                 let en = self.ai(a, st_k + 1, self.charas.len() as i64)?.max(0) as usize;
                 let mut vals = Vec::new();
@@ -3192,7 +3235,15 @@ impl Vm {
                 let st = &self.con.style;
                 i(st.bold as i64 | (st.italic as i64) << 1 | (st.strike as i64) << 2 | (st.underline as i64) << 3)
             }
-            "GETFONT" => s(if self.con.font_name.is_empty() { if self.con.default_font.is_empty() { "ＭＳ ゴシック".into() } else { self.con.default_font.clone() } } else { self.con.font_name.clone() }),
+            "GETFONT" => s(if self.con.font_name.is_empty() {
+                if self.con.default_font.is_empty() {
+                    "ＭＳ ゴシック".into()
+                } else {
+                    self.con.default_font.clone()
+                }
+            } else {
+                self.con.font_name.clone()
+            }),
             "CURRENTALIGN" => i(match self.con.align {
                 Align::Left => 0,
                 Align::Center => 1,
@@ -3331,14 +3382,33 @@ impl Vm {
                 // 1: returns a number, 2: a string, 0: no such function
                 let n = self.as_(a, 0, "")?.to_uppercase();
                 i(match self.prog.funcs.get(&n) {
-                    Some(f) if f[0].is_function => if f[0].returns_str { 2 } else { 1 },
+                    Some(f) if f[0].is_function => {
+                        if f[0].returns_str {
+                            2
+                        } else {
+                            1
+                        }
+                    }
                     Some(_) => 0,
-                    None if is_builtin_function(&n) => if STR_FUNCTIONS.contains(&n.as_str()) { 2 } else { 1 },
+                    None if is_builtin_function(&n) => {
+                        if STR_FUNCTIONS.contains(&n.as_str()) {
+                            2
+                        } else {
+                            1
+                        }
+                    }
                     None => 0,
                 })
             }
-            "ENUMFUNCBEGINSWITH" | "ENUMFUNCWITH" | "ENUMFUNCENDSWITH" | "ENUMVARBEGINSWITH" | "ENUMVARWITH" | "ENUMVARENDSWITH"
-            | "ENUMMACROBEGINSWITH" | "ENUMMACROWITH" | "ENUMMACROENDSWITH" => {
+            "ENUMFUNCBEGINSWITH"
+            | "ENUMFUNCWITH"
+            | "ENUMFUNCENDSWITH"
+            | "ENUMVARBEGINSWITH"
+            | "ENUMVARWITH"
+            | "ENUMVARENDSWITH"
+            | "ENUMMACROBEGINSWITH"
+            | "ENUMMACROWITH"
+            | "ENUMMACROENDSWITH" => {
                 // ENUM{FUNC,VAR,MACRO}{BEGINSWITH,WITH,ENDSWITH} text[, ARRAY]:
                 // matching names (case-insensitive) into ARRAY or RESULTS
                 let key = self.as_(a, 0, "")?.to_uppercase();
@@ -3471,11 +3541,12 @@ impl Vm {
                     Some(_) => 1,
                 })
             }
-            "GCREATE" | "GCREATEFROMFILE" | "GDISPOSE" | "GCLEAR" | "GFILLRECTANGLE" | "GDRAWSPRITE" | "GDRAWG" | "GDRAWGWITHMASK"
-            | "GSETCOLOR" | "GSETBRUSH" | "GSAVE" | "GLOAD" | "SPRITECREATE" | "SPRITEDISPOSE" | "GDRAWLINE" | "GDRAWTEXT"
-            | "GDASHSTYLE" | "GDRAWGWITHROTATE" | "GSETPEN" | "GSETFONT" => self.graphics_fn(name, a),
-            "CBGSETG" | "CBGSETSPRITE" | "CBGCLEAR" | "CBGCLEARBUTTON" | "CBGSETBUTTONSPRITE" | "CBGREMOVERANGE" | "CBGREMOVEBMAP"
-            | "CBGSETBMAPG" => self.cbg_fn(name, a),
+            "GCREATE" | "GCREATEFROMFILE" | "GDISPOSE" | "GCLEAR" | "GFILLRECTANGLE" | "GDRAWSPRITE" | "GDRAWG" | "GDRAWGWITHMASK" | "GSETCOLOR"
+            | "GSETBRUSH" | "GSAVE" | "GLOAD" | "SPRITECREATE" | "SPRITEDISPOSE" | "GDRAWLINE" | "GDRAWTEXT" | "GDASHSTYLE" | "GDRAWGWITHROTATE"
+            | "GSETPEN" | "GSETFONT" => self.graphics_fn(name, a),
+            "CBGSETG" | "CBGSETSPRITE" | "CBGCLEAR" | "CBGCLEARBUTTON" | "CBGSETBUTTONSPRITE" | "CBGREMOVERANGE" | "CBGREMOVEBMAP" | "CBGSETBMAPG" => {
+                self.cbg_fn(name, a)
+            }
             "GGETBRUSH" | "GGETPEN" | "GGETPENWIDTH" | "GGETFONTSIZE" | "GGETFONTSTYLE" => {
                 let id = self.ai(a, 0, 0)?;
                 let Some(g) = self.res.graphics.get(&id) else { return i(-1) };
@@ -3526,7 +3597,13 @@ impl Vm {
                 let k = self.as_(a, 0, "")?;
                 match self.config_value(&k) {
                     Some(v) if v.is_str() == (name == "GETCONFIGS") => Ok(Some(v)),
-                    Some(_) => err(format!("{}: '{}' is a {} setting (use {})", name, k, if name == "GETCONFIG" { "text" } else { "number" }, if name == "GETCONFIG" { "GETCONFIGS" } else { "GETCONFIG" })),
+                    Some(_) => err(format!(
+                        "{}: '{}' is a {} setting (use {})",
+                        name,
+                        k,
+                        if name == "GETCONFIG" { "text" } else { "number" },
+                        if name == "GETCONFIG" { "GETCONFIGS" } else { "GETCONFIG" }
+                    )),
                     None => err(format!("{}: unknown config item '{}'", name, k)),
                 }
             }
@@ -3897,7 +3974,13 @@ fn sci(digits: &str, frac: usize, e: char, plus: bool, exp_digits: usize, trim: 
     if trim && m.contains('.') {
         m = m.trim_end_matches('0').trim_end_matches('.').to_string();
     }
-    let sign = if exp < 0 { "-" } else if plus { "+" } else { "" };
+    let sign = if exp < 0 {
+        "-"
+    } else if plus {
+        "+"
+    } else {
+        ""
+    };
     format!("{}{}{}{:0w$}", m, e, sign, exp.abs(), w = exp_digits)
 }
 
@@ -4149,7 +4232,13 @@ fn format_custom(v: i64, fmt: &str) -> String {
             NumTok::Exp(e, plus, w) => {
                 if !emitted_exp {
                     emitted_exp = true;
-                    let s = if exponent < 0 { "-" } else if *plus { "+" } else { "" };
+                    let s = if exponent < 0 {
+                        "-"
+                    } else if *plus {
+                        "+"
+                    } else {
+                        ""
+                    };
                     let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{}{}{:0w$}", e, s, exponent.abs(), w = *w));
                 }
             }

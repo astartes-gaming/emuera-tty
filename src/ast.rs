@@ -310,7 +310,11 @@ pub enum Instr {
     /// and jump to `exit` if the loop runs zero times.
     ForBegin(Box<ForBegin>),
     /// NEXT/REND: `var += step`; jump back to `body` while still in range.
-    ForNext { var: Rc<VarRef>, slot: usize, body: usize },
+    ForNext {
+        var: Rc<VarRef>,
+        slot: usize,
+        body: usize,
+    },
     /// SELECTCASE: evaluate once into `slot`. The third field caches a jump
     /// table for selects made of literal CASEs (built on first use).
     SelectEval(Expr, usize, Box<std::sync::OnceLock<Option<CaseTable>>>),
@@ -555,7 +559,6 @@ impl Function {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

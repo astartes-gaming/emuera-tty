@@ -105,17 +105,16 @@ impl VarExt {
 /// `IsSavedata` in Emuera: DAY…Z below code 0x3C except NOTUSE_*, plus the
 /// `__SAVE_EXTENDED__` ones).
 const SAVED_GLOBALS: &[&str] = &[
-    "DAY", "MONEY", "ITEM", "FLAG", "TFLAG", "UP", "PALAMLV", "EXPLV", "EJAC", "DOWN", "RESULT", "COUNT", "TARGET", "ASSI",
-    "MASTER", "NOITEM", "LOSEBASE", "SELECTCOM", "ASSIPLAY", "PREVCOM", "TIME", "ITEMSALES", "PLAYER", "NEXTCOM", "PBAND",
-    "BOUGHT", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V",
-    "W", "X", "Y", "Z", "RANDDATA", "SAVESTR", "TSTR", "DITEMTYPE", "DA", "DB", "DC", "DD", "DE", "TA", "TB",
+    "DAY", "MONEY", "ITEM", "FLAG", "TFLAG", "UP", "PALAMLV", "EXPLV", "EJAC", "DOWN", "RESULT", "COUNT", "TARGET", "ASSI", "MASTER", "NOITEM", "LOSEBASE",
+    "SELECTCOM", "ASSIPLAY", "PREVCOM", "TIME", "ITEMSALES", "PLAYER", "NEXTCOM", "PBAND", "BOUGHT", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K",
+    "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "RANDDATA", "SAVESTR", "TSTR", "DITEMTYPE", "DA", "DB", "DC", "DD", "DE", "TA",
+    "TB",
 ];
 
 /// Saved character variables, in Emuera's order.
 const SAVED_CHARA: &[&str] = &[
-    "ISASSI", "NO", "BASE", "MAXBASE", "ABL", "TALENT", "EXP", "MARK", "PALAM", "SOURCE", "EX", "CFLAG", "JUEL", "RELATION",
-    "EQUIP", "TEQUIP", "STAIN", "GOTJUEL", "NOWEX", "DOWNBASE", "CUP", "CDOWN", "TCVAR", "NAME", "CALLNAME", "NICKNAME",
-    "MASTERNAME", "CSTR", "CDFLAG",
+    "ISASSI", "NO", "BASE", "MAXBASE", "ABL", "TALENT", "EXP", "MARK", "PALAM", "SOURCE", "EX", "CFLAG", "JUEL", "RELATION", "EQUIP", "TEQUIP", "STAIN",
+    "GOTJUEL", "NOWEX", "DOWNBASE", "CUP", "CDOWN", "TCVAR", "NAME", "CALLNAME", "NICKNAME", "MASTERNAME", "CSTR", "CDFLAG",
 ];
 
 /// The ones Emuera keeps as single values rather than arrays.
@@ -377,11 +376,8 @@ impl Vm {
             put(w, name, a, chara_scalar(name));
         }
         // in declaration order, as Emuera (UserDefinedCharaVarList)
-        let user: Vec<(String, String, bool)> = self
-            .declared_dims()
-            .filter(|d| d.is_chara)
-            .map(|d| (d.name.clone(), d.decl_name.clone(), d.is_savedata && !d.is_global))
-            .collect();
+        let user: Vec<(String, String, bool)> =
+            self.declared_dims().filter(|d| d.is_chara).map(|d| (d.name.clone(), d.decl_name.clone(), d.is_savedata && !d.is_global)).collect();
         if !user.is_empty() {
             w.separator();
             for (name, decl, saved) in user {
@@ -685,7 +681,8 @@ impl Vm {
             }
         }
         for (k, v) in s.vars {
-            let known = SAVED_GLOBALS.contains(&k.as_str()) || self.user_dims.get(&k).is_some_and(|d| !d.is_chara && !d.is_global && d.is_savedata && !d.is_const);
+            let known =
+                SAVED_GLOBALS.contains(&k.as_str()) || self.user_dims.get(&k).is_some_and(|d| !d.is_chara && !d.is_global && d.is_savedata && !d.is_const);
             if known {
                 fill_vals(self.global_arr(&k), &v);
             }

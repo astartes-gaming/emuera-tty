@@ -5,8 +5,8 @@
 //! the DataTable XML schema / data format (WriteXmlSchema / WriteXml).
 
 use super::value::Value;
-use crate::xml::{self, Element};
 use crate::fxhash::HashMap;
+use crate::xml::{self, Element};
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 
@@ -102,10 +102,7 @@ thread_local! {
 
 /// Utils.TimePoint(): a strictly increasing tick count used for row ids.
 pub fn next_id() -> i64 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| (d.as_nanos() / 100) as i64)
-        .unwrap_or(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| (d.as_nanos() / 100) as i64).unwrap_or(0);
     LAST_ID.with(|l| {
         let id = now.max(l.get() + 1);
         l.set(id);
@@ -230,7 +227,9 @@ impl DataTable {
         match f {
             Filter::And(a, b) => self.key_of(a).or_else(|| self.key_of(b)),
             Filter::Cmp(CmpOp::Eq, x, y) => match (&**x, &**y) {
-                (Filter::Col(c), Filter::Lit(Some(Value::Int(v)))) | (Filter::Lit(Some(Value::Int(v))), Filter::Col(c)) if !self.columns[*c].ty.is_str() => Some((*c, *v)),
+                (Filter::Col(c), Filter::Lit(Some(Value::Int(v)))) | (Filter::Lit(Some(Value::Int(v))), Filter::Col(c)) if !self.columns[*c].ty.is_str() => {
+                    Some((*c, *v))
+                }
                 _ => None,
             },
             _ => None,
@@ -420,7 +419,11 @@ impl DataTable {
         if let Some(cs) = tbl.attr("msdata:CaseSensitive") {
             dt.case_sensitive = cs.eq_ignore_ascii_case("true");
         }
-        let seq = tbl.elems().find(|e| e.local() == "complexType").and_then(|ct| ct.elems().find(|e| e.local() == "sequence")).ok_or("schema table has no columns")?;
+        let seq = tbl
+            .elems()
+            .find(|e| e.local() == "complexType")
+            .and_then(|ct| ct.elems().find(|e| e.local() == "sequence"))
+            .ok_or("schema table has no columns")?;
         for c in seq.elems().filter(|e| e.local() == "element") {
             let name = c.attr("name").ok_or("schema column without a name")?.to_string();
             let ty = ColType::from_xsd(c.attr("type").unwrap_or("xs:string"));
@@ -598,7 +601,16 @@ impl<'a> FilterParser<'a> {
     }
     fn cmp(&mut self) -> Result<Filter, String> {
         let l = self.primary()?;
-        let ops = [("<>", CmpOp::Ne), ("!=", CmpOp::Ne), ("<=", CmpOp::Le), (">=", CmpOp::Ge), ("==", CmpOp::Eq), ("=", CmpOp::Eq), ("<", CmpOp::Lt), (">", CmpOp::Gt)];
+        let ops = [
+            ("<>", CmpOp::Ne),
+            ("!=", CmpOp::Ne),
+            ("<=", CmpOp::Le),
+            (">=", CmpOp::Ge),
+            ("==", CmpOp::Eq),
+            ("=", CmpOp::Eq),
+            ("<", CmpOp::Lt),
+            (">", CmpOp::Gt),
+        ];
         for (t, op) in ops {
             if self.sym(t) {
                 return Ok(Filter::Cmp(op, Box::new(l), Box::new(self.primary()?)));
@@ -754,7 +766,10 @@ mod tests {
             dt.rows_mut().push(r);
         }
         let scan = |dt: &DataTable, chara: i64, ty: i64| -> Vec<i64> {
-            (0..dt.rows().len()).filter(|&i| dt.rows()[i][1] == Some(Value::Int(chara)) && dt.rows()[i][2] == Some(Value::Int(ty))).map(|i| dt.row_id(i)).collect()
+            (0..dt.rows().len())
+                .filter(|&i| dt.rows()[i][1] == Some(Value::Int(chara)) && dt.rows()[i][2] == Some(Value::Int(ty)))
+                .map(|i| dt.row_id(i))
+                .collect()
         };
         for round in 0..2 {
             for _ in 0..4 {

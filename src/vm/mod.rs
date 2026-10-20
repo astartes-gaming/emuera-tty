@@ -32,8 +32,8 @@ pub mod datatable;
 pub mod erasav;
 mod memstats;
 pub mod save;
-pub mod textsav;
 pub mod system;
+pub mod textsav;
 pub mod value;
 pub mod vars;
 
@@ -41,10 +41,10 @@ use crate::ast::*;
 use crate::console::Console;
 use crate::csvdata::{table_for_var, GameCsv};
 use crate::frontend::{Frontend, InputKind, InputReq, InputResult};
+use crate::fxhash::{HashMap, HashSet};
 use crate::loader::sjis_len;
 use crate::parser::Program;
 use crate::resources::Resources;
-use crate::fxhash::{HashMap, HashSet};
 use std::path::PathBuf;
 // Arc (aliased as Rc): parsed programs are built on several threads
 use std::sync::Arc as Rc;
@@ -237,12 +237,10 @@ impl Vm {
             prof::start(p);
         }
         // EMUERA_SEED=N makes runs repeatable (tests, bug reports)
-        let seed = std::env::var("EMUERA_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0x1234_5678)
-        });
+        let seed = std::env::var("EMUERA_SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0x1234_5678));
         let mut vm = Vm {
             prog,
             csv,
@@ -879,11 +877,7 @@ impl Vm {
     /// Character variables: `CFLAG:c:i` names the character, `CFLAG:i`
     /// (one index fewer than the variable has) means TARGET's.
     fn locate_chara(&mut self, v: &VarRef, ndim: usize, table: Option<&str>) -> VmResult<Place> {
-        let (c, rest) = if v.idx.len() > ndim {
-            (self.eval(&v.idx[0])?.as_int(), 1)
-        } else {
-            (self.target(), 0)
-        };
+        let (c, rest) = if v.idx.len() > ndim { (self.eval(&v.idx[0])?.as_int(), 1) } else { (self.target(), 0) };
         let ci = self.chara_index(c, &v.name)?;
         let idx = self.eval_indices(v, rest, table)?;
         let a = self.chara_arr(ci, &v.name);
@@ -1318,7 +1312,8 @@ impl Vm {
     }
 
     fn call_func_in(&mut self, f: Rc<Function>, mut args: Vec<Option<Value>>) -> VmResult<Option<Value>> {
-        let refs: HashMap<String, Loc> = if self.pending_refs.is_empty() { HashMap::default() } else { std::mem::take(&mut self.pending_refs).into_iter().collect() };
+        let refs: HashMap<String, Loc> =
+            if self.pending_refs.is_empty() { HashMap::default() } else { std::mem::take(&mut self.pending_refs).into_iter().collect() };
         if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
             prof::enter(&f);
         }
@@ -2026,7 +2021,8 @@ impl Vm {
         }
         let _wait = prof::Waiting::new();
         if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
-            let st: Vec<String> = self.frames.iter().map(|f| format!("{}:{}", f.func.name, f.body.lines.get(f.pc.saturating_sub(1)).map_or(0, |l| l.1))).collect();
+            let st: Vec<String> =
+                self.frames.iter().map(|f| format!("{}:{}", f.func.name, f.body.lines.get(f.pc.saturating_sub(1)).map_or(0, |l| l.1))).collect();
             prof::set_waiting_at(format!("{:?} at {}", req.kind, st.join(" > ")));
         }
         self.con.width = self.fe.cols().saturating_sub(1).max(20);
@@ -2095,10 +2091,8 @@ impl Vm {
                 return Ok(v);
             }
             // full-width digits
-            let half: String = t
-                .chars()
-                .map(|c| if ('０'..='９').contains(&c) { char::from_u32(c as u32 - '０' as u32 + '0' as u32).unwrap() } else { c })
-                .collect();
+            let half: String =
+                t.chars().map(|c| if ('０'..='９').contains(&c) { char::from_u32(c as u32 - '０' as u32 + '0' as u32).unwrap() } else { c }).collect();
             if let Ok(v) = half.parse::<i64>() {
                 return Ok(v);
             }
@@ -2153,10 +2147,13 @@ impl Vm {
     }
 }
 
-
 /// Is a FOR loop at `v` still running? (counts down for negative steps)
 fn for_cond(v: i64, end: i64, step: i64) -> bool {
-    if step >= 0 { v < end } else { v > end }
+    if step >= 0 {
+        v < end
+    } else {
+        v > end
+    }
 }
 
 /// Variables computed on read (CHARANUM, RAND, GAMEBASE_*, *NAME…) that
@@ -2164,10 +2161,31 @@ fn for_cond(v: i64, end: i64, step: i64) -> bool {
 pub fn pseudo_var(name: &str) -> bool {
     matches!(
         name,
-        "RAND" | "CHARANUM" | "LINECOUNT" | "ISTIMEOUT" | "__INT_MAX__" | "__INT_MIN__" | "WINDOW_TITLE" | "DRAWLINESTR"
-            | "MONEYLABEL" | "SAVEDATA_TEXT" | "LASTLOAD_TEXT" | "LASTLOAD_NO" | "LASTLOAD_VERSION" | "GAMEBASE_CODE"
-            | "GAMEBASE_VERSION" | "GAMEBASE_ALLOWVERSION" | "GAMEBASE_DEFAULTCHARA" | "GAMEBASE_NOITEM" | "GAMEBASE_AUTHOR"
-            | "GAMEBASE_AUTHER" | "GAMEBASE_YEAR" | "GAMEBASE_TITLE" | "GAMEBASE_INFO" | "CDFLAGNAME1" | "CDFLAGNAME2"
+        "RAND"
+            | "CHARANUM"
+            | "LINECOUNT"
+            | "ISTIMEOUT"
+            | "__INT_MAX__"
+            | "__INT_MIN__"
+            | "WINDOW_TITLE"
+            | "DRAWLINESTR"
+            | "MONEYLABEL"
+            | "SAVEDATA_TEXT"
+            | "LASTLOAD_TEXT"
+            | "LASTLOAD_NO"
+            | "LASTLOAD_VERSION"
+            | "GAMEBASE_CODE"
+            | "GAMEBASE_VERSION"
+            | "GAMEBASE_ALLOWVERSION"
+            | "GAMEBASE_DEFAULTCHARA"
+            | "GAMEBASE_NOITEM"
+            | "GAMEBASE_AUTHOR"
+            | "GAMEBASE_AUTHER"
+            | "GAMEBASE_YEAR"
+            | "GAMEBASE_TITLE"
+            | "GAMEBASE_INFO"
+            | "CDFLAGNAME1"
+            | "CDFLAGNAME2"
     ) || (name.ends_with("NAME") && table_for_var(name).is_some() && name != "NAME")
 }
 

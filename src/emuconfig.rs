@@ -30,7 +30,11 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
             let v = v.trim();
             let rgb = |v: &str| -> Option<crate::console::Rgb> {
                 let n: Vec<u8> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-                if n.len() == 3 { Some(crate::console::Rgb(n[0], n[1], n[2])) } else { None }
+                if n.len() == 3 {
+                    Some(crate::console::Rgb(n[0], n[1], n[2]))
+                } else {
+                    None
+                }
             };
             // keys may be written in Japanese or English (WINDOW WIDTH…)
             let k = line.trim_start_matches('\u{feff}').split_once(':').map(|x| x.0).unwrap_or(k);
@@ -93,7 +97,6 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
     saves.zip = zip && binary;
     window_px
 }
-
 
 /// What kind of value a setting holds.
 #[derive(Clone, Copy, PartialEq, Debug)]

@@ -8,10 +8,10 @@
 
 use crate::ast::Align;
 use crate::console::{Seg, Style};
+use crate::fxhash::HashMap;
 use crate::vm::builtins::color_from_str;
 use crate::vm::value::Value;
 use crate::vm::Vm;
-use crate::fxhash::HashMap;
 
 /// Replace `&lt;` `&amp;` `&nbsp;` `&#…;` etc. Unknown entities stay as-is.
 fn decode_entities(s: &str) -> String {
@@ -270,7 +270,8 @@ impl Vm {
                             first_text = false;
                         }
                         ("space", _) => {
-                            let w = attrs.get("param").or(attrs.get("value")).and_then(|v| mixed_num(v)).map_or(fs, |(v, px)| if px { v } else { fs * v / 100.0 });
+                            let w =
+                                attrs.get("param").or(attrs.get("value")).and_then(|v| mixed_num(v)).map_or(fs, |(v, px)| if px { v } else { fs * v / 100.0 });
                             self.con.push_seg(Seg::Space { w });
                         }
                         _ => {}
@@ -329,7 +330,9 @@ impl Vm {
             }
         };
         // vertical sides in lines, horizontal ones in half-width cells
-        let to_cells = |v: [f32; 4]| -> [usize; 4] { [(v[0] / lh).round() as usize, (v[1] / cell_px).round() as usize, (v[2] / lh).round() as usize, (v[3] / cell_px).round() as usize] };
+        let to_cells = |v: [f32; 4]| -> [usize; 4] {
+            [(v[0] / lh).round() as usize, (v[1] / cell_px).round() as usize, (v[2] / lh).round() as usize, (v[3] / cell_px).round() as usize]
+        };
         let margin = to_cells(sides("margin"));
         let border = sides("border");
         let deco = crate::console::DivBox {

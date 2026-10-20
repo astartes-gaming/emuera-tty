@@ -111,9 +111,8 @@ impl TermInfo {
 
     /// Decode a compiled entry (term(5)).
     pub fn parse(b: &[u8]) -> Result<TermInfo, String> {
-        let short = |i: usize| -> Result<i32, String> {
-            b.get(i..i + 2).map(|s| i16::from_le_bytes([s[0], s[1]]) as i32).ok_or_else(|| "truncated".to_string())
-        };
+        let short =
+            |i: usize| -> Result<i32, String> { b.get(i..i + 2).map(|s| i16::from_le_bytes([s[0], s[1]]) as i32).ok_or_else(|| "truncated".to_string()) };
         let magic = short(0)?;
         let wide = match magic {
             0o432 => false,
@@ -283,8 +282,20 @@ pub fn tparm(s: &[u8], params: &[i32]) -> Vec<u8> {
                     b'+' => a2.wrapping_add(b2),
                     b'-' => a2.wrapping_sub(b2),
                     b'*' => a2.wrapping_mul(b2),
-                    b'/' => if b2 == 0 { 0 } else { a2 / b2 },
-                    b'm' => if b2 == 0 { 0 } else { a2 % b2 },
+                    b'/' => {
+                        if b2 == 0 {
+                            0
+                        } else {
+                            a2 / b2
+                        }
+                    }
+                    b'm' => {
+                        if b2 == 0 {
+                            0
+                        } else {
+                            a2 % b2
+                        }
+                    }
                     b'&' => a2 & b2,
                     b'|' => a2 | b2,
                     b'^' => a2 ^ b2,

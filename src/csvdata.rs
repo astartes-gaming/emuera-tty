@@ -6,8 +6,8 @@
 //! table a variable's index is looked up in (MAXBASE uses BASE.csv…).
 //! Everything here is loaded once at startup and read-only afterwards.
 
-use crate::loader::{csv_fields, find_file_ci, read_text, walk};
 use crate::fxhash::HashMap;
+use crate::loader::{csv_fields, find_file_ci, read_text, walk};
 use std::path::Path;
 
 /// One `index,name` table, searchable both ways.
@@ -82,8 +82,8 @@ pub struct GameCsv {
 /// Which name table a variable's last index is resolved against.
 /// Every table `table_for_var` names (so a table fits in a few bits).
 pub const TABLE_NAMES: &[&str] = &[
-    "ABL", "TALENT", "EXP", "MARK", "PALAM", "BASE", "SOURCE", "EX", "ITEM", "TRAIN", "EQUIP", "TEQUIP", "FLAG", "TFLAG", "CFLAG", "TCVAR",
-    "CSTR", "STAIN", "MONEY", "DAY", "TIME", "STRNAME", "TSTR", "SAVESTR", "GLOBAL", "GLOBALS",
+    "ABL", "TALENT", "EXP", "MARK", "PALAM", "BASE", "SOURCE", "EX", "ITEM", "TRAIN", "EQUIP", "TEQUIP", "FLAG", "TFLAG", "CFLAG", "TCVAR", "CSTR", "STAIN",
+    "MONEY", "DAY", "TIME", "STRNAME", "TSTR", "SAVESTR", "GLOBAL", "GLOBALS",
 ];
 
 pub fn table_for_var(var: &str) -> Option<&'static str> {
@@ -227,8 +227,7 @@ impl GameCsv {
                 for line in text.lines() {
                     let f = csv_fields(line);
                     if f.len() >= 2 {
-                        let dims: Vec<usize> =
-                            f[1..].iter().filter_map(|s| s.parse::<i64>().ok()).map(|v| v.max(0) as usize).collect();
+                        let dims: Vec<usize> = f[1..].iter().filter_map(|s| s.parse::<i64>().ok()).map(|v| v.max(0) as usize).collect();
                         g.varsize.insert(f[0].to_uppercase(), dims);
                     }
                 }

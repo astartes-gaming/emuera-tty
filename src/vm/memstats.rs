@@ -28,7 +28,15 @@ impl Vm {
                 instrs += b.code.len();
             }
         }
-        let _ = writeln!(out, "functions: {} ({} compiled, {} instructions, about {}; may drop beyond {})", n, compiled, instrs, mb(self.code_bytes), if self.code_budget == usize::MAX { "-".to_string() } else { mb(self.code_budget) });
+        let _ = writeln!(
+            out,
+            "functions: {} ({} compiled, {} instructions, about {}; may drop beyond {})",
+            n,
+            compiled,
+            instrs,
+            mb(self.code_bytes),
+            if self.code_budget == usize::MAX { "-".to_string() } else { mb(self.code_budget) }
+        );
         let mut big: Vec<(usize, &str)> = self.prog.funcs.values().flatten().filter_map(|f| f.body.get().map(|b| (b.code.len(), f.name.as_str()))).collect();
         big.sort_unstable_by(|a, b| b.cmp(a));
         for (n, name) in big.iter().take(5) {
@@ -48,7 +56,14 @@ impl Vm {
             let _ = writeln!(out, "{}: {} ({})", what, n, mb(b));
         }
         let _ = writeln!(out, "console: {} lines", self.con.lines.len());
-        let _ = writeln!(out, "maps: {}, data tables: {} ({} rows), xml documents: {}", self.maps.len(), self.dts.len(), self.dts.values().map(|d| d.rows().len()).sum::<usize>(), self.xml_docs.len());
+        let _ = writeln!(
+            out,
+            "maps: {}, data tables: {} ({} rows), xml documents: {}",
+            self.maps.len(),
+            self.dts.len(),
+            self.dts.values().map(|d| d.rows().len()).sum::<usize>(),
+            self.xml_docs.len()
+        );
         out
     }
 }

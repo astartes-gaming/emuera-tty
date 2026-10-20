@@ -45,7 +45,6 @@ impl Mice {
         }
     }
 
-
     /// Use the console mouse (gpm or the raw device)? On a VT;
     /// `EMUERA_MOUSE=mice` forces it, `=off` / `=term` disables it.
     pub fn wanted(is_vt: bool) -> bool {
@@ -115,9 +114,9 @@ impl Mice {
         // struct Gpm_Connect { u16 eventMask, defaultMask, minMod, maxMod; i32 pid, vc; }
         let mut c = Vec::with_capacity(16);
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // every event
-        // nothing left to gpm's default handler: its pointer is an inverted
-        // cell that our redraws wipe out (and leave dark), so we draw the
-        // pointer ourselves; clicks make no selection
+                                                       // nothing left to gpm's default handler: its pointer is an inverted
+                                                       // cell that our redraws wipe out (and leave dark), so we draw the
+                                                       // pointer ourselves; clicks make no selection
         c.extend_from_slice(&0u16.to_ne_bytes());
         c.extend_from_slice(&0u16.to_ne_bytes());
         c.extend_from_slice(&0xffffu16.to_ne_bytes()); // any modifiers
