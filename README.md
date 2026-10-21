@@ -350,6 +350,11 @@ translator keeps the lines, and is spread over them by length when it
 doesn't (Argos). The log has one entry per batch, its lines joined by
 spaces.
 
+**Original or translation**: click a translated line (where it is not a
+button) at an input prompt, or middle-click it anywhere (also at a wait,
+where a left click goes on), to see the original text; click again for the
+translation. It is remembered per line for the session.
+
 Maps and box drawings are never translated, nor text already in the
 target language, and the game itself still sees the text it printed. Text
 shows untranslated until its translation comes in, which happens in the

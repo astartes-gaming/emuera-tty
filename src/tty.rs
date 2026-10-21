@@ -76,6 +76,21 @@ fn place_of(l: &Line, files: &[String]) -> Option<String> {
     (l.src != 0).then(|| format!("{}:{}", files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()), l.src & 0xFFFF_FFFF))
 }
 
+/// What identifies a line across frames (indices move when the scrollback
+/// is trimmed): where it was printed, in which wait, and its text.
+fn line_key(l: &Line) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    l.wait.hash(&mut h);
+    l.src.hash(&mut h);
+    for s in &l.segs {
+        if let Seg::Text { text, .. } = s {
+            text.hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
 /// `t` spread over lines as wide as `widths` say, in proportion: words
 /// (characters, for text without spaces) go to the line whose share of
 /// the whole they fall in.
@@ -448,6 +463,12 @@ pub struct Tty {
     box_closed: std::cell::Cell<bool>,
     /// buttons with a `srcb` hover picture (their hover needs a full redraw)
     hover_imgs: std::collections::HashSet<usize>,
+    /// translated lines the player clicked back to the original text
+    /// (see [`line_key`])
+    show_orig: std::collections::HashSet<u64>,
+    /// per screen row of the last frame: the key of the translatable line
+    /// it belongs to, for clicks
+    row_lines: Vec<Option<u64>>,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -687,6 +708,8 @@ impl Tty {
             redraw_all: std::cell::Cell::new(true),
             box_closed: std::cell::Cell::new(false),
             hover_imgs: std::collections::HashSet::new(),
+            show_orig: std::collections::HashSet::new(),
+            row_lines: Vec::new(),
             button_wrap: false,
         };
         if xp > 0 && yp > 0 {
@@ -1405,11 +1428,15 @@ impl Tty {
             })
         };
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
+        // for each chunk: the key of its line if it is translated (or could
+        // be shown so), for clicking between the original and the translation
+        let mut chunk_keys: Vec<Option<u64>> = Vec::new();
         let mut count = 0;
         if let Some(l) = &cur_line {
             let r = self.layout_line(l, con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
+            chunk_keys.push(None);
         }
         // dialog translated in batches (the lines that may show)
         let blocks = if self.mt.is_some() { self.translate_blocks(con, con.lines.len().saturating_sub(need)) } else { crate::fxhash::HashMap::default() };
@@ -1422,11 +1449,20 @@ impl Tty {
                 None if self.mt.is_some() => self.translated(l, &con.src_files),
                 None => None,
             };
+            // a translated line the player clicked shows its original again
+            let key = tr.as_ref().map(|_| line_key(l));
+            let tr = match key {
+                Some(k) if self.show_orig.contains(&k) => None,
+                _ => tr,
+            };
             let r = self.layout_line(tr.as_ref().unwrap_or(l), con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
+            chunk_keys.push(key);
         }
-        for c in chunks.into_iter().rev() {
+        let mut row_keys: Vec<Option<u64>> = Vec::new();
+        for (c, k) in chunks.into_iter().zip(chunk_keys).rev() {
+            row_keys.extend(std::iter::repeat(k).take(c.len()));
             all.extend(c);
         }
         // <div> content: painted over the rows it reaches (Emuera draws a
@@ -1465,6 +1501,7 @@ impl Tty {
         let start = end.saturating_sub(view_h);
         let cbg_places = if res.cbg.is_empty() { Vec::new() } else { self.cbg_layers(con, res, &mut all[start..end]) };
         let visible = &all[start..end];
+        self.row_lines = (start..end).map(|i| row_keys.get(i).copied().flatten()).collect();
 
         let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
         out.extend_from_slice(b"\x1b[?25l");
@@ -2049,6 +2086,18 @@ impl Tty {
     }
 
     /// A mouse press may trigger a copy (left, middle or double click).
+    /// Click on screen row `y` (0-based): if it belongs to a translated
+    /// line, show that line's original text instead (or the translation
+    /// again). Whether anything changed.
+    fn toggle_translation(&mut self, y: usize) -> bool {
+        let Some(Some(k)) = self.row_lines.get(y).copied() else { return false };
+        if !self.show_orig.remove(&k) {
+            self.show_orig.insert(k);
+        }
+        self.force_frame = true;
+        true
+    }
+
     fn click_copies(&mut self, con: &Console, btn: u16, x: u16, y: u16) {
         use crate::clipboard::Trigger;
         match btn & !(4 | 8 | 16) {
@@ -3244,7 +3293,13 @@ impl Frontend for Tty {
                                 let v = self.buttons[b].clone();
                                 return InputResult::Text(v.to_string());
                             }
+                            // text that isn't a button: a translated line
+                            // flips between the original and the translation
+                            redraw |= self.toggle_translation(y);
                         }
+                        // a middle click does that anywhere, also at a WAIT
+                        // (where a left click goes on)
+                        1 if press => redraw |= self.toggle_translation(y),
                         // a right click: as Emuera, continue and skip the
                         // following waits up to the next choice; on a
                         // button, choose it and skip after it
