@@ -293,13 +293,13 @@ the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
 **Translating the game**: in F1, *Translate to* picks the language to
-show the game in (off, en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
+show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
 English, so an English translation like AnonTW can be read in Spanish), and
 *Translate what* either the characters' **dialog** or **all** text (menus,
 buttons, labels too); *auto* (the default) is dialog when the game is shown
 in English and all text in any other language. Text is translated as it
-appears. With *Translator* on *auto* it uses whatever translator is there,
+appears. Translation is off while *Translator* is *off* (the default). With *Translator* on *auto* it uses whatever translator is there,
 the ones **on this computer** first (nothing is sent online then): the
 first it finds of
 
@@ -407,7 +407,7 @@ running game:
 
 | Setting | Values | |
 |---|---|---|
-| Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn |
+| Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn; `none`: pictures are never decoded or scaled (and those already held are freed) until another choice is made |
 | Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
@@ -415,8 +415,8 @@ running game:
 | Bottom bar details | on, off | hovered button's value, running function |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
 | Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
-| Translator | auto, local, argos, translate-shell, deepl | auto: whichever is installed, this computer's first |
-| Translate to | off, en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
+| Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
+| Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
 | Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
 | Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
@@ -424,7 +424,9 @@ running game:
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
 | Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
 
-The overlay also has *Game settings…* and *Manage saves…* (below),
+The overlay shows the *Random seed* in use: selectable for its description,
+but read-only (start with `EMUERA_SEED=N` to choose it; the game's
+`RANDOMIZE` / `INITRAND` change it). It also has *Game settings…* and *Manage saves…* (below),
 *Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
 override saved settings.
 

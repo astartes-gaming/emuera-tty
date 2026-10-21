@@ -68,16 +68,16 @@ pub const ITEMS: &[Item] = &[
     Item {
         key: "translator",
         label: "Translator",
-        choices: &["auto", "local", "argos", "translate-shell", "deepl"],
+        choices: &["off", "auto", "local", "argos", "translate-shell", "deepl"],
         live: true,
-        help: "auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online",
+        help: "off: the game shows as it prints itself; auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online",
     },
     Item {
         key: "translate",
         label: "Translate to",
-        choices: &["off", "en", "es", "pt", "fr", "de", "it", "ru", "ja", "zh", "ko"],
+        choices: &["en", "es", "pt", "fr", "de", "it", "ru", "ja", "zh", "ko"],
         live: true,
-        help: "the language to show the game in (with the translator below); off: as the game prints it",
+        help: "the language to show the game in (needs a Translator other than off)",
     },
     Item {
         key: "translate_from",
@@ -146,6 +146,17 @@ impl Settings {
                     s.values.insert(k.to_string(), v.to_string());
                 }
             }
+        }
+        // older versions turned translation off with "Translate to: off"
+        match s.values.get("translate").map(String::as_str) {
+            Some("off") => {
+                s.values.remove("translate");
+                s.values.insert("translator".into(), "off".into());
+            }
+            Some(_) if !s.values.contains_key("translator") => {
+                s.values.insert("translator".into(), "auto".into());
+            }
+            _ => {}
         }
         // the remembered game is always in the library
         if let Some(g) = s.last.clone() {

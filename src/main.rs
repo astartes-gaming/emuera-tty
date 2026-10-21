@@ -443,7 +443,7 @@ fn run(o: Opts) -> i32 {
                 t.status_info = st.get("statusbar") == "on";
                 t.show_memory = st.get("memory") == "on";
                 t.set_kbd_pointer(st.get("kbdpointer"));
-                if st.get("translate") != "off" {
+                if st.get("translator") != "off" {
                     let note = t.set_translate(&st);
                     eprintln!("{}", note);
                 }

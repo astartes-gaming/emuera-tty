@@ -1575,7 +1575,9 @@ impl Tty {
                         }
                     }
                 }
-                if self.no_images {
+                // images off (or hidden under the overlay): nothing is decoded
+                // or scaled, so no picture is read until a backend is chosen
+                if self.no_images || self.gfx.name() == "none" {
                     continue;
                 }
                 // srcb: the hover picture while the pointer is on its button
@@ -2242,7 +2244,9 @@ impl Tty {
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ITEMS};
         let mut st = Settings::load();
+        let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed));
         let extra = [
+            seed_row.as_str(),
             "Game settings…  (Emuera's settings window: emuera.config)",
             "Manage saves…  (copy, export, back up, restore)",
             "Test the translator…  (translates a sample line)",
@@ -2314,6 +2318,14 @@ impl Tty {
                 st.save();
                 if it.live {
                     self.apply_setting(it.key, &v, &st);
+                    if it.key == "images" {
+                        // off: let go of the pictures held; on again: the next
+                        // frame decodes what is on screen
+                        if self.gfx.name() == "none" {
+                            res.release_images();
+                        }
+                        self.redraw_all.set(true);
+                    }
                     if it.key == "sound" {
                         con.sound_on = crate::sound::wanted(&v);
                         self.setting_note = if con.sound_on { "sound on".into() } else { "sound off".into() };
@@ -2322,8 +2334,11 @@ impl Tty {
                 } else {
                     note = format!("{} takes effect the next time emuera-tty starts", it.label);
                 }
+            } else if sel == ITEMS.len() {
+                // the seed row: selectable for its description, never changed
+                note = "the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty".into();
             } else if act == 1 {
-                match sel - ITEMS.len() {
+                match sel - ITEMS.len() - 1 {
                     0 => {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
@@ -2348,6 +2363,7 @@ impl Tty {
                             }
                         }
                     }
+                    2 if st.get("translator") == "off" => note = "the Translator is off: choose one to test it".into(),
                     2 => match crate::mt::Engine::choose(st.get("translator")) {
                         Err(e) => note = e,
                         Ok(e) => {
@@ -2358,17 +2374,7 @@ impl Tty {
                             } else {
                                 "「おはようございます。今日は何をしましょうか？」"
                             };
-                            let to = match st.get("translate") {
-                                "off" => {
-                                    if from == "en" {
-                                        "es"
-                                    } else {
-                                        "en"
-                                    }
-                                }
-                                t => t,
-                            }
-                            .to_string();
+                            let to = st.get("translate").to_string();
                             let to = if to == from {
                                 if from == "en" {
                                     "es".into()
@@ -2461,7 +2467,7 @@ impl Tty {
         self.tr_to = lang.to_string();
         self.tr_from = st.get("translate_from").to_string();
         self.tr_all = all_text(st);
-        if lang == "off" {
+        if st.get("translator") == "off" {
             return "the game shows as it prints itself".into();
         }
         match crate::mt::Engine::choose(st.get("translator")) {
@@ -2708,6 +2714,8 @@ impl Tty {
             format!("last translation failed: {}", e)
         } else if sel < ITEMS.len() {
             ITEMS[sel].help.to_string()
+        } else if sel == ITEMS.len() {
+            "the number the random generator started from (read-only); set EMUERA_SEED=N before starting for repeatable runs; RANDOMIZE / INITRAND in the game change it".to_string()
         } else {
             "↑↓ choose  ←→ / Enter change  Esc close".to_string()
         };
