@@ -235,3 +235,11 @@ fn constant_names_given_to_functions() {
     // folded at load: Talent_TR only, not then ALL_TR's Virgin → Maiden
     assert!(text.contains("P=Virgin"), "{}", text);
 }
+
+/// A whole CSV name array given to a built-in (`FINDELEMENT(BASENAME, …)`)
+/// stays a variable: it isn't a constant (AnonTW's BASE_BAR does this).
+#[test]
+fn name_array_given_whole() {
+    let text = play("name-array", &[VIRGIN, ("CSV/Base.csv", "0,体力\n1,気力\n")], "PRINTFORML F={FINDELEMENT(BASENAME, \"気力\")}");
+    assert!(text.contains("F=1"), "{}", text);
+}

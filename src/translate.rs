@@ -394,16 +394,31 @@ const FOLDING_FNS: &[&str] = &[
     "SUBSTRINGU", "TOFULL", "TOHALF", "TOINT", "TOLOWER", "TOSTR", "TOUPPER", "TR_NAME", "UNICODE", "UNICODEBYTE",
 ];
 
-/// A variable Anchor treats as a constant: the CSV name arrays and GAMEBASE.
-fn const_var(name: &str) -> bool {
-    (name.ends_with("NAME") && crate::csvdata::table_for_var(name).is_some()) || matches!(name, "CDFLAGNAME1" | "CDFLAGNAME2") || name.starts_with("GAMEBASE_")
+/// A CSV name array (Anchor's constant arrays).
+fn name_array(name: &str) -> bool {
+    (name.ends_with("NAME") && crate::csvdata::table_for_var(name).is_some()) || matches!(name, "CDFLAGNAME1" | "CDFLAGNAME2")
 }
+
+/// A variable reference Anchor folds: an element of a CSV name array (the
+/// array itself, `FINDELEMENT(BASENAME, …)`, stays a variable), or a
+/// GAMEBASE value.
+fn const_var(v: &crate::ast::VarRef) -> bool {
+    if v.idx.is_empty() {
+        v.name.starts_with("GAMEBASE_")
+    } else {
+        name_array(&v.name) && v.idx.iter().all(is_const)
+    }
+}
+
+/// Built-ins with their own folding rule (`HasUniqueRestructure`): Anchor
+/// doesn't fold their arguments, some of which are variables.
+const OWN_FOLDING_FNS: &[&str] = &["CMATCH", "FINDELEMENT", "FINDLASTELEMENT", "GETNUM", "GETNUMB", "MATCH", "STRFORM", "VARSIZE"];
 
 /// Would Anchor fold `e` into a literal?
 pub fn is_const(e: &Expr) -> bool {
     match e {
         Expr::Int(_) | Expr::Str(_) | Expr::Empty => true,
-        Expr::Var(v) => const_var(&v.name) && v.idx.iter().all(is_const),
+        Expr::Var(v) => const_var(v),
         Expr::Unary(_, x) => is_const(x),
         Expr::Binary(_, a, b) => is_const(a) && is_const(b),
         Expr::Ternary(c, a, b) => is_const(c) && is_const(a) && is_const(b),
@@ -426,7 +441,7 @@ pub fn is_const_form(f: &Form) -> bool {
 /// name, or STRLENS (which measures the translated text)?
 fn has_name(e: &Expr) -> bool {
     match e {
-        Expr::Var(v) => (const_var(&v.name) && !v.name.starts_with("GAMEBASE_")) || v.idx.iter().any(has_name),
+        Expr::Var(v) => (name_array(&v.name) && !v.idx.is_empty()) || v.idx.iter().any(has_name),
         Expr::Unary(_, x) => has_name(x),
         Expr::Binary(_, a, b) => has_name(a) || has_name(b),
         Expr::Ternary(c, a, b) => has_name(c) || has_name(a) || has_name(b),
@@ -538,6 +553,9 @@ fn scan(e: &mut Expr) -> bool {
             // function's (and PRINTFORMS' own) are folded on their own
             let arg = n != "__FORMS" && crate::vm::builtins::is_builtin_function(n);
             let consts: Vec<bool> = args.iter_mut().map(scan).collect();
+            if OWN_FOLDING_FNS.contains(&n.as_str()) {
+                return false;
+            }
             let all = FOLDING_FNS.binary_search(&n.as_str()).is_ok() && consts.iter().all(|&c| c);
             if !all {
                 for (a, c) in args.iter_mut().zip(consts) {
