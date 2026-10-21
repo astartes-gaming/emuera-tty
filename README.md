@@ -18,6 +18,33 @@
 > If it works for you anyway: nice. If it doesn't: that's the expected
 > outcome of a proof of concept.
 
+## Contents
+
+- [Guide](#guide)
+  - [1. What you need](#1-what-you-need)
+  - [2. Install](#2-install)
+    - [Other systems](#other-systems)
+    - [Other CPUs](#other-cpus)
+    - [Small machines (Raspberry Pi Zero and the like)](#small-machines-raspberry-pi-zero-and-the-like)
+  - [3. First run: choose your game](#3-first-run-choose-your-game)
+  - [4. Playing](#4-playing)
+    - [Settings](#settings)
+    - [Game settings (Emuera's settings window)](#game-settings-emueras-settings-window)
+    - [Copying text to the clipboard](#copying-text-to-the-clipboard)
+    - [Translated games (Emuera-Anchor)](#translated-games-emuera-anchor)
+    - [Managing saves](#managing-saves)
+  - [5. Picking a terminal](#5-picking-a-terminal)
+  - [6. Updating and removing](#6-updating-and-removing)
+  - [7. When something goes wrong](#7-when-something-goes-wrong)
+- [Reference](#reference)
+  - [Command-line options](#command-line-options)
+    - [Memory](#memory)
+    - [Mouse](#mouse)
+  - [Graphics backends](#graphics-backends)
+  - [Layout](#layout)
+  - [Implemented](#implemented)
+  - [Roadmap](#roadmap)
+
 A from-scratch reimplementation of the **Emuera** ERB engine in Rust that
 plays era games in a terminal: graphics-capable terminals (kitty, Konsole,
 WezTerm, Ghostty, foot, iTerm2, xterm with sixel…), plain ones (pictures are
