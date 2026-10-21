@@ -177,20 +177,22 @@ impl Tty {
     }
 
     /// The overlay frame: (left column, top row, inner width), 1-based.
-    fn box_geo(&self, n_rows: usize) -> (usize, usize, usize) {
+    pub(super) fn box_geo(&self, n_rows: usize) -> (usize, usize, usize) {
         let w = self.cols.saturating_sub(4).clamp(30, 110);
         let h = n_rows + 4;
         ((self.cols.saturating_sub(w)) / 2 + 1, (self.rows.saturating_sub(h)) / 2 + 1, w - 2)
     }
 
     /// Draw a boxed list: `title`, the rows (those from `first_action` on in
-    /// the action colour), `help` at the bottom; scrolled to show `sel`.
+    /// the action colour), `help` at the bottom (one line per `\n`: wrapping
+    /// is the caller's); scrolled to show `sel`.
     /// Returns the top row and the first row shown.
     fn draw_list(&self, title: &str, rows: &[String], first_action: usize, sel: usize, help: &str) -> (usize, usize) {
         self.redraw_all.set(true);
-        let vis = rows.len().min(self.rows.saturating_sub(6).max(3));
+        let help_lines: Vec<&str> = if help.is_empty() { vec!["↑↓ choose  Enter pick  Esc back"] } else { help.split('\n').collect() };
+        let vis = rows.len().min(self.rows.saturating_sub(5 + help_lines.len()).max(3));
         let start = sel.saturating_sub(vis.saturating_sub(1)).min(rows.len() - vis);
-        let (left, top, inner) = self.box_geo(vis);
+        let (left, top, inner) = self.box_geo(vis + help_lines.len() - 1);
         let bg = (22, 32, 58);
         let frame = self.ov_style((150, 170, 210), bg, false);
         let tstyle = self.ov_style((255, 255, 255), bg, true);
@@ -215,8 +217,10 @@ impl Tty {
             };
             line(&mut out, top + 2 + i - start, &format!("  {}", r), st);
         }
-        line(&mut out, top + 2 + vis, &format!(" {}", if help.is_empty() { "↑↓ choose  Enter pick  Esc back" } else { help }), &helpc);
-        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 3 + vis, left, frame, "─".repeat(inner));
+        for (k, l) in help_lines.iter().enumerate() {
+            line(&mut out, top + 2 + vis + k, &format!(" {}", l), &helpc);
+        }
+        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 2 + vis + help_lines.len(), left, frame, "─".repeat(inner));
         write_all(&out);
         (top + 1, start)
     }

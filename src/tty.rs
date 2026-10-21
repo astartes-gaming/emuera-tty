@@ -24,6 +24,7 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
+mod envvars;
 mod gamecfg;
 mod saves;
 
@@ -73,6 +74,21 @@ fn all_text(st: &crate::settings::Settings) -> bool {
 /// Where a line was printed ("ERB/x.ERB:12"), for EMUERA_TRANSLATE_LOG.
 fn place_of(l: &Line, files: &[String]) -> Option<String> {
     (l.src != 0).then(|| format!("{}:{}", files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()), l.src & 0xFFFF_FFFF))
+}
+
+/// What identifies a line across frames (indices move when the scrollback
+/// is trimmed): where it was printed, in which wait, and its text.
+fn line_key(l: &Line) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    l.wait.hash(&mut h);
+    l.src.hash(&mut h);
+    for s in &l.segs {
+        if let Seg::Text { text, .. } = s {
+            text.hash(&mut h);
+        }
+    }
+    h.finish()
 }
 
 /// `t` spread over lines as wide as `widths` say, in proportion: words
@@ -447,6 +463,12 @@ pub struct Tty {
     box_closed: std::cell::Cell<bool>,
     /// buttons with a `srcb` hover picture (their hover needs a full redraw)
     hover_imgs: std::collections::HashSet<usize>,
+    /// translated lines the player clicked back to the original text
+    /// (see [`line_key`])
+    show_orig: std::collections::HashSet<u64>,
+    /// per screen row of the last frame: the key of the translatable line
+    /// it belongs to, for clicks
+    row_lines: Vec<Option<u64>>,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -686,6 +708,8 @@ impl Tty {
             redraw_all: std::cell::Cell::new(true),
             box_closed: std::cell::Cell::new(false),
             hover_imgs: std::collections::HashSet::new(),
+            show_orig: std::collections::HashSet::new(),
+            row_lines: Vec::new(),
             button_wrap: false,
         };
         if xp > 0 && yp > 0 {
@@ -1404,11 +1428,15 @@ impl Tty {
             })
         };
         let mut chunks: Vec<Vec<DRow>> = Vec::new();
+        // for each chunk: the key of its line if it is translated (or could
+        // be shown so), for clicking between the original and the translation
+        let mut chunk_keys: Vec<Option<u64>> = Vec::new();
         let mut count = 0;
         if let Some(l) = &cur_line {
             let r = self.layout_line(l, con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
+            chunk_keys.push(None);
         }
         // dialog translated in batches (the lines that may show)
         let blocks = if self.mt.is_some() { self.translate_blocks(con, con.lines.len().saturating_sub(need)) } else { crate::fxhash::HashMap::default() };
@@ -1421,11 +1449,20 @@ impl Tty {
                 None if self.mt.is_some() => self.translated(l, &con.src_files),
                 None => None,
             };
+            // a translated line the player clicked shows its original again
+            let key = tr.as_ref().map(|_| line_key(l));
+            let tr = match key {
+                Some(k) if self.show_orig.contains(&k) => None,
+                _ => tr,
+            };
             let r = self.layout_line(tr.as_ref().unwrap_or(l), con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
+            chunk_keys.push(key);
         }
-        for c in chunks.into_iter().rev() {
+        let mut row_keys: Vec<Option<u64>> = Vec::new();
+        for (c, k) in chunks.into_iter().zip(chunk_keys).rev() {
+            row_keys.extend(std::iter::repeat(k).take(c.len()));
             all.extend(c);
         }
         // <div> content: painted over the rows it reaches (Emuera draws a
@@ -1464,6 +1501,7 @@ impl Tty {
         let start = end.saturating_sub(view_h);
         let cbg_places = if res.cbg.is_empty() { Vec::new() } else { self.cbg_layers(con, res, &mut all[start..end]) };
         let visible = &all[start..end];
+        self.row_lines = (start..end).map(|i| row_keys.get(i).copied().flatten()).collect();
 
         let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
         out.extend_from_slice(b"\x1b[?25l");
@@ -2048,6 +2086,18 @@ impl Tty {
     }
 
     /// A mouse press may trigger a copy (left, middle or double click).
+    /// Click on screen row `y` (0-based): if it belongs to a translated
+    /// line, show that line's original text instead (or the translation
+    /// again). Whether anything changed.
+    fn toggle_translation(&mut self, y: usize) -> bool {
+        let Some(Some(k)) = self.row_lines.get(y).copied() else { return false };
+        if !self.show_orig.remove(&k) {
+            self.show_orig.insert(k);
+        }
+        self.force_frame = true;
+        true
+    }
+
     fn click_copies(&mut self, con: &Console, btn: u16, x: u16, y: u16) {
         use crate::clipboard::Trigger;
         match btn & !(4 | 8 | 16) {
@@ -2242,28 +2292,43 @@ impl Tty {
     /// most apply to the running game. Images are hidden while it is up
     /// (kitty would draw them over it).
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
-        use crate::settings::{Settings, ITEMS};
+        use crate::settings::{Settings, ENV_VARS, ITEMS};
         let mut st = Settings::load();
         let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed));
-        let extra = [
-            seed_row.as_str(),
-            "Game settings…  (Emuera's settings window: emuera.config)",
-            "Manage saves…  (copy, export, back up, restore)",
-            "Test the translator…  (translates a sample line)",
-            "Clear the translation cache  (translate the screen again)",
-            "Back to the title  (Ctrl-T)",
-            "Restart the game  (Ctrl-R)",
-            "Reload ERB files  (F5 / Ctrl-E)",
-            "Switch game…  (unsaved progress is lost)",
-            "Quit emuera-tty",
-            "Close  (Esc)",
-        ];
-        let n = ITEMS.len() + extra.len();
+        // the variables page is only offered when one of its variables is set
+        let env_any = ENV_VARS.iter().any(|(name, _)| std::env::var_os(name).is_some());
         let mut sel = 0usize;
         let mut note = String::new();
         // a translator test running: (its answer, when it began, what is tested)
         let mut test: Option<(std::sync::mpsc::Receiver<Result<String, String>>, Instant, String)> = None;
+        // an action row's id in the `match` below (the seed row has none)
+        const SEED_ROW: usize = usize::MAX;
         let exit = loop {
+            // the settings shown (the translation ones hide while the
+            // Translator is off) and the rows after them: (text, action id)
+            let vis: Vec<usize> = ITEMS.iter().enumerate().filter(|(_, it)| st.shown(it)).map(|(i, _)| i).collect();
+            let mut rows: Vec<(&str, usize)> = vec![(seed_row.as_str(), SEED_ROW)];
+            if env_any {
+                rows.push(("Environment variables…  (the EMUERA_* ones emuera-tty reads)", 0));
+            }
+            rows.push(("Game settings…  (Emuera's settings window: emuera.config)", 1));
+            rows.push(("Manage saves…  (copy, export, back up, restore)", 2));
+            if st.get("translator") != "off" {
+                rows.push(("Test the translator…  (translates a sample line)", 3));
+            }
+            rows.extend([
+                ("Clear the translation cache  (translate the screen again)", 4),
+                ("Clear the picture cache  (frees decoded sprites; they load again when shown)", 5),
+                ("Back to the title  (Ctrl-T)", 6),
+                ("Restart the game  (Ctrl-R)", 7),
+                ("Reload ERB files  (F5 / Ctrl-E)", 8),
+                ("Switch game…  (unsaved progress is lost)", 9),
+                ("Quit emuera-tty", 10),
+                ("Close  (Esc)", 11),
+            ]);
+            let extra: Vec<&str> = rows.iter().map(|r| r.0).collect();
+            let n = vis.len() + extra.len();
+            sel = sel.min(n - 1);
             if let Some((rx, began, what)) = &test {
                 let secs = began.elapsed().as_secs_f32();
                 note = match rx.try_recv() {
@@ -2278,7 +2343,7 @@ impl Tty {
             }
             self.no_images = true;
             self.render(con, res, Some(req));
-            let geo = self.draw_overlay(&st, &extra, sel, &note);
+            let geo = self.draw_overlay(&st, &vis, &extra, sel, &note);
             let Some(k) = self.next_key(500) else {
                 if self.hangup {
                     break OverlayExit::Quit;
@@ -2312,8 +2377,8 @@ impl Tty {
             if act == 0 {
                 continue;
             }
-            if sel < ITEMS.len() {
-                let it = &ITEMS[sel];
+            if sel < vis.len() {
+                let it = &ITEMS[vis[sel]];
                 let v = st.cycle(it.key, act).to_string();
                 st.save();
                 if it.live {
@@ -2334,12 +2399,19 @@ impl Tty {
                 } else {
                     note = format!("{} takes effect the next time emuera-tty starts", it.label);
                 }
-            } else if sel == ITEMS.len() {
+            } else if rows[sel - vis.len()].1 == SEED_ROW {
                 // the seed row: selectable for its description, never changed
                 note = "the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty".into();
             } else if act == 1 {
-                match sel - ITEMS.len() - 1 {
+                match rows[sel - vis.len()].1 {
                     0 => {
+                        let quit = self.env_panel(con, res, req);
+                        self.box_closed.set(true);
+                        if quit {
+                            break OverlayExit::Quit;
+                        }
+                    }
+                    1 => {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
                         } else {
@@ -2352,7 +2424,7 @@ impl Tty {
                             }
                         }
                     }
-                    1 => {
+                    2 => {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
                         } else {
@@ -2363,8 +2435,8 @@ impl Tty {
                             }
                         }
                     }
-                    2 if st.get("translator") == "off" => note = "the Translator is off: choose one to test it".into(),
-                    2 => match crate::mt::Engine::choose(st.get("translator")) {
+                    3 if st.get("translator") == "off" => note = "the Translator is off: choose one to test it".into(),
+                    3 => match crate::mt::Engine::choose(st.get("translator")) {
                         Err(e) => note = e,
                         Ok(e) => {
                             // a sample in the game's language, into the one chosen
@@ -2393,18 +2465,28 @@ impl Tty {
                             test = Some((rx, Instant::now(), what));
                         }
                     },
-                    3 => {
+                    4 => {
                         note = match self.mt.as_mut() {
                             Some(m) => format!("translation cache cleared ({} lines): what is on screen is translated again", m.clear()),
                             None => "translation is off: no cache to clear".into(),
                         };
                         self.force_frame = true;
                     }
-                    4 => break OverlayExit::Title,
-                    5 => break OverlayExit::Restart,
-                    6 => break OverlayExit::Reload,
-                    7 => break OverlayExit::SwitchGame,
-                    8 => break OverlayExit::Quit,
+                    5 => {
+                        // whatever the Images setting: drop the decoded
+                        // sprites, scaled copies and the like (the game's own
+                        // GCREATE… buffers stay)
+                        let held = |r: &Resources| r.mem_stats().1.iter().map(|g| g.2).sum::<usize>();
+                        let before = held(res);
+                        res.release_images();
+                        note = format!("picture cache cleared ({:.1} MB freed)", before.saturating_sub(held(res)) as f64 / (1 << 20) as f64);
+                        self.force_frame = true;
+                    }
+                    6 => break OverlayExit::Title,
+                    7 => break OverlayExit::Restart,
+                    8 => break OverlayExit::Reload,
+                    9 => break OverlayExit::SwitchGame,
+                    10 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }
@@ -2537,8 +2619,13 @@ impl Tty {
             }
             let texts: Vec<&str> = (i..j).map(|k| dialog[k].as_ref().unwrap().1.trim()).collect();
             let joined = texts.join("\n");
-            let place = self.mt.as_ref().is_some_and(|m| m.logging()).then(|| place_of(&lines[start + i], &con.src_files)).flatten();
-            let tr = self.mt.as_mut().and_then(|m| m.get(&joined, src, place.as_deref()).map(str::to_string));
+            // where each line of the batch was printed, for the log (one row each)
+            let places: Vec<String> = if self.mt.as_ref().is_some_and(|m| m.logging()) {
+                (i..j).map(|k| place_of(&lines[start + k], &con.src_files).unwrap_or_else(|| "-".into())).collect()
+            } else {
+                Vec::new()
+            };
+            let tr = self.mt.as_mut().and_then(|m| m.get_lines(&joined, src, &places).map(str::to_string));
             if let Some(tr) = tr {
                 let n = j - i;
                 let got: Vec<&str> = tr.split('\n').collect();
@@ -2700,21 +2787,21 @@ impl Tty {
 
     /// Draw the overlay box; returns its top row (1-based, the title row)
     /// for mapping clicks.
-    fn draw_overlay(&self, st: &crate::settings::Settings, extra: &[&str], sel: usize, note: &str) -> (usize,) {
+    fn draw_overlay(&self, st: &crate::settings::Settings, vis: &[usize], extra: &[&str], sel: usize, note: &str) -> (usize,) {
         self.redraw_all.set(true);
         use crate::settings::ITEMS;
-        let n = ITEMS.len() + extra.len();
+        let n = vis.len() + extra.len();
         let w = self.cols.saturating_sub(4).clamp(30, 72);
         let help = if !note.is_empty() {
             note.to_string()
         } else if let (true, Some(e)) = (
-            sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator" | "translate_from" | "translate_what"),
+            sel < vis.len() && matches!(ITEMS[vis[sel]].key, "translate" | "translator" | "translate_from" | "translate_what"),
             self.mt.as_ref().and_then(|m| m.last_error.as_ref()),
         ) {
             format!("last translation failed: {}", e)
-        } else if sel < ITEMS.len() {
-            ITEMS[sel].help.to_string()
-        } else if sel == ITEMS.len() {
+        } else if sel < vis.len() {
+            ITEMS[vis[sel]].help.to_string()
+        } else if sel == vis.len() {
             "the number the random generator started from (read-only); set EMUERA_SEED=N before starting for repeatable runs; RANDOMIZE / INITRAND in the game change it".to_string()
         } else {
             "↑↓ choose  ←→ / Enter change  Esc close".to_string()
@@ -2754,17 +2841,18 @@ impl Tty {
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
         let head = " emuera-tty settings  (F1 / Ctrl-O)";
-        let mem = crate::sys::memory_in_use().map(|b| format!("memory {} MB ", b >> 20)).unwrap_or_default();
+        let mem = crate::sys::memory_in_use().map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
         let gap = inner.saturating_sub(head.chars().count() + mem.len());
         let head = if gap > 0 { format!("{}{}{}", head, " ".repeat(gap), mem) } else { head.to_string() };
         line(&mut out, top + 1, &head, &title);
-        for (i, it) in ITEMS.iter().enumerate() {
+        for (i, &ix) in vis.iter().enumerate() {
+            let it = &ITEMS[ix];
             let later = if it.live { "" } else { "  (next start)" };
             let text = format!("  {:<18} ‹ {} ›{}", it.label, st.get(it.key), later);
             line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
         }
         for (k, e) in extra.iter().enumerate() {
-            let i = ITEMS.len() + k;
+            let i = vis.len() + k;
             line(&mut out, top + 2 + i, &format!("  {}", e), if i == sel { &hilite } else { &action });
         }
         for (k, l) in help.iter().enumerate() {
@@ -2838,7 +2926,7 @@ impl Tty {
         if !fresh {
             self.mem_seen = Some((Instant::now(), crate::sys::memory_in_use()));
         }
-        self.mem_seen.and_then(|(_, m)| m).map(|b| format!("{} MB", b >> 20))
+        self.mem_seen.and_then(|(_, m)| m).map(crate::sys::memory_text)
     }
 
     /// The button id at a 0-based screen cell, from the last frame
@@ -3231,6 +3319,10 @@ impl Frontend for Tty {
                                 return InputResult::Text(v.to_string());
                             }
                         }
+                        // a middle click on a translated line flips it
+                        // between the original and the translation (also at
+                        // a WAIT)
+                        1 if press => redraw |= self.toggle_translation(y),
                         // a right click: as Emuera, continue and skip the
                         // following waits up to the next choice; on a
                         // button, choose it and skip after it

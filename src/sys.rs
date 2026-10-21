@@ -145,8 +145,37 @@ pub fn total_memory() -> Option<u64> {
     None
 }
 
+/// The most memory [`memory_in_use`] has reported this session.
+static MEMORY_PEAK: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64::new(0);
+
+/// The highest memory use seen so far this session (as recorded by the
+/// readings [`memory_in_use`] has made; 0 before the first).
+pub fn memory_peak() -> u64 {
+    MEMORY_PEAK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The memory this process uses now (resident), where it can be read.
+/// Every reading also updates [`memory_peak`].
 pub fn memory_in_use() -> Option<u64> {
+    let now = memory_in_use_raw()?;
+    if now > memory_peak() {
+        MEMORY_PEAK.store(now, std::sync::atomic::Ordering::Relaxed);
+    }
+    Some(now)
+}
+
+/// "123 MB (peak 150 MB)" for a reading; the peak is left out while it is
+/// the same MB.
+pub fn memory_text(now: u64) -> String {
+    let (n, p) = (now >> 20, memory_peak() >> 20);
+    if p > n {
+        format!("{} MB (peak {} MB)", n, p)
+    } else {
+        format!("{} MB", n)
+    }
+}
+
+fn memory_in_use_raw() -> Option<u64> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let s = std::fs::read_to_string("/proc/self/statm").ok()?;

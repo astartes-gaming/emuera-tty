@@ -112,6 +112,41 @@ pub const ITEMS: &[Item] = &[
     },
 ];
 
+/// Every `EMUERA_*` environment variable emuera-tty reads, with what it
+/// does (alphabetical), for the settings overlay's variables page.
+pub const ENV_VARS: &[(&str, &str)] = &[
+    ("EMUERA_AMBIGUOUS", "wide, narrow, single or osc66: how box drawing and symbols get Emuera's two columns"),
+    ("EMUERA_CODE_MB", "MB compiled functions may take (default: 1/16 of the memory); the least recently called are dropped"),
+    ("EMUERA_COLORS", "truecolor, 256 or 16: the colour depth, when detection guesses wrong"),
+    ("EMUERA_DEBUG_FRAMES", "any value: print each frame drawn (size and picture keys) to stderr (debugging)"),
+    ("EMUERA_GBUF_MB", "MB graphics buffers may take unpacked (default: 1/8 of the memory)"),
+    ("EMUERA_GFX", "default for --gfx: kitty, iterm, sixel, fb or none"),
+    ("EMUERA_GPMCTL", "path of the gpm socket (default /dev/gpmctl), for testing the Linux-console mouse"),
+    ("EMUERA_GPM_VC", "the virtual console number the gpm mouse is read for (testing)"),
+    ("EMUERA_INJECT", "STMT||STMT: statements run just before the EMUERA_INJECT_AT-th input (debugging)"),
+    ("EMUERA_INJECT_AT", "the input number EMUERA_INJECT runs before"),
+    ("EMUERA_LIBRETRANSLATE", "host:port of the LibreTranslate server (default 127.0.0.1:5000)"),
+    ("EMUERA_LINT", "any value, with --check: point at statements the parser may have split wrongly"),
+    ("EMUERA_LIST_BUTTONS", "1, with --headless: print the values of the buttons on screen before each input"),
+    ("EMUERA_MEASURE", "0 skips measuring how wide the terminal draws ambiguous characters"),
+    ("EMUERA_MEMSTATS", "file the report of what the memory holds is written to, at every input"),
+    ("EMUERA_MOUSE", "off or term: no console mouse; mice: read /dev/input/mice even outside the Linux console"),
+    ("EMUERA_MOUSE_LOG", "file the mouse events are logged to (finding out why a pointer misbehaves)"),
+    ("EMUERA_PARSE", "all: compile every function at load instead of on its first call"),
+    ("EMUERA_PPROF", "file for the native profile (builds with --features profile; written on a clean exit)"),
+    ("EMUERA_PROFILE", "file kept updated with which ERB function runs, sampled every millisecond"),
+    ("EMUERA_SEED", "number the random generator starts from (reproducible runs)"),
+    ("EMUERA_SOUND", "on or off: play the game's sounds (default: yes, except over SSH)"),
+    ("EMUERA_SOUND_PLAYER", "the sound player: mpv, ffplay, mplayer, afplay, pw-play, paplay, aplay or powershell"),
+    ("EMUERA_THREADS", "cap on the threads used for loading and picture decoding"),
+    ("EMUERA_TIMING", "1: print how long each loading phase takes and the memory in use"),
+    ("EMUERA_TRACE", "log calls to functions whose name contains this, with timestamps, to stderr"),
+    ("EMUERA_TRANSLATE_CMD", "a command that reads a line on stdin and prints its translation (instead of the built-in translators)"),
+    ("EMUERA_TRANSLATE_LOG", "file every new translation is appended to (script line, languages, original, translation)"),
+    ("EMUERA_TRANSLATE_MODEL", "the Ollama or translateLocally model used for translating"),
+    ("EMUERA_TRANS_ENGINE", "the engine translate-shell (trans) uses (default: Google)"),
+];
+
 #[derive(Clone, Default)]
 pub struct Settings {
     values: BTreeMap<String, String>,
@@ -209,6 +244,11 @@ impl Settings {
             self.set(key, next);
         }
         self.get(key)
+    }
+
+    /// Is `it` offered? The language settings go while the Translator is off.
+    pub fn shown(&self, it: &Item) -> bool {
+        !(matches!(it.key, "translate" | "translate_from" | "translate_what") && self.get("translator") == "off")
     }
 
     /// Remember `game` as the last one played, adding it to the library.

@@ -450,10 +450,11 @@ pub struct Mt {
     /// the last failure, for the settings page
     pub last_error: Option<String>,
     /// EMUERA_TRANSLATE_LOG: the log, the language translated into, and
-    /// for each line asked for, where it was printed and its language
+    /// for each text asked for, where each of its lines was printed (one
+    /// place for a single line) and its language
     log: Option<std::fs::File>,
     lang: String,
-    asked: HashMap<String, (String, &'static str)>,
+    asked: HashMap<String, (Vec<String>, &'static str)>,
 }
 
 impl Mt {
@@ -487,9 +488,17 @@ impl Mt {
     /// The translation of `text` (in language `from`) if it is in; asks
     /// for it if never asked. `place`: where it was printed, for the log.
     pub fn get(&mut self, text: &str, from: &'static str, place: Option<&str>) -> Option<&str> {
+        let places: Vec<String> = place.map(|p| vec![p.to_string()]).unwrap_or_default();
+        self.get_lines(text, from, &places)
+    }
+
+    /// Like [`Mt::get`] for a batch: `text` is several lines (joined by
+    /// `\n`) asked for in one go, `places` where each was printed. The log
+    /// gets one row per line when the translation has as many lines.
+    pub fn get_lines(&mut self, text: &str, from: &'static str, places: &[String]) -> Option<&str> {
         if !self.seen.contains_key(text) {
             if self.log.is_some() {
-                self.asked.insert(text.to_string(), (place.unwrap_or("-").to_string(), from));
+                self.asked.insert(text.to_string(), (places.to_vec(), from));
             }
             // (bounded: a long session forgets the oldest… all of them)
             if self.seen.len() > 20_000 {
@@ -512,10 +521,20 @@ impl Mt {
             any = true;
             match r {
                 Ok(t) => {
-                    if let (Some(f), Some((place, from))) = (self.log.as_mut(), self.asked.remove(&text)) {
+                    if let (Some(f), Some((places, from))) = (self.log.as_mut(), self.asked.remove(&text)) {
                         // one line each: tabs and line breaks in the text as spaces
                         let flat = |s: &str| s.replace(['\t', '\r', '\n'], " ");
-                        let _ = writeln!(f, "{}\t{}>{}\t{}\t{}", place, from, self.lang, flat(&text), flat(&t));
+                        let place = |k: usize| places.get(k).or(places.first()).map_or("-", String::as_str).to_string();
+                        let (src, dst): (Vec<&str>, Vec<&str>) = (text.split('\n').collect(), t.split('\n').collect());
+                        if src.len() > 1 && src.len() == dst.len() {
+                            // a batch whose lines came back as lines: a row for each, with its own place
+                            for (k, (s, d)) in src.iter().zip(&dst).enumerate().filter(|(_, (s, _))| !s.trim().is_empty()) {
+                                let _ = writeln!(f, "{}\t{}>{}\t{}\t{}", place(k), from, self.lang, flat(s), flat(d));
+                            }
+                        } else {
+                            // one line, or a translation that merged or split the lines: one row
+                            let _ = writeln!(f, "{}\t{}>{}\t{}\t{}", place(0), from, self.lang, flat(&text), flat(&t));
+                        }
                     }
                     self.seen.insert(text, State::Done(t));
                 }

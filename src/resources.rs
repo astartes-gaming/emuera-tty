@@ -820,20 +820,28 @@ impl Resources {
         }
     }
 
-    /// Pictures held: (what, how many, bytes), for the memory report.
-    pub fn mem_stats(&self) -> Vec<(&'static str, usize, usize)> {
+    /// Pictures held, for the memory report, in two groups of (what, how
+    /// many, bytes): what the game made (graphics buffers from GCREATE…, and
+    /// the files GCREATEFROMFILE kept: its state, held whatever the Images
+    /// setting says), and the sprite pictures decoded for the screen (not
+    /// loaded while Images is none, and freed when it is set to none).
+    #[allow(clippy::type_complexity)]
+    pub fn mem_stats(&self) -> (Vec<(&'static str, usize, usize)>, Vec<(&'static str, usize, usize)>) {
         let px = |i: &RgbaImage| i.as_raw().capacity();
         let packed: Vec<usize> = self.graphics.values().map(|g| g.bytes()).filter(|b| !b.1).map(|b| b.0).collect();
-        vec![
-            ("graphics buffers", self.graphics.len(), self.graphics.values().map(|g| g.bytes().0).sum()),
+        let game = vec![
+            ("graphics buffers (GCREATE…)", self.graphics.len(), self.graphics.values().map(|g| g.bytes().0).sum()),
             ("  of them packed", packed.len(), packed.iter().sum()),
+            ("files kept for buffers (GCREATEFROMFILE)", self.loaded.len(), self.loaded.iter().map(|e| px(&e.2)).sum()),
+        ];
+        let sprites = vec![
             ("decoded image files", self.files.len(), self.files.values().flatten().map(|i| px(i)).sum()),
-            ("files kept for buffers", self.loaded.len(), self.loaded.iter().map(|e| px(&e.2)).sum()),
             ("cut sprites", self.cropped.len(), self.cropped.values().flatten().map(|i| px(i)).sum()),
             ("scaled sprites", self.scaled.len(), self.scaled.values().map(|i| px(i)).sum()),
             ("prepared draws", self.parts.len(), self.parts.values().map(|i| px(i)).sum()),
             ("background copies", self.cbg_cache.len(), self.cbg_cache.values().map(|(_, i)| px(i)).sum()),
-        ]
+        ];
+        (game, sprites)
     }
 
     pub fn take_anim_used(&mut self) -> bool {

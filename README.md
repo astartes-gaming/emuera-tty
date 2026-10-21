@@ -18,6 +18,33 @@
 > If it works for you anyway: nice. If it doesn't: that's the expected
 > outcome of a proof of concept.
 
+## Contents
+
+- [Guide](#guide)
+  - [1. What you need](#1-what-you-need)
+  - [2. Install](#2-install)
+    - [Other systems](#other-systems)
+    - [Other CPUs](#other-cpus)
+    - [Small machines (Raspberry Pi Zero and the like)](#small-machines-raspberry-pi-zero-and-the-like)
+  - [3. First run: choose your game](#3-first-run-choose-your-game)
+  - [4. Playing](#4-playing)
+    - [Settings](#settings)
+    - [Game settings (Emuera's settings window)](#game-settings-emueras-settings-window)
+    - [Copying text to the clipboard](#copying-text-to-the-clipboard)
+    - [Translated games (Emuera-Anchor)](#translated-games-emuera-anchor)
+    - [Managing saves](#managing-saves)
+  - [5. Picking a terminal](#5-picking-a-terminal)
+  - [6. Updating and removing](#6-updating-and-removing)
+  - [7. When something goes wrong](#7-when-something-goes-wrong)
+- [Reference](#reference)
+  - [Command-line options](#command-line-options)
+    - [Memory](#memory)
+    - [Mouse](#mouse)
+  - [Graphics backends](#graphics-backends)
+  - [Layout](#layout)
+  - [Implemented](#implemented)
+  - [Roadmap](#roadmap)
+
 A from-scratch reimplementation of the **Emuera** ERB engine in Rust that
 plays era games in a terminal: graphics-capable terminals (kitty, Konsole,
 WezTerm, Ghostty, foot, iTerm2, xterm with sixel…), plain ones (pictures are
@@ -279,7 +306,8 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   for more than a moment it says `… working @FUNCTION`. (*Bottom bar
   details* in the settings turns this off.) The memory emuera-tty uses is
   on the F1 page's title, and in the bottom row too with *Show memory*
-  (Linux, Android and Windows).
+  (Linux, Android and Windows); both also show the highest use seen this
+  session once it is above the current one (`123 MB (peak 150 MB)`).
 
 **Sound**: PLAYSOUND / PLAYBGM play the game's `sound/` files through a
 player program the system has: `mpv` or `ffplay` (any format, including
@@ -299,7 +327,7 @@ English, so an English translation like AnonTW can be read in Spanish), and
 *Translate what* either the characters' **dialog** or **all** text (menus,
 buttons, labels too); *auto* (the default) is dialog when the game is shown
 in English and all text in any other language. Text is translated as it
-appears. Translation is off while *Translator* is *off* (the default). With *Translator* on *auto* it uses whatever translator is there,
+appears. Translation is off while *Translator* is *off* (the default). While it is off, *Translate to / from / what* and *Test the translator…* are hidden from the settings. With *Translator* on *auto* it uses whatever translator is there,
 the ones **on this computer** first (nothing is sent online then): the
 first it finds of
 
@@ -349,6 +377,10 @@ translator keeps the lines, and is spread over them by length when it
 doesn't (Argos). The log has one entry per batch, its lines joined by
 spaces.
 
+**Original or translation**: middle-click a translated line (anywhere,
+also at a wait) to see the original text; middle-click again for the
+translation. It is remembered per line for the session.
+
 Maps and box drawings are never translated, nor text already in the
 target language, and the game itself still sees the text it printed. Text
 shows untranslated until its translation comes in, which happens in the
@@ -370,6 +402,11 @@ game's scripts:
 ```text
 ERB/口上/K9.ERB:3	ja>en	「おはようございます、お嬢様」	"Good morning, my lady."
 ```
+
+Dialog sent to the translator several lines at a time (a speech over
+several lines) is logged one row per line, each with its own file and line,
+when the translation comes back with as many lines; if it merged or split
+them, the batch is one row.
 
 **Saving** uses the game's own save menu, and the files are Emuera's own
 (binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
@@ -426,8 +463,12 @@ running game:
 
 The overlay shows the *Random seed* in use: selectable for its description,
 but read-only (start with `EMUERA_SEED=N` to choose it; the game's
-`RANDOMIZE` / `INITRAND` change it). It also has *Game settings…* and *Manage saves…* (below),
-*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
+`RANDOMIZE` / `INITRAND` change it). *Environment variables…* (shown only when one is
+set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
+set; Enter says what one does; read-only, as they are read at start). It also
+has *Game settings…* and *Manage saves…* (below),
+*Clear the picture cache* (frees the decoded sprites whatever *Images* says;
+they load again when shown), *Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
 override saved settings.
 
 ### Game settings (Emuera's settings window)
