@@ -3458,17 +3458,61 @@ impl Vm {
             // Emuera-Anchor: TR_NAME(code, index or name): the translated name
             // from the code's *_TR.csv (the original if there is none)
             "TR_NAME" => {
-                let code = match a.first() {
-                    Some(Expr::Var(v)) if v.idx.is_empty() && (crate::csvdata::table_for_var(&v.name).is_some() || &*v.name == "ALL") => v.name.to_string(),
-                    _ => self.as_(a, 0, "")?.trim().to_uppercase(),
+                // As Emuera-Anchor (TRCommands.cs): the table as a string
+                // (exactly as written) or a bare variable; the key a name
+                // defined in it or an index with a name; else an error.
+                let table = match a.first() {
+                    Some(Expr::Var(v)) if v.idx.is_empty() => match &*v.name {
+                        "ABL" | "BASE" | "CFLAG" | "CSTR" | "EQUIP" | "EX" | "EXP" | "FLAG" | "GLOBAL" | "GLOBALS" | "ITEM" | "MARK" | "PALAM" | "SAVESTR"
+                        | "SOURCE" | "STAIN" | "STR" | "TALENT" | "TCVAR" | "TEQUIP" | "TFLAG" | "TRAINNAME" | "TSTR" => crate::csvdata::table_for_var(&v.name),
+                        "CDFLAGNAME1" => Some("CDFLAG1"),
+                        "CDFLAGNAME2" => Some("CDFLAG2"),
+                        _ => None,
+                    }
+                    .ok_or_else(|| Ctrl::Error(format!("TR_NAME: Invalid first argument: {}", v.name), false))?,
+                    _ => {
+                        let code = self.as_(a, 0, "")?;
+                        match code.as_str() {
+                            "ABL" | "ABLNAME" => "ABL",
+                            "BASE" | "BASENAME" => "BASE",
+                            "CDFLAG1" | "CDFLAGNAME1" => "CDFLAG1",
+                            "CDFLAG2" | "CDFLAGNAME2" => "CDFLAG2",
+                            "CFLAG" | "CFLAGNAME" => "CFLAG",
+                            "CSTR" | "CSTRNAME" => "CSTR",
+                            "EQUIP" | "EQUIPNAME" => "EQUIP",
+                            "EX" | "EXNAME" => "EX",
+                            "EXP" | "EXPNAME" => "EXP",
+                            "FLAG" | "FLAGNAME" => "FLAG",
+                            "GLOBAL" | "GLOBALNAME" => "GLOBAL",
+                            "GLOBALS" | "GLOBALSNAME" => "GLOBALS",
+                            "ITEM" | "ITEMNAME" => "ITEM",
+                            "MARK" | "MARKNAME" => "MARK",
+                            "PALAM" | "PALAMNAME" | "PARAM" | "PARAMNAME" => "PALAM",
+                            "SAVESTR" | "SAVESTRNAME" => "SAVESTR",
+                            "SOURCE" | "SOURCENAME" => "SOURCE",
+                            "STAIN" | "STAINNAME" => "STAIN",
+                            "STR" | "STRNAME" => "STRNAME",
+                            "TALENT" | "TALENTNAME" => "TALENT",
+                            "TCVAR" | "TCVARNAME" => "TCVAR",
+                            "TEQUIP" | "TEQUIPNAME" => "TEQUIP",
+                            "TFLAG" | "TFLAGNAME" => "TFLAG",
+                            "TRAIN" | "TRAINNAME" => "TRAIN",
+                            "TSTR" | "TSTRNAME" => "TSTR",
+                            _ => return err(format!("TR_NAME: Invalid first argument: {}", code)),
+                        }
+                    }
                 };
-                let table = crate::csvdata::table_for_var(&code).unwrap_or(&code).to_string();
                 let orig = match self.arg(a, 1)? {
-                    Some(Value::Int(i)) => self.csv.name_of(&table, i).unwrap_or("").to_string(),
-                    Some(Value::Str(s)) => s,
-                    None => String::new(),
+                    Some(Value::Str(k)) if self.csv.lookup(table, &k).is_some() => k,
+                    Some(Value::Int(i)) if self.csv.name_of(table, i).is_some() => self.csv.name_of(table, i).unwrap_or("").to_string(),
+                    Some(v) => return err(format!("TR_NAME: Invalid second argument: {}", v.as_string())),
+                    None => return err("TR_NAME: Invalid second argument: (omitted)"),
                 };
-                s(self.csv.tr.or_same(&table, &orig).to_string())
+                let t = self.csv.tr.name(table, &orig).map(str::to_string);
+                if let Some(t) = &t {
+                    self.tr_last.clone_from(t);
+                }
+                s(t.unwrap_or(orig))
             }
             "EXISTMETH" => {
                 // 1: returns a number, 2: a string, 0: no such function

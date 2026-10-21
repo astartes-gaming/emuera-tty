@@ -213,8 +213,8 @@ With a string key the key must be defined in that CSV; with an integer
 the index must have a name. Anything else is a **script error**
 ("Invalid first/second argument"). It always translates (flag on).
 
-emuera-tty: implemented, but an unknown code / key / index returns the
-original or "" instead of an error. *Gap: the errors.*
+emuera-tty: the same, errors included (`TR_NAME: Invalid first argument:
+BOGUS`).
 
 ## 8. Engine-printed lists
 

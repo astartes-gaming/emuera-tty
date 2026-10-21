@@ -340,3 +340,27 @@ fn strlens_measures_translated_text() {
     );
     assert!(text.contains("W=ok"), "{}", text);
 }
+
+/// spec: TR_NAME / Index, Unknown key, Unknown table: errors worded as
+/// Anchor's
+#[test]
+fn tr_name_errors() {
+    let files: &[(&str, &str)] = &[VIRGIN, ("CSV/Abl.csv", "2,技巧\n"), ("CSV/Abl_TR.csv", "技巧,Technique\n")];
+    let text = play("tr-name", files, "PRINTFORML I=%TR_NAME(ABL, 2)% K=%TR_NAME(\"TALENT\", \"処女\")% V=%TR_NAME(TALENT, 5)%");
+    assert!(text.contains("I=Technique K=Virgin V=Virgin"), "{}", text);
+    for (body, msg) in [
+        ("PRINTS TR_NAME(\"TALENT\", \"nonexistent\")", "TR_NAME: Invalid second argument: nonexistent"),
+        ("PRINTS TR_NAME(\"TALENT\", 9)", "TR_NAME: Invalid second argument: 9"),
+        ("PRINTS TR_NAME(\"BOGUS\", 1)", "TR_NAME: Invalid first argument: BOGUS"),
+        ("PRINTS TR_NAME(\"abl\", 2)", "TR_NAME: Invalid first argument: abl"),
+    ] {
+        let dir = temp_dir("tr-name-err");
+        let erb = format!("@SYSTEM_TITLE\n{}\nQUIT\n", body);
+        let mut all: Vec<(&str, &str)> = vec![("CSV/Talent.csv", "5,処女\n"), ("ERB/T.ERB", &erb)];
+        all.extend_from_slice(files);
+        game(&dir, &all);
+        let out = run(&dir, b"\n");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(out.contains(msg), "{}: {}", msg, out);
+    }
+}

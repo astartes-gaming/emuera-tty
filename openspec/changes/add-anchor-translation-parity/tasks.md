@@ -39,8 +39,8 @@
 
 ## 7. TR_NAME (spec: TR_NAME)
 
-- [ ] 7.1 Raise script errors for an unknown table code, an undefined string key and an index without a name, worded like Anchor's ("Invalid first argument" / "Invalid second argument"). Accept `PARAM` / `PARAMNAME` (Param_TR when PARAM.CSV was read). Verify: the "Index", "Unknown key" and "Unknown table" scenarios pass.
-- [ ] 7.2 README and man page: document the errors. Verify: `emuera-tty --manual` shows the updated text.
+- [x] 7.1 Raise script errors for an unknown table code, an undefined string key and an index without a name, worded like Anchor's ("Invalid first argument" / "Invalid second argument"). Accept `PARAM` / `PARAMNAME` (Param_TR when PARAM.CSV was read). Verify: the "Index", "Unknown key" and "Unknown table" scenarios pass. (Done; `PARAM` maps to the PALAM table until task 9. Test: `tr_name_errors`.)
+- [x] 7.2 README and man page: document the errors. Verify: `emuera-tty --manual` shows the updated text.
 
 ## 8. TRCHARA (spec: anchor-character-translation)
 

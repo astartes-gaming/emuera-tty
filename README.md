@@ -593,7 +593,10 @@ Games translated with Emuera-Anchor's system play translated here too:
   `MASTERNAME`, `CSTR,n,text`) in blocks from `NO,n` (or `番号,n`) to
   `ENDCHR`; characters added in a new game come out translated.
 - `TR_NAME(ABL, 25)` / `TR_NAME("TALENT", "処女")`: a translated name for
-  scripts, the original when there is none.
+  scripts, the original when there is none. As in Anchor, the table is a
+  bare variable or its name in capitals (`ABL`, `"ABLNAME"`…), and the key
+  an index that has a name or a name in that CSV; anything else is a
+  script error ("Invalid first argument" / "Invalid second argument").
 
 ### Managing saves
 
