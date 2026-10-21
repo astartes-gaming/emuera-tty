@@ -3293,12 +3293,10 @@ impl Frontend for Tty {
                                 let v = self.buttons[b].clone();
                                 return InputResult::Text(v.to_string());
                             }
-                            // text that isn't a button: a translated line
-                            // flips between the original and the translation
-                            redraw |= self.toggle_translation(y);
                         }
-                        // a middle click does that anywhere, also at a WAIT
-                        // (where a left click goes on)
+                        // a middle click on a translated line flips it
+                        // between the original and the translation (also at
+                        // a WAIT)
                         1 if press => redraw |= self.toggle_translation(y),
                         // a right click: as Emuera, continue and skip the
                         // following waits up to the next choice; on a
