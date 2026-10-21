@@ -161,21 +161,3 @@ fn engine_lists_are_translated() {
     );
     assert!(text.contains("TechniqueLV3"), "{}", text);
 }
-
-/// The flags come back when a `#FUNCTIONS` is left by unwinding. BEGIN
-/// inside one is the only way to do that without ending the game:
-/// emuera-tty allows it (Emuera doesn't). Called from a condition the
-/// function runs without the flag; later PRINTs must still translate.
-#[test]
-fn flag_restored_after_unwinding_a_function() {
-    let erb = "@SYSTEM_TITLE\nFLAG:0 += 1\n\
-               SIF FLAG:0 == 1 && LEAVE() == \"x\"\nPRINTL never\n\
-               PRINTV \"V=\", TALENTNAME:5\nPRINTL\n\
-               IF TALENTNAME:5 == \"処女\"\nPRINTL C=original\nENDIF\n\
-               QUIT\n\
-               @LEAVE\n#FUNCTIONS\nBEGIN TITLE\nRETURNF \"x\"\n";
-    let text = play_erb("flag-unwind", &[VIRGIN], erb, |_| {});
-    assert!(text.contains("V=Virgin"), "{}", text);
-    assert!(text.contains("C=original"), "{}", text);
-    assert!(!text.contains("never"), "{}", text);
-}

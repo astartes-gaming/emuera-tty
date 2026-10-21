@@ -84,6 +84,20 @@ const STR_FUNCTIONS: &[&str] = &[
     "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS", "TR_NAME",
 ];
 
+/// Statements a `#FUNCTION(S)` can't use: those without Emuera's
+/// METHOD_SAFE flag (FunctionIdentifier.cs, and PRINT_Instruction /
+/// PRINT_DATA_Instruction for the PRINT…W forms), the same in Emuera-EM
+/// and Emuera-Anchor. Sorted, for `binary_search`.
+pub const NOT_IN_FUNCTION: &[&str] = &[
+    "AWAIT", "BEGIN", "BINPUT", "BINPUTS", "CALL", "CALLEVENT", "CALLFORM", "CALLTRAIN", "DOTRAIN", "ENDFUNC", "FORCEWAIT", "FORCE_BEGIN", "FORCE_QUIT",
+    "FORCE_QUIT_AND_RESTART", "FUNC", "INPUT", "INPUTANY", "INPUTMOUSEKEY", "INPUTS", "JUMP", "JUMPFORM", "LOADDATA", "LOADGAME", "ONEBINPUT", "ONEBINPUTS",
+    "ONEINPUT", "ONEINPUTS", "OUTPUTLOG", "PRINTDATADW", "PRINTDATAKW", "PRINTDATAW", "PRINTDW", "PRINTFORMDW", "PRINTFORMKW", "PRINTFORMSDW", "PRINTFORMSKW",
+    "PRINTFORMSW", "PRINTFORMW", "PRINTKW", "PRINTSDW", "PRINTSKW", "PRINTSW", "PRINTVDW", "PRINTVKW", "PRINTVW", "PRINTW", "QUIT", "QUIT_AND_RESTART",
+    "RETURN", "RETURNFORM", "SAVEGAME", "STOPCALLTRAIN", "TINPUT", "TINPUTS", "TONEINPUT", "TONEINPUTS", "TOOLTIP_CUSTOM", "TOOLTIP_FORMAT", "TOOLTIP_IMG",
+    "TOOLTIP_SETFONT", "TOOLTIP_SETFONTSIZE", "TRYCALL", "TRYCALLFORM", "TRYCALLLIST", "TRYCCALL", "TRYCCALLFORM", "TRYCJUMP", "TRYCJUMPFORM", "TRYGOTOLIST",
+    "TRYJUMP", "TRYJUMPFORM", "TRYJUMPLIST", "TWAIT", "VARI", "VARS", "WAIT", "WAITANYKEY",
+];
+
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
 /// every statement while parsing)
 pub fn is_builtin_command(c: &str) -> bool {
@@ -4382,6 +4396,12 @@ fn html_tag_split(s: &str) -> Option<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    /// `binary_search` needs it sorted.
+    #[test]
+    fn not_in_function_is_sorted() {
+        assert!(super::NOT_IN_FUNCTION.windows(2).all(|w| w[0] < w[1]));
+    }
+
     /// HTML colours as Emuera reads them: names, `#` and hex (0x allowed).
     #[test]
     fn html_colors() {

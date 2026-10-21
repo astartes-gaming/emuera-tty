@@ -82,3 +82,27 @@ fn dotrain_runs_after_the_event() {
     assert!(text.contains("DOTRAIN can only be used"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Inside a `#FUNCTION(S)`, statements without Emuera's METHOD_SAFE flag
+/// (input, CALL, BEGIN, PRINTW…) are errors when they run, as in Emuera-EM
+/// and Anchor; one that never runs is harmless; `--check` lists them all.
+#[test]
+fn commands_not_allowed_in_functions() {
+    let dir = temp_dir("not-in-function");
+    let erb = "@SYSTEM_TITLE\nPRINTFORML [%GOOD()%]\nPRINTFORML [%BAD()%]\nPRINTL after\nQUIT\n\
+        @GOOD\n#FUNCTIONS\nSIF 0\n  WAIT\nIF 0\n  PRINTW x\nENDIF\nPRINTL printing is allowed\nRETURNF \"good\"\n\
+        @BAD\n#FUNCTIONS\nBEGIN TITLE\nRETURNF \"x\"\n";
+    game(&dir, &[("ERB/T.ERB", erb)]);
+    let text = run(&dir, b"\n");
+    assert!(text.contains("printing is allowed"), "{}", text);
+    assert!(text.contains("[good]"), "{}", text);
+    assert!(text.contains("BEGIN instruction cannot be used in #FUNCTION(S)"), "{}", text);
+    assert!(!text.contains("after"), "{}", text);
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty")).arg(&dir).arg("--check").output().unwrap();
+    let check = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    for c in ["WAIT", "PRINTW", "BEGIN"] {
+        assert!(check.contains(&format!("{} instruction cannot be used in #FUNCTION(S)", c)), "{}: {}", c, check);
+    }
+    assert!(!check.contains("PRINTL instruction"), "{}", check);
+    let _ = std::fs::remove_dir_all(&dir);
+}

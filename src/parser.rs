@@ -334,6 +334,8 @@ impl LazySrc {
             return self.changed_body(f, file);
         };
         let end = rest.iter().position(|(_, l)| l.starts_with('@')).unwrap_or(rest.len());
+        // (the attributes were read at load; statements check #FUNCTION)
+        b.f.is_function = f.is_function;
         p.statements(&mut b, &file.rel, &rest[..end]);
         let mut g = p.finish(b, &file.rel);
         let errors = std::mem::take(&mut p.prog.errors);
@@ -1155,6 +1157,11 @@ impl Parser {
         }
 
         let (cmd, rest) = split_cmd(line);
+        // Emuera (ErbLoader.setArgument): a #FUNCTION(S) can't use input,
+        // calls, BEGIN… The line is an error when it runs.
+        if b.f.is_function && crate::vm::builtins::NOT_IN_FUNCTION.binary_search(&cmd.as_str()).is_ok() {
+            return Err(format!("{} instruction cannot be used in #FUNCTION(S)", cmd));
+        }
         let defs = &self.prog.defines;
         let arg_c = strip_comment(rest).trim();
 

@@ -133,6 +133,8 @@ with a very large stack.
   `Vm::command`, expression functions through `Vm::builtin_fn`, which
   returns `Ok(None)` for names it doesn't know. Arguments arrive
   unevaluated (`&[Expr]`): use the `arg` / `ai` / `as_` / `avar` helpers.
+  A statement without Emuera's `METHOD_SAFE` flag (FunctionIdentifier.cs)
+  also goes in `NOT_IN_FUNCTION`: a `#FUNCTION(S)` can't use it.
   The EM families have their own functions: `map_fn`, `dt_fn`
   (`vm/datatable.rs`), XML (`xml.rs`), .NET-style regex (`regex.rs`).
 - **Saves.** `vm/erasav.rs` is Emuera's binary format (reader/writer);
@@ -189,7 +191,9 @@ with a very large stack.
   the right thing is fine, as long as saves stay compatible both ways and
   nothing the games rely on in Emuera breaks. Record every deliberate
   difference with its reason: Anchor's in `doc/anchor.md` (*Deliberate
-  differences*), EM/EE's in `doc/differences.md`.
+  differences*), EM/EE's in `doc/differences.md`. Errors are not
+  lenient: what is an error in both Emuera-EM/EE and Anchor is an error
+  here too, so games written on emuera-tty run on the others.
 - **Saves are byte-compatible with Emuera, both ways.** Players switch
   between Emuera.exe and emuera-tty on the same saves. Never write anything
   Emuera can't load. Any change near `vm/save.rs`, `erasav.rs`,

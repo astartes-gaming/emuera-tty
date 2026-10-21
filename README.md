@@ -733,7 +733,9 @@ This is a proof of concept, so it will happen.
 - **`warning: … not implemented (ignored)`** lines in the terminal after
   quitting are commands emuera-tty skipped; the game usually carries on.
 - **Check a game without playing it:** `emuera-tty /path/to/game --check`
-  lists every line that fails to parse.
+  lists every line that fails to parse, and, as Emuera does, every
+  statement a `#FUNCTION(S)` may not use (input, CALL/JUMP, BEGIN, QUIT,
+  RETURN, PRINTW…: it is an error if it runs).
 - **Screen looks broken:** Ctrl-L redraws; try `--gfx none` to rule out
   image problems; make the window wider.
 - **Reporting a bug:** include the error text and, if you can, a trace:
