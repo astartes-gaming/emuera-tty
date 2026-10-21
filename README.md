@@ -589,9 +589,16 @@ Games translated with Emuera-Anchor's system play translated here too:
   remembers the last 19) is translated inside the value, and then the
   value without its digits, `LV` and brackets is tried (`技巧LV3` →
   `TechniqueLV3`); a `%…%` in a RETURNF line gets none of this.
-- `TRCHARA*.csv`: character names (`NAME`, `CALLNAME`, `NICKNAME`,
-  `MASTERNAME`, `CSTR,n,text`) in blocks from `NO,n` (or `番号,n`) to
-  `ENDCHR`; characters added in a new game come out translated.
+- `TRCHARA*.csv` (any case, anywhere under `CSV/`): character names
+  (`NAME`, `CALLNAME`, `NICKNAME`, `MASTERNAME`, `CSTR,n,text`) in blocks
+  from `NO,n` (or `番号,n`) to `ENDCHR` or `ENDCHAR`; characters added in
+  a new game come out translated, while those in a save keep their saved
+  names. As in Anchor, keys are matched in any case, a value is the field
+  up to the next comma, and a field replaces only what the character's
+  own `Chara*.csv` gives (a TRCHARA CALLNAME for a character whose CSV
+  has none is ignored). Problems (an unknown key, data before `NO`, a
+  missing `ENDCHR`…) are shown as warnings when the game loads, with the
+  file and line.
 - `TR_NAME(ABL, 25)` / `TR_NAME("TALENT", "処女")`: a translated name for
   scripts, the original when there is none. As in Anchor, the table is a
   bare variable or its name in capitals (`ABL`, `"ABLNAME"`…), and the key

@@ -44,10 +44,10 @@
 
 ## 8. TRCHARA (spec: anchor-character-translation)
 
-- [ ] 8.1 In `apply_trchara`, match file names and keys case-insensitively, accept `ENDCHAR`, and keep replacing only the fields a block gives. Verify: unit tests for "Name with a suffix in a subfolder", "Lower-case file name", "Full block" and "Block with only CALLNAME".
-- [ ] 8.2 Emit Anchor's warnings (fields, second NO, data before NO, bad or unknown NO, unknown key, CSTR without text, CSTR index twice). Verify: the "Unknown key" and "Missing ENDCHR" scenarios pass, and each warning names its file and line.
-- [ ] 8.3 Verify the "New game" and "Old save" scenarios end to end in `tests/anchor_translation.rs` (save with no TRCHARA, add one, load).
-- [ ] 8.4 README and man page: `ENDCHAR`, case-insensitivity, warnings. Verify: `emuera-tty --manual` shows the updated text.
+- [x] 8.1 In `apply_trchara`, match file names and keys case-insensitively, accept `ENDCHAR`, and keep replacing only the fields a block gives. Verify: unit tests for "Name with a suffix in a subfolder", "Lower-case file name", "Full block" and "Block with only CALLNAME". (Done; also: only fields the Chara*.csv gives are replaced, and CSTR takes the third field only, as Anchor. Tests: `trchara_files_and_blocks`, `trchara_replaces_only_given_fields`.)
+- [x] 8.2 Emit Anchor's warnings (fields, second NO, data before NO, bad or unknown NO, unknown key, CSTR without text, CSTR index twice). Verify: the "Unknown key" and "Missing ENDCHR" scenarios pass, and each warning names its file and line. (Done, plus a warning for a NO naming no character; Anchor's bugs that lose blocks are fixed, see doc/anchor.md. Test: `trchara_warnings`.)
+- [x] 8.3 Verify the "New game" and "Old save" scenarios end to end in `tests/anchor_translation.rs` (save with no TRCHARA, add one, load). (Done: `trchara_new_game_and_old_save`.)
+- [x] 8.4 README and man page: `ENDCHAR`, case-insensitivity, warnings. Verify: `emuera-tty --manual` shows the updated text.
 
 ## 9. PARAM.CSV (spec: param-csv; design D8)
 

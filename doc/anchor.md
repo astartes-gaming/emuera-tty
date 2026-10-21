@@ -199,9 +199,19 @@ the PALAM table).*
 - Warnings (not errors) for a missing comma, a second NO in a block,
   data before NO, unknown keys, and a CSTR line without a third field.
 
-emuera-tty (`translate.rs` `apply_trchara`): applies the fields given.
-*Gaps: `ENDCHAR`, case-insensitive file names and keys, the warnings;
-see D5 for the quirk.*
+More from the source (`Translation.cs` `toTRCharaTemplate`,
+`ConstantData.cs`): a value is one field (`tokens[1]`; CSTR's
+`tokens[2]`, so `CSTR,3,a, b` stores `a`); a translation is applied as
+the character's own Chara*.csv line for that field is read, so a field
+or CSTR index that CSV doesn't give is never set; `ENDCHR` counts only
+with a comma after it; there is no comment syntax (a `;` line gets the
+"',' is needed" warning). Bugs: a second NO before ENDCHR is ignored, so
+the next character's fields overwrite the first's; a last block without
+ENDCHR is dropped; a CSTR line without text, or a NO given twice,
+throws and the rest of that file is lost.
+
+emuera-tty (`translate.rs` `apply_trchara`): the same, warnings
+included, with the differences below.
 
 ## 7. `TR_NAME(code, index | name)`
 
@@ -255,6 +265,9 @@ Anchor breaks. Differences from Emuera-EM/EE are in
 | PRINTDATA (§2) | DATA lines printed without the flag | with the flag, as PRINTFORM | Display only, like D7; emuera-tty translated it before Anchor parity work started, and turning it off would make translated games look worse |
 | A literal read with the flag (§2, `Term.cs` SingleTerm) | the literal object is overwritten with its translation: later reads, flagged or not, see the translated text, and a second flagged read can translate it again | each read looks the literal up afresh | Anchor's overwrite is a bug: the same line gives different text the second time it runs |
 | The text searched for the line's table and RETURNF (§2, §3) | `Filename:LineNo:RowLine`, so the file name counts too | the line only | A file name containing `TALENTNAME` or `RETURNF` is an accident, not something a translation relies on |
+| TRCHARA blocks Anchor loses to a bug (§6) | a second NO before ENDCHR is ignored and its fields overwrite the first character's; a last block without ENDCHR is dropped; a CSTR line without text or a NO given twice ends the reading of that file | a second NO starts a new block, a last block applies, a bad line is skipped; each with a warning | The translator's intent is plain, and nothing a game relies on changes |
+| TRCHARA comments and a bare `ENDCHR` (§6) | a `;` line is a "',' is needed" warning; `ENDCHR` without a comma is that warning too and the block never ends | `;` lines are comments; a bare `ENDCHR` ends the block | The same files as Anchor read the same; only the noise and the lost block go |
+| A TRCHARA `NO` naming no character (§6) | silently unused | a warning | Helps translators; nothing else changes |
 | The memory and lastRet at game start (§3) | already hold pairs from the constants folded while the scripts loaded | start empty | emuera-tty compiles function bodies when they first run (to fit in 512 MB), so there is no load-time folding to replay; only the first percent fallbacks of a session can differ |
 | Digits removed by the stripped lookup (§3) | any Unicode digit (`\d`) | ASCII and full-width digits | The only digits era games use; Rust has no Unicode digit class without an extra crate |
 | RETURNF lines (§3) | any line whose text contains `RETURNF` skips the percent fallbacks | the same, but the line is only searched when it has a statement that reads with the flag (PRINT, assignments, RETURNF, HTML_PRINT) | Searching every line cost about 5% of a full compile; a width `%…%` in another statement on a line that also contains RETURNF is the only case that differs |

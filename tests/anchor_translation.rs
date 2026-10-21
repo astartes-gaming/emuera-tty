@@ -364,3 +364,25 @@ fn tr_name_errors() {
         assert!(out.contains(msg), "{}: {}", msg, out);
     }
 }
+
+/// spec: Translated templates / New game, Old save: a save made before
+/// TRCHARA was added keeps its names; a character added afterwards is
+/// translated
+#[test]
+fn trchara_new_game_and_old_save() {
+    let dir = temp_dir("trchara-save");
+    game(&dir, &[("CSV/Chara1.csv", "番号,1\n名前,博麗霊夢\n呼び名,霊夢\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nADDCHARA 1\nSAVEDATA 0, \"t\"\nQUIT\n")]);
+    let first = run(&dir, b"");
+    assert!(!first.contains("script error"), "{}", first);
+    game(
+        &dir,
+        &[
+            ("CSV/TRCHARA.csv", "NO,1\nNAME,Reimu Hakurei,\nENDCHR,1,\n"),
+            ("ERB/T.ERB", "@SYSTEM_TITLE\nLOADDATA 0\n@SYSTEM_LOADEND\nPRINTFORML OLD=%NAME:0%\nADDCHARA 1\nPRINTFORML NEW=%NAME:1%\nQUIT\n"),
+        ],
+    );
+    let text = run(&dir, b"");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(text.contains("OLD=博麗霊夢"), "{}", text);
+    assert!(text.contains("NEW=Reimu Hakurei"), "{}", text);
+}

@@ -222,51 +222,142 @@ impl Tr {
     }
 }
 
+/// One character's block of a `TRCHARA*.csv` file.
+#[derive(Default)]
+struct TrChara {
+    names: [Option<String>; 4],
+    cstr: Vec<(i64, String)>,
+}
+
+/// End the open block: kept if its character is known and not given yet.
+fn close_block(blocks: &mut HashMap<i64, TrChara>, cur: &mut Option<(i64, bool)>, block: &mut TrChara) {
+    if let Some((no, true)) = cur.take() {
+        blocks.insert(no, std::mem::take(block));
+    }
+    *block = TrChara::default();
+}
+
 /// Apply the `TRCHARA*.csv` files under `csv_dir` to the character
-/// templates; returns warnings.
+/// templates, as Emuera-Anchor does while it reads the Chara*.csv files
+/// (`Translation.loadCharacterTranslationData`, `ConstantData` with
+/// `translateChara`): a block from `NO,n` to `ENDCHR` / `ENDCHAR` gives
+/// NAME, CALLNAME, NICKNAME, MASTERNAME (second field) and `CSTR,i,text`
+/// (third field), and replaces only what the template's own Chara*.csv
+/// sets. Problems are returned as load warnings, with file and line.
+/// Where Anchor loses translations to a bug, this doesn't (see
+/// doc/anchor.md, *Deliberate differences*): `;` lines are comments, a
+/// bare `ENDCHR` ends a block, a second NO starts a new block, a last
+/// block without ENDCHR applies, and a bad CSTR line or a NO given twice
+/// is skipped rather than ending the file.
 pub fn apply_trchara(csv_dir: &Path, charas: &mut [CharaTemplate]) -> Vec<String> {
     let mut warn = Vec::new();
+    let mut blocks: HashMap<i64, TrChara> = HashMap::default();
     for p in walk(csv_dir, &["csv"]) {
-        let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        if !stem.starts_with("TRCHARA") {
+        let name = p.file_name().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
+        if !name.starts_with("TRCHARA") {
             continue;
         }
         let Ok(text) = read_text(&p) else { continue };
-        let mut cur: Option<usize> = None;
-        for line in text.lines() {
-            let line = line.split(';').next().unwrap_or("").trim_start_matches('\u{feff}');
-            let f: Vec<&str> = line.split(',').map(str::trim).collect();
-            if f.len() < 2 {
+        let mut w = |n: usize, m: String| warn.push(format!("{}:{}: {}", p.display(), n, m));
+        // the open block: its number, and whether it is kept (a known
+        // character, not given before)
+        let mut cur: Option<(i64, bool)> = None;
+        let mut block = TrChara::default();
+        for (n, line) in enabled_lines(&text) {
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    w(n, format!("{} (skipped)", e));
+                    continue;
+                }
+            };
+            if line.starts_with(';') {
                 continue;
             }
-            match f[0] {
-                "NO" | "番号" => {
-                    let no: i64 = f[1].parse().unwrap_or(-1);
-                    cur = charas.iter().position(|c| c.no == no);
-                    if cur.is_none() {
-                        warn.push(format!("{}: no character {} to translate", p.display(), f[1]));
-                    }
+            let f: Vec<&str> = line.split(',').collect();
+            let key = f[0].to_uppercase();
+            if f.len() < 2 && !matches!(key.as_str(), "ENDCHR" | "ENDCHAR") {
+                w(n, "a ',' is needed".into());
+                continue;
+            }
+            if f[0].is_empty() {
+                w(n, "the line starts with ','".into());
+                continue;
+            }
+            if matches!(key.as_str(), "NO" | "番号") {
+                if cur.is_some() {
+                    w(n, "a new character number before ENDCHR (the block before it ends here)".into());
+                    close_block(&mut blocks, &mut cur, &mut block);
                 }
-                "ENDCHR" => cur = None,
-                key => {
-                    let Some(c) = cur.map(|i| &mut charas[i]) else { continue };
-                    match key {
-                        "NAME" | "名前" => (c.name, c.names_set) = (f[1].to_string(), c.names_set | 1),
-                        "CALLNAME" | "呼び名" => (c.callname, c.names_set) = (f[1].to_string(), c.names_set | 2),
-                        "NICKNAME" | "あだ名" => (c.nickname, c.names_set) = (f[1].to_string(), c.names_set | 4),
-                        "MASTERNAME" | "主人の呼び方" => (c.mastername, c.names_set) = (f[1].to_string(), c.names_set | 8),
-                        "CSTR" if f.len() >= 3 => {
-                            // CSTR,index,text (the text may hold commas)
-                            let Ok(i) = f[1].parse::<i64>() else { continue };
-                            let text = line.splitn(3, ',').nth(2).unwrap_or("").trim().to_string();
-                            match c.strs.iter_mut().find(|(v, k, _)| v == "CSTR" && *k == i) {
-                                Some(s) => s.2 = text,
-                                None => c.strs.push(("CSTR".into(), i, text)),
-                            }
+                let Ok(no) = f[1].trim().parse::<i64>() else {
+                    w(n, format!("'{}' isn't an integer", f[1]));
+                    continue;
+                };
+                let known = charas.iter().any(|c| c.no == no);
+                if !known {
+                    w(n, format!("no character {} to translate", no));
+                } else if blocks.contains_key(&no) {
+                    w(n, format!("character {} is translated twice (this block is ignored)", no));
+                }
+                cur = Some((no, known && !blocks.contains_key(&no)));
+                continue;
+            }
+            if cur.is_none() {
+                w(n, "data before the character number (NO)".into());
+                continue;
+            }
+            let slot = match key.as_str() {
+                "NAME" | "名前" => 0,
+                "CALLNAME" | "呼び名" => 1,
+                "NICKNAME" | "あだ名" => 2,
+                "MASTERNAME" | "主人の呼び方" => 3,
+                "ENDCHR" | "ENDCHAR" => {
+                    close_block(&mut blocks, &mut cur, &mut block);
+                    continue;
+                }
+                "CSTR" => {
+                    if f.len() < 3 {
+                        w(n, "CSTR needs a third field, the text (skipped)".into());
+                        continue;
+                    }
+                    let Ok(i) = f[1].trim().parse::<i64>() else {
+                        w(n, format!("CSTR index '{}' isn't an integer (skipped)", f[1]));
+                        continue;
+                    };
+                    match block.cstr.iter_mut().find(|(k, _)| *k == i) {
+                        Some(s) => {
+                            w(n, format!("CSTR:{} is given twice in this block (the later one wins)", i));
+                            s.1 = f[2].to_string();
                         }
-                        _ => {}
+                        None => block.cstr.push((i, f[2].to_string())),
                     }
+                    continue;
                 }
+                _ => {
+                    w(n, format!("'{}' cannot be interpreted", f[0]));
+                    continue;
+                }
+            };
+            block.names[slot] = Some(f[1].to_string());
+        }
+        if cur.is_some() {
+            w(text.lines().count(), "the last character's block has no ENDCHR".into());
+            close_block(&mut blocks, &mut cur, &mut block);
+        }
+    }
+    for c in charas.iter_mut() {
+        let Some(b) = blocks.get(&c.no) else { continue };
+        let fields = [&mut c.name, &mut c.callname, &mut c.nickname, &mut c.mastername];
+        for (k, (field, tr)) in fields.into_iter().zip(&b.names).enumerate() {
+            // only a name the Chara*.csv gives (Anchor translates it as
+            // it reads that line)
+            if let (Some(tr), true) = (tr, c.names_set & (1 << k) != 0) {
+                field.clone_from(tr);
+            }
+        }
+        for (i, tr) in &b.cstr {
+            if let Some(s) = c.strs.iter_mut().find(|(v, k, _)| v == "CSTR" && k == i) {
+                s.2.clone_from(tr);
             }
         }
     }
@@ -705,10 +796,77 @@ mod tests {
         assert_eq!(t.name("TALENT", "男"), None);
         assert_eq!(t.all("男").map(String::as_str), Some("Man"));
         assert_eq!(t.or_same("ABL", "感覚"), "感覚");
-        let mut c = vec![CharaTemplate { no: 1, name: "博麗霊夢".into(), callname: "霊夢".into(), ..Default::default() }];
+        let mut c = vec![chara(1, "博麗霊夢", "霊夢", &[(3, "巫女")])];
         assert!(apply_trchara(&d, &mut c).is_empty());
         assert_eq!((c[0].name.as_str(), c[0].callname.as_str()), ("Reimu Hakurei", "Reimu"));
-        assert_eq!(c[0].strs, vec![("CSTR".to_string(), 3, "shrine, maiden".to_string())]);
+        // the third field only, as Anchor (the text after its comma is lost)
+        assert_eq!(c[0].strs, vec![("CSTR".to_string(), 3, "shrine".to_string())]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A template whose Chara*.csv gives NAME and CALLNAME, and CSTRs.
+    fn chara(no: i64, name: &str, callname: &str, cstr: &[(i64, &str)]) -> CharaTemplate {
+        CharaTemplate {
+            no,
+            name: name.into(),
+            callname: callname.into(),
+            names_set: 1 | 2,
+            strs: cstr.iter().map(|(i, s)| ("CSTR".to_string(), *i, s.to_string())).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// spec: TRCHARA files / Name with a suffix in a subfolder, Lower-case
+    /// file name; Character blocks / Full block (ENDCHAR, any case keys)
+    #[test]
+    fn trchara_files_and_blocks() {
+        let d = dir("trchara");
+        std::fs::write(d.join("sub/TRCHARA(Reimu).csv"), "NO,1\nname,Reimu Hakurei,\nCALLNAME,Reimu,\nCSTR,3,shrine maiden\nENDCHAR,1,\n").unwrap();
+        std::fs::write(d.join("trchara_main.CSV"), "番号,2\n呼び名,Marisa\nENDCHR\n").unwrap();
+        let mut c = vec![chara(1, "博麗霊夢", "霊夢", &[(3, "巫女")]), chara(2, "霧雨魔理沙", "魔理沙", &[])];
+        assert!(apply_trchara(&d, &mut c).is_empty(), "no warnings");
+        assert_eq!((c[0].name.as_str(), c[0].callname.as_str(), c[0].strs[0].2.as_str()), ("Reimu Hakurei", "Reimu", "shrine maiden"));
+        // spec: Block with only CALLNAME: the NAME stays the Chara*.csv's
+        assert_eq!((c[1].name.as_str(), c[1].callname.as_str()), ("霧雨魔理沙", "Marisa"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Only what the Chara*.csv gives is replaced, as Anchor translates
+    /// each field while it reads that line.
+    #[test]
+    fn trchara_replaces_only_given_fields() {
+        let d = dir("trchara-only");
+        std::fs::write(d.join("TRCHARA.csv"), "NO,1\nNICKNAME,Miko\nCSTR,4,new\nENDCHR,\n").unwrap();
+        let mut c = vec![chara(1, "博麗霊夢", "霊夢", &[(3, "巫女")])];
+        assert!(apply_trchara(&d, &mut c).is_empty());
+        assert_eq!((c[0].nickname.as_str(), c[0].names_set), ("", 1 | 2), "no NICKNAME in the Chara*.csv");
+        assert_eq!(c[0].strs.len(), 1, "no CSTR:4 in the Chara*.csv");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// spec: TRCHARA warnings / Unknown key, Missing ENDCHR; each names its
+    /// file and line, and the rest still applies
+    #[test]
+    fn trchara_warnings() {
+        let d = dir("trchara-warn");
+        let text = "; a comment\nNAME,x\nNO,1\nTALENT,1,x\nCALLNAME,Reimu\nCSTR,3\nCSTR,3,a\nCSTR,3,b\nNO,2\nNAME,Marisa\nENDCHR,\nNO,9\nENDCHR,\nNO,abc\nnoComma\n,x\n";
+        std::fs::write(d.join("TRCHARA.csv"), text).unwrap();
+        let mut c = vec![chara(1, "博麗霊夢", "霊夢", &[(3, "巫女")]), chara(2, "霧雨魔理沙", "魔理沙", &[])];
+        let w = apply_trchara(&d, &mut c);
+        let at = |line: usize, what: &str| w.iter().any(|m| m.contains(&format!("TRCHARA.csv:{}: ", line)) && m.contains(what));
+        assert!(at(2, "data before the character number"), "{:?}", w);
+        assert!(at(4, "'TALENT' cannot be interpreted"), "{:?}", w);
+        assert!(at(6, "CSTR needs a third field"), "{:?}", w);
+        assert!(at(8, "CSTR:3 is given twice"), "{:?}", w);
+        assert!(at(9, "a new character number before ENDCHR"), "{:?}", w);
+        assert!(at(12, "no character 9"), "{:?}", w);
+        assert!(at(14, "'abc' isn't an integer"), "{:?}", w);
+        assert!(at(15, "a ',' is needed"), "{:?}", w);
+        assert!(at(16, "starts with ','"), "{:?}", w);
+        assert_eq!(w.len(), 9, "{:?}", w);
+        // the rest of each block applied; NO,2 started its own block
+        assert_eq!((c[0].callname.as_str(), c[0].strs[0].2.as_str()), ("Reimu", "b"));
+        assert_eq!(c[1].name, "Marisa");
         let _ = std::fs::remove_dir_all(&d);
     }
 
