@@ -246,6 +246,11 @@ impl Settings {
         self.get(key)
     }
 
+    /// Is `it` offered? The language settings go while the Translator is off.
+    pub fn shown(&self, it: &Item) -> bool {
+        !(matches!(it.key, "translate" | "translate_from" | "translate_what") && self.get("translator") == "off")
+    }
+
     /// Remember `game` as the last one played, adding it to the library.
     pub fn played(&mut self, game: &Path) {
         let g = game.canonicalize().unwrap_or_else(|_| game.to_path_buf());

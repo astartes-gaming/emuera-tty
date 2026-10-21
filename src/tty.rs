@@ -2297,29 +2297,38 @@ impl Tty {
         let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed));
         // the variables page is only offered when one of its variables is set
         let env_any = ENV_VARS.iter().any(|(name, _)| std::env::var_os(name).is_some());
-        let mut extra: Vec<&str> = vec![seed_row.as_str()];
-        if env_any {
-            extra.push("Environment variables…  (the EMUERA_* ones emuera-tty reads)");
-        }
-        extra.extend([
-            "Game settings…  (Emuera's settings window: emuera.config)",
-            "Manage saves…  (copy, export, back up, restore)",
-            "Test the translator…  (translates a sample line)",
-            "Clear the translation cache  (translate the screen again)",
-            "Clear the picture cache  (frees decoded sprites; they load again when shown)",
-            "Back to the title  (Ctrl-T)",
-            "Restart the game  (Ctrl-R)",
-            "Reload ERB files  (F5 / Ctrl-E)",
-            "Switch game…  (unsaved progress is lost)",
-            "Quit emuera-tty",
-            "Close  (Esc)",
-        ]);
-        let n = ITEMS.len() + extra.len();
         let mut sel = 0usize;
         let mut note = String::new();
         // a translator test running: (its answer, when it began, what is tested)
         let mut test: Option<(std::sync::mpsc::Receiver<Result<String, String>>, Instant, String)> = None;
+        // an action row's id in the `match` below (the seed row has none)
+        const SEED_ROW: usize = usize::MAX;
         let exit = loop {
+            // the settings shown (the translation ones hide while the
+            // Translator is off) and the rows after them: (text, action id)
+            let vis: Vec<usize> = ITEMS.iter().enumerate().filter(|(_, it)| st.shown(it)).map(|(i, _)| i).collect();
+            let mut rows: Vec<(&str, usize)> = vec![(seed_row.as_str(), SEED_ROW)];
+            if env_any {
+                rows.push(("Environment variables…  (the EMUERA_* ones emuera-tty reads)", 0));
+            }
+            rows.push(("Game settings…  (Emuera's settings window: emuera.config)", 1));
+            rows.push(("Manage saves…  (copy, export, back up, restore)", 2));
+            if st.get("translator") != "off" {
+                rows.push(("Test the translator…  (translates a sample line)", 3));
+            }
+            rows.extend([
+                ("Clear the translation cache  (translate the screen again)", 4),
+                ("Clear the picture cache  (frees decoded sprites; they load again when shown)", 5),
+                ("Back to the title  (Ctrl-T)", 6),
+                ("Restart the game  (Ctrl-R)", 7),
+                ("Reload ERB files  (F5 / Ctrl-E)", 8),
+                ("Switch game…  (unsaved progress is lost)", 9),
+                ("Quit emuera-tty", 10),
+                ("Close  (Esc)", 11),
+            ]);
+            let extra: Vec<&str> = rows.iter().map(|r| r.0).collect();
+            let n = vis.len() + extra.len();
+            sel = sel.min(n - 1);
             if let Some((rx, began, what)) = &test {
                 let secs = began.elapsed().as_secs_f32();
                 note = match rx.try_recv() {
@@ -2334,7 +2343,7 @@ impl Tty {
             }
             self.no_images = true;
             self.render(con, res, Some(req));
-            let geo = self.draw_overlay(&st, &extra, sel, &note);
+            let geo = self.draw_overlay(&st, &vis, &extra, sel, &note);
             let Some(k) = self.next_key(500) else {
                 if self.hangup {
                     break OverlayExit::Quit;
@@ -2368,8 +2377,8 @@ impl Tty {
             if act == 0 {
                 continue;
             }
-            if sel < ITEMS.len() {
-                let it = &ITEMS[sel];
+            if sel < vis.len() {
+                let it = &ITEMS[vis[sel]];
                 let v = st.cycle(it.key, act).to_string();
                 st.save();
                 if it.live {
@@ -2390,12 +2399,11 @@ impl Tty {
                 } else {
                     note = format!("{} takes effect the next time emuera-tty starts", it.label);
                 }
-            } else if sel == ITEMS.len() {
+            } else if rows[sel - vis.len()].1 == SEED_ROW {
                 // the seed row: selectable for its description, never changed
                 note = "the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty".into();
             } else if act == 1 {
-                // (the arms count the variables row, hidden or not)
-                match sel - ITEMS.len() - 1 + usize::from(!env_any) {
+                match rows[sel - vis.len()].1 {
                     0 => {
                         let quit = self.env_panel(con, res, req);
                         self.box_closed.set(true);
@@ -2779,21 +2787,21 @@ impl Tty {
 
     /// Draw the overlay box; returns its top row (1-based, the title row)
     /// for mapping clicks.
-    fn draw_overlay(&self, st: &crate::settings::Settings, extra: &[&str], sel: usize, note: &str) -> (usize,) {
+    fn draw_overlay(&self, st: &crate::settings::Settings, vis: &[usize], extra: &[&str], sel: usize, note: &str) -> (usize,) {
         self.redraw_all.set(true);
         use crate::settings::ITEMS;
-        let n = ITEMS.len() + extra.len();
+        let n = vis.len() + extra.len();
         let w = self.cols.saturating_sub(4).clamp(30, 72);
         let help = if !note.is_empty() {
             note.to_string()
         } else if let (true, Some(e)) = (
-            sel < ITEMS.len() && matches!(ITEMS[sel].key, "translate" | "translator" | "translate_from" | "translate_what"),
+            sel < vis.len() && matches!(ITEMS[vis[sel]].key, "translate" | "translator" | "translate_from" | "translate_what"),
             self.mt.as_ref().and_then(|m| m.last_error.as_ref()),
         ) {
             format!("last translation failed: {}", e)
-        } else if sel < ITEMS.len() {
-            ITEMS[sel].help.to_string()
-        } else if sel == ITEMS.len() {
+        } else if sel < vis.len() {
+            ITEMS[vis[sel]].help.to_string()
+        } else if sel == vis.len() {
             "the number the random generator started from (read-only); set EMUERA_SEED=N before starting for repeatable runs; RANDOMIZE / INITRAND in the game change it".to_string()
         } else {
             "↑↓ choose  ←→ / Enter change  Esc close".to_string()
@@ -2837,13 +2845,14 @@ impl Tty {
         let gap = inner.saturating_sub(head.chars().count() + mem.len());
         let head = if gap > 0 { format!("{}{}{}", head, " ".repeat(gap), mem) } else { head.to_string() };
         line(&mut out, top + 1, &head, &title);
-        for (i, it) in ITEMS.iter().enumerate() {
+        for (i, &ix) in vis.iter().enumerate() {
+            let it = &ITEMS[ix];
             let later = if it.live { "" } else { "  (next start)" };
             let text = format!("  {:<18} ‹ {} ›{}", it.label, st.get(it.key), later);
             line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
         }
         for (k, e) in extra.iter().enumerate() {
-            let i = ITEMS.len() + k;
+            let i = vis.len() + k;
             line(&mut out, top + 2 + i, &format!("  {}", e), if i == sel { &hilite } else { &action });
         }
         for (k, l) in help.iter().enumerate() {

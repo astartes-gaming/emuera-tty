@@ -184,7 +184,7 @@ impl Picker {
                 return;
             }
             Mode::Settings => {
-                for (i, it) in crate::settings::ITEMS.iter().enumerate() {
+                for (i, it) in crate::settings::ITEMS.iter().enumerate().filter(|(_, it)| self.st.shown(it)) {
                     let v = self.st.get(it.key);
                     let restart = if it.live { "" } else { "  (next start)" };
                     self.entries.push(Entry { label: format!("{:<18} ‹ {} ›{}", it.label, v, restart), kind: Kind::Setting(i) });
