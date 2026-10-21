@@ -427,7 +427,10 @@ running game:
 
 The overlay shows the *Random seed* in use: selectable for its description,
 but read-only (start with `EMUERA_SEED=N` to choose it; the game's
-`RANDOMIZE` / `INITRAND` change it). It also has *Game settings…* and *Manage saves…* (below),
+`RANDOMIZE` / `INITRAND` change it). *Environment variables…* lists every
+`EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
+set; Enter says what one does; read-only, as they are read at start). It also
+has *Game settings…* and *Manage saves…* (below),
 *Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
 override saved settings.
 

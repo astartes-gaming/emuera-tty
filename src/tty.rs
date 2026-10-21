@@ -24,6 +24,7 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
+mod envvars;
 mod gamecfg;
 mod saves;
 
@@ -2247,6 +2248,7 @@ impl Tty {
         let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed));
         let extra = [
             seed_row.as_str(),
+            "Environment variables…  (the EMUERA_* ones emuera-tty reads)",
             "Game settings…  (Emuera's settings window: emuera.config)",
             "Manage saves…  (copy, export, back up, restore)",
             "Test the translator…  (translates a sample line)",
@@ -2340,6 +2342,13 @@ impl Tty {
             } else if act == 1 {
                 match sel - ITEMS.len() - 1 {
                     0 => {
+                        let quit = self.env_panel(con, res, req);
+                        self.box_closed.set(true);
+                        if quit {
+                            break OverlayExit::Quit;
+                        }
+                    }
+                    1 => {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
                         } else {
@@ -2352,7 +2361,7 @@ impl Tty {
                             }
                         }
                     }
-                    1 => {
+                    2 => {
                         if self.game.is_none() {
                             note = "no game folder known here".into();
                         } else {
@@ -2363,8 +2372,8 @@ impl Tty {
                             }
                         }
                     }
-                    2 if st.get("translator") == "off" => note = "the Translator is off: choose one to test it".into(),
-                    2 => match crate::mt::Engine::choose(st.get("translator")) {
+                    3 if st.get("translator") == "off" => note = "the Translator is off: choose one to test it".into(),
+                    3 => match crate::mt::Engine::choose(st.get("translator")) {
                         Err(e) => note = e,
                         Ok(e) => {
                             // a sample in the game's language, into the one chosen
@@ -2393,18 +2402,18 @@ impl Tty {
                             test = Some((rx, Instant::now(), what));
                         }
                     },
-                    3 => {
+                    4 => {
                         note = match self.mt.as_mut() {
                             Some(m) => format!("translation cache cleared ({} lines): what is on screen is translated again", m.clear()),
                             None => "translation is off: no cache to clear".into(),
                         };
                         self.force_frame = true;
                     }
-                    4 => break OverlayExit::Title,
-                    5 => break OverlayExit::Restart,
-                    6 => break OverlayExit::Reload,
-                    7 => break OverlayExit::SwitchGame,
-                    8 => break OverlayExit::Quit,
+                    5 => break OverlayExit::Title,
+                    6 => break OverlayExit::Restart,
+                    7 => break OverlayExit::Reload,
+                    8 => break OverlayExit::SwitchGame,
+                    9 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }
