@@ -3,10 +3,10 @@
 //!
 //! - `XXXX_TR.csv` (`Abl_TR.csv`, `Talent_TR.csv`…) in the CSV folder
 //!   itself: `original,translation` lines for one CSV name table; text
-//!   after `;` is a comment. Applied when such a name is printed
-//!   (`%ABLNAME:2%`, PRINT_ABL, the TRAIN and shop lists), not when a
-//!   script stores or compares it, as in Anchor.
-//! - `ALL_TR.csv`: the same for any `%…%` value a PRINTFORM shows.
+//!   after `;` is a comment. Applied when a name is read with Anchor's
+//!   translate flag (printed, stored in a string, returned with RETURNF:
+//!   `Vm::tr_read`), and to PRINT_ABL and the TRAIN and shop lists.
+//! - `ALL_TR.csv`: a whole `%…%` value read with the translate flag.
 //! - `TRCHARA*.csv`: character data (NAME, CALLNAME, NICKNAME, MASTERNAME,
 //!   CSTR) in blocks from `NO,n` to `ENDCHR`; applied to the character
 //!   templates, so characters added in a new game come out translated.

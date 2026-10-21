@@ -93,9 +93,11 @@ folder:
 .IR Abl_TR.csv ", " Talent_TR.csv ", ..."
 (\fIoriginal\fB,\fItranslation\fR lines, kept as written after the
 original's leading spaces; \fB;\fR starts a comment) translate CSV names
-when they are printed,
+when a script prints them, stores them in a string or returns them with
+RETURNF, as in Anchor (conditions, CALL arguments and most built-in
+functions see the originals; saves hold the translations),
 .I ALL_TR.csv
-any other printed \fB%...%\fR value, and
+a whole printed or stored \fB%...%\fR value, and
 .I TRCHARA*.csv
 the characters' names.
 .B TR_NAME(\fIcode\fB, \fIindex or name\fB)

@@ -614,11 +614,8 @@ impl Vm {
                 self.con.push_seg(Seg::Space { w: w * fs / 100.0 });
             }
             "HTML_PRINT" => {
-                // (Emuera-Anchor: a FORM string's %…% names are translated)
-                let s = match a.first() {
-                    Some(Expr::Form(f)) if self.csv.tr.active() => self.eval_form_tr(f)?,
-                    _ => self.as_(a, 0, "")?,
-                };
+                // (Emuera-Anchor: read with the translate flag, set in `step`)
+                let s = self.as_(a, 0, "")?;
                 self.html_print(&s);
             }
             "BAR" | "BARL" => {
@@ -2722,7 +2719,21 @@ impl Vm {
 
     // ============================================================== functions
     /// Evaluate a built-in function; `Ok(None)` if `name` isn't one.
+    /// Emuera-Anchor: only TOUPPER, TOLOWER, TOHALF, TOFULL, REPLACE and
+    /// STRFORM (and PRINTFORMS' `__FORMS`) read their arguments with the
+    /// translate flag (Creator.Method.cs:2256, 2307, 2514); every other
+    /// function, including any added later, reads without it.
     pub fn builtin_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        if !self.tr_eval || matches!(name, "TOUPPER" | "TOLOWER" | "TOHALF" | "TOFULL" | "REPLACE" | "STRFORM" | "__FORMS") {
+            return self.builtin_fn_body(name, a);
+        }
+        self.tr_eval = false;
+        let r = self.builtin_fn_body(name, a);
+        self.tr_eval = true;
+        r
+    }
+
+    fn builtin_fn_body(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         let i = |v: i64| Ok(Some(Value::Int(v)));
         let s = |v: String| Ok(Some(Value::Str(v)));
         if name.starts_with("MAP_") {

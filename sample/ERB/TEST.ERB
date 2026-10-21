@@ -131,7 +131,7 @@ BASE:1:気力 = 77
 LOCALS:7 '= "気力"
 CALL CHECK, "index by string expression", BASE:1:(LOCALS:7) == 77 && BASE:1:("体" + "力") == BASE:1:0
 CALL CHECKS, "ablname", ABLNAME:1, "技巧"
-; Emuera-Anchor translation: TR_NAME, TRCHARA (stored names stay as they are)
+; Emuera-Anchor translation: TR_NAME, TRCHARA (CALL arguments, as in "ablname", see the originals)
 CALL CHECKS, "tr_name", TR_NAME(ABL, 1) + "/" + TR_NAME("ABL", "技巧") + "/" + TR_NAME(ABL, 2), "Technique/Technique/従順"
 CALL CHECKS, "trchara", CSVNICKNAME(2), "Ordinary Magician"
 PRINTFORML printed: %ABLNAME:1%

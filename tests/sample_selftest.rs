@@ -15,7 +15,8 @@ fn sample_selftest_passes() {
     assert!(text.contains(&format!("selftest: {} checks done", oks)), "{}", text);
     assert!(oks >= 104, "only {} checks ran\n{}", oks, text);
     assert!(text.contains("1日目"), "{}", text);
-    // Emuera-Anchor: Abl_TR.csv applies when the name is printed
+    // Emuera-Anchor: Abl_TR.csv applies when the name is printed (not in
+    // the CALL CHECKS arguments, "ablname")
     assert!(text.contains("printed: Technique"), "{}", text);
     assert!(!text.contains("script error"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);

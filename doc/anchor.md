@@ -89,6 +89,11 @@ commands) evaluates with the flag off.
 - PALAM reads use `Param` instead of `Palam` when the game has
   `PARAM.CSV` (§5).
 
+emuera-tty (`src/vm/mod.rs`: `Vm::tr_run` / `tr_eval`, `Vm::tr_read`,
+`builtin_fn`'s wrapper in `vm/builtins.rs`): the flag as above, for all
+of these statements and expressions. *Gap: literals (task 4), the
+memory (§3) and PALAM→Param (§5).*
+
 ## 3. The `%…%` fallbacks: ALL_TR and the "memory"
 
 `StrForm.cs:256` `FormatPercent`. This runs for a `%…%` value when the
@@ -114,7 +119,7 @@ line's text contains `RETURNF`. The steps:
 4. Width padding is applied to the translated text, counting by display
    width.
 
-emuera-tty does steps 1, 2 and 4 for PRINT/PRINTDATA/HTML_PRINT FORMs.
+emuera-tty does steps 1, 2 and 4 for every FORM read with the flag.
 *Gap: step 3, the width trigger and the RETURNF exception.*
 
 ## 4. Constants translated at first parse

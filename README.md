@@ -553,13 +553,27 @@ Games translated with Emuera-Anchor's system play translated here too:
   dropped: `技巧, Technique` translates to " Technique", which some games
   use for alignment. Lines from a `{` line to a `}` line are read as
   one, as Anchor's file reader does. A line without exactly one comma, a
-  misplaced `{` or `}`, or a name given twice, is shown as a warning when the game loads (with the file and
-  line) and skipped; Anchor refuses to start the game instead.
-  A name is translated when it is printed
-  (`%ABLNAME:2%`, PRINTS, PRINT_ABL, the TRAIN command list, the shop),
-  not when a script stores or compares it, so the scripts keep working
-  on the original names and saves stay as Emuera writes them.
-- `ALL_TR.csv`: the same for any other `%…%` value a PRINTFORM shows.
+  misplaced `{` or `}`, or a name given twice, is shown as a warning when
+  the game loads (with the file and line) and skipped; Anchor refuses to
+  start the game instead.
+- When a name comes out translated, as in Anchor: when a script prints
+  it (`PRINTV TALENTNAME:LOCAL`, `PRINTFORM %TALENTNAME:LOCAL%`, PRINTS,
+  PRINTDATA, HTML_PRINT), stores it in a string (`LOCALS '=
+  TALENTNAME:LOCAL`, `LOCALS = [%TALENTNAME:LOCAL%]`, `+=`), or returns
+  it with RETURNF from a `#FUNCTIONS` that is being printed or stored.
+  Joining strings with `+` keeps the translation. Everything else sees
+  the original name, so the scripts keep working: conditions (`IF
+  TALENTNAME:LOCAL == "処女"`), CALL arguments, PRINTBUTTON's text, the
+  branches of `? #`, and the arguments of built-in functions other than
+  TOUPPER, TOLOWER, TOHALF, TOFULL, REPLACE and STRFORM. The values of
+  STR, TSTR, SAVESTR, RESULTS and GLOBALS translate the same way, through
+  `Str_TR.csv`. Because stored text is translated, saves made in a
+  translated game hold the translations, as Anchor's do (Emuera loads
+  them like any other save; saves from older emuera-tty versions hold the
+  originals). PRINT_ABL and the like, the TRAIN command list and the
+  shop list are translated too, though Anchor prints those untranslated.
+- `ALL_TR.csv`: also looked up for a whole `%…%` value when it is
+  printed or stored.
 - `TRCHARA*.csv`: character names (`NAME`, `CALLNAME`, `NICKNAME`,
   `MASTERNAME`, `CSTR,n,text`) in blocks from `NO,n` (or `番号,n`) to
   `ENDCHR`; characters added in a new game come out translated.

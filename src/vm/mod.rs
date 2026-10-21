@@ -184,6 +184,15 @@ pub struct Vm {
     pub varext: save::VarExt,
     /// REF bindings collected by `call_args` for the next `call_func`
     pending_refs: Vec<(String, Loc)>,
+    /// Emuera-Anchor's translate flag (doc/anchor.md §2). `tr_run` is
+    /// Anchor's `runScriptProc(translate)`: on while the engine runs
+    /// statements in a translated game, and the caller's `tr_eval` while a
+    /// `#FUNCTION` called inside an expression runs. `tr_eval` is the flag
+    /// of the expression being evaluated: cleared at every statement, set
+    /// by the statements that pass it on (PRINT, string assignment,
+    /// RETURNF…). A flagged read of a CSV name or STR translates it.
+    tr_run: bool,
+    pub(crate) tr_eval: bool,
     /// `EMUERA_TRACE`: log calls whose name contains this.
     trace: Option<String>,
     /// `EMUERA_MEMSTATS`: the file the memory report goes to.
@@ -252,6 +261,7 @@ impl Vm {
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0x1234_5678));
         CURRENT_SEED.store(seed, std::sync::atomic::Ordering::Relaxed);
+        let tr_run = csv.tr.active();
         let mut vm = Vm {
             prog,
             csv,
@@ -280,6 +290,8 @@ impl Vm {
             save_opts: save::SaveOpts::default(),
             varext: save::VarExt::load(crate::loader::find_dir_ci(&game_dir, "CSV").as_deref()),
             pending_refs: Vec::new(),
+            tr_run,
+            tr_eval: false,
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             memstats: std::env::var("EMUERA_MEMSTATS").ok(),
             calls: 0,
@@ -977,10 +989,14 @@ impl Vm {
     /// Whether the variable holds strings (decides parameter defaults etc.).
     pub fn var_is_str(&mut self, v: &VarRef) -> VmResult<bool> {
         let p = self.locate(v)?;
-        Ok(match &p.loc {
+        Ok(self.place_is_str(&p))
+    }
+
+    fn place_is_str(&mut self, p: &Place) -> bool {
+        match &p.loc {
             Loc::Ro(v) => v.is_str(),
             loc => self.arr_at(loc).map(|a| a.is_str()).unwrap_or(false),
-        })
+        }
     }
 
     /// Values of the computed, read-only variables (see `vars::pseudo_var`).
@@ -1050,7 +1066,10 @@ impl Vm {
             Expr::Str(s) => Ok(Value::Str(s.clone())),
             Expr::Empty => Ok(Value::Int(0)),
             Expr::Form(f) => Ok(Value::Str(self.eval_form(f)?)),
-            Expr::Var(v) => self.get_var(v),
+            Expr::Var(v) => {
+                let x = self.get_var(v)?;
+                Ok(if self.tr_eval { self.tr_read(&v.name, x) } else { x })
+            }
             Expr::Call(c) => {
                 // a built-in once seen as one isn't looked for among the
                 // game's functions again
@@ -1072,11 +1091,12 @@ impl Vm {
             }
             Expr::Binary(op, a, b) => self.binary(*op, a, b),
             Expr::Ternary(c, a, b) => {
-                if self.eval(c)?.truthy() {
-                    self.eval(a)
-                } else {
-                    self.eval(b)
-                }
+                // (Emuera-Anchor: the branches are read without the
+                // translate flag, OperatorMethod.cs:809)
+                let tr = std::mem::replace(&mut self.tr_eval, false);
+                let r = if self.eval(c)?.truthy() { self.eval(a) } else { self.eval(b) };
+                self.tr_eval = tr;
+                r
             }
             Expr::IncDec(v, pre, d) => {
                 let p = self.locate(v)?;
@@ -1098,6 +1118,14 @@ impl Vm {
     /// Binary operators. `&&`/`||` short-circuit; if either side is a
     /// string, `+` concatenates, `*` repeats, comparisons compare text.
     fn binary(&mut self, op: BinOp, a: &Expr, b: &Expr) -> VmResult<Value> {
+        // Emuera-Anchor: only `+` and string repetition read their operands
+        // with the translate flag; comparisons see the original names
+        if self.tr_eval && !matches!(op, BinOp::Add | BinOp::Mul) {
+            self.tr_eval = false;
+            let r = self.binary(op, a, b);
+            self.tr_eval = true;
+            return r;
+        }
         match op {
             BinOp::And => {
                 let x = self.eval(a)?.truthy();
@@ -1181,48 +1209,45 @@ impl Vm {
             return Ok(s.clone());
         }
         let mut out = String::new();
-        self.eval_form_into(f, &mut out, false)?;
+        self.eval_form_into(f, &mut out)?;
         Ok(out)
     }
 
-    /// A FORM string that is printed (Emuera-Anchor translation).
-    pub(crate) fn eval_form_tr(&mut self, f: &Form) -> VmResult<String> {
-        let mut out = String::new();
-        self.eval_form_into(f, &mut out, true)?;
-        Ok(out)
+    /// Emuera-Anchor: a variable read with the translate flag on
+    /// (`Translation.translate`). A CSV name (`TALENTNAME:5`) goes through
+    /// its own table's *_TR.csv only; the values of STR, TSTR, SAVESTR,
+    /// RESULTS and GLOBALS through Str_TR.csv, as Anchor's
+    /// Str1DVariableToken does for all five.
+    fn tr_read(&self, name: &str, v: Value) -> Value {
+        let Value::Str(s) = v else { return v };
+        let table = match name {
+            "STR" | "TSTR" | "SAVESTR" | "RESULTS" | "GLOBALS" => "STRNAME",
+            "CDFLAGNAME1" => "CDFLAG1",
+            "CDFLAGNAME2" => "CDFLAG2",
+            n if n.ends_with("NAME") => match table_for_var(n) {
+                Some(t) => t,
+                None => return Value::Str(s),
+            },
+            _ => return Value::Str(s),
+        };
+        match self.csv.tr.name(table, &s) {
+            Some(t) => Value::Str(t.to_string()),
+            None => Value::Str(s),
+        }
     }
 
-    /// Emuera-Anchor: a printed `%…%` value, translated — a CSV name
-    /// (`%ABLNAME:2%`) through its table's *_TR.csv, then (as Anchor's
-    /// FormatPercent) the value through ALL_TR.csv.
-    fn translated(&self, e: &Expr, s: String) -> String {
-        let tr = &self.csv.tr;
-        if !tr.active() {
-            return s;
-        }
-        if let Expr::Var(v) = e {
-            if v.name.ends_with("NAME") {
-                if let Some(t) = crate::csvdata::table_for_var(&v.name) {
-                    if let Some(n) = tr.name(t, &s) {
-                        return n.to_string();
-                    }
-                }
-            }
-        }
-        tr.all(&s).cloned().unwrap_or(s)
-    }
-
-    /// Append a FORM string; `tr`: it is being printed (see `translated`).
-    fn eval_form_into(&mut self, f: &Form, out: &mut String, tr: bool) -> VmResult<()> {
+    /// Append a FORM string. With the translate flag on, a `%…%` value is
+    /// also looked up whole in ALL_TR.csv (Emuera-Anchor's FormatPercent).
+    fn eval_form_into(&mut self, f: &Form, out: &mut String) -> VmResult<()> {
         use std::fmt::Write as _;
         for p in &f.parts {
             match p {
                 FormPart::Lit(s) => out.push_str(s),
                 FormPart::Str(e, w, a) | FormPart::Int(e, w, a) => {
                     let mut v = self.eval(e)?;
-                    if tr {
+                    if self.tr_eval && matches!(p, FormPart::Str(..)) {
                         if let Value::Str(s) = v {
-                            v = Value::Str(self.translated(e, s));
+                            v = Value::Str(self.csv.tr.all(&s).cloned().unwrap_or(s));
                         }
                     }
                     match w {
@@ -1239,12 +1264,16 @@ impl Vm {
                     }
                 }
                 FormPart::Cond(cab) => {
+                    // (Emuera-Anchor: `\@ ? # \@` reads its branches without
+                    // the translate flag, StrForm.cs FormatYenAt)
                     let (c, a, b) = &**cab;
+                    let tr = std::mem::replace(&mut self.tr_eval, false);
                     if self.eval(c)?.truthy() {
-                        self.eval_form_into(a, out, tr)?;
+                        self.eval_form_into(a, out)?;
                     } else {
-                        self.eval_form_into(b, out, tr)?;
+                        self.eval_form_into(b, out)?;
                     }
+                    self.tr_eval = tr;
                 }
             }
         }
@@ -1256,10 +1285,18 @@ impl Vm {
     pub(crate) fn call_expr(&mut self, name: &str, args: &[Expr]) -> VmResult<Value> {
         if let Some(fs) = self.prog.funcs.get(name) {
             let f = fs[0].clone();
-            let (vals, refs) = self.call_args(&f, args)?;
-            self.pending_refs = refs;
-            let r = self.call_func(f.clone(), vals)?;
-            return Ok(r.unwrap_or(if f.returns_str { Value::Str(String::new()) } else { Value::Int(0) }));
+            // Emuera-Anchor: the arguments are read without the translate
+            // flag and the body runs with the caller's (Process.GetValue →
+            // runScriptProc(translate)); both come back whatever happens
+            let (run, eval) = (self.tr_run, self.tr_eval);
+            self.tr_eval = false;
+            let r = self.call_args(&f, args).and_then(|(vals, refs)| {
+                self.pending_refs = refs;
+                self.tr_run = eval;
+                self.call_func(f.clone(), vals)
+            });
+            (self.tr_run, self.tr_eval) = (run, eval);
+            return Ok(r?.unwrap_or(if f.returns_str { Value::Str(String::new()) } else { Value::Int(0) }));
         }
         match self.builtin_fn(name, args)? {
             Some(v) => Ok(v),
@@ -1528,7 +1565,10 @@ impl Vm {
             if self.ticks & 0xFFF == 0 {
                 self.tick()?;
             }
-            match self.step(&body, pc) {
+            let r = self.step(&body, pc);
+            // (and off again after it, for whatever the engine evaluates next)
+            self.tr_eval = false;
+            match r {
                 Ok(None) => {}
                 Ok(Some(ret)) => return Ok(ret),
                 Err(e) => return Err(self.located(e, &f, &body, pc)),
@@ -1550,6 +1590,9 @@ impl Vm {
 
     /// Execute one instruction. Ok(Some(x)) means the function returns x.
     fn step(&mut self, body: &Body, pc: usize) -> VmResult<Option<Option<Value>>> {
+        // the translate flag is set by the statements below that pass it
+        // on, and cleared for every other one (an error can't leave it on)
+        self.tr_eval = false;
         match &body.code[pc] {
             Instr::BadLine(msg, fatal) => {
                 if *fatal || self.strict {
@@ -1558,15 +1601,14 @@ impl Vm {
                 self.warn(&format!("skipped unparsed line: {}", msg));
             }
             Instr::Print(content, fl) => {
+                // Emuera-Anchor: the PRINT family reads with the translate
+                // flag (plain `PRINT text` has nothing to read), PRINTPLAIN
+                // always does (Process.ScriptProc.cs:146)
+                self.tr_eval = self.tr_run || (fl.plain && self.csv.tr.active());
                 let s = match content {
                     PrintContent::Raw(s) => s.clone(),
-                    // (Emuera-Anchor: printed names are translated)
-                    PrintContent::Form(fm) if self.csv.tr.active() => self.eval_form_tr(fm)?,
                     PrintContent::Form(fm) => self.eval_form(fm)?,
-                    PrintContent::Expr(e) => {
-                        let s = self.eval_str(e)?;
-                        self.translated(e, s)
-                    }
+                    PrintContent::Expr(e) => self.eval_str(e)?,
                     PrintContent::Exprs(es) => {
                         let mut s = String::new();
                         for e in es {
@@ -1583,16 +1625,13 @@ impl Vm {
                     let lines = entries[k].clone();
                     let mut first = true;
                     let mut text = String::new();
+                    self.tr_eval = self.tr_run;
                     for l in &lines {
                         if !first {
                             text.push('\n');
                         }
                         first = false;
-                        if !self.csv.tr.active() {
-                            text.push_str(&self.eval_form(l)?);
-                        } else {
-                            self.eval_form_into(l, &mut text, true)?;
-                        }
+                        self.eval_form_into(l, &mut text)?;
                     }
                     self.do_print(&text, *fl)?;
                 }
@@ -1615,10 +1654,17 @@ impl Vm {
             }
             Instr::Assign(v, op, rhs) => self.assign(v, *op, rhs)?,
             Instr::AssignForm(v, op, form) => {
+                // (Emuera-Anchor: a string assignment stores what it reads
+                // with the translate flag, `+=` as `X = X + text`)
+                self.tr_eval = self.tr_run;
                 let s = self.eval_form(form)?;
                 let p = self.locate(v)?;
                 let new = match op {
-                    AsgOp::Add => self.get_place(&p).into_string() + &s,
+                    AsgOp::Add => {
+                        let old = self.get_place(&p);
+                        let old = if self.tr_eval { self.tr_read(&v.name, old) } else { old };
+                        old.into_string() + &s
+                    }
                     _ => s,
                 };
                 self.store(v, &p, Value::Str(new))?;
@@ -1808,6 +1854,7 @@ impl Vm {
                 return Ok(Some(None));
             }
             Instr::ReturnF(v) => {
+                self.tr_eval = self.tr_run;
                 let v = match v {
                     Some(e) => Some(self.eval(e)?),
                     None => None,
@@ -1827,7 +1874,12 @@ impl Vm {
                 let s = self.eval_form(fm)?;
                 return err(format!("THROW: {}", s));
             }
-            Instr::Command(c) => self.command(&c.0, &c.1)?,
+            Instr::Command(c) => {
+                if self.tr_run && c.0 == "HTML_PRINT" {
+                    self.tr_eval = true;
+                }
+                self.command(&c.0, &c.1)?
+            }
         }
         Ok(None)
     }
@@ -1893,6 +1945,11 @@ impl Vm {
     /// elements starting at `v`'s index; compound operators take one.
     fn assign(&mut self, v: &VarRef, op: AsgOp, rhs: &[Expr]) -> VmResult<()> {
         let p = self.locate(v)?;
+        // Emuera-Anchor: a string assignment (any operator, also `'= a, b`)
+        // reads with the translate flag and stores the translated text
+        if self.tr_run && self.place_is_str(&p) {
+            self.tr_eval = true;
+        }
         if rhs.len() > 1 {
             if !matches!(op, AsgOp::Set | AsgOp::SetExpr) {
                 return err("compound assignment cannot take multiple values");
@@ -1909,6 +1966,7 @@ impl Vm {
             AsgOp::Set | AsgOp::SetExpr => val,
             _ => {
                 let old = self.get_place(&p);
+                let old = if self.tr_eval { self.tr_read(&v.name, old) } else { old };
                 if old.is_str() {
                     match op {
                         AsgOp::Add => Value::Str(old.into_string() + &val.into_string()),
