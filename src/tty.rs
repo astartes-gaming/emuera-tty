@@ -2292,12 +2292,16 @@ impl Tty {
     /// most apply to the running game. Images are hidden while it is up
     /// (kitty would draw them over it).
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
-        use crate::settings::{Settings, ITEMS};
+        use crate::settings::{Settings, ENV_VARS, ITEMS};
         let mut st = Settings::load();
         let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed));
-        let extra = [
-            seed_row.as_str(),
-            "Environment variables…  (the EMUERA_* ones emuera-tty reads)",
+        // the variables page is only offered when one of its variables is set
+        let env_any = ENV_VARS.iter().any(|(name, _)| std::env::var_os(name).is_some());
+        let mut extra: Vec<&str> = vec![seed_row.as_str()];
+        if env_any {
+            extra.push("Environment variables…  (the EMUERA_* ones emuera-tty reads)");
+        }
+        extra.extend([
             "Game settings…  (Emuera's settings window: emuera.config)",
             "Manage saves…  (copy, export, back up, restore)",
             "Test the translator…  (translates a sample line)",
@@ -2309,7 +2313,7 @@ impl Tty {
             "Switch game…  (unsaved progress is lost)",
             "Quit emuera-tty",
             "Close  (Esc)",
-        ];
+        ]);
         let n = ITEMS.len() + extra.len();
         let mut sel = 0usize;
         let mut note = String::new();
@@ -2390,7 +2394,8 @@ impl Tty {
                 // the seed row: selectable for its description, never changed
                 note = "the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty".into();
             } else if act == 1 {
-                match sel - ITEMS.len() - 1 {
+                // (the arms count the variables row, hidden or not)
+                match sel - ITEMS.len() - 1 + usize::from(!env_any) {
                     0 => {
                         let quit = self.env_panel(con, res, req);
                         self.box_closed.set(true);
