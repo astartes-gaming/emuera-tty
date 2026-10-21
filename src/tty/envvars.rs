@@ -5,7 +5,7 @@
 //! is launched. Enter on a row says what the variable does.
 
 use super::saves::Pick;
-use super::Tty;
+use super::{wrap_words, Tty};
 use crate::console::Console;
 use crate::frontend::InputReq;
 use crate::resources::Resources;
@@ -34,7 +34,11 @@ impl Tty {
                     None => format!("○ {:<24}   (not set)", name),
                 })
                 .collect();
-            match self.list_box(con, res, req, "Environment variables (EMUERA_*)", &rows, rows.len(), &mut sel, &help) {
+            // the help wraps (up to four lines, always four high so the box
+            // doesn't move from one row to the next)
+            let mut lines = wrap_words(&help, self.box_geo(0).2.saturating_sub(2), 4);
+            lines.resize(4, String::new());
+            match self.list_box(con, res, req, "Environment variables (EMUERA_*)", &rows, rows.len(), &mut sel, &lines.join("\n")) {
                 Pick::Back => return false,
                 Pick::Quit => return true,
                 Pick::Row(i) => {
