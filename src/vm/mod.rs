@@ -622,12 +622,26 @@ impl Vm {
                 }
                 err(format!("'{}' is neither a variable nor a {} name", v.name, table.unwrap_or(var)))
             }
-            Expr::Str(s) => {
-                let t = table.unwrap_or(var);
-                self.csv.lookup(t, s).or_else(|| self.csv.lookup(t, &s.to_uppercase())).ok_or(()).or_else(|_| err(format!("unknown {} name \"{}\"", t, s)))
-            }
-            _ => Ok(self.eval(e)?.as_int()),
+            Expr::Str(s) => self.index_by_name(s, table, var, dim),
+            // an expression that gives a string (`BASE:ARG:(ARGS)`) names
+            // the element too, as in Emuera
+            _ => match self.eval(e)? {
+                Value::Str(s) => self.index_by_name(&s, table, var, dim),
+                v => Ok(v.as_int()),
+            },
         }
+    }
+
+    /// The element a CSV name stands for in `var`'s index.
+    fn index_by_name(&self, s: &str, table: Option<&str>, var: &str, dim: Option<usize>) -> VmResult<i64> {
+        let t = table.unwrap_or(var);
+        if let Some(i) = self.csv.lookup(t, s).or_else(|| self.csv.lookup(t, &s.to_uppercase())) {
+            return Ok(i);
+        }
+        if let Some(i) = dim.and_then(|d| self.csv.lookup(&format!("{}@{}", var.to_uppercase(), d), s)) {
+            return Ok(i);
+        }
+        err(format!("unknown {} name \"{}\"", t, s))
     }
 
     /// All indices of `v` from position `from` (1 skips a character index).
