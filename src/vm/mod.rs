@@ -231,6 +231,11 @@ pub(crate) fn sized_dims(varsize: &HashMap<String, Vec<usize>>, name: &str, def:
     }
 }
 
+/// The seed the random generator was last set with (at start, from
+/// `EMUERA_SEED` or the clock, or by RANDOMIZE / INITRAND), for the settings
+/// overlay to show.
+pub static CURRENT_SEED: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
 impl Vm {
     pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf) -> Vm {
         if let Ok(p) = std::env::var("EMUERA_PROFILE") {
@@ -241,6 +246,7 @@ impl Vm {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0x1234_5678));
+        CURRENT_SEED.store(seed as i64, std::sync::atomic::Ordering::Relaxed);
         let mut vm = Vm {
             prog,
             csv,
@@ -487,6 +493,7 @@ impl Vm {
     }
     /// RANDOMIZE / INITRAND: reseed.
     pub fn seed(&mut self, s: i64) {
+        CURRENT_SEED.store(s, std::sync::atomic::Ordering::Relaxed);
         self.rng = (s as u64) ^ 0x9E37_79B9_7F4A_7C15 | 1;
     }
 

@@ -786,6 +786,20 @@ impl Resources {
     }
 
     /// Was an animated sprite drawn since the last call?
+    /// Drop every cached picture decoded from files (sprites, crops, scaled
+    /// copies, prepared parts, CBG copies): they decode again when drawn.
+    /// Graphics buffers made by the game (GCREATE…) are its state and stay.
+    pub fn release_images(&mut self) {
+        self.files = HashMap::default();
+        self.cropped = HashMap::default();
+        self.scaled = HashMap::default();
+        self.parts = HashMap::default();
+        self.cbg_cache = HashMap::default();
+        self.loaded = Vec::new();
+        self.gen += 1;
+        crate::sys::trim_memory();
+    }
+
     /// Keep the unpacked graphics buffers within [`Resources::gbuf_budget`]:
     /// pack the least recently used ones (they unpack when used again).
     pub fn trim_graphics(&mut self) {
