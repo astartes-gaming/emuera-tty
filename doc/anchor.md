@@ -163,7 +163,7 @@ measure the translated text.
 
 emuera-tty (`src/translate.rs`, the *constants* section): the parser
 marks each constant that folding changes, and the VM evaluates it as
-Anchor folded it. *Gap: STRLENS (task 6.2).*
+Anchor folded it; STRLENS / STRLENSU as above (`Vm::tr_measured`).
 
 ## 5. `PARAM.CSV`
 

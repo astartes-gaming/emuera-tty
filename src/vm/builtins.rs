@@ -2750,6 +2750,27 @@ impl Vm {
         r
     }
 
+    /// STRLENS / STRLENSU's argument. In a game with TR files, as in
+    /// Emuera-Anchor (Creator.Method.cs StrlenMethod): read with the
+    /// translate flag, then looked up whole in ALL_TR, so the translated
+    /// text is what gets measured.
+    fn tr_measured(&mut self, a: &[Expr]) -> VmResult<String> {
+        if !self.tr_on {
+            return self.as_(a, 0, "");
+        }
+        let keep = std::mem::replace(&mut self.tr_eval, true);
+        let s = self.as_(a, 0, "");
+        self.tr_eval = keep;
+        let s = s?;
+        Ok(match self.csv.tr.all(&s) {
+            Some(t) => {
+                self.tr_last.clone_from(t);
+                t.clone()
+            }
+            None => s,
+        })
+    }
+
     fn builtin_fn_body(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         let i = |v: i64| Ok(Some(Value::Int(v)));
         let s = |v: String| Ok(Some(Value::Str(v)));
@@ -3023,11 +3044,11 @@ impl Vm {
                 i(dims[k] as i64)
             }
             "STRLENS" => {
-                let x = self.as_(a, 0, "")?;
+                let x = self.tr_measured(a)?;
                 i(sjis_len(&x) as i64)
             }
             "STRLENSU" => {
-                let x = self.as_(a, 0, "")?;
+                let x = self.tr_measured(a)?;
                 i(x.chars().count() as i64)
             }
             "SUBSTRING" => {

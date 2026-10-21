@@ -581,6 +581,8 @@ Games translated with Emuera-Anchor's system play translated here too:
   (`LOCALS '= TALENTNAME:5`) it stays the original. Quoted text printed
   with PRINTS, PRINTV or PRINTPLAIN (`PRINTS "男"`) is looked up in
   `ALL_TR.csv`, or in the table of the first `XXXNAME` on the same line.
+  STRLENS and STRLENSU measure the translated text, so layouts built on
+  them fit the translation.
 - `ALL_TR.csv`: also looked up for a whole `%…%` value when it is
   printed or stored (or has a width, `%X,10%`). Failing that, as in
   Anchor, a name the script read untranslated shortly before (Anchor

@@ -328,3 +328,15 @@ fn name_array_given_whole() {
     let text = play("name-array", &[VIRGIN, ("CSV/Base.csv", "0,体力\n1,気力\n")], "PRINTFORML F={FINDELEMENT(BASENAME, \"気力\")}");
     assert!(text.contains("F=1"), "{}", text);
 }
+
+/// spec: STRLENS measures translated text / Width of a translated name;
+/// the ALL_TR lookup after it
+#[test]
+fn strlens_measures_translated_text() {
+    let text = play(
+        "strlens",
+        &[VIRGIN, ("CSV/ALL_TR.csv", "男,Gentleman\n")],
+        "LOCAL = 5\nLOCALS = 男\nIF STRLENS(TALENTNAME:LOCAL) == 6 && STRLENSU(LOCALS) == 9\nPRINTL W=ok\nENDIF",
+    );
+    assert!(text.contains("W=ok"), "{}", text);
+}

@@ -35,7 +35,7 @@
 ## 6. Constants and STRLENS (spec: Constant names given to built-in functions, STRLENS measures translated text; design D5)
 
 - [x] 6.1 In `builtin_fn` argument evaluation, read a CSV name variable with all-literal indices translated (own table) whatever the flag. Mark constant `%…%` parts at parse (a bit on `FormPart::Str`) so they get only their own translation. Verify: the "SUBSTRING of a constant name" and "Variable index is not folded" scenarios pass, and a constant `%TALENTNAME:5%` whose value is also an ALL_TR key prints the Talent_TR translation. (Done by task 4's folding model rather than in `builtin_fn`; constant `%…%` parts are recognised at run time, not by a bit. Test: `constant_names_given_to_functions`.)
-- [ ] 6.2 STRLENS / STRLENSU evaluate their argument with the flag on, then do an ALL lookup before measuring. Verify: the "Width of a translated name" scenario passes.
+- [x] 6.2 STRLENS / STRLENSU evaluate their argument with the flag on, then do an ALL lookup before measuring. Verify: the "Width of a translated name" scenario passes. (Done: `Vm::tr_measured`; test `strlens_measures_translated_text`.)
 
 ## 7. TR_NAME (spec: TR_NAME)
 
