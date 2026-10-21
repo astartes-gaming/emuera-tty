@@ -96,7 +96,7 @@ emuera-tty (`src/vm/mod.rs`: `Vm::tr_run` / `tr_eval`, `Vm::tr_read`,
 `Vm::tr_const`, `builtin_fn`'s wrapper in `vm/builtins.rs`): the flag as
 above, for all of these statements and expressions, literals and
 constants included (§4). PRINTDATA translates too (see *Deliberate
-differences*). *Gap: the memory (§3) and PALAM→Param (§5).*
+differences*). The memory (§3) and PALAM→Param (§5) are done too.
 
 ## 3. The `%…%` fallbacks: ALL_TR and the "memory"
 
