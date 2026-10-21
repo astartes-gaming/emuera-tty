@@ -131,7 +131,7 @@ fn flag_through_expressions() {
                SIF NAME_OF(5) == \"処女\"\nPRINTL W=original\n\
                PRINTS \"T=\" + (LOCAL ? TALENTNAME:LOCAL # \"\")\nPRINTL\n\
                PRINTFORML Y=\\@ LOCAL ? %TALENTNAME:LOCAL% # x \\@\n\
-               PRINTFORML S=%SUBSTRING(TALENTNAME:LOCAL, 0, 9)% %TOUPPER(TALENTNAME:LOCAL)%\n\
+               PRINTS \"S=\" + SUBSTRING(TALENTNAME:LOCAL, 0, 9) + \" \" + TOUPPER(TALENTNAME:LOCAL)\nPRINTL\n\
                CALL SHOW, TALENTNAME:LOCAL\n\
                QUIT\n\
                @NAME_OF(ARG)\n#FUNCTIONS\nRETURNF TALENTNAME:ARG\n\
@@ -144,7 +144,9 @@ fn flag_through_expressions() {
     assert!(text.contains("T=処女"), "{}", text);
     assert!(text.contains("Y=処女"), "{}", text);
     // SUBSTRING reads without the flag (a variable index isn't a constant,
-    // so section 4's constant folding doesn't apply); TOUPPER passes it on
+    // so section 4's constant folding doesn't apply); TOUPPER passes it on.
+    // (PRINTS: a `%…%` would get the percent fallbacks, and the memory of
+    // that untranslated read would translate it.)
     assert!(text.contains("S=処女 VIRGIN"), "{}", text);
     // CALL arguments are read without the flag
     assert!(text.contains("A=original"), "{}", text);
@@ -234,6 +236,89 @@ fn constant_names_given_to_functions() {
     assert!(text.contains("V=original"), "{}", text);
     // folded at load: Talent_TR only, not then ALL_TR's Virgin → Maiden
     assert!(text.contains("P=Virgin"), "{}", text);
+}
+
+/// spec: Percent values get an ALL lookup / Whole value in ALL_TR, Width
+/// turns translation on; Stripped ALL lookup / Level suffix; RETURNF
+/// lines skip the fallbacks; Padding counts translated text
+#[test]
+fn percent_fallbacks() {
+    let erb = "@SYSTEM_TITLE\nLOCAL = 5\n\
+               LOCALS = 男\nPRINTFORML W=[%LOCALS%]\n\
+               IF STRFORM(\"%TALENTNAME:LOCAL,10%\") == \"    Virgin\"\nPRINTL D=width\nENDIF\n\
+               LOCALS = 技巧LV3\nPRINTFORML L=%LOCALS%\n\
+               PRINTS \"R=\" + IN_RETURNF()\nPRINTL\n\
+               PRINTFORML P=[%TALENTNAME:LOCAL, 8, LEFT%]\n\
+               QUIT\n\
+               @IN_RETURNF\n#FUNCTIONS\nLOCALS = 男\nRETURNF @\"%LOCALS%\"\n";
+    let text = play_erb("percent", &[VIRGIN, ("CSV/ALL_TR.csv", "男,Man\n技巧,Technique\n")], erb, |_| {});
+    assert!(text.contains("W=[Man]"), "{}", text);
+    assert!(text.contains("D=width"), "{}", text);
+    assert!(text.contains("L=TechniqueLV3"), "{}", text);
+    assert!(text.contains("R=男"), "{}", text);
+    assert!(text.contains("P=[Virgin  ]"), "{}", text);
+}
+
+/// spec: Memory of untranslated reads, Memory fallback / Value from a
+/// variable: a name read without the flag is remembered, and a printed
+/// `%…%` holding it is translated from memory. Anchor keeps 19 pairs.
+#[test]
+fn memory_of_untranslated_reads() {
+    let mut talent = String::new();
+    let mut tr = String::new();
+    for i in 1..=20 {
+        talent.push_str(&format!("{},名{:02}\n", i, i));
+        tr.push_str(&format!("名{:02},N{:02}\n", i, i));
+    }
+    // READ(n): SAVESTR:0 gets name 1 untranslated (the function runs without
+    // the flag: it is called from a condition), then names 2..n are read
+    let erb = "@SYSTEM_TITLE\n\
+               SIF READ(19)\nPRINTL never\nPRINTFORML A=[%SAVESTR:0%]\n\
+               SIF READ(20)\nPRINTL never\nPRINTFORML B=[%SAVESTR:0%]\n\
+               QUIT\n\
+               @READ(ARG)\n#FUNCTION\nLOCAL = 1\nSAVESTR:0 '= TALENTNAME:LOCAL\n\
+               FOR LOCAL, 2, ARG + 1\nLOCAL:1 += TALENTNAME:LOCAL == \"\"\nNEXT\nRETURNF 0\n";
+    let text = play_erb("memory", &[("CSV/Talent.csv", &talent), ("CSV/Talent_TR.csv", &tr)], erb, |_| {});
+    // 19 names read: the first is still remembered
+    assert!(text.contains("A=[N01]"), "{}", text);
+    // the second READ reads names 1..19 again (remembered already, no
+    // change) and name 20, new: the memory reaches 20 and drops name 1
+    assert!(text.contains("B=[名01]"), "{}", text);
+}
+
+/// The twentieth new pair pushes the first out (Anchor adds, then drops the
+/// oldest once it holds 20).
+#[test]
+fn memory_keeps_nineteen() {
+    let mut talent = String::new();
+    let mut tr = String::new();
+    for i in 1..=20 {
+        talent.push_str(&format!("{},名{:02}\n", i, i));
+        tr.push_str(&format!("名{:02},N{:02}\n", i, i));
+    }
+    let erb = "@SYSTEM_TITLE\nSIF READ(20)\nPRINTL never\nPRINTFORML B=[%SAVESTR:0%]\nQUIT\n\
+               @READ(ARG)\n#FUNCTION\nLOCAL = 1\nSAVESTR:0 '= TALENTNAME:LOCAL\n\
+               FOR LOCAL, 2, ARG + 1\nLOCAL:1 += TALENTNAME:LOCAL == \"\"\nNEXT\nRETURNF 0\n";
+    let text = play_erb("memory19", &[("CSV/Talent.csv", &talent), ("CSV/Talent_TR.csv", &tr)], erb, |_| {});
+    assert!(text.contains("B=[名01]"), "{}", text);
+}
+
+/// spec: Memory fallback: a value containing the last translation stays as
+/// it is, even when the memory could translate part of it
+#[test]
+fn last_translation_stops_the_memory() {
+    let erb = "@SYSTEM_TITLE\nLOCAL = 5\n\
+               SIF READ()\nPRINTL never\n\
+               PRINTV TALENTNAME:LOCAL\nPRINTL\n\
+               LOCALS = Virgin・処女\nPRINTFORML K=%LOCALS%\n\
+               LOCALS = 処女\nPRINTFORML M=%LOCALS%\n\
+               QUIT\n\
+               @READ\n#FUNCTION\nLOCAL = 5\nLOCAL:1 = TALENTNAME:LOCAL == \"\"\nRETURNF 0\n";
+    let text = play_erb("last", &[VIRGIN], erb, |_| {});
+    // the PRINTV made "Virgin" the last translation
+    assert!(text.contains("K=Virgin・処女"), "{}", text);
+    // without it, the remembered 処女 is translated
+    assert!(text.contains("M=Virgin"), "{}", text);
 }
 
 /// A whole CSV name array given to a built-in (`FINDELEMENT(BASENAME, …)`)

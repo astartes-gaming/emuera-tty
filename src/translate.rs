@@ -373,7 +373,17 @@ pub fn line_byte(line: &str) -> u8 {
     }
 }
 
+/// The table a line's byte names ([`line_byte`]), ALL included.
+pub fn line_table(byte: u8) -> &'static str {
+    LINE_TABLES.get((byte & 0x1f) as usize).map_or("ALL", |t| t.1)
+}
+
 impl Tr {
+    /// Is there an ALL_TR.csv?
+    pub fn has_all(&self) -> bool {
+        self.tables.contains_key("ALL")
+    }
+
     /// `s` looked up in the table a line's byte names ([`line_byte`]).
     pub fn by_line(&self, byte: u8, s: &str) -> Option<&str> {
         match LINE_TABLES.get((byte & 0x1f) as usize) {

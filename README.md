@@ -582,7 +582,11 @@ Games translated with Emuera-Anchor's system play translated here too:
   with PRINTS, PRINTV or PRINTPLAIN (`PRINTS "男"`) is looked up in
   `ALL_TR.csv`, or in the table of the first `XXXNAME` on the same line.
 - `ALL_TR.csv`: also looked up for a whole `%…%` value when it is
-  printed or stored.
+  printed or stored (or has a width, `%X,10%`). Failing that, as in
+  Anchor, a name the script read untranslated shortly before (Anchor
+  remembers the last 19) is translated inside the value, and then the
+  value without its digits, `LV` and brackets is tried (`技巧LV3` →
+  `TechniqueLV3`); a `%…%` in a RETURNF line gets none of this.
 - `TRCHARA*.csv`: character names (`NAME`, `CALLNAME`, `NICKNAME`,
   `MASTERNAME`, `CSTR,n,text`) in blocks from `NO,n` (or `番号,n`) to
   `ENDCHR`; characters added in a new game come out translated.

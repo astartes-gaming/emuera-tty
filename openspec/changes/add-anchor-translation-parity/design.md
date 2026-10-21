@@ -53,6 +53,8 @@ Anchor inspects the current line's *text* in two places: the table for literals 
 
 `Tr` stays immutable shared data. `Vm` gets `tr_memory: VecDeque<(Rc<str>, u8)>` (20 entries, newest at the back) and `tr_last: Option<Rc<str>>`. They are cleared on restart and on reload, and not saved, matching Anchor's static fields (reset only when the program restarts).
 
+*As implemented:* `tr_memory: VecDeque<(String, &'static str)>` and `tr_last: String`. Anchor adds a pair and then drops the oldest once it holds 20, so 19 stay. Literals and folded constants read without the flag are remembered too (Anchor's SingleTerm), under the line's table. Reads Anchor folded at load don't set `tr_last` (its lastRet was set back then, long overwritten); its load-time memory pushes can't be replayed, since bodies compile lazily. Restart (Ctrl-R, QUIT_AND_RESTART) runs the program anew, which empties both; the ERB reload clears them.
+
 ### D5. Constant names in builtin arguments
 
 Anchor folds constants with translation when it first builds a call. emuera-tty keeps folding as it is and does the equivalent at run time: when `builtin_fn` evaluates an argument that is a CSV name variable with all-literal indices, it reads it translated whatever the flag (own table only). A `%…%` whose expression is such a constant, or a literal, is marked constant at parse (a bit on `FormPart::Str`), and gets only its own translation, with no percent fallbacks. This gives the same output without moving folding earlier.

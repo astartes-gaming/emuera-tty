@@ -149,10 +149,10 @@ An assignment, RETURNF, PRINT or PRINTFORM whose whole argument is constant SHAL
 - **THEN** the comparison is true
 
 ### Requirement: Memory of untranslated reads
-When a name is looked up with the flag off and its table has a translation, the pair (original, table) SHALL be remembered, unless already remembered. At most 20 pairs SHALL be kept; the oldest is dropped first.
+When a name, a STR-like value, a literal or a folded constant is read with the flag off and its table (a literal's: the line's) has a translation, the pair (original, table) SHALL be remembered, unless already remembered. Once 20 pairs are held the oldest SHALL be dropped, so 19 stay, as in Anchor.
 
-#### Scenario: Twenty-first pair
-- **WHEN** 21 distinct translatable names are read with the flag off
+#### Scenario: Twentieth pair
+- **WHEN** 20 distinct translatable names are read with the flag off
 - **THEN** the first one read is no longer remembered
 
 ### Requirement: Percent values get an ALL lookup
@@ -167,11 +167,15 @@ A `%…%` value evaluated at run time with the flag on, or with a width given (w
 - **THEN** the translated name is used, padded to 10 columns
 
 ### Requirement: Memory fallback
-If the ALL lookup left a percent value unchanged, then: if the value contains the most recent successful translation, it SHALL stay as it is. Otherwise the remembered originals SHALL be checked newest first, and the first one found inside the value SHALL be replaced by its translation. If none is found, the stripped lookup follows.
+If the ALL lookup left a percent value unchanged, then: if the value contains the most recent successful flagged translation, it SHALL stay as it is. Otherwise the remembered originals SHALL be checked newest first, and every occurrence of the first one found inside the value SHALL be replaced by its translation. If none is found, the stripped lookup follows.
 
 #### Scenario: Value from a variable
 - **WHEN** `LOCALS '= TALENTNAME:LOCAL` ran with the flag off (inside an IF condition's `#FUNCTIONS`), then `PRINTFORML [%LOCALS%]` runs
 - **THEN** `[Virgin]` is printed (from memory)
+
+#### Scenario: Value holding the last translation
+- **WHEN** `PRINTV TALENTNAME:LOCAL` just printed `Virgin`, 処女 is remembered, and `PRINTFORML %LOCALS%` runs with LOCALS = `Virgin・処女`
+- **THEN** `Virgin・処女` is printed unchanged
 
 ### Requirement: Stripped ALL lookup
 If the memory fallback found nothing and ALL_TR exists, the value with every digit, `【`, `】`, `[`, `]`, `『`, `』` and `LV` removed SHALL be looked up in ALL_TR. If it is a key, that stripped text SHALL be replaced by its translation within the value.

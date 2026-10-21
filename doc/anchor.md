@@ -123,8 +123,17 @@ line's text contains `RETURNF`. The steps:
 4. Width padding is applied to the translated text, counting by display
    width.
 
-emuera-tty does steps 1, 2 and 4 for every FORM read with the flag.
-*Gap: step 3, the width trigger and the RETURNF exception.*
+Details from the source: the memory is added to and then trimmed once
+it holds 20 (`if (Count >= 20) RemoveAt(0)`), so 19 pairs stay; besides
+names and STR-like values, literals and folded constants read without
+the flag are remembered too (`Term.cs` SingleTerm, under the line's
+table), as are constants folded at load. `lastRet` is set by every
+successful flagged translation (names, literals, the ALL lookup). The
+memory replacement and the stripped lookup replace every occurrence
+(`String.Replace`); digits are .NET's `\d`, any Unicode digit.
+
+emuera-tty (`Vm::tr_percent`, `Vm::tr_remember`): all of it, with the
+differences listed under *Deliberate differences*.
 
 ## 4. Constants translated at first parse
 
@@ -246,6 +255,9 @@ Anchor breaks. Differences from Emuera-EM/EE are in
 | PRINTDATA (§2) | DATA lines printed without the flag | with the flag, as PRINTFORM | Display only, like D7; emuera-tty translated it before Anchor parity work started, and turning it off would make translated games look worse |
 | A literal read with the flag (§2, `Term.cs` SingleTerm) | the literal object is overwritten with its translation: later reads, flagged or not, see the translated text, and a second flagged read can translate it again | each read looks the literal up afresh | Anchor's overwrite is a bug: the same line gives different text the second time it runs |
 | The text searched for the line's table and RETURNF (§2, §3) | `Filename:LineNo:RowLine`, so the file name counts too | the line only | A file name containing `TALENTNAME` or `RETURNF` is an accident, not something a translation relies on |
+| The memory and lastRet at game start (§3) | already hold pairs from the constants folded while the scripts loaded | start empty | emuera-tty compiles function bodies when they first run (to fit in 512 MB), so there is no load-time folding to replay; only the first percent fallbacks of a session can differ |
+| Digits removed by the stripped lookup (§3) | any Unicode digit (`\d`) | ASCII and full-width digits | The only digits era games use; Rust has no Unicode digit class without an extra crate |
+| RETURNF lines (§3) | any line whose text contains `RETURNF` skips the percent fallbacks | the same, but the line is only searched when it has a statement that reads with the flag (PRINT, assignments, RETURNF, HTML_PRINT) | Searching every line cost about 5% of a full compile; a width `%…%` in another statement on a line that also contains RETURNF is the only case that differs |
 | `PARAM`→`PALAM` renaming (§5) | in every game | only in games with `PARAM.CSV` or TR files | Keeps every other game byte-identical; games that need the renaming have one of those (design D8) |
 
 ## Shared with Emuera-EE, partly missing in emuera-tty
