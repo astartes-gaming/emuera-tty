@@ -14,6 +14,7 @@
 >   [EvilMask's emuera.em](https://gitlab.com/EvilMask/emuera.em) source for
 >   reference; no code from it is included.
 > - No game files are included. You need your own copy of the game.
+> - MIT licensed (see [LICENSE](LICENSE)).
 >
 > If it works for you anyway: nice. If it doesn't: that's the expected
 > outcome of a proof of concept.
