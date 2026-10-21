@@ -2754,7 +2754,7 @@ impl Tty {
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
         let head = " emuera-tty settings  (F1 / Ctrl-O)";
-        let mem = crate::sys::memory_in_use().map(|b| format!("memory {} MB ", b >> 20)).unwrap_or_default();
+        let mem = crate::sys::memory_in_use().map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
         let gap = inner.saturating_sub(head.chars().count() + mem.len());
         let head = if gap > 0 { format!("{}{}{}", head, " ".repeat(gap), mem) } else { head.to_string() };
         line(&mut out, top + 1, &head, &title);
@@ -2838,7 +2838,7 @@ impl Tty {
         if !fresh {
             self.mem_seen = Some((Instant::now(), crate::sys::memory_in_use()));
         }
-        self.mem_seen.and_then(|(_, m)| m).map(|b| format!("{} MB", b >> 20))
+        self.mem_seen.and_then(|(_, m)| m).map(crate::sys::memory_text)
     }
 
     /// The button id at a 0-based screen cell, from the last frame

@@ -279,7 +279,8 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   for more than a moment it says `… working @FUNCTION`. (*Bottom bar
   details* in the settings turns this off.) The memory emuera-tty uses is
   on the F1 page's title, and in the bottom row too with *Show memory*
-  (Linux, Android and Windows).
+  (Linux, Android and Windows); both also show the highest use seen this
+  session once it is above the current one (`123 MB (peak 150 MB)`).
 
 **Sound**: PLAYSOUND / PLAYBGM play the game's `sound/` files through a
 player program the system has: `mpv` or `ffplay` (any format, including
