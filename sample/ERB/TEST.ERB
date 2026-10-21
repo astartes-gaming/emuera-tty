@@ -11,6 +11,9 @@ SKIPDISP 1
 LOCAL = ISSKIP()
 SKIPDISP 0
 CALL CHECK, "isskip", LOCAL == 1 && ISSKIP() == 0
+CALL CHECKS, "escape like Regex.Escape", ESCAPE("a b]{x}"), "a\\ b]\\{x}"
+SETANIMETIMER 0
+CALL CHECK, "setanimetimer result", RESULT == 1 && MOUSEB() == ""
 RESULT = 5
 CALL FALLS_OFF_END
 CALL CHECK, "fall-off end is RETURN 0", RESULT == 0

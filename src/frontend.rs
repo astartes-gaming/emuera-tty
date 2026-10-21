@@ -151,6 +151,32 @@ pub trait Frontend {
     fn mouse_cell(&self) -> Option<(usize, usize)> {
         None
     }
+    /// AWAIT: show the console and, for `ms`, take what the player does
+    /// without waiting for an answer, as Emuera's window keeps doing:
+    /// typing goes into the input box, the mouse moves the hover, keys and
+    /// clicks are noted for GETKEY. True when they asked to quit.
+    fn await_input(&mut self, con: &mut Console, res: &mut Resources, ms: u64) -> bool {
+        self.refresh(con, res);
+        if self.is_fullscreen() && ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
+        false
+    }
+    /// GETTEXTBOX: what is typed in the input box.
+    fn textbox(&self) -> String {
+        String::new()
+    }
+    /// SETTEXTBOX / CLEARTEXTBOX.
+    fn set_textbox(&mut self, _s: &str) {}
+    /// MOUSEB: the value of the button under the pointer ("" for none).
+    fn hover_value(&self) -> String {
+        String::new()
+    }
+    /// GETKEY (`triggered` false: held now) / GETKEYTRIGGERED (pressed
+    /// since asked last), by Windows key code (1 left button, 2 right…).
+    fn key_state(&mut self, _code: i64, _triggered: bool) -> bool {
+        false
+    }
     /// Override the width, for frontends with no real terminal size.
     fn set_cols(&mut self, _cols: usize) {}
     /// The game folder and where its saves are (for the save manager).

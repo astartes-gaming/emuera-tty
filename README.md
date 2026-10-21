@@ -937,8 +937,11 @@ checked.
   files and `TR_NAME`, the Ctrl-T / Ctrl-R / F5 hotkeys, the clipboard.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
-  `text()`, `@attr`, predicates), `VARSETEX`, `AWAIT`, `LOADTEXT`/`SAVETEXT`,
-  `HTML_TAGSPLIT`, `HTML_POPPRINTINGSTR`.
+  `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,
+  `HTML_TAGSPLIT`, `HTML_POPPRINTINGSTR`, and `AWAIT` with the window
+  still live: typing goes into the input line (`GETTEXTBOX`), the button
+  under the pointer is `MOUSEB()`, and clicks and keys reach
+  `GETKEY`/`GETKEYTRIGGERED` (AnonTW's dish search by name).
 
 Debugging: `EMUERA_TRACE=<part of a function name>` logs matching calls and
 their return values to stderr, with timestamps. `EMUERA_PROFILE=<file>`

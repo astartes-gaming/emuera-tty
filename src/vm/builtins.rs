@@ -828,13 +828,18 @@ impl Vm {
             | "SETBGIMAGE"
             | "REMOVEBGIMAGE"
             | "CLEARBGIMAGE"
-            | "SETTEXTBOX"
             | "TOOLTIP_SETFONT"
             | "TOOLTIP_SETFONTSIZE"
             | "TOOLTIP_CUSTOM"
             | "TOOLTIP_SETFORMAT"
             | "TOOLTIP_FORMAT"
             | "TOOLTIP_IMG" => self.set_result(1),
+            "SETTEXTBOX" => {
+                let t = self.as_(a, 0, "")?;
+                self.fe.set_textbox(&t);
+                self.set_result(1);
+            }
+            "CLEARTEXTBOX" => self.fe.set_textbox(""),
             "TOOLTIP_SETCOLOR" => {
                 let rgb = |v: i64| crate::console::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
                 let (fg, bg) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0xFFFFFF)?);
@@ -864,10 +869,12 @@ impl Vm {
                 if !(0..=10000).contains(&ms) {
                     return err(format!("AWAIT: {} ms is out of range (0 to 10000)", ms));
                 }
-                // repaints even with REDRAW off (Emuera's RefreshStrings(true))
-                self.fe.refresh(&mut self.con, &mut self.res);
-                if self.fe.is_fullscreen() && ms > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+                // repaints even with REDRAW off (Emuera's RefreshStrings(true));
+                // the player can type and click meanwhile (AnonTW's dish
+                // search reads GETTEXTBOX / MOUSEB / GETKEYTRIGGERED in an
+                // AWAIT loop)
+                if self.fe.await_input(&mut self.con, &mut self.res, ms as u64) {
+                    return Err(Ctrl::Quit);
                 }
             }
             "VARSETEX" => {
@@ -924,7 +931,16 @@ impl Vm {
                 let ok = self.res.anime_add_frame(&n, gid, rect, off, ms);
                 self.set_result(ok as i64);
             }
-            "SETANIMETIMER" => self.res.anim_timer = self.ai(a, 0, 0)?,
+            // (Emuera functions used as statements leave their value in
+            // RESULT: 1 here, 0 for BITMAP_CACHE_ENABLE)
+            "SETANIMETIMER" => {
+                self.res.anim_timer = self.ai(a, 0, 0)?;
+                self.set_result(1);
+            }
+            "BITMAP_CACHE_ENABLE" => {
+                self.ai(a, 0, 0)?;
+                self.set_result(0);
+            }
             // (a nonzero second argument makes Emuera ignore keys until the
             // time is up; a key ends the wait here all the same)
             "TWAIT" => {
@@ -1430,17 +1446,7 @@ impl Vm {
                 let n = self.as_(a, 0, "")?.to_uppercase();
                 self.call_name(&n, vec![])?;
             }
-            "DEBUGPRINT"
-            | "DEBUGPRINTL"
-            | "DEBUGPRINTFORM"
-            | "DEBUGPRINTFORML"
-            | "DEBUGCLEAR"
-            | "ASSERT"
-            | "OUTPUTLOG"
-            | "UPDATECHECK"
-            | "CLEARTEXTBOX"
-            | "BITMAP_CACHE_ENABLE"
-            | "FORCEKANA"
+            "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG" | "UPDATECHECK" | "FORCEKANA"
             | "CLEARBUTTON" => {}
             n if n.starts_with("TOOLTIP_") && !matches!(n, "TOOLTIP_SETCOLOR" | "TOOLTIP_SETDELAY" | "TOOLTIP_SETDURATION") => {}
             "GETTIME" => {
@@ -3114,11 +3120,20 @@ impl Vm {
             "ESCAPE" => {
                 let x = self.as_(a, 0, "")?;
                 let mut o = String::new();
+                // .NET's Regex.Escape: metacharacters and white space
+                // (not the closing } and ])
                 for c in x.chars() {
-                    if "\\*+?|{}[]()^$.#".contains(c) {
-                        o.push('\\');
+                    match c {
+                        '\\' | '*' | '+' | '?' | '|' | '{' | '[' | '(' | ')' | '^' | '$' | '.' | '#' | ' ' => {
+                            o.push('\\');
+                            o.push(c);
+                        }
+                        '\t' => o.push_str("\\t"),
+                        '\n' => o.push_str("\\n"),
+                        '\r' => o.push_str("\\r"),
+                        '\x0c' => o.push_str("\\f"),
+                        _ => o.push(c),
                     }
-                    o.push(c);
                 }
                 s(o)
             }
@@ -3270,7 +3285,11 @@ impl Vm {
             // message skipping: AnonTW's hidden command checks print only
             // when it is off (and pop the line being printed otherwise)
             "ISSKIP" => i(self.con.skip_disp as i64),
-            "GETKEY" | "GETKEYTRIGGERED" | "MOUSEB" => i(0),
+            "GETKEY" | "GETKEYTRIGGERED" => {
+                let code = self.ai(a, 0, 0)?;
+                i(self.fe.key_state(code, name == "GETKEYTRIGGERED") as i64)
+            }
+            "MOUSEB" => s(self.fe.hover_value()),
             "ISACTIVE" => i(1),
             "PRINTCPERLINE" => i(self.con.printc_per_line as i64),
             "PRINTCLENGTH" => i(self.con.printc_len as i64),
@@ -3690,7 +3709,7 @@ impl Vm {
                     _ => -1,
                 })
             }
-            "GETTEXTBOX" => s(String::new()),
+            "GETTEXTBOX" => s(self.fe.textbox()),
             "HTML_TOPLAINTEXT" => {
                 let x = self.as_(a, 0, "")?;
                 s(crate::html::to_plain(&x))

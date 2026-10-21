@@ -353,6 +353,10 @@ pub struct Tty {
     /// next, as Emuera's input box keeps it (AnonTW's animated map is a
     /// TINPUT loop)
     keep_buf: bool,
+    /// GETKEY: keys / mouse buttons held (Windows codes: 1 left, 2 right)
+    keys_down: std::collections::HashSet<i64>,
+    /// GETKEYTRIGGERED: pressed since asked last
+    keys_hit: std::collections::HashSet<i64>,
     pending: Vec<u8>,
     /// keys decoded but not yet handed out (console mouse events)
     queued: std::collections::VecDeque<Key>,
@@ -651,6 +655,8 @@ impl Tty {
             scroll: 0,
             buf: String::new(),
             keep_buf: false,
+            keys_down: Default::default(),
+            keys_hit: Default::default(),
             pending: Vec::new(),
             queued: std::collections::VecDeque::new(),
             mice: None,
@@ -3379,6 +3385,99 @@ impl Frontend for Tty {
 
     fn mouse_cell(&self) -> Option<(usize, usize)> {
         self.mouse
+    }
+
+    fn await_input(&mut self, con: &mut Console, res: &mut Resources, ms: u64) -> bool {
+        use crate::frontend::char_keycode;
+        // the input box shows what is typed, as at an INPUTS
+        let req = InputReq { kind: InputKind::Str, one: false, timeout_ms: None, stop_skip: false };
+        self.render(con, res, Some(&req));
+        let end = Instant::now() + Duration::from_millis(ms);
+        let mut changed = false;
+        loop {
+            if self.hangup {
+                return true;
+            }
+            let left = end.saturating_duration_since(Instant::now()).as_millis() as i32;
+            let Some(k) = self.next_key(left).map(|k| self.kbd_pointer(k, false)) else {
+                if Instant::now() >= end {
+                    break;
+                }
+                continue;
+            };
+            let hit = |t: &mut Tty, code: i64| {
+                t.keys_hit.insert(code);
+            };
+            match k {
+                Key::CtrlC => return true,
+                Key::Char(c) => {
+                    self.buf.push(c);
+                    hit(self, char_keycode(c).0);
+                    changed = true;
+                }
+                Key::Backspace => {
+                    self.buf.pop();
+                    hit(self, 8);
+                    changed = true;
+                }
+                Key::Enter => hit(self, 13),
+                Key::Esc => hit(self, 27),
+                Key::Left => hit(self, 37),
+                Key::Up => hit(self, 38),
+                Key::Right => hit(self, 39),
+                Key::Down => hit(self, 40),
+                Key::Mouse { btn, x, y, press } => {
+                    let (x, y) = (x.saturating_sub(1) as usize, y.saturating_sub(1) as usize);
+                    self.mouse = Some((x, y));
+                    // Windows codes: 1 left, 2 right, 4 middle
+                    let code = match btn & !(4 | 8 | 16 | 32) {
+                        0 => 1,
+                        2 => 2,
+                        1 => 4,
+                        _ => 0,
+                    };
+                    if btn & 32 != 0 {
+                        self.show_pointer();
+                        self.repaint_hover(con.focus_fg);
+                    } else if code != 0 && press {
+                        self.keys_down.insert(code);
+                        hit(self, code);
+                    } else if code != 0 {
+                        self.keys_down.remove(&code);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if changed {
+            self.render(con, res, Some(&req));
+        }
+        false
+    }
+
+    fn textbox(&self) -> String {
+        self.buf.clone()
+    }
+
+    fn set_textbox(&mut self, s: &str) {
+        self.buf = s.to_string();
+    }
+
+    fn hover_value(&self) -> String {
+        match self.hover {
+            Some(b) if self.is_button(b) => self.buttons[b].as_string(),
+            _ => String::new(),
+        }
+    }
+
+    fn key_state(&mut self, code: i64, triggered: bool) -> bool {
+        if triggered {
+            self.keys_hit.remove(&code)
+        } else {
+            // a terminal reports key presses, not releases: a key counts as
+            // held until it is read once
+            self.keys_down.contains(&code) || self.keys_hit.contains(&code)
+        }
     }
 
     /// INPUTMOUSEKEY: the next click, wheel step or key (mouse moves only
