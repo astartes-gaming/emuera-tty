@@ -39,7 +39,16 @@ impl Tty {
             // doesn't move from one row to the next)
             let mut lines = wrap_words(&help, self.box_geo(0).2.saturating_sub(2), 4);
             lines.resize(4, String::new());
-            match self.list_box(con, res, req, "Environment variables (EMUERA_*): for debugging, not normal use", &rows, rows.len(), &mut sel, &lines.join("\n")) {
+            match self.list_box(
+                con,
+                res,
+                req,
+                "Environment variables (EMUERA_*): for debugging, not normal use",
+                &rows,
+                rows.len(),
+                &mut sel,
+                &lines.join("\n"),
+            ) {
                 Pick::Back => return false,
                 Pick::Quit => return true,
                 Pick::Row(i) => {

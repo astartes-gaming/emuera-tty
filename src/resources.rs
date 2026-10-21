@@ -956,6 +956,17 @@ impl Resources {
         self.sprites.get(&k).map(|s| (s.pos.0 as i64, s.pos.1 as i64)).unwrap_or((0, 0))
     }
 
+    /// A sprite drawn at its base position inside its own size, when it
+    /// has one: (x, y, width, height of that size).
+    fn placement(&mut self, name: &str) -> Option<(i64, i64, i64, i64)> {
+        let (px, py) = self.base_pos(name);
+        if (px, py) == (0, 0) {
+            return None;
+        }
+        let (dw, dh) = self.sprite_size(name)?;
+        (dw > 0 && dh > 0).then_some((px, py, dw as i64, dh as i64))
+    }
+
     pub fn set_base_pos(&mut self, name: &str, p: (i64, i64)) {
         self.pos_override.insert(name.to_uppercase(), p);
         self.gen = self.gen.wrapping_add(1);
@@ -1156,7 +1167,8 @@ impl Resources {
         let mut jobs: Vec<((String, u32, u32), Rc<RgbaImage>)> = Vec::new();
         for (name, w, h) in want {
             let key = (name.to_uppercase(), w.max(1), h.max(1));
-            if self.scaled.contains_key(&key) || jobs.iter().any(|j| j.0 == key) {
+            // (placed pieces: `scaled` puts them on their canvas)
+            if self.scaled.contains_key(&key) || jobs.iter().any(|j| j.0 == key) || self.placement(name).is_some() {
                 continue;
             }
             if let Some(src) = self.sprite(name) {
@@ -1204,12 +1216,29 @@ impl Resources {
     /// Sprite scaled to exactly w x h pixels (cached).
     pub fn scaled(&mut self, name: &str, w: u32, h: u32) -> Option<Rc<RgbaImage>> {
         let name = &self.frame_name(name);
-        let key = (name.to_uppercase(), w.max(1), h.max(1));
+        let mut key = (name.to_uppercase(), w.max(1), h.max(1));
+        // (SPRITEMOVE moves a placed piece: a picture of its own)
+        if let Some((px, py, _, _)) = self.placement(name) {
+            key.0 = format!("{}@{},{}", key.0, px, py);
+        }
         if let Some(i) = self.scaled.get(&key) {
             return Some(i.clone());
         }
         let src = self.sprite(name)?;
-        let out = Rc::new(image::imageops::resize(&*src, key.1, key.2, image::imageops::FilterType::Triangle));
+        let out = match self.placement(name) {
+            // a piece with a base position sits at it inside its own size,
+            // both scaled to w x h (Emuera's SpriteF.GraphicsDraw: EagloV's
+            // speech bubbles are 67x56 pieces in a 300x300 portrait)
+            Some((px, py, dw, dh)) => {
+                let (w, h) = (key.1 as i64, key.2 as i64);
+                let (pw, ph) = ((w * src.width() as i64 / dw).max(1) as u32, (h * src.height() as i64 / dh).max(1) as u32);
+                let piece = image::imageops::resize(&*src, pw, ph, image::imageops::FilterType::Triangle);
+                let mut canvas = RgbaImage::new(key.1, key.2);
+                image::imageops::overlay(&mut canvas, &piece, px * w / dw, py * h / dh);
+                Rc::new(canvas)
+            }
+            None => Rc::new(image::imageops::resize(&*src, key.1, key.2, image::imageops::FilterType::Triangle)),
+        };
         if self.scaled.len() > 512 {
             self.scaled.clear();
         }
@@ -1260,6 +1289,25 @@ mod tests {
         assert_eq!(r.sprites["HALO#1"].pos, (2, 3));
         assert_eq!(r.frame_name("STILL"), "STILL");
         assert!(r.sprite("halo").is_some());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn placed_piece_keeps_its_place() {
+        // EagloV: a 10x5 bubble at (20, 2) of a 40x40 portrait
+        let d = std::env::temp_dir().join(format!("emuera-placed-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        RgbaImage::from_pixel(10, 5, image::Rgba([9, 9, 9, 255])).save(d.join("sheet.png")).unwrap();
+        std::fs::write(d.join("a.csv"), "BUBBLE,sheet.png,0,0,10,5,20,2,,40,40\nPLAIN,sheet.png,0,0,10,5\n").unwrap();
+        let mut r = Resources::load(Some(&d));
+        let img = r.scaled("BUBBLE", 80, 80).unwrap();
+        assert_eq!(img.dimensions(), (80, 80));
+        // doubled: the piece covers (40..60, 4..14), nothing else
+        assert_eq!(img.get_pixel(45, 8).0[3], 255);
+        assert_eq!(img.get_pixel(10, 8).0[3], 0);
+        assert_eq!(img.get_pixel(45, 30).0[3], 0);
+        // no base position: stretched to the size asked
+        assert_eq!(r.scaled("PLAIN", 20, 20).unwrap().get_pixel(1, 18).0[3], 255);
         let _ = std::fs::remove_dir_all(&d);
     }
 

@@ -55,7 +55,9 @@ impl Vm {
         // the game's own pictures, then the sprite pictures decoded for the
         // screen (the ones Images: none skips)
         let (game, sprites) = self.res.mem_stats();
-        for (title, group) in [("game-made graphics (kept whatever Images is set to)", game), ("sprite images for the screen (skipped while Images is none)", sprites)] {
+        for (title, group) in
+            [("game-made graphics (kept whatever Images is set to)", game), ("sprite images for the screen (skipped while Images is none)", sprites)]
+        {
             // "  of them…" rows are part of the row above, not extra memory
             let total: usize = group.iter().filter(|g| !g.0.starts_with("  ")).map(|g| g.2).sum();
             let _ = writeln!(out, "{}: {}", title, mb(total));
