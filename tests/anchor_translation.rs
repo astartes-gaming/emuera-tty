@@ -386,3 +386,50 @@ fn trchara_new_game_and_old_save() {
     assert!(text.contains("OLD=博麗霊夢"), "{}", text);
     assert!(text.contains("NEW=Reimu Hakurei"), "{}", text);
 }
+
+/// spec: PARAM.CSV replaces PALAM.CSV / Both files present, Only
+/// PALAM.CSV; PARAM identifier renaming / Built-in variables,
+/// Variable-name string; Param_TR / PRINT_PALAM with Param_TR
+#[test]
+fn param_csv() {
+    let chara: (&str, &str) = ("CSV/Chara0.csv", "番号,0\n名前,a\n");
+    let text = play(
+        "param",
+        &[("CSV/PARAM.CSV", "0,Pleasure C\n"), ("CSV/PALAM.CSV", "0,快Ｃ\n"), chara],
+        "ADDCHARA 0\nTARGET = 0\nPARAM:TARGET:0 += 10\nPRINTFORML N=%PARAMNAME:0% P={PALAM:TARGET:0} V={VARSIZE(\"PARAM\") == VARSIZE(\"PALAM\")}",
+    );
+    assert!(text.contains("N=Pleasure C P=10 V=1"), "{}", text);
+    let text = play("palam", &[("CSV/PALAM.CSV", "0,快Ｃ\n")], "PRINTFORML N=%PALAMNAME:0%");
+    assert!(text.contains("N=快Ｃ"), "{}", text);
+    let text = play(
+        "param-tr",
+        &[("CSV/PARAM.CSV", "0,Pleasure C\n"), ("CSV/Param_TR.csv", "Pleasure C,PC\n"), ("CSV/Palam_TR.csv", "Pleasure C,wrong\n"), chara],
+        "ADDCHARA 0\nPALAM:0:0 = 1\nPRINT_PALAM 0\nPRINTL",
+    );
+    assert!(text.contains("PC") && !text.contains("wrong"), "{}", text);
+}
+
+/// spec: PARAM identifier renaming / User variable with PARAM in its name,
+/// Translated game with PALAM.CSV, Untranslated game without PARAM.CSV
+#[test]
+fn param_renaming_gate() {
+    let chara: (&str, &str) = ("CSV/Chara0.csv", "番号,0\n名前,a\n");
+    let erb = "@SYSTEM_TITLE\n#DIM MYPARAM\n#DIM OTHERPALAM\nADDCHARA 0\nTARGET = 0\nPARAM:TARGET:0 += 10\nMYPARAM = 3\nOTHERPARAM = 4\n\
+               PRINTFORML P={PALAM:TARGET:0} M={MYPARAM} O={OTHERPALAM}\nQUIT\n";
+    // a game's own MYPARAM keeps its name; OTHERPARAM finds OTHERPALAM, as in Anchor
+    let text = play_erb("param-tr-gate", &[VIRGIN, ("CSV/PALAM.CSV", "0,快Ｃ\n"), chara], erb, |_| {});
+    assert!(text.contains("P=10 M=3 O=4"), "{}", text);
+    // no PARAM.CSV and no TR files: nothing is renamed
+    let dir = temp_dir("param-off");
+    game(
+        &dir,
+        &[
+            ("CSV/Talent.csv", "5,処女\n"),
+            ("ERB/T.ERB", "@SYSTEM_TITLE\n#DIM PARAMX\n#DIM PALAMX\nPARAMX = 1\nPALAMX = 2\nPRINTFORML X={PARAMX}{PALAMX}\nPARAM:0:0 = 1\nQUIT\n"),
+        ],
+    );
+    let text = run(&dir, b"\n");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(text.contains("X=12"), "{}", text);
+    assert!(text.contains("undefined variable 'PARAM'"), "{}", text);
+}

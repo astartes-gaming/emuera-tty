@@ -900,6 +900,10 @@ impl Vm {
         if let Some((base, func)) = name.split_once('@') {
             return self.locate_other_local(v, base, func);
         }
+        // (Emuera-Anchor: `MYPARAM` finds a `#DIM MYPALAM`)
+        if let Some(r) = crate::translate::param_renamed(name) {
+            return self.locate(&VarRef::new(r.into(), v.idx.clone()));
+        }
         err(format!("undefined variable '{}'", name))
     }
 

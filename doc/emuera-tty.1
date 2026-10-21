@@ -110,6 +110,11 @@ name or named index in it, is a script error, as in Anchor.
 Lines from a \fB{\fR line to a \fB}\fR line are read as one, as in Anchor.
 A \fI_TR.csv\fR line without exactly one comma, a misplaced \fB{\fR or \fB}\fR,
 or a name given twice, is reported when the game loads and skipped.
+.I PARAM.CSV
+is read in place of
+.IR PALAM.CSV ,
+and in such a game, or one with translation files, scripts may write
+\fBPARAM\fR for \fBPALAM\fR, as in Anchor.
 .SH MANAGING SAVES
 \fBF1\fR \(-> \fBManage saves\fR lists the game's saves with their date and
 the comment Emuera shows. For one save: copy or move it to another slot,

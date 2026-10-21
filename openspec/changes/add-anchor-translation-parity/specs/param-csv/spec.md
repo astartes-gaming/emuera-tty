@@ -18,15 +18,15 @@ When the CSV folder holds `PARAM.CSV`, matched case-insensitively, it SHALL be r
 - **THEN** it is read as before
 
 ### Requirement: PARAM identifier renaming
-When the game has `PARAM.CSV` or any `*_TR.csv` / `TRCHARA*.csv` file, every identifier in the scripts SHALL have each occurrence of `PARAM` replaced by `PALAM` before it is resolved, and so SHALL VARSIZE's string argument when it is exactly `PARAM`. Other games' identifiers SHALL be left as written. (Anchor renames in every game.)
+When the game has `PARAM.CSV` or any `*_TR.csv` / `TRCHARA*.csv` file, an identifier SHALL have each `PARAM` replaced by `PALAM` when the result is a built-in variable, and a variable not found SHALL be looked for with that replacement; so SHALL VARSIZE's string argument when it is exactly `PARAM`. Other games' identifiers SHALL be left as written. (Anchor renames every identifier in every game.)
 
 #### Scenario: Built-in variables
 - **WHEN** a game with PARAM.CSV runs `PARAM:TARGET:0 += 10` and `PRINTFORML %PARAMNAME:0%`
 - **THEN** PALAM:TARGET:0 increases by 10 and `Pleasure C` is printed
 
 #### Scenario: User variable with PARAM in its name
-- **WHEN** the game declares `#DIM MYPARAM` and uses `MYPARAM`
-- **THEN** both resolve to the same variable (internally `MYPALAM`), as in Anchor
+- **WHEN** the game declares `#DIM MYPARAM` and uses `MYPARAM`, and declares `#DIM OTHERPALAM` and uses `OTHERPARAM`
+- **THEN** `MYPARAM` is its own variable (in Anchor it is an error), and `OTHERPARAM` is `OTHERPALAM`, as in Anchor
 
 #### Scenario: Variable-name string
 - **WHEN** a game with PARAM.CSV evaluates `VARSIZE("PARAM")`

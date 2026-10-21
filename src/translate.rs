@@ -151,9 +151,16 @@ impl Tr {
         let Ok(rd) = std::fs::read_dir(csv_dir) else { return t };
         let mut files: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
         files.sort();
+        let upper = |p: &Path| p.file_name().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
+        // as Anchor: with PARAM.CSV, Param_TR.csv translates the parameter
+        // names and Palam_TR.csv isn't read; without it, the other way round
+        let param = files.iter().any(|p| upper(p) == "PARAM.CSV");
         for p in files {
-            let name = p.file_name().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
+            let name = upper(&p);
             let Some(prefix) = name.strip_suffix("_TR.CSV") else { continue };
+            if prefix == if param { "PALAM" } else { "PARAM" } {
+                continue;
+            }
             let Some(table) = table_of(prefix) else { continue };
             let Ok(text) = read_text(&p) else { continue };
             t.files = true;
@@ -388,6 +395,16 @@ pub fn apply_trchara(csv_dir: &Path, charas: &mut [CharaTemplate]) -> Vec<String
 /// The game has Anchor TR files: the parser marks constants. Set once,
 /// before the scripts are parsed.
 pub static FOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Emuera-Anchor's `PARAM` → `PALAM` renaming is on: the game has
+/// PARAM.CSV or TR files (design D8; Anchor renames in every game). Set
+/// once, before the scripts are parsed.
+pub static PARAM_RENAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `name` with `PARAM` as `PALAM`, when renaming is on and it has one.
+pub fn param_renamed(name: &str) -> Option<String> {
+    (PARAM_RENAME.load(std::sync::atomic::Ordering::Relaxed) && name.contains("PARAM")).then(|| name.replace("PARAM", "PALAM"))
+}
 
 fn fold_on() -> bool {
     FOLD.load(std::sync::atomic::Ordering::Relaxed)

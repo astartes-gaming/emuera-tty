@@ -3017,7 +3017,11 @@ impl Vm {
                 i(r as i64)
             }
             "VARSIZE" => {
-                let n = self.as_(a, 0, "")?.to_uppercase();
+                let mut n = self.as_(a, 0, "")?.to_uppercase();
+                // (Emuera-Anchor: VARSIZE("PARAM") is PALAM's)
+                if n == "PARAM" && crate::translate::param_renamed(&n).is_some() {
+                    n = "PALAM".into();
+                }
                 let d = self.ai(a, 1, -1)?;
                 let dims = match super::vars::system_var(&n) {
                     // character variables have a size even when no character exists

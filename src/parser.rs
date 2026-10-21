@@ -1866,7 +1866,17 @@ pub fn upper_var(v: &mut Rc<VarRef>) {
     let inner = Rc::make_mut(v);
     // CSV-name indices (`ABL:技巧`) are upper-cased too: name-table
     // lookups are case-insensitive, so nothing is lost.
-    inner.name = intern(inner.name.to_uppercase());
+    let mut name = inner.name.to_uppercase();
+    // Emuera-Anchor renames PARAM to PALAM in every identifier; here only
+    // where that names a built-in (PARAM, PARAMNAME…), so a game's own
+    // `#DIM MYPARAM` keeps its name and saves stay Emuera's (the VM falls
+    // back on the renamed name for a variable it can't find)
+    if let Some(r) = crate::translate::param_renamed(&name) {
+        if crate::vm::vars::system_var(&r).is_some() || (r.ends_with("NAME") && crate::csvdata::table_for_var(&r).is_some()) {
+            name = r;
+        }
+    }
+    inner.name = intern(name);
     let mut idx: Vec<Expr> = std::mem::take(&mut inner.idx).into_iter().map(upper_expr).collect();
     idx.shrink_to_fit();
     inner.idx = idx;

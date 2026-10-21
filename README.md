@@ -1020,7 +1020,9 @@ checked.
 - Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
   per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
 - Emuera-Anchor: the `*_TR.csv` / `ALL_TR.csv` / `TRCHARA` translation
-  files and `TR_NAME`, the Ctrl-T / Ctrl-R / F5 hotkeys, the clipboard.
+  files and `TR_NAME`, `PARAM.CSV` (read in place of `PALAM.CSV`, with
+  `PARAM` usable for `PALAM` in scripts), the Ctrl-T / Ctrl-R / F5
+  hotkeys, the clipboard.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,

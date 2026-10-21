@@ -51,9 +51,9 @@
 
 ## 9. PARAM.CSV (spec: param-csv; design D8)
 
-- [ ] 9.1 In `csvdata.rs`, load `PARAM.CSV` (case-insensitive) in place of `PALAM.CSV` when present, naming it in messages, and map `Param_TR.csv` to the PALAM table only in that case. Verify: the "Both files present", "Only PALAM.CSV" and "PRINT_PALAM with Param_TR" scenarios pass.
-- [ ] 9.2 In the parser / expression tokenizer, replace `PARAM` with `PALAM` in identifiers when the game has PARAM.CSV or TR files, and in VARSIZE's literal argument. Verify: the "Built-in variables", "User variable with PARAM in its name", "Variable-name string", "Translated game with PALAM.CSV" and "Untranslated game without PARAM.CSV" scenarios pass.
-- [ ] 9.3 README (Implemented list) and man page: PARAM.CSV support. Verify: `emuera-tty --manual` mentions PARAM.CSV.
+- [x] 9.1 In `csvdata.rs`, load `PARAM.CSV` (case-insensitive) in place of `PALAM.CSV` when present, naming it in messages, and map `Param_TR.csv` to the PALAM table only in that case. Verify: the "Both files present", "Only PALAM.CSV" and "PRINT_PALAM with Param_TR" scenarios pass. (Done. Test: `param_csv`.)
+- [x] 9.2 In the parser / expression tokenizer, replace `PARAM` with `PALAM` in identifiers when the game has PARAM.CSV or TR files, and in VARSIZE's literal argument. Verify: the "Built-in variables", "User variable with PARAM in its name", "Variable-name string", "Translated game with PALAM.CSV" and "Untranslated game without PARAM.CSV" scenarios pass. (Done, renaming only where the result is a built-in, plus a fallback for variables not found, so a game's own `#DIM MYPARAM` keeps its name; see doc/anchor.md. Test: `param_renaming_gate`.)
+- [x] 9.3 README (Implemented list) and man page: PARAM.CSV support. Verify: `emuera-tty --manual` mentions PARAM.CSV.
 
 ## 10. Integration
 

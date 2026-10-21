@@ -177,8 +177,14 @@ substring replace, so `PARAMLV`, `UP_PARAM` and a user variable
 renamed as well (`Creator.Method.cs:355`). `TR_NAME("PARAM", …)` uses
 Param_TR (`TRCommands.cs`).
 
-*Gap in emuera-tty: all of it (emuera-tty only maps `Param_TR.csv` onto
-the PALAM table).*
+Note that `#DIM` declarations aren't renamed, so in Anchor a game's own
+`#DIM MYPARAM` can't be used at all (`MYPARAM` is looked up as
+`MYPALAM`); a `#DIM MYPALAM` can be written `MYPARAM`.
+
+emuera-tty (`csvdata.rs`, `translate::param_renamed`, `upper_var`, the
+fallback in `Vm::locate`): PARAM.CSV and Param_TR as above; the renaming
+only in games with PARAM.CSV or TR files (design D8) and only where it
+matters (see *Deliberate differences*).
 
 ## 6. `TRCHARA*.csv`
 
@@ -268,6 +274,7 @@ Anchor breaks. Differences from Emuera-EM/EE are in
 | TRCHARA blocks Anchor loses to a bug (§6) | a second NO before ENDCHR is ignored and its fields overwrite the first character's; a last block without ENDCHR is dropped; a CSTR line without text or a NO given twice ends the reading of that file | a second NO starts a new block, a last block applies, a bad line is skipped; each with a warning | The translator's intent is plain, and nothing a game relies on changes |
 | TRCHARA comments and a bare `ENDCHR` (§6) | a `;` line is a "',' is needed" warning; `ENDCHR` without a comma is that warning too and the block never ends | `;` lines are comments; a bare `ENDCHR` ends the block | The same files as Anchor read the same; only the noise and the lost block go |
 | A TRCHARA `NO` naming no character (§6) | silently unused | a warning | Helps translators; nothing else changes |
+| `PARAM` in identifiers (§5) | every identifier's `PARAM` becomes `PALAM`, so a game's own `#DIM MYPARAM` is unusable (an error) | renamed only where the result is a built-in (`PARAM`, `PARAMNAME`…), and a variable that isn't found is looked for renamed (`MYPARAM` finds `#DIM MYPALAM`); `MYPARAM` declared as such is itself | Everything that works in Anchor works, and a variable keeps its declared name, so saves stay Emuera's |
 | The memory and lastRet at game start (§3) | already hold pairs from the constants folded while the scripts loaded | start empty | emuera-tty compiles function bodies when they first run (to fit in 512 MB), so there is no load-time folding to replay; only the first percent fallbacks of a session can differ |
 | Digits removed by the stripped lookup (§3) | any Unicode digit (`\d`) | ASCII and full-width digits | The only digits era games use; Rust has no Unicode digit class without an extra crate |
 | RETURNF lines (§3) | any line whose text contains `RETURNF` skips the percent fallbacks | the same, but the line is only searched when it has a statement that reads with the flag (PRINT, assignments, RETURNF, HTML_PRINT) | Searching every line cost about 5% of a full compile; a width `%…%` in another statement on a line that also contains RETURNF is the only case that differs |
