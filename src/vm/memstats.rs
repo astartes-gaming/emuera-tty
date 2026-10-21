@@ -52,8 +52,16 @@ impl Vm {
         let _ = writeln!(out, "function variables: {} ({})", self.statics.iter().flatten().count(), mb(statics));
         let chara: usize = self.charas.iter().map(|c| c.vars.values().map(|a| a.bytes()).sum::<usize>()).sum();
         let _ = writeln!(out, "characters: {} ({})", self.charas.len(), mb(chara));
-        for (what, n, b) in self.res.mem_stats() {
-            let _ = writeln!(out, "{}: {} ({})", what, n, mb(b));
+        // the game's own pictures, then the sprite pictures decoded for the
+        // screen (the ones Images: none skips)
+        let (game, sprites) = self.res.mem_stats();
+        for (title, group) in [("game-made graphics (kept whatever Images is set to)", game), ("sprite images for the screen (skipped while Images is none)", sprites)] {
+            // "  of them…" rows are part of the row above, not extra memory
+            let total: usize = group.iter().filter(|g| !g.0.starts_with("  ")).map(|g| g.2).sum();
+            let _ = writeln!(out, "{}: {}", title, mb(total));
+            for (what, n, b) in group {
+                let _ = writeln!(out, "  {}: {} ({})", what, n, mb(b));
+            }
         }
         let _ = writeln!(out, "console: {} lines", self.con.lines.len());
         let _ = writeln!(
