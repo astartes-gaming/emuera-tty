@@ -182,6 +182,9 @@ struct FuncBuilder {
 impl FuncBuilder {
     /// Append an instruction; returns its index (for later patching).
     fn emit(&mut self, i: Instr) -> usize {
+        if let Some(t) = crate::translate::instr_byte(&i) {
+            self.body.tr_line.push(t);
+        }
         self.body.code.push(i);
         self.body.lines.push(self.cur_line);
         self.body.code.len() - 1
@@ -950,7 +953,9 @@ impl Parser {
                 continue;
             }
             b.cur_line = (file_idx, *no);
+            let first = b.body.code.len();
             let r = self.statement(b, line);
+            crate::translate::set_line_bytes(&mut b.body, first, line);
             if let Some(e) = b.soft_error.take() {
                 self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
             }
@@ -1807,7 +1812,14 @@ fn find_word(up: &str, w: &str) -> Option<usize> {
 }
 
 /// Normalize identifiers to uppercase (Emuera is case-insensitive by default).
+/// Upper-case the names in a parsed expression; in a game with Anchor's
+/// TR files, also mark its constants as Anchor folds them
+/// (`translate::fold_expr`).
 pub fn upper_expr(e: Expr) -> Expr {
+    crate::translate::fold_expr(upper_expr_in(e))
+}
+
+fn upper_expr_in(e: Expr) -> Expr {
     match e {
         Expr::Var(v) => {
             let mut v = v;
@@ -1816,19 +1828,19 @@ pub fn upper_expr(e: Expr) -> Expr {
         }
         Expr::Call(c) => {
             let (n, a, kind) = *c;
-            let mut a: Vec<Expr> = a.into_iter().map(upper_expr).collect();
+            let mut a: Vec<Expr> = a.into_iter().map(upper_expr_in).collect();
             a.shrink_to_fit();
             Expr::Call(Box::new((n.to_uppercase(), a, kind)))
         }
-        Expr::Unary(o, x) => Expr::Unary(o, Box::new(upper_expr(*x))),
-        Expr::Binary(o, a, b) => Expr::Binary(o, Box::new(upper_expr(*a)), Box::new(upper_expr(*b))),
-        Expr::Ternary(a, b, c) => Expr::Ternary(Box::new(upper_expr(*a)), Box::new(upper_expr(*b)), Box::new(upper_expr(*c))),
+        Expr::Unary(o, x) => Expr::Unary(o, Box::new(upper_expr_in(*x))),
+        Expr::Binary(o, a, b) => Expr::Binary(o, Box::new(upper_expr_in(*a)), Box::new(upper_expr_in(*b))),
+        Expr::Ternary(a, b, c) => Expr::Ternary(Box::new(upper_expr_in(*a)), Box::new(upper_expr_in(*b)), Box::new(upper_expr_in(*c))),
         Expr::IncDec(v, p, d) => {
             let mut v = v;
             upper_var(&mut v);
             Expr::IncDec(v, p, d)
         }
-        Expr::Form(f) => Expr::Form(Rc::new(upper_form(Rc::try_unwrap(f).unwrap_or_else(|f| (*f).clone())))),
+        Expr::Form(f) => Expr::Form(Rc::new(upper_form_in(Rc::try_unwrap(f).unwrap_or_else(|f| (*f).clone())))),
         e => e,
     }
 }
@@ -1868,17 +1880,22 @@ pub fn upper_var(v: &mut Rc<VarRef>) {
     }
 }
 
+/// [`upper_expr`] for a FORM string.
 pub fn upper_form(f: Form) -> Form {
+    crate::translate::fold_form(upper_form_in(f))
+}
+
+fn upper_form_in(f: Form) -> Form {
     Form {
         parts: f
             .parts
             .into_iter()
             .map(|p| match p {
-                FormPart::Str(e, w, a) => FormPart::Str(upper_expr(e), w.map(|w| Box::new(upper_expr(*w))), a),
-                FormPart::Int(e, w, a) => FormPart::Int(upper_expr(e), w.map(|w| Box::new(upper_expr(*w))), a),
+                FormPart::Str(e, w, a) => FormPart::Str(upper_expr_in(e), w.map(|w| Box::new(upper_expr_in(*w))), a),
+                FormPart::Int(e, w, a) => FormPart::Int(upper_expr_in(e), w.map(|w| Box::new(upper_expr_in(*w))), a),
                 FormPart::Cond(c) => {
                     let (c, a, b) = *c;
-                    FormPart::Cond(Box::new((upper_expr(c), upper_form(a), upper_form(b))))
+                    FormPart::Cond(Box::new((upper_expr_in(c), upper_form_in(a), upper_form_in(b))))
                 }
                 l => l,
             })

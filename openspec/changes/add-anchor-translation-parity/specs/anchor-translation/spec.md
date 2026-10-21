@@ -108,7 +108,7 @@ A flagged read of a CSV name variable (`ABLNAME`, `TALENTNAME` … `GLOBALSNAME`
 - **THEN** `Yes` is printed
 
 ### Requirement: Flagged string literals
-A string literal, or a value folded to a constant, read with the flag on SHALL be looked up in a table chosen from the current line's text. The table SHALL be the first one in the TR table order whose upper-cased name followed by `NAME` occurs in the line, or ALL if none does.
+A string literal, or a value folded to a constant, read with the flag on SHALL be looked up in a table chosen from the current line's text. The table SHALL be the first one in the TR table order whose upper-cased name followed by `NAME` occurs in the line, or ALL if none does. A constant expression SHALL be folded first and looked up whole.
 
 #### Scenario: Literal through ALL
 - **WHEN** ALL_TR maps `男` to `Man` and the script runs `PRINTS "男"`
@@ -117,6 +117,36 @@ A string literal, or a value folded to a constant, read with the flag on SHALL b
 #### Scenario: Literal on a TALENTNAME line
 - **WHEN** the line is `PRINTS TALENTNAME:5` (constant index, folded at parse)
 - **THEN** the value is looked up in Talent_TR
+
+#### Scenario: The line's first table wins
+- **WHEN** the line is `PRINTV ABLNAME:1, TALENTNAME:5`
+- **THEN** both constants are looked up in Abl_TR, so `TALENTNAME:5` stays untranslated
+
+#### Scenario: Constant concatenation
+- **WHEN** ALL_TR maps `男` to `Man` and the script runs `PRINTS "K=" + "男"`
+- **THEN** `K=男` is printed (the folded `K=男` is not in ALL_TR)
+
+### Requirement: Constants folded with translation
+A constant under an operator, a built-in function or a FORM `%…%` SHALL be evaluated as Anchor folds it when loading the script: its CSV names come out translated through their own table, whatever the flag. A constant that is a statement's whole argument SHALL be folded without translation.
+
+#### Scenario: Constant name in a comparison
+- **WHEN** Talent_TR maps `処女` to `Virgin` and the script evaluates `IF TALENTNAME:5 == "処女"`
+- **THEN** the comparison sees `Virgin` and is false (with `TALENTNAME:LOCAL`, LOCAL = 5, it is true)
+
+#### Scenario: Constant joined with text
+- **WHEN** the script runs `LOCALS '= "[" + TALENTNAME:5 + "]"`
+- **THEN** LOCALS holds `[Virgin]`
+
+### Requirement: Constant arguments kept as folded
+An assignment, RETURNF, PRINT or PRINTFORM whose whole argument is constant SHALL store, return or print it as folded, without the flag. PRINTS, PRINTV, HTML_PRINT and PRINTPLAIN SHALL read a constant argument with the flag.
+
+#### Scenario: Constant assignment
+- **WHEN** the script runs `LOCALS '= TALENTNAME:5`
+- **THEN** LOCALS holds `処女`
+
+#### Scenario: Constant RETURNF
+- **WHEN** a `#FUNCTIONS` runs `RETURNF TALENTNAME:5` and a condition compares its result with `処女`
+- **THEN** the comparison is true
 
 ### Requirement: Memory of untranslated reads
 When a name is looked up with the flag off and its table has a translation, the pair (original, table) SHALL be remembered, unless already remembered. At most 20 pairs SHALL be kept; the oldest is dropped first.

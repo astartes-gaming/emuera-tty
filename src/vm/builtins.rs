@@ -2738,6 +2738,9 @@ impl Vm {
     /// translate flag (Creator.Method.cs:2256, 2307, 2514); every other
     /// function, including any added later, reads without it.
     pub fn builtin_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        if name == crate::translate::TRCONST {
+            return self.tr_const(&a[0], matches!(a.get(1), Some(Expr::Int(1)))).map(Some);
+        }
         if !self.tr_eval || matches!(name, "TOUPPER" | "TOLOWER" | "TOHALF" | "TOFULL" | "REPLACE" | "STRFORM" | "__FORMS") {
             return self.builtin_fn_body(name, a);
         }

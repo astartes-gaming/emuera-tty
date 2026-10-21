@@ -362,6 +362,8 @@ fn run(o: Opts) -> i32 {
         lap = std::time::Instant::now();
     };
     let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref());
+    // Emuera-Anchor: the parser marks constants as Anchor folds them
+    translate::FOLD.store(csv.tr.active(), std::sync::atomic::Ordering::Relaxed);
     phase("csv");
     for w in &csv.warnings {
         eprintln!("csv: {}", w);

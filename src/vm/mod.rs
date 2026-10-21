@@ -193,6 +193,12 @@ pub struct Vm {
     /// RETURNF…). A flagged read of a CSV name or STR translates it.
     tr_run: bool,
     pub(crate) tr_eval: bool,
+    /// Emuera-Anchor: evaluating a constant as Anchor folded it at load
+    /// (`tr_const`): CSV names come out translated whatever `tr_eval` says.
+    tr_fold: bool,
+    /// Emuera-Anchor: the current instruction's `Body::tr_line` byte (the
+    /// table a folded value is looked up in, `translate::line_byte`).
+    tr_line: u8,
     /// `EMUERA_TRACE`: log calls whose name contains this.
     trace: Option<String>,
     /// `EMUERA_MEMSTATS`: the file the memory report goes to.
@@ -292,6 +298,8 @@ impl Vm {
             pending_refs: Vec::new(),
             tr_run,
             tr_eval: false,
+            tr_fold: false,
+            tr_line: 0,
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             memstats: std::env::var("EMUERA_MEMSTATS").ok(),
             calls: 0,
@@ -1063,12 +1071,14 @@ impl Vm {
     pub fn eval(&mut self, e: &Expr) -> VmResult<Value> {
         match e {
             Expr::Int(i) => Ok(Value::Int(*i)),
-            Expr::Str(s) => Ok(Value::Str(s.clone())),
+            // (Emuera-Anchor: a literal read with the translate flag is looked
+            // up in the line's table)
+            Expr::Str(s) => Ok(Value::Str(if self.tr_eval { self.tr_by_line(s.clone()) } else { s.clone() })),
             Expr::Empty => Ok(Value::Int(0)),
             Expr::Form(f) => Ok(Value::Str(self.eval_form(f)?)),
             Expr::Var(v) => {
                 let x = self.get_var(v)?;
-                Ok(if self.tr_eval { self.tr_read(&v.name, x) } else { x })
+                Ok(if self.tr_eval || self.tr_fold { self.tr_read(&v.name, x) } else { x })
             }
             Expr::Call(c) => {
                 // a built-in once seen as one isn't looked for among the
@@ -1236,16 +1246,65 @@ impl Vm {
         }
     }
 
+    /// `s` looked up in the table named by the current line's text
+    /// (Emuera-Anchor's SingleTerm, `translate::line_byte`).
+    fn tr_by_line(&self, s: String) -> String {
+        match self.csv.tr.by_line(self.tr_line, &s) {
+            Some(t) => t.to_string(),
+            None => s,
+        }
+    }
+
+    /// Emuera-Anchor: a constant marked by the parser (`__TRCONST`, see
+    /// `translate.rs`), evaluated as Anchor folded it when loading: CSV
+    /// names in it come out through their own table, all of them under an
+    /// operator, a function or a FORM, a bare one only when it is itself
+    /// an operator's or function's argument (`arg`). Read with the flag,
+    /// the folded text is then looked up in the line's table.
+    pub(crate) fn tr_const(&mut self, e: &Expr, arg: bool) -> VmResult<Value> {
+        let flagged = std::mem::replace(&mut self.tr_eval, false);
+        let v = match e {
+            Expr::Var(v) => {
+                let x = self.get_var(v)?;
+                if arg {
+                    self.tr_read(&v.name, x)
+                } else {
+                    x
+                }
+            }
+            _ => {
+                let fold = std::mem::replace(&mut self.tr_fold, true);
+                let r = self.eval(e);
+                self.tr_fold = fold;
+                r?
+            }
+        };
+        self.tr_eval = flagged;
+        Ok(match v {
+            Value::Str(s) if flagged => Value::Str(self.tr_by_line(s)),
+            v => v,
+        })
+    }
+
     /// Append a FORM string. With the translate flag on, a `%…%` value is
-    /// also looked up whole in ALL_TR.csv (Emuera-Anchor's FormatPercent).
+    /// also looked up whole in ALL_TR.csv (Emuera-Anchor's FormatPercent),
+    /// unless it is a constant, which Anchor folded into the text at load.
     fn eval_form_into(&mut self, f: &Form, out: &mut String) -> VmResult<()> {
         use std::fmt::Write as _;
         for p in &f.parts {
             match p {
                 FormPart::Lit(s) => out.push_str(s),
                 FormPart::Str(e, w, a) | FormPart::Int(e, w, a) => {
-                    let mut v = self.eval(e)?;
-                    if self.tr_eval && matches!(p, FormPart::Str(..)) {
+                    let folded = self.tr_eval && crate::translate::is_const(e);
+                    if folded {
+                        self.tr_eval = false;
+                    }
+                    let v = self.eval(e);
+                    if folded {
+                        self.tr_eval = true;
+                    }
+                    let mut v = v?;
+                    if self.tr_eval && !folded && matches!(p, FormPart::Str(..)) {
                         if let Value::Str(s) = v {
                             v = Value::Str(self.csv.tr.all(&s).cloned().unwrap_or(s));
                         }
@@ -1288,14 +1347,14 @@ impl Vm {
             // Emuera-Anchor: the arguments are read without the translate
             // flag and the body runs with the caller's (Process.GetValue →
             // runScriptProc(translate)); both come back whatever happens
-            let (run, eval) = (self.tr_run, self.tr_eval);
+            let (run, eval, line) = (self.tr_run, self.tr_eval, self.tr_line);
             self.tr_eval = false;
             let r = self.call_args(&f, args).and_then(|(vals, refs)| {
                 self.pending_refs = refs;
                 self.tr_run = eval;
                 self.call_func(f.clone(), vals)
             });
-            (self.tr_run, self.tr_eval) = (run, eval);
+            (self.tr_run, self.tr_eval, self.tr_line) = (run, eval, line);
             return Ok(r?.unwrap_or(if f.returns_str { Value::Str(String::new()) } else { Value::Int(0) }));
         }
         match self.builtin_fn(name, args)? {
@@ -1593,6 +1652,11 @@ impl Vm {
         // the translate flag is set by the statements below that pass it
         // on, and cleared for every other one (an error can't leave it on)
         self.tr_eval = false;
+        if let Some(&t) = body.tr_line.get(pc) {
+            self.tr_line = t;
+        }
+        // (whether a constant argument is printed / stored as folded)
+        let folded_arg = self.tr_line & crate::translate::LINE_CONST != 0;
         match &body.code[pc] {
             Instr::BadLine(msg, fatal) => {
                 if *fatal || self.strict {
@@ -1602,11 +1666,20 @@ impl Vm {
             }
             Instr::Print(content, fl) => {
                 // Emuera-Anchor: the PRINT family reads with the translate
-                // flag (plain `PRINT text` has nothing to read), PRINTPLAIN
-                // always does (Process.ScriptProc.cs:146)
-                self.tr_eval = self.tr_run || (fl.plain && self.csv.tr.active());
+                // flag, but plain `PRINT text` and a constant PRINTFORM print
+                // as folded (ConstStr). PRINTPLAIN always reads with it, its
+                // constant too (Process.ScriptProc.cs:146), which looks the
+                // whole text up in the line's table.
+                let plain = fl.plain && self.csv.tr.active();
+                self.tr_eval = plain || (self.tr_run && !folded_arg);
                 let s = match content {
+                    PrintContent::Raw(s) if plain => self.tr_by_line(s.clone()),
                     PrintContent::Raw(s) => s.clone(),
+                    PrintContent::Form(fm) if plain && folded_arg => {
+                        self.tr_eval = false;
+                        let s = self.eval_form(fm)?;
+                        self.tr_by_line(s)
+                    }
                     PrintContent::Form(fm) => self.eval_form(fm)?,
                     PrintContent::Expr(e) => self.eval_str(e)?,
                     PrintContent::Exprs(es) => {
@@ -1655,8 +1728,9 @@ impl Vm {
             Instr::Assign(v, op, rhs) => self.assign(v, *op, rhs)?,
             Instr::AssignForm(v, op, form) => {
                 // (Emuera-Anchor: a string assignment stores what it reads
-                // with the translate flag, `+=` as `X = X + text`)
-                self.tr_eval = self.tr_run;
+                // with the translate flag, `+=` as `X = X + text`; a constant
+                // as folded)
+                self.tr_eval = self.tr_run && !folded_arg;
                 let s = self.eval_form(form)?;
                 let p = self.locate(v)?;
                 let new = match op {
@@ -1854,7 +1928,8 @@ impl Vm {
                 return Ok(Some(None));
             }
             Instr::ReturnF(v) => {
-                self.tr_eval = self.tr_run;
+                // (Emuera-Anchor: a constant comes back as folded)
+                self.tr_eval = self.tr_run && !folded_arg;
                 let v = match v {
                     Some(e) => Some(self.eval(e)?),
                     None => None,
@@ -1946,8 +2021,9 @@ impl Vm {
     fn assign(&mut self, v: &VarRef, op: AsgOp, rhs: &[Expr]) -> VmResult<()> {
         let p = self.locate(v)?;
         // Emuera-Anchor: a string assignment (any operator, also `'= a, b`)
-        // reads with the translate flag and stores the translated text
-        if self.tr_run && self.place_is_str(&p) {
+        // reads with the translate flag and stores the translated text; a
+        // constant one stores it as folded (ConstStr)
+        if self.tr_run && self.tr_line & crate::translate::LINE_CONST == 0 && self.place_is_str(&p) {
             self.tr_eval = true;
         }
         if rhs.len() > 1 {

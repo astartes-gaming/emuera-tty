@@ -571,8 +571,16 @@ Games translated with Emuera-Anchor's system play translated here too:
   `Str_TR.csv`. Because stored text is translated, saves made in a
   translated game hold the translations, as Anchor's do (Emuera loads
   them like any other save; saves from older emuera-tty versions hold the
-  originals). PRINT_ABL and the like, the TRAIN command list and the
-  shop list are translated too, though Anchor prints those untranslated.
+  originals). PRINT_ABL and the like, the TRAIN command list, the shop
+  list and PRINTDATA are translated too, though Anchor prints those
+  untranslated.
+- A name with a fixed index (`TALENTNAME:5`) follows Anchor's own rule:
+  inside a comparison, a calculation, a function call or a `%…%` it is
+  translated even in a condition (`IF TALENTNAME:5 == "処女"` is false in
+  a translated game, as in Anchor), while stored or returned on its own
+  (`LOCALS '= TALENTNAME:5`) it stays the original. Quoted text printed
+  with PRINTS, PRINTV or PRINTPLAIN (`PRINTS "男"`) is looked up in
+  `ALL_TR.csv`, or in the table of the first `XXXNAME` on the same line.
 - `ALL_TR.csv`: also looked up for a whole `%…%` value when it is
   printed or stored.
 - `TRCHARA*.csv`: character names (`NAME`, `CALLNAME`, `NICKNAME`,

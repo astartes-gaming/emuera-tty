@@ -89,10 +89,14 @@ commands) evaluates with the flag off.
 - PALAM reads use `Param` instead of `Palam` when the game has
   `PARAM.CSV` (§5).
 
+PRINTDATA is not in the list: `PRINT_DATA_Instruction` prints each DATA
+line with `term.GetStrValue(exm)`, without the flag.
+
 emuera-tty (`src/vm/mod.rs`: `Vm::tr_run` / `tr_eval`, `Vm::tr_read`,
-`builtin_fn`'s wrapper in `vm/builtins.rs`): the flag as above, for all
-of these statements and expressions. *Gap: literals (task 4), the
-memory (§3) and PALAM→Param (§5).*
+`Vm::tr_const`, `builtin_fn`'s wrapper in `vm/builtins.rs`): the flag as
+above, for all of these statements and expressions, literals and
+constants included (§4). PRINTDATA translates too (see *Deliberate
+differences*). *Gap: the memory (§3) and PALAM→Param (§5).*
 
 ## 3. The `%…%` fallbacks: ALL_TR and the "memory"
 
@@ -133,11 +137,24 @@ true**. So a CSV name with a constant index, given as an argument to
 index (`TALENTNAME:LOCAL`) is not folded, and is read with the flag at
 run time.
 
+Operators are function terms too (`OperatorMethod.cs` `ReduceBinaryTerm`
+builds a `FunctionMethodTerm`), so the same goes for every operator:
+`IF TALENTNAME:5 == "処女"` compares "Virgin" and is false, where
+`IF TALENTNAME:LOCAL == "処女"` is true. A constant that is a statement's
+whole argument is folded *without* the flag (`checkArgumentType` →
+`Restructure(exm)`), and some statements then use it as folded, never
+translating it (`ConstStr`): assignments (`ArgumentBuilder.cs` SP_SET),
+plain PRINT and PRINTFORM (`IsConst`), and RETURNF (`SingleTerm.GetValue`
+returns itself). PRINTS, PRINTV, HTML_PRINT and PRINTPLAIN read theirs
+with the flag, which looks the folded text up by the line (§2).
+
 `STRLENS` / `STRLENSU` (`Creator.Method.cs:1947`) also evaluate their
 argument with the flag on and look the result up in ALL_TR, so they
 measure the translated text.
 
-*Gap in emuera-tty: all of §4.*
+emuera-tty (`src/translate.rs`, the *constants* section): the parser
+marks each constant that folding changes, and the VM evaluates it as
+Anchor folded it. *Gap: STRLENS (task 6.2).*
 
 ## 5. `PARAM.CSV`
 
@@ -226,6 +243,9 @@ Anchor breaks. Differences from Emuera-EM/EE are in
 | A byte-order mark at the start of a line other than the first (§1) | kept, as part of the key | dropped | A key starting with an invisible BOM can never match: files pasted together would silently lose a translation |
 | A TRCHARA block without NAME, CALLNAME, NICKNAME or MASTERNAME (§6) | that field is set to "" | the CSV value is kept | Anchor's blanking erases names the translator didn't mean to touch (design D6) |
 | PRINT_ABL / TALENT / MARK / EXP (§8) | the CSV names, untranslated | translated | Display only: a translated game looks translated, and scripts never see these strings (design D7) |
+| PRINTDATA (§2) | DATA lines printed without the flag | with the flag, as PRINTFORM | Display only, like D7; emuera-tty translated it before Anchor parity work started, and turning it off would make translated games look worse |
+| A literal read with the flag (§2, `Term.cs` SingleTerm) | the literal object is overwritten with its translation: later reads, flagged or not, see the translated text, and a second flagged read can translate it again | each read looks the literal up afresh | Anchor's overwrite is a bug: the same line gives different text the second time it runs |
+| The text searched for the line's table and RETURNF (§2, §3) | `Filename:LineNo:RowLine`, so the file name counts too | the line only | A file name containing `TALENTNAME` or `RETURNF` is an accident, not something a translation relies on |
 | `PARAM`→`PALAM` renaming (§5) | in every game | only in games with `PARAM.CSV` or TR files | Keeps every other game byte-identical; games that need the renaming have one of those (design D8) |
 
 ## Shared with Emuera-EE, partly missing in emuera-tty

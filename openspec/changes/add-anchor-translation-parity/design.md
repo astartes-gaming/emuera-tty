@@ -47,6 +47,8 @@ Anchor inspects the current line's *text* in two places: the table for literals 
 
 *Alternative:* keeping line text in `Body`. It costs far more memory (the README's Memory section budgets compiled code), and only these two bits are ever needed.
 
+*As implemented:* the byte holds the table index (5 bits, ALL = 26), `0x40` for RETURNF, and `0x20` when the instruction's whole argument is a constant that Anchor prints or stores as folded (`ConstStr`: assignments, RETURNF, PRINT, PRINTFORM; see D5). The line is searched only for instructions that can read with the flag (PRINT family, PRINTDATA, assignments, RETURNF, HTML_PRINT); others keep ALL. Searching every line cost about 5% of a full compile.
+
 ### D4. The memory and last-translation state live in `Vm`
 
 `Tr` stays immutable shared data. `Vm` gets `tr_memory: VecDeque<(Rc<str>, u8)>` (20 entries, newest at the back) and `tr_last: Option<Rc<str>>`. They are cleared on restart and on reload, and not saved, matching Anchor's static fields (reset only when the program restarts).
@@ -54,6 +56,8 @@ Anchor inspects the current line's *text* in two places: the table for literals 
 ### D5. Constant names in builtin arguments
 
 Anchor folds constants with translation when it first builds a call. emuera-tty keeps folding as it is and does the equivalent at run time: when `builtin_fn` evaluates an argument that is a CSV name variable with all-literal indices, it reads it translated whatever the flag (own table only). A `%…%` whose expression is such a constant, or a literal, is marked constant at parse (a bit on `FormPart::Str`), and gets only its own translation, with no percent fallbacks. This gives the same output without moving folding earlier.
+
+*As implemented (found in Anchor's source while doing task 4):* operators are `FunctionMethodTerm`s too, so the rule covers every operator, not only built-ins: `IF TALENTNAME:5 == "処女"` is false in Anchor. A constant that is a statement's whole argument is folded without translation, and assignments, RETURNF, PRINT and PRINTFORM then use it as folded (`ConstStr`). So in games with TR files the parser marks each maximal constant that folding changes (a CSV name or STRLENS in it, or a top-level value that isn't literal text) as an internal `__TRCONST(expr, arg)` call, and the VM evaluates it as Anchor folded it (`Vm::tr_const`). Literal-only joins (`"a" + "b"`) are folded at parse. Constant `%…%` parts are recognised at run time (`translate::is_const`) instead of with a bit on `FormPart::Str`. Marks are rare (about 1,200 in pops-tw's 100,000 functions); a full compile of pops-tw costs about 3% more CPU and 1 byte per instruction. Untranslated games are untouched (no marks, empty `tr_line`).
 
 ### D6. Lenient, warned TR loading
 

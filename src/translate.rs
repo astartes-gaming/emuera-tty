@@ -12,10 +12,12 @@
 //!   templates, so characters added in a new game come out translated.
 //! - `TR_NAME(code, index or name)`: a translated name for scripts.
 
+use crate::ast::{AsgOp, BinOp, Expr, Form, FormPart, Instr, PrintContent};
 use crate::csvdata::CharaTemplate;
 use crate::fxhash::HashMap;
 use crate::loader::{read_text, walk};
 use std::path::Path;
+use std::sync::Arc as Rc;
 
 #[derive(Default, Debug)]
 pub struct Tr {
@@ -271,6 +273,392 @@ pub fn apply_trchara(csv_dir: &Path, charas: &mut [CharaTemplate]) -> Vec<String
     warn
 }
 
+// ------------------------------------------------------------ constants
+//
+// Anchor folds every constant part of an expression into a literal when it
+// loads the script (`Restructure`), and translation hangs on that:
+//
+// - Under an operator, a built-in function or a FORM `%…%` (all of them
+//   `FunctionMethodTerm`s), the parts are folded with the translate flag,
+//   so a CSV name there comes out through its own table, whatever the
+//   statement: `IF TALENTNAME:5 == "処女"` compares "Virgin" (Talent_TR)
+//   and is false, where `IF TALENTNAME:LOCAL == "処女"` is true.
+// - A constant that is a statement's whole argument is folded without it.
+// - At run time a folded value read with the flag is looked up again, in
+//   the table named by the line's text (`Term.cs` SingleTerm,
+//   `searchParentFile`): the first `<TABLE>NAME` in it, else ALL_TR.
+// - Some statements print or store a constant argument as folded, without
+//   the flag (`ConstStr`): assignments, RETURNF, PRINT, PRINTFORM.
+//
+// emuera-tty doesn't fold; the parser marks the constants instead
+// ([`fold_expr`], only in games with TR files), and the VM evaluates them
+// as Anchor folded them (`Vm::tr_const`).
+
+/// The game has Anchor TR files: the parser marks constants. Set once,
+/// before the scripts are parsed.
+pub static FOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn fold_on() -> bool {
+    FOLD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The internal function a marked constant is: `__TRCONST(expr, arg)`,
+/// `arg` 1 when it is an operator's or function's argument.
+pub const TRCONST: &str = "__TRCONST";
+
+/// What `searchParentFile` looks for in a line, in its order (Anchor's
+/// table list without ALL), and the table it means here. A plain
+/// substring search: `CFLAGNAME` finds `FLAGNAME` first, as in Anchor.
+const LINE_TABLES: [(&str, &str); 26] = [
+    ("ABLNAME", "ABL"),
+    ("TALENTNAME", "TALENT"),
+    ("EXPNAME", "EXP"),
+    ("MARKNAME", "MARK"),
+    ("PALAMNAME", "PALAM"),
+    ("PARAMNAME", "PALAM"),
+    ("ITEMNAME", "ITEM"),
+    ("TRAINNAME", "TRAIN"),
+    ("BASENAME", "BASE"),
+    ("SOURCENAME", "SOURCE"),
+    ("EXNAME", "EX"),
+    ("EQUIPNAME", "EQUIP"),
+    ("TEQUIPNAME", "TEQUIP"),
+    ("FLAGNAME", "FLAG"),
+    ("TFLAGNAME", "TFLAG"),
+    ("CFLAGNAME", "CFLAG"),
+    ("TCVARNAME", "TCVAR"),
+    ("CSTRNAME", "CSTR"),
+    ("STAINNAME", "STAIN"),
+    ("CDFLAG1NAME", "CDFLAG1"),
+    ("CDFLAG2NAME", "CDFLAG2"),
+    ("STRNAME", "STRNAME"),
+    ("TSTRNAME", "TSTR"),
+    ("SAVESTRNAME", "SAVESTR"),
+    ("GLOBALNAME", "GLOBAL"),
+    ("GLOBALSNAME", "GLOBALS"),
+];
+
+/// [`line_byte`]: the table for literals is ALL_TR.
+pub const LINE_ALL: u8 = LINE_TABLES.len() as u8;
+/// [`line_byte`]: the instruction's whole argument is a constant, which
+/// Anchor prints or stores as folded (`ConstStr`), without the flag.
+pub const LINE_CONST: u8 = 0x20;
+/// [`line_byte`]: the line contains `RETURNF` (Anchor's percent fallbacks
+/// skip such lines).
+pub const LINE_RETURNF: u8 = 0x40;
+
+/// The per-instruction byte of `Body::tr_line` for a line of script: the
+/// table its literals are looked up in, and whether it has RETURNF.
+pub fn line_byte(line: &str) -> u8 {
+    // One pass over the bytes: at each "NAME", the first table (in
+    // Anchor's order) whose name precedes it; and whether RETURNF occurs.
+    let b = line.as_bytes();
+    let (mut t, mut returnf) = (LINE_ALL, false);
+    for i in 0..b.len() {
+        match b[i] {
+            b'N' if b[i..].starts_with(b"NAME") => {
+                let before = &b[..i];
+                if let Some(k) = LINE_TABLES.iter().position(|(p, _)| before.ends_with(&p.as_bytes()[..p.len() - 4])) {
+                    t = t.min(k as u8);
+                }
+            }
+            b'R' if b[i..].starts_with(b"RETURNF") => returnf = true,
+            _ => {}
+        }
+    }
+    if returnf {
+        t | LINE_RETURNF
+    } else {
+        t
+    }
+}
+
+impl Tr {
+    /// `s` looked up in the table a line's byte names ([`line_byte`]).
+    pub fn by_line(&self, byte: u8, s: &str) -> Option<&str> {
+        match LINE_TABLES.get((byte & 0x1f) as usize) {
+            Some((_, t)) => self.name(t, s),
+            None => self.all(s).map(String::as_str),
+        }
+    }
+}
+
+/// Built-in functions Anchor folds when all their arguments are constant
+/// (CanRestructure in its Creator.Method.cs; those with their own folding
+/// rule are left out). Sorted.
+const FOLDING_FNS: &[&str] = &[
+    "ABS", "BARSTR", "CBRT", "CHARATU", "CHKFONT", "COLOR_FROMNAME", "COLOR_FROMRGB", "CONVERT", "CSVABL", "CSVBASE", "CSVCALLNAME", "CSVCFLAG", "CSVCSTR",
+    "CSVEQUIP", "CSVEXP", "CSVJUEL", "CSVMARK", "CSVMASTERNAME", "CSVNAME", "CSVNICKNAME", "CSVRELATION", "CSVTALENT", "ENCODETOUNI", "ESCAPE", "EXISTCSV",
+    "EXPONENT", "GETBIT", "GETCONFIG", "GETCONFIGS", "GETFOCUSCOLOR", "GETLINESTR", "INRANGE", "ISNUMERIC", "LIMIT", "LOG", "LOG10", "MAX", "MIN", "MONEYSTR",
+    "POWER", "PRINTCLENGTH", "PRINTCPERLINE", "REPLACE", "SAVENOS", "SIGN", "SQRT", "STRCOUNT", "STRFIND", "STRFINDU", "STRLENS", "STRLENSU", "SUBSTRING",
+    "SUBSTRINGU", "TOFULL", "TOHALF", "TOINT", "TOLOWER", "TOSTR", "TOUPPER", "TR_NAME", "UNICODE", "UNICODEBYTE",
+];
+
+/// A variable Anchor treats as a constant: the CSV name arrays and GAMEBASE.
+fn const_var(name: &str) -> bool {
+    (name.ends_with("NAME") && crate::csvdata::table_for_var(name).is_some()) || matches!(name, "CDFLAGNAME1" | "CDFLAGNAME2") || name.starts_with("GAMEBASE_")
+}
+
+/// Would Anchor fold `e` into a literal?
+pub fn is_const(e: &Expr) -> bool {
+    match e {
+        Expr::Int(_) | Expr::Str(_) | Expr::Empty => true,
+        Expr::Var(v) => const_var(&v.name) && v.idx.iter().all(is_const),
+        Expr::Unary(_, x) => is_const(x),
+        Expr::Binary(_, a, b) => is_const(a) && is_const(b),
+        Expr::Ternary(c, a, b) => is_const(c) && is_const(a) && is_const(b),
+        Expr::Call(c) => c.0 == TRCONST || (FOLDING_FNS.binary_search(&c.0.as_str()).is_ok() && c.1.iter().all(is_const)),
+        Expr::Form(f) => is_const_form(f),
+        Expr::IncDec(..) => false,
+    }
+}
+
+/// Would Anchor fold the whole FORM string into a literal?
+pub fn is_const_form(f: &Form) -> bool {
+    f.parts.iter().all(|p| match p {
+        FormPart::Lit(_) => true,
+        FormPart::Str(e, w, _) | FormPart::Int(e, w, _) => is_const(e) && w.as_deref().map(is_const) != Some(false),
+        FormPart::Cond(c) => is_const(&c.0) && is_const_form(&c.1) && is_const_form(&c.2),
+    })
+}
+
+/// Does a constant hold something folding with the flag changes: a CSV
+/// name, or STRLENS (which measures the translated text)?
+fn has_name(e: &Expr) -> bool {
+    match e {
+        Expr::Var(v) => (const_var(&v.name) && !v.name.starts_with("GAMEBASE_")) || v.idx.iter().any(has_name),
+        Expr::Unary(_, x) => has_name(x),
+        Expr::Binary(_, a, b) => has_name(a) || has_name(b),
+        Expr::Ternary(c, a, b) => has_name(c) || has_name(a) || has_name(b),
+        Expr::Call(c) => matches!(c.0.as_str(), "STRLENS" | "STRLENSU") || c.1.iter().any(has_name),
+        Expr::Form(f) => form_has_name(f),
+        _ => false,
+    }
+}
+
+fn form_has_name(f: &Form) -> bool {
+    f.parts.iter().any(|p| match p {
+        FormPart::Lit(_) => false,
+        FormPart::Str(e, w, _) | FormPart::Int(e, w, _) => has_name(e) || w.as_deref().is_some_and(has_name),
+        FormPart::Cond(c) => has_name(&c.0) || form_has_name(&c.1) || form_has_name(&c.2),
+    })
+}
+
+/// Could a constant be a string other than literal text (whose folded
+/// value a flagged read looks up whole)? Not integer arithmetic.
+fn has_text(e: &Expr) -> bool {
+    match e {
+        Expr::Int(_) | Expr::Str(_) | Expr::Empty | Expr::IncDec(..) => false,
+        Expr::Unary(_, x) => has_text(x),
+        Expr::Binary(_, a, b) => has_text(a) || has_text(b) || matches!((&**a, &**b), (Expr::Str(_), _) | (_, Expr::Str(_))),
+        Expr::Ternary(c, a, b) => has_text(c) || has_text(a) || has_text(b),
+        Expr::Form(f) => !f.parts.iter().all(|p| matches!(p, FormPart::Lit(_))),
+        _ => true,
+    }
+}
+
+/// Fold string literals joined or repeated (`"a" + "b"`, `"─" * 10`) into
+/// one, as Anchor does when it loads the script.
+fn fold_literals(e: &mut Expr) {
+    let Expr::Binary(op, a, b) = e else { return };
+    fold_literals(a);
+    fold_literals(b);
+    let s = match (*op, &**a, &**b) {
+        (BinOp::Add, Expr::Str(x), Expr::Str(y)) => format!("{}{}", x, y),
+        (BinOp::Mul, Expr::Str(x), Expr::Int(n)) | (BinOp::Mul, Expr::Int(n), Expr::Str(x)) if *n <= 256 => x.repeat((*n).max(0) as usize),
+        _ => return,
+    };
+    *e = Expr::Str(s);
+}
+
+/// Mark the constants in a statement's expression (see the section notes).
+pub fn fold_expr(mut e: Expr) -> Expr {
+    if fold_on() && scan(&mut e) {
+        finish(&mut e, false);
+    }
+    e
+}
+
+/// [`fold_expr`] for a statement's FORM string: each `%…%` / `{…}` part is
+/// a function's argument.
+pub fn fold_form(mut f: Form) -> Form {
+    if fold_on() && scan_form(&mut f) {
+        finish_form(&mut f);
+    }
+    f
+}
+
+/// A maximal constant, marked where folding matters: a CSV name in it, or
+/// a whole value that a flagged read looks up by its line.
+fn finish(e: &mut Expr, arg: bool) {
+    fold_literals(e);
+    if !has_name(e) && (arg || !has_text(e)) {
+        return;
+    }
+    let inner = std::mem::replace(e, Expr::Empty);
+    *e = Expr::Call(Box::new((TRCONST.into(), vec![inner, Expr::Int(arg as i64)], Default::default())));
+}
+
+/// Scan the children of an operator (or a FORM part), then, when they
+/// aren't all constant, mark the constant ones, each a maximal constant, as
+/// its arguments. Whether they are all constant.
+fn scan_children<const N: usize>(mut kids: [&mut Expr; N]) -> bool {
+    let mut consts = [false; N];
+    for (k, c) in kids.iter_mut().zip(consts.iter_mut()) {
+        *c = scan(k);
+    }
+    let all = consts.iter().all(|&c| c);
+    if !all {
+        for (k, c) in kids.into_iter().zip(consts) {
+            if c {
+                finish(k, true);
+            }
+        }
+    }
+    all
+}
+
+/// One pass, bottom up, in place: the maximal constants below a
+/// non-constant node are marked. Whether the expression is constant itself
+/// (then the node above decides).
+fn scan(e: &mut Expr) -> bool {
+    match e {
+        Expr::Int(_) | Expr::Str(_) | Expr::Empty => true,
+        // (its indices were marked when the variable was upper-cased)
+        Expr::Var(_) => is_const(e),
+        Expr::Unary(_, x) => scan_children([&mut **x]),
+        Expr::Binary(_, a, b) => scan_children([&mut **a, &mut **b]),
+        Expr::Ternary(x, a, b) => scan_children([&mut **x, &mut **a, &mut **b]),
+        Expr::Call(call) => {
+            let (n, args, _) = &mut **call;
+            if n == TRCONST {
+                return true;
+            }
+            // a built-in's arguments are a FunctionMethodTerm's; a game
+            // function's (and PRINTFORMS' own) are folded on their own
+            let arg = n != "__FORMS" && crate::vm::builtins::is_builtin_function(n);
+            let consts: Vec<bool> = args.iter_mut().map(scan).collect();
+            let all = FOLDING_FNS.binary_search(&n.as_str()).is_ok() && consts.iter().all(|&c| c);
+            if !all {
+                for (a, c) in args.iter_mut().zip(consts) {
+                    if c {
+                        finish(a, arg);
+                    }
+                }
+            }
+            all
+        }
+        Expr::Form(f) => scan_form(Rc::make_mut(f)),
+        _ => false,
+    }
+}
+
+/// [`scan`] for a FORM string: its parts are functions' arguments.
+fn scan_form(f: &mut Form) -> bool {
+    let consts: Vec<bool> = f.parts.iter_mut().map(scan_part).collect();
+    let all = consts.iter().all(|&c| c);
+    if !all {
+        for (p, c) in f.parts.iter_mut().zip(consts) {
+            if c {
+                finish_part(p);
+            }
+        }
+    }
+    all
+}
+
+fn scan_part(p: &mut FormPart) -> bool {
+    match p {
+        FormPart::Lit(_) => true,
+        FormPart::Str(e, w, _) | FormPart::Int(e, w, _) => match w {
+            Some(w) => scan_children([e, &mut **w]),
+            None => scan_children([e]),
+        },
+        FormPart::Cond(cab) => {
+            let (x, a, b) = &mut **cab;
+            let cs = [scan(x), scan_form(a), scan_form(b)];
+            let all = cs.iter().all(|&c| c);
+            if !all {
+                if cs[0] {
+                    finish(x, true);
+                }
+                if cs[1] {
+                    finish_form(a);
+                }
+                if cs[2] {
+                    finish_form(b);
+                }
+            }
+            all
+        }
+    }
+}
+
+/// The parts of a constant FORM string, each a maximal constant (a FORM
+/// that is a statement's whole argument, or a constant part of one).
+fn finish_form(f: &mut Form) {
+    f.parts.iter_mut().for_each(finish_part);
+}
+
+fn finish_part(p: &mut FormPart) {
+    match p {
+        FormPart::Str(e, w, _) | FormPart::Int(e, w, _) => {
+            finish(e, true);
+            if let Some(w) = w {
+                finish(w, true);
+            }
+        }
+        FormPart::Cond(cab) => {
+            let (x, a, b) = &mut **cab;
+            finish(x, true);
+            finish_form(a);
+            finish_form(b);
+        }
+        FormPart::Lit(_) => {}
+    }
+}
+
+/// Is this instruction's whole argument a constant Anchor prints or stores
+/// as folded (`ConstStr`)? See [`LINE_CONST`].
+pub fn const_arg(i: &Instr) -> bool {
+    match i {
+        Instr::Print(PrintContent::Form(f), _) => is_const_form(f),
+        Instr::Assign(_, AsgOp::Set | AsgOp::SetExpr, rhs) => rhs.iter().all(is_const),
+        Instr::AssignForm(_, AsgOp::Set | AsgOp::SetExpr, f) => is_const_form(f),
+        Instr::ReturnF(Some(e)) => is_const(e),
+        _ => false,
+    }
+}
+
+/// The byte `FuncBuilder::emit` stores for an instruction, or None when
+/// the game has no TR files. Its line's part is filled in afterwards by
+/// [`set_line_bytes`].
+pub fn instr_byte(i: &Instr) -> Option<u8> {
+    fold_on().then(|| LINE_ALL | if const_arg(i) { LINE_CONST } else { 0 })
+}
+
+/// Can the instruction read with the translate flag (the only reads the
+/// line's table matters for)?
+fn reads_flagged(i: &Instr) -> bool {
+    match i {
+        Instr::Print(..) | Instr::PrintData(..) | Instr::Assign(..) | Instr::AssignForm(..) | Instr::ReturnF(_) => true,
+        Instr::Command(c) => c.0 == "HTML_PRINT",
+        _ => false,
+    }
+}
+
+/// Fill in the line's part of the bytes of the instructions `line` made
+/// (from `first` on). Only lines that read with the flag are searched.
+pub fn set_line_bytes(body: &mut crate::ast::Body, first: usize, line: &str) {
+    if !fold_on() || !body.code[first.min(body.code.len())..].iter().any(reads_flagged) {
+        return;
+    }
+    let t = line_byte(line);
+    for b in &mut body.tr_line[first..] {
+        *b = (*b & LINE_CONST) | t;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +758,32 @@ mod tests {
         std::fs::write(d.join("sub/trchara_x.csv"), "NO,1\nENDCHR\n").unwrap();
         assert!(Tr::load(&d).active());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The table for a line's literals, as Anchor's searchParentFile finds
+    /// it: the first `<TABLE>NAME` in its text, by plain substring.
+    #[test]
+    fn line_tables() {
+        let table = |l: &str| LINE_TABLES.get((line_byte(l) & 0x1f) as usize).map(|t| t.1);
+        assert_eq!(table("PRINTS TALENTNAME:5"), Some("TALENT"));
+        assert_eq!(table("PRINTS \"男\""), None, "ALL_TR");
+        assert_eq!(table("PRINTV ABLNAME:1, TALENTNAME:5"), Some("ABL"));
+        // CFLAGNAME contains FLAGNAME, which comes first in Anchor's order
+        assert_eq!(table("PRINTS CFLAGNAME:3"), Some("FLAG"));
+        assert_eq!(table("PRINTS \"x\" ; ITEMNAME in a comment counts"), Some("ITEM"));
+        assert_eq!(line_byte("RETURNF TALENTNAME:5") & LINE_RETURNF, LINE_RETURNF);
+        assert_eq!(line_byte("PRINTS 1") & LINE_RETURNF, 0);
+    }
+
+    /// What counts as a constant Anchor folds.
+    #[test]
+    fn constants() {
+        let e = |s: &str| crate::parser::upper_expr(crate::expr::parse_expr(s, &Default::default()).unwrap());
+        assert!(is_const(&e("TALENTNAME:5")));
+        assert!(is_const(&e("\"[\" + TALENTNAME:5 + \"]\"")));
+        assert!(is_const(&e("SUBSTRING(ABLNAME:1, 0, 2)")));
+        assert!(!is_const(&e("TALENTNAME:LOCAL")));
+        assert!(!is_const(&e("RAND(3)")), "not folded by Anchor");
+        assert!(!is_const(&e("LOCALS + \"x\"")));
     }
 }

@@ -22,9 +22,9 @@
 
 ## 4. Per-line facts (spec: Flagged string literals; design D3)
 
-- [ ] 4.1 Tell the parser whether the game has TR files. When it does, have it fill `Body::tr_line`: one byte per instruction holding the literal-table index from the raw line (first `<TABLE>NAME` found in TR table order, else ALL) and a "line contains RETURNF" bit. When it doesn't, leave the vec empty. Verify: unit test on a parsed body: `PRINTS TALENTNAME:5` → Talent, `PRINTS "男"` → ALL, an untranslated game → empty vec.
-- [ ] 4.2 Flagged literal and constant-folded string reads use the current instruction's table. Verify: the "Literal through ALL" and "Literal on a TALENTNAME line" scenarios pass.
-- [ ] 4.3 Check memory: `EMUERA_MEMSTATS` on pops-tw (its own TR files) shows the compiled-code size growing by at most one byte per instruction. Verify: before/after numbers noted in the PR.
+- [x] 4.1 Tell the parser whether the game has TR files. When it does, have it fill `Body::tr_line`: one byte per instruction holding the literal-table index from the raw line (first `<TABLE>NAME` found in TR table order, else ALL) and a "line contains RETURNF" bit. When it doesn't, leave the vec empty. Verify: unit test on a parsed body: `PRINTS TALENTNAME:5` → Talent, `PRINTS "男"` → ALL, an untranslated game → empty vec. (Done: `translate::line_byte`, tested by the `line_tables` unit test and through the integration tests. The vec is empty in untranslated games by construction: `translate::FOLD` is off. The byte also carries a "constant argument" bit, see design D3.)
+- [x] 4.2 Flagged literal and constant-folded string reads use the current instruction's table. Verify: the "Literal through ALL" and "Literal on a TALENTNAME line" scenarios pass. (Done, with the folding model of design D5 "as implemented": `literals_by_the_line`, `constants_fold_as_in_anchor`.)
+- [x] 4.3 Check memory: `EMUERA_MEMSTATS` on pops-tw (its own TR files) shows the compiled-code size growing by at most one byte per instruction. Verify: before/after numbers noted in the PR. (pops-tw, everything compiled with `--check`, `EMUERA_TIMING=1`: RSS 776–779 MB before, 783–787 MB after, about 1 byte per instruction plus about 1,200 marks. CPU on one thread: 3.23 s with marking off, 3.32 s on, within noise. AnonTW, untranslated: no change.)
 
 ## 5. Percent fallbacks and the memory (spec: Memory of untranslated reads, Percent values get an ALL lookup, Memory fallback, Stripped ALL lookup, RETURNF lines skip the fallbacks, Padding counts translated text; design D4)
 
@@ -34,7 +34,7 @@
 
 ## 6. Constants and STRLENS (spec: Constant names given to built-in functions, STRLENS measures translated text; design D5)
 
-- [ ] 6.1 In `builtin_fn` argument evaluation, read a CSV name variable with all-literal indices translated (own table) whatever the flag. Mark constant `%…%` parts at parse (a bit on `FormPart::Str`) so they get only their own translation. Verify: the "SUBSTRING of a constant name" and "Variable index is not folded" scenarios pass, and a constant `%TALENTNAME:5%` whose value is also an ALL_TR key prints the Talent_TR translation.
+- [x] 6.1 In `builtin_fn` argument evaluation, read a CSV name variable with all-literal indices translated (own table) whatever the flag. Mark constant `%…%` parts at parse (a bit on `FormPart::Str`) so they get only their own translation. Verify: the "SUBSTRING of a constant name" and "Variable index is not folded" scenarios pass, and a constant `%TALENTNAME:5%` whose value is also an ALL_TR key prints the Talent_TR translation. (Done by task 4's folding model rather than in `builtin_fn`; constant `%…%` parts are recognised at run time, not by a bit. Test: `constant_names_given_to_functions`.)
 - [ ] 6.2 STRLENS / STRLENSU evaluate their argument with the flag on, then do an ALL lookup before measuring. Verify: the "Width of a translated name" scenario passes.
 
 ## 7. TR_NAME (spec: TR_NAME)

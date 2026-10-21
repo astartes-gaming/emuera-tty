@@ -161,3 +161,77 @@ fn engine_lists_are_translated() {
     );
     assert!(text.contains("TechniqueLV3"), "{}", text);
 }
+
+/// spec: Flagged string literals / Literal through ALL, Literal on a
+/// TALENTNAME line; PRINTPLAIN's text; a constant PRINTFORM and plain
+/// PRINT print as written
+#[test]
+fn literals_by_the_line() {
+    let text = play(
+        "literals",
+        &[VIRGIN, ("CSV/ALL_TR.csv", "男,Man\n"), ("CSV/Abl.csv", "1,技巧\n")],
+        "PRINTS \"男\"\nPRINTL\n\
+         PRINTS \"K=\" + \"男\"\nPRINTL\n\
+         LOCALS = N=\nPRINTS LOCALS + \"男\"\nPRINTL\n\
+         PRINTS TALENTNAME:5\nPRINTL\n\
+         PRINTV \"A=\", ABLNAME:1, TALENTNAME:5\nPRINTL\n\
+         PRINTPLAIN P=男\nPRINTL\n\
+         PRINTFORML F=男 %\"男\"%\n\
+         PRINTL R=男",
+    );
+    assert!(text.lines().any(|l| l == "Man"), "{}", text);
+    // a constant concatenation is folded first, then looked up whole
+    assert!(text.contains("K=男"), "{}", text);
+    // a literal next to a variable is looked up on its own
+    assert!(text.contains("N=Man"), "{}", text);
+    assert!(text.lines().any(|l| l == "Virgin"), "{}", text);
+    // the line names ABLNAME first: both constants go through Abl_TR
+    assert!(text.contains("A=技巧処女"), "{}", text);
+    // PRINTPLAIN looks its whole text up
+    assert!(text.contains("P=男"), "{}", text);
+    assert!(text.contains("F=男 男"), "{}", text);
+    assert!(text.contains("R=男"), "{}", text);
+}
+
+/// spec: Constants folded as Anchor folds them: under an operator a
+/// constant name is translated (even in a condition), a constant stored
+/// or returned whole stays as folded
+#[test]
+fn constants_fold_as_in_anchor() {
+    let erb = "@SYSTEM_TITLE\nLOCAL = 5\n\
+               IF TALENTNAME:5 == \"処女\"\nPRINTL C=original\nELSE\nPRINTL C=folded\nENDIF\n\
+               SIF TALENTNAME:LOCAL == \"処女\"\nPRINTL V=original\n\
+               LOCALS '= TALENTNAME:5\nSIF LOCALS == \"処女\"\nPRINTL S=as-written\n\
+               LOCALS '= \"[\" + TALENTNAME:5 + \"]\"\nSIF LOCALS == \"[Virgin]\"\nPRINTL O=folded\n\
+               SIF CONSTNAME() == \"処女\"\nPRINTL R=as-written\n\
+               PRINTS \"T=\" + (LOCAL ? TALENTNAME:5 # \"\")\nPRINTL\n\
+               QUIT\n\
+               @CONSTNAME\n#FUNCTIONS\nRETURNF TALENTNAME:5\n";
+    let text = play_erb("fold", &[VIRGIN], erb, |_| {});
+    assert!(text.contains("C=folded"), "{}", text);
+    assert!(text.contains("V=original"), "{}", text);
+    assert!(text.contains("S=as-written"), "{}", text);
+    assert!(text.contains("O=folded"), "{}", text);
+    assert!(text.contains("R=as-written"), "{}", text);
+    // a constant branch is folded with the flag (the ternary is an operator)
+    assert!(text.contains("T=Virgin"), "{}", text);
+}
+
+/// spec: Constant names given to built-in functions / SUBSTRING of a
+/// constant name, Variable index is not folded; a constant `%…%` gets no
+/// percent fallbacks
+#[test]
+fn constant_names_given_to_functions() {
+    let text = play(
+        "const-fn",
+        &[VIRGIN, ("CSV/Abl.csv", "2,技巧\n"), ("CSV/Abl_TR.csv", "技巧,Technique\n"), ("CSV/ALL_TR.csv", "Virgin,Maiden\n")],
+        "LOCAL = 2\n\
+         IF SUBSTRING(ABLNAME:2, 0, 4) == \"Tech\"\nPRINTL C=Tech\nENDIF\n\
+         IF SUBSTRING(ABLNAME:LOCAL, 0, 4) == \"技巧\"\nPRINTL V=original\nENDIF\n\
+         PRINTFORML P=%TALENTNAME:5%",
+    );
+    assert!(text.contains("C=Tech"), "{}", text);
+    assert!(text.contains("V=original"), "{}", text);
+    // folded at load: Talent_TR only, not then ALL_TR's Virgin → Maiden
+    assert!(text.contains("P=Virgin"), "{}", text);
+}
