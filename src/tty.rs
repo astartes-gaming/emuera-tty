@@ -2302,6 +2302,7 @@ impl Tty {
             "Manage saves…  (copy, export, back up, restore)",
             "Test the translator…  (translates a sample line)",
             "Clear the translation cache  (translate the screen again)",
+            "Clear the picture cache  (frees decoded sprites; they load again when shown)",
             "Back to the title  (Ctrl-T)",
             "Restart the game  (Ctrl-R)",
             "Reload ERB files  (F5 / Ctrl-E)",
@@ -2458,11 +2459,21 @@ impl Tty {
                         };
                         self.force_frame = true;
                     }
-                    5 => break OverlayExit::Title,
-                    6 => break OverlayExit::Restart,
-                    7 => break OverlayExit::Reload,
-                    8 => break OverlayExit::SwitchGame,
-                    9 => break OverlayExit::Quit,
+                    5 => {
+                        // whatever the Images setting: drop the decoded
+                        // sprites, scaled copies and the like (the game's own
+                        // GCREATE… buffers stay)
+                        let held = |r: &Resources| r.mem_stats().1.iter().map(|g| g.2).sum::<usize>();
+                        let before = held(res);
+                        res.release_images();
+                        note = format!("picture cache cleared ({:.1} MB freed)", before.saturating_sub(held(res)) as f64 / (1 << 20) as f64);
+                        self.force_frame = true;
+                    }
+                    6 => break OverlayExit::Title,
+                    7 => break OverlayExit::Restart,
+                    8 => break OverlayExit::Reload,
+                    9 => break OverlayExit::SwitchGame,
+                    10 => break OverlayExit::Quit,
                     _ => break OverlayExit::Close,
                 }
             }

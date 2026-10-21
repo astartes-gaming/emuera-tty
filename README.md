@@ -467,7 +467,8 @@ but read-only (start with `EMUERA_SEED=N` to choose it; the game's
 `EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
 set; Enter says what one does; read-only, as they are read at start). It also
 has *Game settings…* and *Manage saves…* (below),
-*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
+*Clear the picture cache* (frees the decoded sprites whatever *Images* says;
+they load again when shown), *Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
 override saved settings.
 
 ### Game settings (Emuera's settings window)
