@@ -2546,8 +2546,13 @@ impl Tty {
             }
             let texts: Vec<&str> = (i..j).map(|k| dialog[k].as_ref().unwrap().1.trim()).collect();
             let joined = texts.join("\n");
-            let place = self.mt.as_ref().is_some_and(|m| m.logging()).then(|| place_of(&lines[start + i], &con.src_files)).flatten();
-            let tr = self.mt.as_mut().and_then(|m| m.get(&joined, src, place.as_deref()).map(str::to_string));
+            // where each line of the batch was printed, for the log (one row each)
+            let places: Vec<String> = if self.mt.as_ref().is_some_and(|m| m.logging()) {
+                (i..j).map(|k| place_of(&lines[start + k], &con.src_files).unwrap_or_else(|| "-".into())).collect()
+            } else {
+                Vec::new()
+            };
+            let tr = self.mt.as_mut().and_then(|m| m.get_lines(&joined, src, &places).map(str::to_string));
             if let Some(tr) = tr {
                 let n = j - i;
                 let got: Vec<&str> = tr.split('\n').collect();

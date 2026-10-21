@@ -372,6 +372,11 @@ game's scripts:
 ERB/口上/K9.ERB:3	ja>en	「おはようございます、お嬢様」	"Good morning, my lady."
 ```
 
+Dialog sent to the translator several lines at a time (a speech over
+several lines) is logged one row per line, each with its own file and line,
+when the translation comes back with as many lines; if it merged or split
+them, the batch is one row.
+
 **Saving** uses the game's own save menu, and the files are Emuera's own
 (binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
 `dat/chara_*.dat` for SAVECHARA. Saves move both ways between emuera-tty
