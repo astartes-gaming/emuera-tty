@@ -280,6 +280,19 @@ impl Picker {
                 Kind::Archive { .. } => "\x1b[36m",
                 _ => "",
             };
+            // the "· last played" (green) and "· git" (sky blue) tags of a game
+            // are coloured on their own; the rest of the row keeps its colour
+            let back = format!("\x1b[0m{}{}", color, if i == self.sel { "\x1b[7m" } else { "" });
+            let line = if matches!(e.kind, Kind::Game { .. }) {
+                let tint = |l: String, tag: &str, code: &str| match l.rfind(tag) {
+                    Some(at) => format!("{}{}{}{}{}", &l[..at], code, tag, back, &l[at + tag.len()..]),
+                    None => l,
+                };
+                // the tags come after the path, so the last match is theirs
+                tint(tint(line, "· last played", "\x1b[32m"), "· git", "\x1b[38;5;117m")
+            } else {
+                line
+            };
             if i == self.sel {
                 s += &format!("{}\x1b[7m {}{}\x1b[0m\r\n", color, line, " ".repeat(pad));
             } else {
