@@ -2,7 +2,8 @@
 //! `EMUERA_*` variable emuera-tty reads (see [`crate::settings::ENV_VARS`]),
 //! with the value it sees now or "(not set)". Read-only: the variables are
 //! read when emuera-tty starts, so they are changed in the shell before it
-//! is launched. Enter on a row says what the variable does.
+//! is launched. Enter on a row says what the variable does. Normal users
+//! shouldn't need any of them (debugging, testing, odd terminals).
 
 use super::saves::Pick;
 use super::{wrap_words, Tty};
@@ -25,7 +26,7 @@ impl Tty {
     /// Run the page. Returns true when the player asked to quit.
     pub(super) fn env_panel(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> bool {
         let mut sel = 0usize;
-        let mut help = String::from("● set  ○ not set. Enter: what it does. Read when emuera-tty starts: set it in the shell before launching");
+        let mut help = String::from("Normal users shouldn't need these: they are mostly for debugging and testing. ● set  ○ not set. Enter: what a variable does. They are read when emuera-tty starts, so set them in the shell before launching.");
         loop {
             let rows: Vec<String> = ENV_VARS
                 .iter()
@@ -38,7 +39,7 @@ impl Tty {
             // doesn't move from one row to the next)
             let mut lines = wrap_words(&help, self.box_geo(0).2.saturating_sub(2), 4);
             lines.resize(4, String::new());
-            match self.list_box(con, res, req, "Environment variables (EMUERA_*)", &rows, rows.len(), &mut sel, &lines.join("\n")) {
+            match self.list_box(con, res, req, "Environment variables (EMUERA_*): for debugging, not normal use", &rows, rows.len(), &mut sel, &lines.join("\n")) {
                 Pick::Back => return false,
                 Pick::Quit => return true,
                 Pick::Row(i) => {
