@@ -23,6 +23,7 @@
 - [Guide](#guide)
   - [1. What you need](#1-what-you-need)
   - [2. Install](#2-install)
+    - [Build stats](#build-stats)
     - [Other systems](#other-systems)
     - [Other CPUs](#other-cpus)
     - [Small machines (Raspberry Pi Zero and the like)](#small-machines-raspberry-pi-zero-and-the-like)
@@ -120,6 +121,21 @@ and tell you to add that to `PATH`, with this line in `~/.bashrc` (or
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+### Build stats
+
+> (spec of common devices and architectures, others will be listed later)
+
+| Target | Type | Status | Testing |
+|---|---|---|---|
+|Linux x86_84|Build|Success|Most common platform, under constant testing|
+|Linux x86_84-static|Build|Success|Untested, but should work|
+|Windows x86_84|Build|Success|Tested launching and basic playthrough, but nothing further than that yet|
+|Windows arm64|N/A|Untested, no build job or specification|N/A|
+|macOS x86_64|Build|Success|Untested|
+|macOS aarch64|Build|Untested, literally every runner is busy|N/A|
+|Android|Build|Success|Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)|
+
 
 ### Other systems
 
