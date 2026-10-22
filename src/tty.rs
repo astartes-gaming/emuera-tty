@@ -1728,7 +1728,7 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
         }
         // overlapping layers (portraits) go to the terminal as one picture
-        let mut placements = self.merger.merge(placements, self.cell);
+        let mut placements = self.merger.merge(placements, self.cell, self.gfx.name() == "kitty-tmux");
         // buttons with tooltips need a full redraw when hovered, and the
         // hovered one shows its tooltip by the pointer
         for (i, v) in self.buttons.iter().enumerate() {

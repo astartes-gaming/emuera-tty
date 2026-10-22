@@ -34,6 +34,9 @@ pub struct Kitty {
     tmux: bool,
     /// tmux: image id → the size in cells of its virtual placement
     virt: HashMap<u32, (u32, u32)>,
+    /// tmux: pictures moved down inside their first cell (`y_off`), as
+    /// copies with that many transparent rows on top, by key
+    padded: HashMap<String, std::rc::Rc<image::RgbaImage>>,
 }
 
 /// kitty's row / column diacritics for Unicode placeholders
@@ -66,7 +69,7 @@ const DIACRITICS: [char; 297] = [
 
 impl Kitty {
     pub fn new() -> Kitty {
-        Kitty { ids: HashMap::new(), next_id: 1, shown: HashMap::new(), tmux: false, virt: HashMap::new() }
+        Kitty { ids: HashMap::new(), next_id: 1, shown: HashMap::new(), tmux: false, virt: HashMap::new(), padded: HashMap::new() }
     }
 
     /// For a kitty-graphics terminal seen through tmux (see the module
@@ -140,6 +143,28 @@ impl Kitty {
             if p.crop_h == 0 || p.below {
                 continue;
             }
+            // placeholders fill whole cells: a picture that starts inside its
+            // first cell is sent with that offset as transparent rows on top
+            let shifted;
+            let p = if p.y_off > 0 && p.crop_top == 0 {
+                let key = format!("{}+y{}", p.key, p.y_off);
+                if self.padded.len() > 64 {
+                    self.padded.clear();
+                }
+                let img = self
+                    .padded
+                    .entry(key.clone())
+                    .or_insert_with(|| {
+                        let mut c = image::RgbaImage::new(p.img.width(), p.img.height() + p.y_off as u32);
+                        image::imageops::overlay(&mut c, &*p.img, 0, p.y_off as i64);
+                        std::rc::Rc::new(c)
+                    })
+                    .clone();
+                shifted = Placement { key, img, y_off: 0, crop_h: p.crop_h + p.y_off as u32, ..p.clone() };
+                &shifted
+            } else {
+                p
+            };
             let id = self.transmit(out, p);
             let cols = p.img.width().div_ceil(cw).max(1);
             let rows = p.img.height().div_ceil(ch).max(1);
@@ -296,6 +321,20 @@ mod tests {
         let mut out = Vec::new();
         k.draw(&mut out, &[placement(20, 32, 16, 16)], (10, 16));
         assert_eq!(String::from_utf8(out).unwrap(), row(1, 3));
+    }
+
+    /// A picture starting inside its first cell is sent with the offset as
+    /// transparent rows on top, so its cells line up.
+    #[test]
+    fn tmux_sub_cell_offset() {
+        let mut k = Kitty::new_tmux();
+        let mut out = Vec::new();
+        let p = Placement { y_off: 6, ..placement(20, 26, 0, 26) };
+        k.draw(&mut out, &[p], (10, 16));
+        let s = String::from_utf8(out).unwrap();
+        // 26 px from 6 px down: 32 px, two rows
+        assert!(s.contains("s=20,v=32,"), "{:?}", &s[..60]);
+        assert!(s.contains("a=p,U=1,i=1,c=2,r=2,"), "{:?}", s);
     }
 
     /// Outside tmux nothing changes: plain commands, no placeholders.
