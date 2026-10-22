@@ -7,6 +7,19 @@ eraBasic "ERB" games) that runs in a terminal. Fidelity to Emuera is the
 goal: script semantics, layout, and save files that move both ways between
 emuera-tty and Emuera.
 
+# CRITICAL: Token Optimization & Constraints
+
+## Communication Style
+- **Be brief**: Skip all pleasantries, preambles, and post-explanations (e.g., NO "Certainly, I can help with that...").
+- **Direct answers only**: Respond directly with code or the answer. 
+- **Terse explanations**: Use bullet points. Keep explanations under 2 sentences unless deeply architectural.
+
+## Coding Constraints
+- **Diffs Only**: Never output full file rewrites. Only provide unified diff chunks (`+++`/`---`) or targeted snippet replacements.
+- **Context Preservation**: Do not read full files if you only need a specific block. Use specific line offsets if supported.
+- **No Refactoring Spree**: Do not fix stylistic issues or add unprompted dependencies in surrounding code unless explicitly asked.
+- **snip**: Ensure that `snip` (https://github.com/edouard-claude/snip) is installed prior to running any commands.
+
 ## Dependencies
 
 Package names are Debian/Ubuntu's (Fedora's where they differ).
