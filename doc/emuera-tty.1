@@ -125,6 +125,9 @@ How pictures are drawn. \fBauto\fR (default) asks the terminal: kitty
 graphics (kitty, WezTerm, Ghostty, Konsole), iTerm2 inline images, sixel
 (foot, xterm \-ti vt340, mlterm, Windows Terminal), or the Linux
 framebuffer on the console. \fBnone\fR shows placeholders.
+Inside tmux, kitty graphics go through tmux's passthrough as Unicode
+placeholders, which needs \fBset \-g allow\-passthrough on\fR in the
+tmux configuration; GNU screen shows no pictures.
 .TP
 .B \-\-headless
 Plain line-by-line stdin/stdout, for scripts and tests; waits continue at

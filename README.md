@@ -571,6 +571,8 @@ terminal:
 | Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
 | bare Linux console (no fbterm) | yes (framebuffer) | can't show Japanese/Chinese text |
 | real VT100 / VT220 / VT52 / ADM-3A / Wyse…, local or on a **serial line** | no | ASCII, see below |
+| **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough on` |
+| **tmux** inside a sixel terminal | yes (tmux draws the sixel) | tmux built with sixel |
 
 - Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
   names and symbols show up.
@@ -584,6 +586,14 @@ terminal:
   widen the window.
 - `--gfx none` turns images off; `--gfx kitty|iterm|sixel|fb` forces a backend
   if auto-detection guesses wrong.
+- **tmux**: with kitty or Ghostty outside it, put `set -g allow-passthrough
+  on` in `~/.tmux.conf` (then `tmux source ~/.tmux.conf`). Pictures are
+  then written as kitty's Unicode placeholders: text tmux keeps in its
+  pane, so they follow splits, window switches and redraws. A picture
+  meant to sit behind text isn't shown there, and crops are to whole
+  cells. Without the setting there are no pictures (the startup message
+  says so). byobu runs on tmux by default, so the same applies; GNU
+  screen can't pass pictures through, so there are none there.
 
 **On the Linux console** (Ctrl-Alt-F3 etc.):
 
@@ -813,6 +823,7 @@ nothing for it.)
 | `TERM=linux` / `fbterm*` (VT) | **fb** | mmaps `/dev/fb0`, alpha-blends sprites onto the console after each frame. Needs read/write access to the device (`video` group). Cell size = fb resolution ÷ cols/rows. |
 | `TERM_PROGRAM=iTerm.app` / `LC_TERMINAL=iTerm2` | **iterm** | PNG per sprite in `OSC 1337 File=`, sized in whole cells (padded, so never stretched), cached. |
 | kitty graphics reply `_Gi=31;OK` | **kitty** | RGBA transmit once per sprite+size, `a=p` placements, source-rect crop at the screen edge. |
+| inside tmux with `allow-passthrough on`, and a kitty graphics reply or `GHOSTTY_RESOURCES_DIR` / `KITTY_WINDOW_ID` | **kitty-tmux** | the same through tmux's passthrough, placed with kitty's Unicode placeholders (U+10EEEE, the image id as the 256-colour foreground, row/column diacritics), which tmux handles as text. |
 | DA1 reply contains `4` | **sixel** | median-cut 255-colour quantiser, transparent background, cached per sprite. |
 | otherwise | none | images shown as `░` placeholders of the right size. |
 

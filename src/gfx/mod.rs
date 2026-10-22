@@ -83,12 +83,19 @@ impl Merger {
     /// replaced by one picture, where the group's first one was (those
     /// under the text and those over it apart).
     /// `cell`: a cell's size in pixels.
-    pub fn merge(&mut self, ps: Vec<Placement>, cell: (u32, u32)) -> Vec<Placement> {
+    /// `by_cell`: pictures sharing a cell count as overlapping (a backend
+    /// that draws whole cells, kitty-tmux's placeholders).
+    pub fn merge(&mut self, ps: Vec<Placement>, cell: (u32, u32), by_cell: bool) -> Vec<Placement> {
         let (cw, ch) = (cell.0.max(1) as i64, cell.1.max(1) as i64);
         // pixel rectangle on screen of what shows of each picture
         let rect = |p: &Placement| {
             let (x, y) = (p.col as i64 * cw, p.row as i64 * ch + p.y_off as i64);
-            (x, y, x + p.img.width() as i64, y + p.crop_h as i64)
+            let (x1, y1) = (x + p.img.width() as i64, y + p.crop_h as i64);
+            if by_cell {
+                (x, y - y.rem_euclid(ch), x1 + (cw - x1.rem_euclid(cw)) % cw, y1 + (ch - y1.rem_euclid(ch)) % ch)
+            } else {
+                (x, y, x1, y1)
+            }
         };
         let n = ps.len();
         // groups of overlapping pictures (union-find)
@@ -277,7 +284,7 @@ mod merge_tests {
         let tint = place("tint", [0, 0, 200, 128], 10, 20, 1, 0, false);
         let apart = place("apart", [0, 200, 0, 255], 10, 10, 10, 0, false);
         let bg = place("bg", [9, 9, 9, 255], 40, 40, 0, 0, true);
-        let out = m.merge(vec![bg, base, tint, apart], (10, 10));
+        let out = m.merge(vec![bg, base, tint, apart], (10, 10), false);
         assert_eq!(out.len(), 3, "base and tint merged");
         assert_eq!(out[0].key, "bg");
         let merged = &out[1];
@@ -288,7 +295,19 @@ mod merge_tests {
         assert!(p[3] == 255 && p[0] > 90 && p[0] < 110 && p[2] > 90 && p[2] < 110, "blended: {:?}", p);
         assert_eq!(out[2].key, "apart");
         // the same layers again: the picture made before
-        let again = m.merge(vec![place("base", [200, 0, 0, 255], 20, 20, 0, 0, false), place("tint", [0, 0, 200, 128], 10, 20, 1, 0, false)], (10, 10));
+        let again = m.merge(vec![place("base", [200, 0, 0, 255], 20, 20, 0, 0, false), place("tint", [0, 0, 200, 128], 10, 20, 1, 0, false)], (10, 10), false);
         assert!(Rc::ptr_eq(&again[0].img, &merged.img));
+    }
+
+    /// Strips that only touch merge when the backend draws whole cells and
+    /// they share one (a portrait cut into slices, eraMegatenP's face icons).
+    #[test]
+    fn merge_by_cell() {
+        let mut m = Merger::default();
+        // 10x10 cells; strip 2 starts 6 px down the first strip's last row
+        let a = place("a", [200, 0, 0, 255], 10, 16, 0, 0, false);
+        let b = Placement { y_off: 6, ..place("b", [0, 0, 200, 255], 10, 8, 0, 1, false) };
+        assert_eq!(m.merge(vec![a.clone(), b.clone()], (10, 10), false).len(), 2, "pixels don't overlap");
+        assert_eq!(m.merge(vec![a, b], (10, 10), true).len(), 1, "they share row 1");
     }
 }

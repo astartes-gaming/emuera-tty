@@ -618,6 +618,20 @@ fn write_all(b: &[u8]) {
     let _ = out.flush();
 }
 
+/// Running inside tmux?
+fn in_tmux() -> bool {
+    std::env::var_os("TMUX").is_some()
+}
+
+/// Does tmux let escape sequences through to the terminal it runs in
+/// (`allow-passthrough on` or `all`)? Without it, pictures can't be shown.
+fn tmux_passthrough() -> bool {
+    std::process::Command::new("tmux")
+        .args(["show-options", "-gqv", "allow-passthrough"])
+        .output()
+        .is_ok_and(|o| matches!(String::from_utf8_lossy(&o.stdout).trim(), "on" | "all"))
+}
+
 impl Tty {
     /// Enter raw mode and the alternate screen, pick colour and graphics
     /// support, open the console mouse if needed, and enable mouse reports.
@@ -938,6 +952,7 @@ impl Tty {
         };
         match pref {
             "none" => return "graphics backend: none".into(),
+            "kitty" if in_tmux() => self.gfx = Box::new(gfx::kitty::Kitty::new_tmux()),
             "kitty" => self.gfx = Box::new(gfx::kitty::Kitty::new()),
             "iterm" => self.gfx = Box::new(gfx::iterm::Iterm::new()),
             "sixel" => self.gfx = Box::new(gfx::sixel::Sixel::new()),
@@ -952,9 +967,27 @@ impl Tty {
                 } else if iterm {
                     self.gfx = Box::new(gfx::iterm::Iterm::new());
                 } else {
-                    // kitty graphics query + primary device attributes
+                    // inside tmux the kitty query goes through its
+                    // passthrough (the terminal's answer may not come back:
+                    // the terminal tmux runs in also says who it is through
+                    // the environment); tmux answers the attributes itself
+                    // (sixel if it was built with it, and it then shows
+                    // sixel pictures on its own)
+                    let tmux = in_tmux();
+                    let passthrough = tmux && tmux_passthrough();
+                    if std::env::var_os("STY").is_some() && !tmux {
+                        why = "; inside GNU screen there are no pictures (tmux can show them)".into();
+                    }
+                    if tmux && !passthrough {
+                        why = "; inside tmux, kitty-graphics terminals (Ghostty, kitty) need `set -g allow-passthrough on` for pictures".into();
+                    }
+                    let kitty_q: &[u8] = if passthrough {
+                        b"\x1bPtmux;\x1b\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\x1b\\\x1b\\\x1b[c"
+                    } else {
+                        b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c"
+                    };
                     let r = self.query(
-                        b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c",
+                        kitty_q,
                         |b| {
                             let s = String::from_utf8_lossy(b);
                             s.contains("\x1b[?") && s.trim_end().ends_with('c')
@@ -962,7 +995,11 @@ impl Tty {
                         400,
                     );
                     let s = String::from_utf8_lossy(&r).to_string();
-                    if s.contains("_Gi=31;OK") {
+                    // (terminals with kitty's Unicode placeholders)
+                    let placeholders = std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some() || std::env::var_os("KITTY_WINDOW_ID").is_some();
+                    if passthrough && (s.contains("_Gi=31;OK") || placeholders) {
+                        self.gfx = Box::new(gfx::kitty::Kitty::new_tmux());
+                    } else if s.contains("_Gi=31;OK") && !tmux {
                         self.gfx = Box::new(gfx::kitty::Kitty::new());
                     } else if let Some(i) = s.find("\x1b[?") {
                         let da = &s[i + 3..];
@@ -1691,7 +1728,7 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
         }
         // overlapping layers (portraits) go to the terminal as one picture
-        let mut placements = self.merger.merge(placements, self.cell);
+        let mut placements = self.merger.merge(placements, self.cell, self.gfx.name() == "kitty-tmux");
         // buttons with tooltips need a full redraw when hovered, and the
         // hovered one shows its tooltip by the pointer
         for (i, v) in self.buttons.iter().enumerate() {
