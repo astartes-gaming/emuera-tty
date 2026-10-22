@@ -37,6 +37,24 @@ pub struct Kitty {
     /// tmux: pictures moved down inside their first cell (`y_off`), as
     /// copies with that many transparent rows on top, by key
     padded: HashMap<String, std::rc::Rc<image::RgbaImage>>,
+    /// tmux: image id → which of its cells (row by row) show anything; a
+    /// fully transparent cell gets no placeholder, so text there stays
+    opaque: HashMap<u32, Vec<bool>>,
+}
+
+/// Which cells of `img`, cut into `cols` × `rows` cells of `cw` × `ch`
+/// pixels, hold a pixel that isn't fully transparent (row by row).
+fn opaque_cells(img: &image::RgbaImage, cols: u32, rows: u32, cw: u32, ch: u32) -> Vec<bool> {
+    let mut m = vec![false; (cols * rows) as usize];
+    for (x, y, px) in img.enumerate_pixels() {
+        if px.0[3] != 0 {
+            let (c, r) = (x / cw, y / ch);
+            if c < cols && r < rows {
+                m[(r * cols + c) as usize] = true;
+            }
+        }
+    }
+    m
 }
 
 /// kitty's row / column diacritics for Unicode placeholders
@@ -69,7 +87,7 @@ const DIACRITICS: [char; 297] = [
 
 impl Kitty {
     pub fn new() -> Kitty {
-        Kitty { ids: HashMap::new(), next_id: 1, shown: HashMap::new(), tmux: false, virt: HashMap::new(), padded: HashMap::new() }
+        Kitty { ids: HashMap::new(), next_id: 1, shown: HashMap::new(), tmux: false, virt: HashMap::new(), padded: HashMap::new(), opaque: HashMap::new() }
     }
 
     /// For a kitty-graphics terminal seen through tmux (see the module
@@ -109,6 +127,7 @@ impl Kitty {
             self.ids.clear();
             self.shown.clear();
             self.virt.clear();
+            self.opaque.clear();
             if self.tmux {
                 self.next_id = 1;
             }
@@ -174,8 +193,10 @@ impl Kitty {
                 }
                 self.put(out, format!("\x1b_Ga=p,U=1,i={},c={},r={},q=2\x1b\\", id, cols, rows).as_bytes());
                 self.virt.insert(id, (cols, rows));
+                self.opaque.remove(&id);
             }
             // the image rows (whole cells) the crop leaves visible
+            let opaque = self.opaque.entry(id).or_insert_with(|| opaque_cells(&p.img, cols, rows, cw, ch));
             let first = p.crop_top / ch;
             let last = (p.crop_top + p.crop_h).div_ceil(ch).min(rows);
             for r in first..last {
@@ -183,14 +204,24 @@ impl Kitty {
                 if row < 0 || r as usize >= DIACRITICS.len() {
                     continue;
                 }
-                let _ = write!(out, "\x1b[{};{}H\x1b[38;5;{}m", row + 1, p.col + 1, id);
+                let mut at = None;
                 for c in 0..(cols as usize).min(DIACRITICS.len()) {
+                    // a fully transparent cell: the text under it stays
+                    if !opaque.get(r as usize * cols as usize + c).copied().unwrap_or(true) {
+                        continue;
+                    }
+                    if at != Some(c) {
+                        let _ = write!(out, "\x1b[{};{}H\x1b[38;5;{}m", row + 1, p.col + 1 + c as i32, id);
+                    }
+                    at = Some(c + 1);
                     let mut b = [0u8; 4];
                     out.extend_from_slice('\u{10EEEE}'.encode_utf8(&mut b).as_bytes());
                     out.extend_from_slice(DIACRITICS[r as usize].encode_utf8(&mut b).as_bytes());
                     out.extend_from_slice(DIACRITICS[c].encode_utf8(&mut b).as_bytes());
                 }
-                out.extend_from_slice(b"\x1b[39m");
+                if at.is_some() {
+                    out.extend_from_slice(b"\x1b[39m");
+                }
             }
         }
     }
@@ -280,11 +311,13 @@ impl Backend for Kitty {
         self.put(out, b"\x1b_Ga=d,d=a,q=2\x1b\\");
         self.shown.clear();
         self.virt.clear();
+        self.opaque.clear();
     }
     fn shutdown(&mut self, out: &mut Vec<u8>) {
         self.put(out, b"\x1b_Ga=d,d=A,q=2\x1b\\");
         self.shown.clear();
         self.virt.clear();
+        self.opaque.clear();
     }
 }
 
@@ -294,7 +327,16 @@ mod tests {
     use std::rc::Rc;
 
     fn placement(w: u32, h: u32, crop_top: u32, crop_h: u32) -> Placement {
-        Placement { key: "k".into(), img: Rc::new(image::RgbaImage::new(w, h)), col: 4, row: 2, y_off: 0, crop_top, crop_h, below: false }
+        Placement {
+            key: "k".into(),
+            img: Rc::new(image::RgbaImage::from_pixel(w, h, image::Rgba([0, 0, 0, 255]))),
+            col: 4,
+            row: 2,
+            y_off: 0,
+            crop_top,
+            crop_h,
+            below: false,
+        }
     }
 
     /// Inside tmux: commands in passthrough (ESC doubled), one virtual
@@ -335,6 +377,22 @@ mod tests {
         // 26 px from 6 px down: 32 px, two rows
         assert!(s.contains("s=20,v=32,"), "{:?}", &s[..60]);
         assert!(s.contains("a=p,U=1,i=1,c=2,r=2,"), "{:?}", s);
+    }
+
+    /// A fully transparent cell gets no placeholder: the text there stays
+    /// (eraAkumaMaid's title art reaches over a line with its margin).
+    #[test]
+    fn tmux_transparent_cells() {
+        let mut img = image::RgbaImage::new(20, 32);
+        // only the top-left cell shows anything
+        img.put_pixel(3, 3, image::Rgba([255, 0, 0, 255]));
+        let p = Placement { img: Rc::new(img), ..placement(20, 32, 0, 32) };
+        let mut k = Kitty::new_tmux();
+        let mut out = Vec::new();
+        k.draw(&mut out, &[p], (10, 16));
+        let s = String::from_utf8(out).unwrap();
+        assert_eq!(s.matches('\u{10EEEE}').count(), 1, "{:?}", s);
+        assert!(s.ends_with(&format!("\x1b[3;5H\x1b[38;5;1m\u{10EEEE}{}{}\x1b[39m", DIACRITICS[0], DIACRITICS[0])), "{:?}", s);
     }
 
     /// Outside tmux nothing changes: plain commands, no placeholders.
