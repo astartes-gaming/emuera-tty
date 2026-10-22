@@ -1,0 +1,58 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # dynamically linked against glibc: for ordinary amd64 desktops and servers
+          - name: linux-amd64
+            target: x86_64-unknown-linux-gnu
+            rustflags: ""
+          # static musl program: runs on any amd64 Linux, whatever its libc
+          # (the recipe from the README's "Other CPUs" section)
+          - name: linux-amd64-static
+            target: x86_64-unknown-linux-musl
+            rustflags: "-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml selects stable with rustfmt and clippy; adding the
+      # target here applies to that same toolchain
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Collect the binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/emuera-tty dist/emuera-tty-${{ matrix.name }}
+          file dist/emuera-tty-${{ matrix.name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emuera-tty-${{ matrix.name }}
+          path: dist/emuera-tty-${{ matrix.name }}
+          if-no-files-found: error
