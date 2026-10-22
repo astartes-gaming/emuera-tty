@@ -106,3 +106,14 @@ fn commands_not_allowed_in_functions() {
     assert!(!check.contains("PRINTL instruction"), "{}", check);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `X += expr,` with a trailing comma is one value, as in Emuera (eraTW's
+/// SOURCE.ERB writes `TCVAR:LCOUNT:体力回復 += 10 + RAND:10,`).
+#[test]
+fn trailing_comma_in_assignment() {
+    let dir = temp_dir("trailing-comma");
+    game(&dir, &[("ERB/T.ERB", "@SYSTEM_TITLE\nLOCAL = 5\nLOCAL += 10,\nLOCAL:1 = 1, 2,\nPRINTFORML V={LOCAL} {LOCAL:1}{LOCAL:2}\nQUIT\n")]);
+    let text = run(&dir, b"");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(text.contains("V=15 12"), "{}", text);
+}

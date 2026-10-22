@@ -154,6 +154,12 @@ impl<'a> ExprParser<'a> {
             if !self.eat(",") {
                 break;
             }
+            // a trailing comma adds no value, as in Emuera's
+            // ReduceArguments (`X += 1,` is one value, `F(a,)` one argument)
+            self.skip_ws();
+            if self.peek().is_none() || self.peek() == Some(')') {
+                break;
+            }
         }
         Ok(out)
     }
@@ -760,5 +766,23 @@ mod ident_tests {
         for c in "aZ09_あ漢ｱ".chars() {
             assert!(super::is_ident_char(c), "{:?}", c);
         }
+    }
+}
+
+#[cfg(test)]
+mod list_tests {
+    use super::*;
+
+    /// A trailing comma adds no value, as in Emuera; one in the middle is
+    /// an omitted value.
+    #[test]
+    fn trailing_comma() {
+        let n = |s: &str| parse_expr_list(s, &Default::default()).unwrap().len();
+        assert_eq!(n("10 + RAND:10,"), 1);
+        assert_eq!(n("1, 2 ,  "), 2);
+        assert_eq!(n("1,,3"), 3);
+        assert_eq!(n(",2"), 2);
+        let call = parse_expr("F(1,)", &Default::default()).unwrap();
+        assert!(matches!(&call, Expr::Call(c) if c.1.len() == 1), "{:?}", call);
     }
 }
