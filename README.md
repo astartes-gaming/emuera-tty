@@ -875,9 +875,12 @@ others; one picture can't. It also helps sixel and iTerm2, which can't
 stack transparent pictures at all.
 
 In WezTerm, Windows Terminal and other terminals where sixel and iTerm2
-pictures belong to the cells under them, writing text there erases the
-picture: after redrawing a hovered button or a tooltip over a picture,
-emuera-tty sends that picture again.
+pictures belong to the cells under them, and inside tmux, where kitty
+pictures are placeholder text, writing text there erases the picture:
+after redrawing a hovered button over a picture, emuera-tty sends that
+picture again. Inside tmux a tooltip simply covers the placeholders,
+rather than being cut out of the picture (which would mean sending a new
+picture through tmux).
 
 **fbcon caveat:** the in-kernel console can't draw CJK glyphs. For
 eratohoTW's Japanese/Chinese text on a bare VT, run under **fbterm** (still

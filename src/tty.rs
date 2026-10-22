@@ -1796,7 +1796,10 @@ impl Tty {
         };
         self.tip_drawn = tip.is_some();
         // pictures sit above text: the tooltip's place is cut out of them
-        if let Some(t) = &tip {
+        // (not out of tmux's placeholders, which are text the tooltip
+        // overwrites anyway: a cut picture would be a new one, sent whole
+        // through tmux, and the portrait would vanish until it arrived)
+        if let (Some(t), false) = (&tip, self.gfx.name() == "kitty-tmux") {
             let cells = (t.left as i64 - 1, t.top as i64 - 1, (t.left + t.w) as i64 - 1, (t.top + t.lines.len()) as i64 - 1);
             placements = placements.into_iter().map(|p| self.merger.cut(p, cells, self.cell)).collect();
         }
@@ -2318,8 +2321,9 @@ impl Tty {
         self.hover = new_hover;
         // images the repainted cells cut into: the framebuffer paints them
         // again over the text; where text erases a picture's cells (sixel,
-        // iTerm in WezTerm and the like) the picture is sent again, or a
-        // hovered picture button would be left with black bands
+        // iTerm in WezTerm and the like, kitty's placeholders in tmux) the
+        // picture is sent again, or a hovered picture button would be left
+        // with black bands
         let (cw, ch) = (self.cell.0.max(1) as i32, self.cell.1.max(1) as i32);
         let hit: Vec<Placement> = self
             .frame_imgs

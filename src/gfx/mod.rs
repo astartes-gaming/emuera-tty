@@ -45,8 +45,9 @@ pub trait Backend {
     /// Called after the frame has been written and drained to the tty.
     fn after_flush(&mut self, _p: &[Placement], _cell: (u32, u32)) {}
     /// Does text written into a cell erase the picture there? (sixel and
-    /// iTerm pictures belong to their cells in WezTerm, Windows Terminal…;
-    /// kitty's sit above the text)
+    /// iTerm pictures belong to their cells in WezTerm, Windows Terminal…,
+    /// and in tmux kitty's are placeholder text; elsewhere kitty's sit above
+    /// the text)
     fn text_erases(&self) -> bool {
         false
     }
