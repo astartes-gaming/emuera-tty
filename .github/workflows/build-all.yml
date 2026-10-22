@@ -1,0 +1,137 @@
+name: Build all platforms (manual)
+
+# Only starts when asked for (Actions → "Build all platforms (manual)" → Run
+# workflow). It covers what the README lists under "Other systems" and
+# "Other CPUs":
+#   - builds:  x86-64 Linux, Windows, macOS, and the CPUs the README ran
+#              under emulation (static musl programs); binaries are uploaded
+#   - checks:  the systems and CPUs the README only compile-checks
+#              (`cargo check`, nightly + build-std); nothing is uploaded
+on:
+  workflow_dispatch:
+    inputs:
+      builds:
+        description: "Build and upload the binaries (Linux, Windows, macOS, emulated CPUs)"
+        type: boolean
+        default: true
+      checks:
+        description: "Compile-check the other systems and CPUs"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # the README's recipe for static musl programs with Rust's own linker
+  MUSL_FLAGS: "-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"
+
+jobs:
+  build:
+    if: ${{ inputs.builds }}
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # the same steps on every runner, Windows included (Git Bash)
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86-64 PCs
+          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu, musl: false, ext: "" }
+          - { name: linux-x86_64-static, os: ubuntu-latest, target: x86_64-unknown-linux-musl, musl: true, ext: "" }
+          - { name: windows-x86_64, os: windows-latest, target: x86_64-pc-windows-msvc, musl: false, ext: ".exe" }
+          # macOS: both Macs from the one (Apple silicon) runner
+          - { name: macos-aarch64, os: macos-latest, target: aarch64-apple-darwin, musl: false, ext: "" }
+          - { name: macos-x86_64, os: macos-latest, target: x86_64-apple-darwin, musl: false, ext: "" }
+          # other CPUs, run under qemu-user in the README: static musl programs
+          - { name: linux-i586-static, os: ubuntu-latest, target: i586-unknown-linux-musl, musl: true, ext: "" }
+          - { name: linux-armv5-static, os: ubuntu-latest, target: armv5te-unknown-linux-musleabi, musl: true, ext: "" }
+          - { name: linux-armv6-static, os: ubuntu-latest, target: arm-unknown-linux-musleabihf, musl: true, ext: "" }
+          - { name: linux-armv7-static, os: ubuntu-latest, target: armv7-unknown-linux-musleabihf, musl: true, ext: "" }
+          - { name: linux-aarch64-static, os: ubuntu-latest, target: aarch64-unknown-linux-musl, musl: true, ext: "" }
+          - { name: linux-riscv64-static, os: ubuntu-latest, target: riscv64gc-unknown-linux-musl, musl: true, ext: "" }
+          - { name: linux-ppc64-static, os: ubuntu-latest, target: powerpc64-unknown-linux-musl, musl: true, ext: "" }
+          - { name: linux-ppc64le-static, os: ubuntu-latest, target: powerpc64le-unknown-linux-musl, musl: true, ext: "" }
+          - { name: linux-loongarch64-static, os: ubuntu-latest, target: loongarch64-unknown-linux-musl, musl: true, ext: "" }
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml selects stable with rustfmt and clippy; adding the
+      # target here applies to that same toolchain
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        env:
+          RUSTFLAGS: ${{ matrix.musl && env.MUSL_FLAGS || '' }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Collect the binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/emuera-tty${{ matrix.ext }} dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
+          file dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }} || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emuera-tty-${{ matrix.name }}
+          path: dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
+          if-no-files-found: error
+
+  # What the README only compile-checks: there is no C library to link
+  # against here, and most of these have no prebuilt standard library, so
+  # it is built from source (nightly, `-Z build-std`).
+  check:
+    if: ${{ inputs.checks }}
+    name: check ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # "Other systems": the Unix code path, and Termux
+          - { name: freebsd, target: x86_64-unknown-freebsd }
+          - { name: netbsd, target: x86_64-unknown-netbsd }
+          - { name: openbsd, target: x86_64-unknown-openbsd }
+          - { name: dragonfly, target: x86_64-unknown-dragonfly }
+          - { name: illumos, target: x86_64-unknown-illumos }
+          - { name: solaris, target: x86_64-pc-solaris }
+          - { name: haiku, target: x86_64-unknown-haiku }
+          - { name: redox, target: x86_64-unknown-redox }
+          - { name: android-termux, target: aarch64-linux-android }
+          # "Other CPUs", compile-checked
+          - { name: riscv32, target: riscv32gc-unknown-linux-gnu }
+          - { name: powerpc32, target: powerpc-unknown-linux-gnu }
+          - { name: s390x, target: s390x-unknown-linux-gnu }
+          - { name: sparc32, target: sparc-unknown-linux-gnu }
+          - { name: sparc64, target: sparc64-unknown-linux-gnu }
+          - { name: mips32-be, target: mips-unknown-linux-gnu }
+          - { name: mips32-le, target: mipsel-unknown-linux-gnu }
+          - { name: mips64-be, target: mips64-unknown-linux-gnuabi64 }
+          - { name: mips64-le, target: mips64el-unknown-linux-gnuabi64 }
+          - { name: m68k, target: m68k-unknown-linux-gnu }
+          - { name: hexagon, target: hexagon-unknown-linux-musl }
+          - { name: csky, target: csky-unknown-linux-gnuabiv2 }
+          - { name: arm-big-endian, target: armeb-unknown-linux-gnueabi }
+          - { name: aarch64-big-endian, target: aarch64_be-unknown-linux-gnu }
+          - { name: x32, target: x86_64-unknown-linux-gnux32 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly with the standard library's source
+        run: rustup toolchain install nightly --profile minimal --component rust-src
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: check-${{ matrix.target }}
+
+      - name: Check
+        run: cargo +nightly check -Z build-std=std,panic_abort --target ${{ matrix.target }}
