@@ -442,7 +442,13 @@ pub fn parse_print_name(cmd: &str) -> Option<(char, PrintFlags)> {
     }
     match s {
         "" => {}
-        "L" | "N" => fl.newline = true,
+        "L" => fl.newline = true,
+        // N: shown as W (Emuera ends the display line before any wait),
+        // only not counted as a logical line end for LINECOUNT there
+        "N" => {
+            fl.newline = true;
+            fl.wait = true;
+        }
         "W" => {
             fl.newline = true;
             fl.wait = true;
@@ -490,6 +496,8 @@ fn raw_arg_cmd(cmd: &str) -> bool {
     matches!(
         cmd,
         "DATA"
+            // (the event's name as written: Emuera's FunctionArgType.STR)
+            | "CALLEVENT"
             | "CUSTOMDRAWLINE"
             | "ALIGNMENT"
             | "STRLEN"

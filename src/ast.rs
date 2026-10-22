@@ -188,7 +188,6 @@ pub struct PrintFlags {
     pub column: Option<Align>,
     pub single: bool,
     pub plain: bool,
-    /// N: newline without wait in EE (treated like L)
     pub no_auto_button: bool,
 }
 

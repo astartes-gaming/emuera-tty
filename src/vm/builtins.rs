@@ -468,7 +468,8 @@ impl Vm {
             });
             a.set(idx.max(0) as usize, val);
         };
-        set(&mut c, "NO", 0, Value::Int(no));
+        // (an empty character is Emuera's pseudo template: number 0)
+        set(&mut c, "NO", 0, Value::Int(no.max(0)));
         c.names_unset = 15;
         if let Some(ti) = self.chara_no_template(no) {
             let t = self.csv.charas[ti].clone();
@@ -1402,8 +1403,13 @@ impl Vm {
                 let parts: Vec<String> = raw.split(',').map(|s| s.trim().to_uppercase()).collect();
                 let key = parts.first().filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| "NO".into());
                 let back = parts.get(1).map(|s| s == "BACK").unwrap_or(false);
+                // the key's index may be a CSV name (CFLAG:好感度) or an expression
                 let (kname, kidx) = match key.split_once(':') {
-                    Some((n, i)) => (n.to_string(), i.parse::<usize>().unwrap_or(0)),
+                    Some((n, i)) => {
+                        let e = crate::expr::parse_expr(i, &self.prog.defines).map_err(|e| Ctrl::Error(format!("SORTCHARA: {}", e), false))?;
+                        let e = crate::parser::upper_expr(e);
+                        (n.to_string(), self.eval_index_pub(&e, n)?.max(0) as usize)
+                    }
                     None => (key.clone(), 0),
                 };
                 let master = self.get_global_i("MASTER", 0);
@@ -1443,7 +1449,10 @@ impl Vm {
             }
             "UPCHECK" | "CUPCHECK" => self.upcheck(name == "CUPCHECK", a)?,
             "CALLEVENT" => {
-                let n = self.as_(a, 0, "")?.to_uppercase();
+                let n = match args {
+                    Args::Raw(s) => s.trim().to_uppercase(),
+                    _ => self.as_(a, 0, "")?.to_uppercase(),
+                };
                 self.call_name(&n, vec![])?;
             }
             "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG" | "UPDATECHECK" | "FORCEKANA"
@@ -3267,11 +3276,13 @@ impl Vm {
             } else {
                 self.con.font_name.clone()
             }),
-            "CURRENTALIGN" => i(match self.con.align {
-                Align::Left => 0,
-                Align::Center => 1,
-                Align::Right => 2,
-            }),
+            // a string in Emuera
+            "CURRENTALIGN" => s(match self.con.align {
+                Align::Left => "LEFT",
+                Align::Center => "CENTER",
+                Align::Right => "RIGHT",
+            }
+            .to_string()),
             "CURRENTREDRAW" => i(self.con.redraw as i64),
             "CHKFONT" => i(1),
             // (MOUSESKIP: Emuera's old name for it)
@@ -3603,7 +3614,10 @@ impl Vm {
                 self.global_arr("RESULT").set_i(1, h);
                 i(w)
             }
-            "SPRITEDISPOSEALL" => i(self.res.dispose_all_sprites()),
+            "SPRITEDISPOSEALL" => {
+                let csv_too = self.ai(a, 0, 0)? != 0;
+                i(self.res.dispose_all_sprites(csv_too))
+            }
             "SPRITEGETCOLOR" => {
                 let n = self.as_(a, 0, "")?;
                 let (x, y) = (self.ai(a, 1, 0)?, self.ai(a, 2, 0)?);

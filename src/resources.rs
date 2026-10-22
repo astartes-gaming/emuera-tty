@@ -60,6 +60,8 @@ pub struct Resources {
     /// animated sprites (`name,ANIME,w,h` in a resources CSV, or
     /// SPRITEANIMECREATE): their frames are sprites of their own
     pub anime: HashMap<String, Anime>,
+    /// animations made by SPRITEANIMECREATE (the others come from CSV)
+    runtime_anime: std::collections::HashSet<String>,
     /// SETANIMETIMER: how often the screen redraws for animations (ms, 0: off)
     pub anim_timer: i64,
     /// an animated sprite was drawn since the last [`Resources::take_anim_used`]
@@ -854,7 +856,8 @@ impl Resources {
         if self.exists(&k) {
             return false;
         }
-        self.anime.insert(k, Anime { size: (w, h), frames: Vec::new() });
+        self.anime.insert(k.clone(), Anime { size: (w, h), frames: Vec::new() });
+        self.runtime_anime.insert(k);
         true
     }
 
@@ -995,11 +998,26 @@ impl Resources {
     /// SPRITEDISPOSE: only SPRITECREATE sprites go away (resource-file
     /// ones stay, as in Emuera where they'd be reloaded).
     /// SPRITEDISPOSEALL: drop every SPRITECREATE sprite; how many.
-    pub fn dispose_all_sprites(&mut self) -> i64 {
-        let n = self.g_sprites.len() as i64;
+    /// SPRITEDISPOSEALL: the sprites made while playing (SPRITECREATE,
+    /// SPRITEANIMECREATE) go, and with `csv_too` those from the CSV files
+    /// as well; how many went (an animation counts once, as in Emuera).
+    pub fn dispose_all_sprites(&mut self, csv_too: bool) -> i64 {
+        let frame = |k: &str| k.contains('#');
+        let runtime = self.g_sprites.keys().filter(|k| !frame(k)).count() + self.runtime_anime.len();
+        let csv = self.sprites.keys().filter(|k| !frame(k)).count() + self.anime.len() - self.runtime_anime.len();
         self.g_sprites.clear();
+        for k in std::mem::take(&mut self.runtime_anime) {
+            self.anime.remove(&k);
+        }
+        if csv_too {
+            self.sprites.clear();
+            self.anime.clear();
+            self.pos_override.clear();
+            self.cropped.clear();
+            self.scaled.clear();
+        }
         self.changed();
-        n
+        (runtime + if csv_too { csv } else { 0 }) as i64
     }
 
     pub fn dispose_sprite(&mut self, name: &str) -> bool {

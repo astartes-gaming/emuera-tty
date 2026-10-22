@@ -198,6 +198,9 @@ pub struct Vm {
     /// Warnings already printed (each is shown once).
     warned: HashSet<String>,
     pub game_dir: PathBuf,
+    /// ONEINPUT系命令でマウスによる2文字以上の入力を許可する: a one-key input
+    /// keeps a longer answer (else only its first character, as Emuera)
+    long_oneinput: bool,
     /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
     /// FLOWINPUT / FLOWINPUTS settings for the shop's own input:
@@ -284,6 +287,7 @@ impl Vm {
             code_budget: crate::sys::memory_budget("EMUERA_CODE_MB", 16),
             rng: seed | 1,
             warned: HashSet::default(),
+            long_oneinput: crate::emuconfig::Values::read(&game_dir).flag("ONEINPUT系命令でマウスによる2文字以上の入力を許可する"),
             game_dir,
             strict: false,
             flow_input: (0, false, false, String::new(), false),
@@ -310,7 +314,7 @@ impl Vm {
             crate::frontend::Hotkey::Title => {
                 self.con.clear_lines(usize::MAX);
                 self.con.cur.clear();
-                self.res.dispose_all_sprites();
+                self.res.dispose_all_sprites(false);
                 self.res.cbg.clear();
                 self.con.style.fg = self.con.default_fg;
                 self.con.skip_disp = false;
@@ -2109,6 +2113,7 @@ impl Vm {
                 None => return Ok(default.unwrap_or(0)),
                 Some(s) => s,
             };
+            let s = self.one_char(s, one);
             let t = s.trim();
             if t.is_empty() {
                 if let Some(d) = default {
@@ -2133,11 +2138,21 @@ impl Vm {
     pub fn input_str(&mut self, default: Option<String>, timeout: Option<u64>, one: bool) -> VmResult<String> {
         let r = self.raw_input(&InputReq { kind: InputKind::Str, one, timeout_ms: timeout, stop_skip: false })?;
         self.is_timeout = r.is_none();
-        Ok(match r {
+        Ok(match r.map(|s| self.one_char(s, one)) {
             None => default.unwrap_or_default(),
             Some(s) if s.is_empty() => default.unwrap_or_default(),
             Some(s) => s,
         })
+    }
+
+    /// A one-key input (ONEINPUT…) keeps the answer's first character, as
+    /// Emuera does unless the config allows longer ones.
+    fn one_char(&self, s: String, one: bool) -> String {
+        if one && !self.long_oneinput {
+            s.chars().next().map(String::from).unwrap_or_default()
+        } else {
+            s
+        }
     }
 
     /// Every few thousand instructions: while a script computes for a long

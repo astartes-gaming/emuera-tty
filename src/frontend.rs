@@ -194,11 +194,23 @@ pub struct Headless {
     pub echo_input: bool,
     lines_in: Box<dyn BufRead>,
     width: usize,
+    /// EMUERA_LOG_STYLE=emuera: only the lines the game printed, as
+    /// Emuera's log has them (no prompt or blank line at each input), so
+    /// the test suite's expected output compares with emuera.log
+    log_style: bool,
 }
 
 impl Headless {
     pub fn new(echo_input: bool) -> Headless {
-        Headless { printed: 0, gen_seen: 0, dropped_seen: 0, echo_input, lines_in: Box::new(std::io::BufReader::new(std::io::stdin())), width: 80 }
+        Headless {
+            printed: 0,
+            gen_seen: 0,
+            dropped_seen: 0,
+            echo_input,
+            lines_in: Box::new(std::io::BufReader::new(std::io::stdin())),
+            width: 80,
+            log_style: std::env::var("EMUERA_LOG_STYLE").as_deref() == Ok("emuera"),
+        }
     }
 
     fn line_out(l: &Line) -> String {
@@ -228,7 +240,9 @@ impl Frontend for Headless {
     }
 
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
-        if !con.cur.is_empty() {
+        if self.log_style {
+            self.flush(con, res);
+        } else if !con.cur.is_empty() {
             // show partial line as a prompt
             let partial =
                 Line { segs: con.cur.clone(), align: con.align, gen: con.gen, temporary: false, cols: con.width + 1, kojo: false, src: 0, wait: con.waits };
@@ -238,7 +252,9 @@ impl Frontend for Headless {
             self.flush(con, res);
         }
         if req.kind == InputKind::Wait {
-            println!();
+            if !self.log_style {
+                println!();
+            }
             return InputResult::Text(String::new());
         }
         // EMUERA_LIST_BUTTONS=1: the values the buttons on screen send, even
@@ -256,7 +272,7 @@ impl Frontend for Headless {
                 let s = s.trim_end_matches(['\r', '\n']).to_string();
                 if self.echo_input {
                     println!("> {}", s);
-                } else {
+                } else if !self.log_style {
                     println!();
                 }
                 InputResult::Text(s)
