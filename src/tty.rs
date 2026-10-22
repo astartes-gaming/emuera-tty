@@ -2864,6 +2864,34 @@ impl Tty {
         }
     }
 
+    /// The foreground-only SGR for a memory band, in the terminal's depth
+    /// (the background and the other attributes stay as they are).
+    fn mem_fg(&self, lvl: crate::sys::MemoryLevel) -> String {
+        use crate::sys::MemoryLevel::{Green, Orange, Red, Yellow};
+        let c = match lvl {
+            Green => Rgb(90, 200, 90),
+            Yellow => Rgb(240, 220, 70),
+            Orange => Rgb(255, 150, 40),
+            Red => Rgb(240, 70, 70),
+        };
+        match self.color {
+            ColorMode::True => format!("\x1b[38;2;{};{};{}m", c.0, c.1, c.2),
+            ColorMode::C256 if self.fbterm => format!("\x1b[1;{}}}", rgb256(c)),
+            ColorMode::C256 => format!("\x1b[38;5;{}m", rgb256(c)),
+            // 16 colours: orange is the plain (brownish) yellow and yellow the
+            // bright one; the Linux console and fbterm brighten via bold
+            ColorMode::C16 => {
+                let code = match lvl {
+                    Green => "\x1b[32m",
+                    Yellow => "\x1b[33;1m",
+                    Orange => "\x1b[33m",
+                    Red => "\x1b[31m",
+                };
+                code.to_string()
+            }
+        }
+    }
+
     /// Draw the overlay box; returns its top row (1-based, the title row)
     /// for mapping clicks.
     fn draw_overlay(&self, st: &crate::settings::Settings, vis: &[usize], extra: &[&str], sel: usize, note: &str) -> (usize,) {
@@ -2920,10 +2948,19 @@ impl Tty {
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
         let head = " emuera-tty settings  (F1 / Ctrl-O)";
-        let mem = crate::sys::memory_in_use().map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
-        let gap = inner.saturating_sub(head.chars().count() + mem.len());
+        let reading = crate::sys::memory_in_use();
+        let mem = reading.map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
+        let head_cols = head.chars().count();
+        let gap = inner.saturating_sub(head_cols + mem.len());
         let head = if gap > 0 { format!("{}{}{}", head, " ".repeat(gap), mem) } else { head.to_string() };
         line(&mut out, top + 1, &head, &title);
+        // only the live counter is coloured (not the peak after it): drawn
+        // over its place in the title row, after the box's left border
+        if let (true, Some(b)) = (gap > 0, reading) {
+            let (live, _) = crate::sys::memory_parts(b);
+            let col = left + 1 + head_cols + gap + "memory ".len();
+            let _ = write!(out, "\x1b[{};{}H{}{}{}", top + 1, col, title, self.mem_fg(crate::sys::memory_level(b)), live);
+        }
         for (i, &ix) in vis.iter().enumerate() {
             let it = &ITEMS[ix];
             let later = if it.live { "" } else { "  (next start)" };
@@ -2950,11 +2987,14 @@ impl Tty {
         let Some((used, running, drawn_at)) = self.bar.clone() else { return };
         let cols = self.cols;
         let mut parts: Vec<(String, &str)> = Vec::new();
+        // the memory part's text and band, to colour its live counter
+        let mut mem_mark: Option<(String, crate::sys::MemoryLevel)> = None;
         if self.status_info {
             if let Some(v) = hover.filter(|&b| self.is_button(b)).and_then(|b| self.buttons.get(b)) {
                 parts.push((format!("→ {}", printable(&v.to_string())), "\x1b[0;1m"));
             }
             if let Some(m) = self.memory().filter(|_| self.show_memory) {
+                mem_mark = self.mem_level().map(|l| (m.clone(), l));
                 parts.push((m, "\x1b[0;2m"));
             }
             if !running.is_empty() {
@@ -2991,7 +3031,17 @@ impl Tty {
             at = cols + 2 - width(&parts);
             let _ = write!(out, "\x1b[{};{}H", self.rows, at);
             for (k, (s, st)) in parts.iter().enumerate() {
-                let _ = write!(out, "{}{}{}\x1b[0m", if k > 0 { "  " } else { "" }, st, s);
+                let sep = if k > 0 { "  " } else { "" };
+                match mem_mark.as_ref().filter(|(m, _)| m == s) {
+                    // only the live counter is coloured, not the peak after it
+                    Some((_, lvl)) => {
+                        let cut = s.find(" MB").map_or(s.len(), |i| i + 3);
+                        let _ = write!(out, "{}\x1b[0m{}{}{}{}\x1b[0m", sep, self.mem_fg(*lvl), &s[..cut], st, &s[cut..]);
+                    }
+                    None => {
+                        let _ = write!(out, "{}{}{}\x1b[0m", sep, st, s);
+                    }
+                }
             }
         }
         if let Some(b) = self.bar.as_mut() {
@@ -3006,6 +3056,11 @@ impl Tty {
             self.mem_seen = Some((Instant::now(), crate::sys::memory_in_use()));
         }
         self.mem_seen.and_then(|(_, m)| m).map(crate::sys::memory_text)
+    }
+
+    /// The colour band of the reading [`Self::memory`] shows.
+    fn mem_level(&self) -> Option<crate::sys::MemoryLevel> {
+        self.mem_seen.and_then(|(_, m)| m).map(crate::sys::memory_level)
     }
 
     /// The button id at a 0-based screen cell, from the last frame
@@ -3693,8 +3748,15 @@ impl Frontend for Tty {
         if !con.running.is_empty() {
             s += &format!("  @{}", con.running);
         }
+        // where the live counter sits in the text (chars from the start, its
+        // length) and its band, to colour it (the peak after it stays plain)
+        let mut mem_at: Option<(usize, usize, crate::sys::MemoryLevel)> = None;
         if let Some(m) = self.memory().filter(|_| self.show_memory) {
-            s += &format!("  {}", m);
+            s += "  ";
+            if let Some(l) = self.mem_level() {
+                mem_at = Some((printable(&s).chars().count(), m.find(" MB").map_or(m.len(), |i| i + 3), l));
+            }
+            s += &m;
         }
         let mut line = String::new();
         let mut w = 0;
@@ -3706,7 +3768,17 @@ impl Frontend for Tty {
             line.push(c);
             w += cw;
         }
-        write_all(format!("\x1b[{};1H\x1b[0;2m{}\x1b[0m\x1b[K", self.rows, line).as_bytes());
+        let shown = line.chars().count();
+        let text = match mem_at.filter(|&(at, len, _)| at + len <= shown) {
+            Some((at, len, lvl)) => {
+                let pre: String = line.chars().take(at).collect();
+                let live: String = line.chars().skip(at).take(len).collect();
+                let post: String = line.chars().skip(at + len).collect();
+                format!("{}\x1b[0m{}{}\x1b[0;2m{}", pre, self.mem_fg(lvl), live, post)
+            }
+            None => line,
+        };
+        write_all(format!("\x1b[{};1H\x1b[0;2m{}\x1b[0m\x1b[K", self.rows, text).as_bytes());
         // the next frame must repaint the row, even if nothing else changed
         self.last_frame = 0;
     }

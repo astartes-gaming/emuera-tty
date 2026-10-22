@@ -164,15 +164,40 @@ pub fn memory_in_use() -> Option<u64> {
     Some(now)
 }
 
+/// The colour band the live memory counter is shown in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MemoryLevel {
+    Green,
+    Yellow,
+    Orange,
+    Red,
+}
+
+/// The band for a reading, by the whole MB that is shown: up to 450 MB
+/// green, up to 650 yellow, under 900 orange, 900 and over red.
+pub fn memory_level(now: u64) -> MemoryLevel {
+    match now >> 20 {
+        0..=450 => MemoryLevel::Green,
+        451..=650 => MemoryLevel::Yellow,
+        651..=899 => MemoryLevel::Orange,
+        _ => MemoryLevel::Red,
+    }
+}
+
+/// A reading as its two texts: the live counter ("123 MB") and the peak
+/// ("" while it is the same MB, else " (peak 150 MB)"). Only the live
+/// counter is coloured by [`memory_level`].
+pub fn memory_parts(now: u64) -> (String, String) {
+    let (n, p) = (now >> 20, memory_peak() >> 20);
+    let peak = if p > n { format!(" (peak {} MB)", p) } else { String::new() };
+    (format!("{} MB", n), peak)
+}
+
 /// "123 MB (peak 150 MB)" for a reading; the peak is left out while it is
 /// the same MB.
 pub fn memory_text(now: u64) -> String {
-    let (n, p) = (now >> 20, memory_peak() >> 20);
-    if p > n {
-        format!("{} MB (peak {} MB)", n, p)
-    } else {
-        format!("{} MB", n)
-    }
+    let (live, peak) = memory_parts(now);
+    live + &peak
 }
 
 fn memory_in_use_raw() -> Option<u64> {
@@ -568,5 +593,23 @@ mod imp {
             s: t.wSecond as i64,
             ms: t.wMilliseconds as i64,
         }
+    }
+}
+
+#[cfg(test)]
+mod memory_level_tests {
+    use super::*;
+
+    #[test]
+    fn bands_follow_the_mb_shown() {
+        let mb = |n: u64| (n << 20) + 1000;
+        assert_eq!(memory_level(mb(0)), MemoryLevel::Green);
+        assert_eq!(memory_level(mb(450)), MemoryLevel::Green);
+        assert_eq!(memory_level(mb(451)), MemoryLevel::Yellow);
+        assert_eq!(memory_level(mb(650)), MemoryLevel::Yellow);
+        assert_eq!(memory_level(mb(651)), MemoryLevel::Orange);
+        assert_eq!(memory_level(mb(899)), MemoryLevel::Orange);
+        assert_eq!(memory_level(mb(900)), MemoryLevel::Red);
+        assert_eq!(memory_level(mb(4000)), MemoryLevel::Red);
     }
 }
