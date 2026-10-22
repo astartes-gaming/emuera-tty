@@ -53,8 +53,16 @@ Continue where the game waits
 Continue and skip the text that follows until the game asks for a choice
 (Emuera's message skip). On a choice: pick it and skip after it.
 .TP
-.BR PgUp ", " PgDn ", " \(ua ", " \(da ", " Home ", " End ", wheel"
-Scroll back through earlier text; End returns.
+.BR \(<- ", " \(-> ", " Home ", " End ", " Delete ", " Backspace
+Edit the line being typed.
+.TP
+.BR \(ua ", " \(da
+Go through the last 100 inputs, as in Emuera (one brought back is
+selected: typing replaces it). Where the game waits, scroll.
+.TP
+.BR PgUp ", " PgDn ", " Ctrl+\(ua ", " Ctrl+\(da ", " Alt+\(ua ", " Alt+\(da ", wheel"
+Scroll back through earlier text (Home and End too while nothing is
+typed); End returns.
 .TP
 .BR F1 ", " Ctrl\-O
 The options overlay: display settings, \fBGame settings\fR (Emuera's

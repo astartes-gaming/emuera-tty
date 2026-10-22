@@ -310,9 +310,14 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   a number or a choice, as Emuera's right click does. Right-clicking a
   choice picks it and skips the text after it. (A `FORCEWAIT` still
   stops, and the EE `INPUT default, mouse, canskip` takes its default.)
-- **Scroll back** through earlier text: PgUp / PgDn, ↑ / ↓, Home / End or
-  the mouse wheel. A `[scroll -N]` tag shows you're looking at history;
-  End jumps back.
+- **Typing**: ← / → move in the line being typed, Home / End go to its
+  start and end, Delete and Backspace erase, Ctrl-U or Esc clear it.
+  ↑ / ↓ go through your last 100 inputs, as in Emuera; one brought back
+  is shown selected, so typing replaces it and ← / → edit it.
+- **Scroll back** through earlier text: PgUp / PgDn, Ctrl+↑ / ↓ (or
+  Alt+↑ / ↓) a line at a time, or the mouse wheel. ↑ / ↓ scroll too
+  where the game waits (`▼`), and Home / End while nothing is typed. A
+  `[scroll -N]` tag shows you're looking at history; End jumps back.
 - **Settings**: F1 or Ctrl-O opens them over the game (see below).
 - **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask
   first; unsaved progress is lost). **Reload the ERB files** after editing
