@@ -134,7 +134,7 @@ export PATH="$HOME/.local/bin:$PATH"
 |Windows arm64|N/A|Untested, no build job or specification|N/A|
 |macOS x86_64|Build|Success|Untested|
 |macOS aarch64|Build|Untested, literally every runner is busy|N/A|
-|Android|Build|Success|Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)|
+|Android|Build|Success|Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP).... somehow|
 
 
 ### Other systems
