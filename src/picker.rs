@@ -101,6 +101,9 @@ struct Picker {
     mode: Mode,
     /// the browser was opened from the library to add a game
     adding: bool,
+    /// the full git output of the last update (`u` / `U`), shown with `g`
+    /// for as long as its result line is on screen
+    git_log: Option<String>,
     st: crate::settings::Settings,
 }
 
@@ -134,6 +137,7 @@ fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
         pending: Vec::new(),
         mode,
         adding: false,
+        git_log: None,
         st: crate::settings::Settings::load(),
     };
     p.load();
@@ -174,7 +178,14 @@ impl Picker {
                     let ok = is_game_dir(&g);
                     let title = if ok { game_title(&g).unwrap_or_else(|| "Emuera game".into()) } else { "(folder missing)".into() };
                     let last = if self.st.last.as_ref() == Some(&g) { "  · last played" } else { "" };
-                    let git = if ok && git_root(&g).is_some() { "  · git" } else { "" };
+                    // "· git <branch> @ <short hash>" (just "· git" if HEAD can't be read)
+                    let git = match git_root(&g).filter(|_| ok) {
+                        Some(root) => match git_head(&root) {
+                            Some(h) => format!("  · git {}", h),
+                            None => "  · git".to_string(),
+                        },
+                        None => String::new(),
+                    };
                     self.entries.push(Entry { label: format!("★ {}   {}{}{}", title, g.display(), last, git), kind: Kind::Game { path: g, ok } });
                 }
                 self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), kind: Kind::AddGame });
@@ -280,16 +291,23 @@ impl Picker {
                 Kind::Archive { .. } => "\x1b[36m",
                 _ => "",
             };
-            // the "· last played" (green) and "· git" (sky blue) tags of a game
-            // are coloured on their own; the rest of the row keeps its colour
+            // the "· last played" (green) and "· git <branch> @ <hash>" (sky blue)
+            // tags of a game are coloured on their own; the rest of the row keeps
+            // its colour
             let back = format!("\x1b[0m{}{}", color, if i == self.sel { "\x1b[7m" } else { "" });
             let line = if matches!(e.kind, Kind::Game { .. }) {
                 let tint = |l: String, tag: &str, code: &str| match l.rfind(tag) {
                     Some(at) => format!("{}{}{}{}{}", &l[..at], code, tag, back, &l[at + tag.len()..]),
                     None => l,
                 };
+                // the git tag is the last thing on the row and runs to its end
+                // (it carries the branch and commit)
+                let git_tail = |l: String| match l.rfind("· git") {
+                    Some(at) => format!("{}\x1b[38;5;117m{}{}", &l[..at], &l[at..], back),
+                    None => l,
+                };
                 // the tags come after the path, so the last match is theirs
-                tint(tint(line, "· last played", "\x1b[32m"), "· git", "\x1b[38;5;117m")
+                git_tail(tint(line, "· last played", "\x1b[32m"))
             } else {
                 line
             };
@@ -303,6 +321,8 @@ impl Picker {
             s += "  (empty)\r\n";
         }
         let help = match self.mode {
+            // right after an update, `g` is the full git output (not "top")
+            Mode::Library if self.git_log.is_some() => "g git output  ↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit",
             Mode::Library => "↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit",
             Mode::Settings => "↑↓ move  ←/→ or Enter change  Esc back",
             Mode::Browse if self.adding => "↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back",
@@ -324,8 +344,12 @@ impl Picker {
             self.draw();
             let act = self.next_act();
             // (a timeout only redraws: keep the message)
-            if !matches!(act, Act::None) {
+            // `g` on the update result opens the full git output and leaves the
+            // result line (and the output) where they are
+            let keep = self.mode == Mode::Library && self.git_log.is_some() && matches!(act, Act::Letter('g'));
+            if !matches!(act, Act::None) && !keep {
                 self.note.clear();
+                self.git_log = None;
             }
             let n = self.entries.len();
             let act = match self.mode_act(act) {
@@ -426,18 +450,24 @@ impl Picker {
             (Mode::Library, Act::Letter('u')) => {
                 if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(self.sel) {
                     let p = path.clone();
-                    self.note = match git_root(&p) {
-                        None => "This game isn't a git checkout: nothing to update from.".into(),
+                    let (note, log) = match git_root(&p) {
+                        None => ("This game isn't a git checkout: nothing to update from.".to_string(), None),
                         Some(root) => {
                             let (cols, rows) = term_size();
                             out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", rows.saturating_sub(1), fit(&format!("Updating {} (git pull)…", root.display()), cols))
                                 .as_bytes());
-                            match git_pull(&root) {
-                                Ok(m) => m,
-                                Err(e) => format!("\x1b[31m{}\x1b[0m", e),
-                            }
+                            let (res, log) = git_pull(&root);
+                            (
+                                match res {
+                                    Ok(m) => m,
+                                    Err(e) => format!("\x1b[31m{}\x1b[0m", e),
+                                },
+                                Some(log),
+                            )
                         }
                     };
+                    self.note = note;
+                    self.git_log = log;
                     let sel = self.sel;
                     self.load();
                     self.sel = sel.min(self.entries.len().saturating_sub(1));
@@ -460,6 +490,7 @@ impl Picker {
                 }
                 let (cols, rows) = term_size();
                 let (mut updated, mut current, mut failed) = (Vec::new(), 0, Vec::new());
+                let mut log = String::new();
                 for (i, root) in roots.iter().enumerate() {
                     out(format!(
                         "\x1b[{};1H\x1b[0m\x1b[2K{}",
@@ -468,7 +499,9 @@ impl Picker {
                     )
                     .as_bytes());
                     let name = root.file_name().map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned());
-                    match git_pull(root) {
+                    let (res, text) = git_pull(root);
+                    log += &format!("== {} ==\n{}\n", root.display(), text);
+                    match res {
                         Ok(m) if m.starts_with("Already") => current += 1,
                         Ok(m) => updated.push(format!("{} ({})", name, m.trim_start_matches("Updated: ").trim_end_matches('.'))),
                         Err(e) => failed.push(format!("{}: {}", name, e.trim_start_matches("Update failed: "))),
@@ -485,11 +518,20 @@ impl Picker {
                     parts.push(format!("\x1b[31mfailed {}\x1b[0m", failed.join("; ")));
                 }
                 self.note = format!("Update all: {}.", parts.join("; "));
+                self.git_log = Some(log);
                 let sel = self.sel;
                 self.load();
                 self.sel = sel.min(self.entries.len().saturating_sub(1));
                 Err(None)
             }
+            // `g`: the full git output of the update just done, else "top" as usual
+            (Mode::Library, Act::Letter('g')) => match self.git_log.clone() {
+                Some(log) => {
+                    self.view_text("Full git output", &log);
+                    Err(None)
+                }
+                None => Ok(Act::Top),
+            },
             // ← / Backspace mean nothing on the library
             (Mode::Library, Act::Up) => Err(None),
             (Mode::Settings, Act::Open | Act::Up) => {
@@ -506,6 +548,41 @@ impl Picker {
                 Err(None)
             }
             _ => Ok(act),
+        }
+    }
+
+    /// A full-screen, scrollable text (the full git output). ↑↓ / PgUp / PgDn /
+    /// Home / End scroll; q, Esc, Enter or `g` close it.
+    fn view_text(&mut self, title: &str, text: &str) {
+        let lines: Vec<String> = text
+            .lines()
+            .map(|l| l.trim_end_matches('\r').rsplit('\r').next().unwrap_or("").replace('\t', "    ").chars().filter(|c| !c.is_control()).collect())
+            .collect();
+        let mut top = 0usize;
+        loop {
+            let (cols, trows) = term_size();
+            let rows = trows.saturating_sub(3).max(1);
+            top = top.min(lines.len().saturating_sub(rows));
+            let last = (top + rows).min(lines.len());
+            let mut s = String::from("\x1b[H\x1b[0m\x1b[2J");
+            s += &format!(
+                "\x1b[1m{}\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
+                fit(title, cols),
+                fit(&format!("lines {}-{} of {}", (top + 1).min(last), last, lines.len()), cols)
+            );
+            for l in lines.iter().skip(top).take(rows) {
+                s += &format!("{}\r\n", fit(l, cols));
+            }
+            s += &format!("\x1b[{};1H\x1b[2m{}\x1b[0m", trows, fit("↑↓ PgUp PgDn Home End scroll  q / Esc / Enter / g close", cols));
+            out(s.as_bytes());
+            match self.next_act() {
+                Act::Move(d) => top = top.saturating_add_signed(d),
+                Act::Page(d) => top = top.saturating_add_signed(d * rows as isize),
+                Act::Top => top = 0,
+                Act::Bottom => top = lines.len(),
+                Act::Cancel | Act::Activate | Act::Letter('g') => return,
+                _ => {}
+            }
         }
     }
 
@@ -652,6 +729,9 @@ impl Picker {
                 b'l' => Act::Open,
                 b'~' => Act::Home,
                 b'.' => Act::ToggleHidden,
+                // on the library `g` may be the full git output of an update
+                // (`mode_act` falls back to "top" when there is none)
+                b'g' if self.mode == Mode::Library => Act::Letter('g'),
                 b'g' => Act::Top,
                 b'G' => Act::Bottom,
                 c if c.is_ascii_alphabetic() => Act::Letter(c as char),
@@ -926,9 +1006,43 @@ fn git_root(game: &Path) -> Option<PathBuf> {
     game.ancestors().take(3).find(|d| d.join(".git").exists()).map(Path::to_path_buf)
 }
 
+/// `root`'s HEAD as "<branch> @ <short hash>" ("detached @ <short hash>" when
+/// no branch is checked out); None if it can't be read (no commit yet…).
+fn git_head(root: &Path) -> Option<String> {
+    let run = |args: &[&str]| {
+        let o = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        o.status.success().then(|| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty())
+    };
+    let hash = run(&["rev-parse", "--short", "HEAD"])?;
+    Some(match run(&["symbolic-ref", "--short", "-q", "HEAD"]) {
+        Some(branch) => format!("{} @ {}", branch, hash),
+        None => format!("detached @ {}", hash),
+    })
+}
+
 /// `git pull --ff-only` in `root`, without prompts (no password or editor
-/// can be asked for here). Ok: what changed; Err: why it didn't.
-fn git_pull(root: &Path) -> Result<String, String> {
+/// can be asked for here). The result is Ok: what changed (with the
+/// "(<previous hash> -> <new hash>)" of an update); Err: why it didn't. The
+/// second part is git's full output, for the launcher's `g`.
+fn git_pull(root: &Path) -> (Result<String, String>, String) {
+    let mut log = String::new();
+    let res = git_pull_logged(root, &mut log);
+    if log.is_empty() {
+        if let Err(e) = &res {
+            log = e.clone();
+        }
+    }
+    (res, log)
+}
+
+fn git_pull_logged(root: &Path, log: &mut String) -> Result<String, String> {
     use std::process::{Command, Stdio};
     let git = |args: &[&str]| {
         let mut c = Command::new("git");
@@ -941,6 +1055,11 @@ fn git_pull(root: &Path) -> Result<String, String> {
     let head = |o: std::process::Output| String::from_utf8_lossy(&o.stdout).trim().to_string();
     let before = head(git(&["rev-parse", "HEAD"])?);
     let o = git(&["pull", "--ff-only"])?;
+    // everything git said (fetch's "From …" and ref lines come on stderr,
+    // the merge summary on stdout)
+    log.push_str("$ git pull --ff-only\n");
+    log.push_str(&String::from_utf8_lossy(&o.stderr));
+    log.push_str(&String::from_utf8_lossy(&o.stdout));
     if !o.status.success() {
         // git's own explanation (its error: / fatal: line and the files
         // listed under it), not the fetch progress or hints
@@ -965,7 +1084,8 @@ fn git_pull(root: &Path) -> Result<String, String> {
     }
     let n = head(git(&["rev-list", "--count", &format!("{}..{}", before, after)])?);
     let files = head(git(&["diff", "--shortstat", &before, &after])?);
-    Ok(format!("Updated: {} new commit{} ({}).", n, if n == "1" { "" } else { "s" }, files))
+    let short = |h: &str| -> Result<String, String> { Ok(head(git(&["rev-parse", "--short", h])?)) };
+    Ok(format!("Updated: {} new commit{} ({}) ({} -> {}).", n, if n == "1" { "" } else { "s" }, files, short(&before)?, short(&after)?))
 }
 
 /// First `name` on PATH.
