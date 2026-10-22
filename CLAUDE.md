@@ -35,7 +35,8 @@ Package names are Debian/Ubuntu's.
 ```sh
 cargo build --release                       # LTO "fat", 1 codegen unit: slow to link
 cargo build --profile fastbuild             # release speed without LTO, quicker
-cargo test --release                        # unit tests + tests/sample_selftest.rs
+cargo test --release                        # unit tests, sample self-test, ERB suite
+cargo test --release --test erb_suite       # just the ERB suite (tests/erb, golden, save)
 cargo test --release emuera_name_order      # one test by name
 cargo test --release --test sample_selftest # only the sample-game integration tests
 cargo clippy --release                      # lint config lives in Cargo.toml [lints.clippy]
@@ -158,6 +159,27 @@ with a very large stack.
   `./target/release/emuera-tty --install`. Commit messages: a one-line
   summary, then a short paragraph on why.
 
+## The ERB test suite
+
+`tests/erb_suite.rs` runs each `tests/erb/*.erb` as a tiny game (the
+sample's CSVs + `tests/erb/_helpers.erb` + the file, optional
+`<name>.erh`), headless with `EMUERA_LOG_STYLE=emuera` (output as Emuera's
+log has it). A file defines `@TEST_MAIN` with `CALL CHECK, "what", cond` /
+`CALL CHECKS, "what", got, want`; `;@input` lines are typed in order; a file
+with its own `@SYSTEM_TITLE` runs the system flow and calls `TEST_DONE`.
+`tests/golden/*.erb` must print exactly their `.out`; `tests/save/` must
+save byte-identical files (`UPDATE_GOLDEN=1` regenerates both, only after
+checking the new output is what Emuera does).
+
+**Expectations are Emuera's, not ours.** Before writing or changing an
+expected value, check Emuera's source; when a check fails, decide from the
+source whether the test or the engine is wrong (this suite found real
+engine bugs: CURRENTALIGN's type, SORTCHARA's key, ADDVOIDCHARA's NO,
+SPRITEDISPOSEALL, CALLEVENT, ONEINPUT's first character, PRINTN's wait).
+`tools/erb_suite_export.sh` + `tools/erb_suite_compare.py` run the suite on
+the real Emuera (Windows); `tools/erb_coverage.py` lists the built-ins no
+test uses yet. Add every fixed bug as a check in its topic file.
+
 ## Testing beyond `cargo test`
 
 Real games used for testing are big eraTW variants (AnonTW: ~3,500 files,
@@ -173,6 +195,9 @@ Real games used for testing are big eraTW variants (AnonTW: ~3,500 files,
   running it. Track PIDs.
 
 Tools in `tools/` (Python 3; the screen-reading ones need `python3-pyte`):
+
+- `tools/game_smoke.sh GAME_DIR [STEPS] [SEED]`: random play of a real
+  game in a throwaway copy (memory-capped), failing on script errors.
 
 - `tools/gamed.py` + `tools/g.sh`: keep a game running in a pseudo-terminal
   and drive it command by command (type, key, click a label), reading the

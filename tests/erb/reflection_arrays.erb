@@ -1,0 +1,46 @@
+;=== variables by name, array helpers, more maths ===
+@TEST_MAIN
+#DIM ARR, 5
+#DIM ARR2, 5
+#DIMS WORDS, 4
+;--- variables by name
+FLAG:3 = 30
+CALL CHECK, "getvar", GETVAR("FLAG:3") == 30
+SETVAR "FLAG:4", 44
+CALL CHECK, "setvar", FLAG:4 == 44
+SAVESTR:1 = abc
+CALL CHECKS, "getvars", GETVARS("SAVESTR:1"), "abc"
+CALL CHECK, "existvar", EXISTVAR("FLAG") != 0 && EXISTVAR("NO_SUCH_VAR") == 0
+CALL CHECK, "isdefined", ISDEFINED("NO_SUCH_MACRO") == 0
+CALL CHECK, "varsize", VARSIZE("ARR") == 5 && VARSIZE("FLAG") == 10000
+CALL CHECKS, "getdoingfunction", GETDOINGFUNCTION(), "TEST_MAIN"
+;--- array copies and removals
+FOR LOCAL, 0, 5
+	ARR:LOCAL = LOCAL + 1
+NEXT
+ARRAYCOPY "ARR", "ARR2"
+CALL CHECK, "arraycopy", ARR2:0 == 1 && ARR2:4 == 5
+ARRAYREMOVE ARR, 1, 2
+CALL CHECK, "arrayremove", ARR:0 == 1 && ARR:1 == 4 && ARR:2 == 5 && ARR:3 == 0
+WORDS:0 = c
+WORDS:1 = a
+WORDS:2 = b
+ARRAYSORT WORDS, FORWARD, 0, 3
+CALL CHECKS, "arraysort strings", WORDS:0 + WORDS:1 + WORDS:2, "abc"
+ARRAYSORT WORDS, BACK, 0, 3
+CALL CHECKS, "arraysort back", WORDS:0 + WORDS:1 + WORDS:2, "cba"
+CALL CHECK, "inrangearray", INRANGEARRAY(ARR2, 2, 4) == 2
+;--- bits
+LOCAL = 0b1111
+CLEARBIT LOCAL, 0
+INVERTBIT LOCAL, 4
+CALL CHECK, "clearbit invertbit", LOCAL == 0b11110
+;--- more maths
+CALL CHECK, "log exponent", LOG10(1000) == 3 && EXPONENT(0) == 1 && LOG(1) == 0
+CALL CHECK, "cbrt", CBRT(27) == 3
+CALL CHECKS, "convert base", CONVERT(255, 16), "ff"
+CALL CHECK, "unicode charatu", UNICODE(65) == "A" && CHARATU("abc", 1) == "b"
+;--- times (a decimal factor)
+LOCAL = 100
+TIMES LOCAL, 1.5
+CALL CHECK, "times", LOCAL == 150

@@ -44,6 +44,7 @@
   - [Graphics backends](#graphics-backends)
   - [Layout](#layout)
   - [Implemented](#implemented)
+  - [Tests](#tests)
   - [Roadmap](#roadmap)
 
 A from-scratch reimplementation of the **Emuera** ERB engine in Rust that
@@ -985,6 +986,34 @@ statements as a function `@__INJECT` just before the n-th input.
 `EMUERA_LIST_BUTTONS=1` makes `--headless` print the values of the buttons
 on screen before each input (`[buttons: 1001, 1002]`), hidden ones included,
 for scripted play.
+
+## Tests
+
+`cargo test --release` runs the unit tests, the sample game's self-test and
+the **ERB test suite**: small Emuera games that check the engine against
+what Emuera does.
+
+- `tests/erb/*.erb`: one file per topic (strings and regular expressions,
+  what RESULT holds, indices by CSV name, control flow, characters, saves,
+  graphics, XML and data tables, input, the system flow…). Each is a
+  `@TEST_MAIN` of `CALL CHECK, "what", condition` lines; `;@input` lines are
+  typed in. A bug fixed gets its check here.
+- `tests/golden/*.erb` print text that must match the `.out` beside them
+  exactly (`UPDATE_GOLDEN=1 cargo test --release --test erb_suite` rewrites
+  them after a deliberate change).
+- `tests/save/`: a fixed game state whose `save00.sav` / `global.sav` must
+  match byte for byte (Emuera's binary format).
+
+The same files run on the **real Emuera**, which is what makes the suite an
+independent check: `tools/erb_suite_export.sh DIR` builds them as ordinary
+game folders; with Emuera.exe run in each (each writes `emuera.log`),
+`tools/erb_suite_compare.py DIR` reports any check that fails there, golden
+output that differs and saves that aren't byte-identical.
+`tools/erb_coverage.py` lists which of Emuera's 558 built-in functions and
+statements no test uses yet (about 90% are used).
+
+`tools/game_smoke.sh GAME_DIR [STEPS] [SEED]` plays a real game with random
+menu choices in a throwaway copy and reports script errors.
 
 ## Roadmap
 

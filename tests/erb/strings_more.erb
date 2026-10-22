@@ -1,0 +1,26 @@
+;=== more string functions and statements ===
+@TEST_MAIN
+CALL CHECK, "strfindu", STRFINDU("あいう", "う") == 2 && STRFIND("あいう", "う") == 4
+STRLEN あいu
+CALL CHECK, "strlen statement", RESULT == 5
+STRLENU あいu
+CALL CHECK, "strlenu statement", RESULT == 3
+LOCAL = 12
+STRLENFORM {LOCAL}あ
+CALL CHECK, "strlenform", RESULT == 4
+STRLENFORMU {LOCAL}あ
+CALL CHECK, "strlenformu", RESULT == 3
+CALL CHECKS, "substringu", SUBSTRINGU("あいうえお", 1, 2), "いう"
+CALL CHECKS, "tofull tolower", TOFULL("A1") + TOLOWER("ABC"), "Ａ１abc"
+CALL CHECK, "toint", TOINT("123") == 123 && TOINT("abc") == 0
+CALL CHECK, "encodetouni", ENCODETOUNI("A") == 65
+LOCAL = 1
+LOCAL:1 = 2
+SWAP LOCAL, LOCAL:1
+CALL CHECK, "swap", LOCAL == 2 && LOCAL:1 == 1
+;--- STRDATA picks one of its lines at random (seeded: one of them)
+STRDATA LOCALS
+	DATA one
+	DATAFORM tw{LOCAL:1}
+ENDDATA
+CALL CHECK, "strdata", LOCALS == "one" || LOCALS == "tw1"

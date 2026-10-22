@@ -1,0 +1,61 @@
+;=== functions: arguments, defaults, REF, private variables, recursion ===
+@TEST_MAIN
+#DIM NUMS, 3
+CALL CHECK, "default argument", ADD(5) == 6 && ADD(5, 2) == 7
+CALL CHECK, "string argument default", STRLENS(GREET()) == 5 && GREET("yo") == "yo"
+NUMS:1 = 1
+CALL INCREMENT(NUMS)
+CALL CHECK, "REF array argument", NUMS:1 == 2
+CALL CHECK, "recursion", FACT(10) == 3628800
+;--- private #DIMs keep their value between calls unless DYNAMIC
+CALL COUNTER
+CALL COUNTER
+CALL CHECK, "static private keeps value", RESULT == 2
+CALL FRESH
+CALL FRESH
+CALL CHECK, "dynamic private starts over", RESULT == 1
+;--- ARG / LOCAL are the callee's own
+LOCAL = 100
+CALL CLOBBER_LOCAL
+CALL CHECK, "LOCAL is per function", LOCAL == 100
+;--- CALLFORM / function names built at run time
+CALLFORM DYN_{2}
+CALL CHECK, "callform", RESULT == 22
+CALL CHECK, "existfunction", EXISTFUNCTION("FACT") && !EXISTFUNCTION("NO_SUCH")
+
+@ADD(A, B = 1)
+#FUNCTION
+#DIM A
+#DIM B
+RETURNF A + B
+
+@GREET(ARGS = "hello")
+#FUNCTIONS
+RETURNF ARGS
+
+@INCREMENT(V)
+#DIM REF V, 0
+V:1 += 1
+
+@FACT(N)
+#FUNCTION
+#DIM N
+SIF N <= 1
+	RETURNF 1
+RETURNF N * FACT(N - 1)
+
+@COUNTER
+#DIM C
+C += 1
+RETURN C
+
+@FRESH
+#DIM DYNAMIC C
+C += 1
+RETURN C
+
+@CLOBBER_LOCAL
+LOCAL = 5
+
+@DYN_2
+RETURN 22

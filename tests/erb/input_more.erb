@@ -1,0 +1,58 @@
+;=== timed, one-key and button inputs, and waits (one typed line each) ===
+;@input 5
+;@input 
+;@input word
+;@input 
+;@input 8
+;@input 
+;@input abc
+;@input 
+;@input 2
+;@input go
+;@input 3
+;@input 
+;@input 
+;@input 
+;@input 
+;@input 
+;@input x
+;@input 12
+;@input text
+@TEST_MAIN
+TINPUT 5000, 77
+CALL CHECK, "tinput typed", RESULT == 5
+TINPUT 5000, 77
+CALL CHECK, "tinput empty takes the default", RESULT == 77
+TINPUTS 5000, "dflt"
+CALL CHECKS, "tinputs typed", RESULTS, "word"
+TINPUTS 5000, "dflt"
+CALL CHECKS, "tinputs default", RESULTS, "dflt"
+TONEINPUT 5000, 1
+CALL CHECK, "toneinput", RESULT == 8
+TONEINPUTS 5000, "z"
+CALL CHECKS, "toneinputs default", RESULTS, "z"
+ONEINPUTS
+CALL CHECKS, "oneinputs takes one character", RESULTS, "a"
+WAIT
+PRINTL [1] one  [2] two
+BINPUT
+CALL CHECK, "binput", RESULT == 2
+; (only [number] text becomes a button by itself: a string button is made)
+PRINTBUTTON "[go]", "go"
+PRINTL
+BINPUTS
+CALL CHECKS, "binputs", RESULTS, "go"
+PRINTL [3] three
+ONEBINPUT
+CALL CHECK, "onebinput", RESULT == 3
+WAITANYKEY
+FORCEWAIT
+TWAIT 100, 0
+PRINTBUTTON "[x]", "x"
+PRINTL
+ONEBINPUTS
+CALL CHECKS, "onebinputs", RESULTS, "x"
+INPUTANY
+CALL CHECK, "inputany number", RESULT == 12
+INPUTANY
+CALL CHECKS, "inputany text", RESULTS, "text"

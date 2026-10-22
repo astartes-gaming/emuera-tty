@@ -1,0 +1,32 @@
+;=== what PRINT and friends put on the screen ===
+@TEST_MAIN
+LOCAL = 42
+LOCALS '= "str"
+PRINTL plain line
+PRINT no newline,
+PRINTL  then newline
+PRINTFORML form {LOCAL} %LOCALS% {LOCAL * 2}
+PRINTFORML [{LOCAL, 5}] [{LOCAL, 5, LEFT}] [%LOCALS, 6%] [%LOCALS, 6, LEFT%]
+PRINTFORML \@ LOCAL > 40 ? big # small \@ / \@ LOCAL > 50 ? big # small \@
+PRINTV LOCAL
+PRINTL
+PRINTS LOCALS
+PRINTL
+PRINTFORML wide: あいう [%"あ", 4%]
+PRINTC c1
+PRINTC c2
+PRINTLC c3
+PRINTL
+PRINTFORML money {MONEY}, day {DAY}
+PRINTFORML %TOSTR(1234567, "#,0")% %TOSTR(5, "00")%
+PRINTFORML [%MONEYSTR(1500)%]
+PRINTFORML {-5} {0} {9223372036854775807}
+PRINTFORML %"x" * 3%
+PRINTFORML %STRFORM("{1+1} and %\"in\"%")%
+ALIGNMENT CENTER
+PRINTL centred
+ALIGNMENT RIGHT
+PRINTL right
+ALIGNMENT LEFT
+PRINTL left again
+PRINTL [0] a button   [1] another

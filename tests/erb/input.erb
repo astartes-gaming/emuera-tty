@@ -1,0 +1,18 @@
+;=== INPUT and friends (the ;@input lines are typed in order) ===
+;@input 42
+;@input hello
+;@input 7
+;@input
+;@input
+@TEST_MAIN
+INPUT
+CALL CHECK, "input number", RESULT == 42
+INPUTS
+CALL CHECKS, "inputs text", RESULTS, "hello"
+ONEINPUT
+CALL CHECK, "oneinput", RESULT == 7
+INPUT 99
+CALL CHECK, "input default on empty", RESULT == 99
+; (INPUTS' default is FORM text, as PRINTFORM)
+INPUTS dflt
+CALL CHECKS, "inputs default on empty", RESULTS, "dflt"

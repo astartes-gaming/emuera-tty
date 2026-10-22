@@ -1,0 +1,18 @@
+;=== time and random numbers ===
+@TEST_MAIN
+LOCAL = GETMILLISECOND()
+LOCAL:1 = GETSECOND()
+CALL CHECK, "clock is running", LOCAL > 0 && LOCAL:1 > 1700000000
+GETTIME
+CALL CHECK, "gettime statement", RESULT > 20240000000000000 && STRLENS(RESULTS) == 19
+CALL CHECK, "gettimes format", STRCOUNT(GETTIMES(), "^\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2}$") == 1
+;--- the same seed gives the same numbers
+INITRAND 12345
+LOCAL:2 = RAND:1000
+LOCAL:3 = RAND:1000
+INITRAND 12345
+CALL CHECK, "initrand repeats", RAND:1000 == LOCAL:2 && RAND:1000 == LOCAL:3
+RANDOMIZE 7
+LOCAL:4 = RAND:1000000
+RANDOMIZE 7
+CALL CHECK, "randomize repeats", RAND:1000000 == LOCAL:4

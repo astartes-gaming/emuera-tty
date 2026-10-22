@@ -1,0 +1,20 @@
+;=== a fixed game state saved to save00.sav, compared byte for byte with
+;=== tests/save/save00.sav (Emuera's binary format; see tests/erb_suite.rs)
+@TEST_MAIN
+DAY = 12
+MONEY = 34567
+FLAG:0 = 1
+FLAG:999 = -5
+FLAG:10 = 9223372036854775807
+SAVESTR:3 = 保存テスト
+ADDCHARA 1
+ADDCHARA 2
+ADDVOIDCHARA
+BASE:0:気力 = 321
+CFLAG:1:好感度 = 77
+CSTR:0:1 = 文字列
+MASTERNAME:1 = 
+NICKNAME:0 = あだ名
+GLOBAL:2 = 8
+SAVEDATA 0, "golden save"
+SAVEGLOBAL

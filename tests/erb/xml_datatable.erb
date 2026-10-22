@@ -1,0 +1,56 @@
+;=== Emuera-EM: XML documents, data tables, maps ===
+@TEST_MAIN
+XML_DOCUMENT 0, "<root><a x='1'>one</a><a x='2'>two</a></root>"
+CALL CHECK, "xml_exist", XML_EXIST(0) && !XML_EXIST(9)
+CALL CHECK, "xml_get count", XML_GET(0, "/root/a") == 2
+; (XML_GET returns the count; with 1 the nodes go to RESULTS: style 1 their
+; text, style 0 their Value, empty for an element)
+LOCAL = XML_GET(0, "/root/a[@x='2']", 1, 1)
+CALL CHECKS, "xml_get text to RESULTS", RESULTS, "two"
+LOCAL = XML_GET(0, "/root/a/@x", 1)
+CALL CHECKS, "xml_get attribute value", RESULTS:0 + RESULTS:1, "12"
+LOCAL = XML_GET(0, "/root/a[1]", 1)
+CALL CHECKS, "xml_get element value is empty", RESULTS, ""
+; (XML_SET's style: 1 an element's text, 0 a Value: an attribute's)
+XML_SET 0, "/root/a[@x='1']", "uno", 0, 1
+LOCAL = XML_GET(0, "/root/a[1]", 1, 1)
+CALL CHECKS, "xml_set text", RESULTS, "uno"
+XML_SET 0, "/root/a[2]/@x", "7"
+CALL CHECK, "xml_set attribute", XML_GET(0, "/root/a[@x='7']") == 1
+XML_ADDATTRIBUTE 0, "/root/a[1]", "y", "9"
+CALL CHECK, "xml_addattribute", XML_GET(0, "/root/a[@y='9']") == 1
+XML_REMOVEATTRIBUTE 0, "/root/a[1]/@y"
+CALL CHECK, "xml_removeattribute", XML_GET(0, "/root/a[@y='9']") == 0
+XML_REPLACE 0, "/root/a[2]", "<b>new</b>"
+CALL CHECK, "xml_replace", XML_GET(0, "/root/b") == 1 && XML_GET(0, "/root/a") == 1
+XML_RELEASE 0
+CALL CHECK, "xml_release", !XML_EXIST(0)
+;--- data tables
+CALL CHECK, "dt_create", DT_CREATE("suite") == 1 && DT_EXIST("suite")
+DT_COLUMN_ADD "suite", "name", "string"
+; (no type: a string column, as .NET's DataTable)
+DT_COLUMN_ADD "suite", "age", "int64"
+CALL CHECK, "dt_column_exist", DT_COLUMN_EXIST("suite", "age") != 0 && DT_COLUMN_LENGTH("suite") >= 3
+LOCAL = DT_ROW_ADD("suite", "name", "reimu", "age", 17)
+LOCAL:1 = DT_ROW_ADD("suite", "name", "marisa", "age", 18)
+CALL CHECK, "dt_row_length", DT_ROW_LENGTH("suite") == 2
+CALL CHECKS, "dt_cell_gets", DT_CELL_GETS("suite", LOCAL, "name", 1), "reimu"
+DT_ROW_SET "suite", LOCAL:1, "age", 19
+CALL CHECK, "dt_row_set", DT_CELL_GET("suite", LOCAL:1, "age", 1) == 19
+CALL CHECK, "dt_select", DT_SELECT("suite", "age > 18") == 1
+DT_ROW_REMOVE "suite", LOCAL
+CALL CHECK, "dt_row_remove", DT_ROW_LENGTH("suite") == 1
+DT_COLUMN_REMOVE "suite", "age"
+CALL CHECK, "dt_column_remove", DT_COLUMN_EXIST("suite", "age") == 0
+DT_CLEAR "suite"
+CALL CHECK, "dt_clear", DT_ROW_LENGTH("suite") == 0
+DT_RELEASE "suite"
+CALL CHECK, "dt_release", !DT_EXIST("suite")
+;--- maps
+MAP_CREATE "suite"
+MAP_SET "suite", "k", "v"
+CALL CHECK, "map", MAP_HAS("suite", "k") && MAP_GET("suite", "k") == "v" && MAP_SIZE("suite") == 1
+MAP_REMOVE "suite", "k"
+CALL CHECK, "map_remove", MAP_SIZE("suite") == 0
+MAP_RELEASE "suite"
+CALL CHECK, "map_release", !MAP_EXIST("suite")

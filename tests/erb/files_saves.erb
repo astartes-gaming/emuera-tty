@@ -1,0 +1,33 @@
+;=== save files and text files: what goes in comes back ===
+@TEST_MAIN
+;--- SAVEDATA / CHKDATA / DELDATA (CHKDATA: 0 loadable, 1 no file)
+DELDATA 7
+CHKDATA 7
+CALL CHECK, "chkdata missing", RESULT == 1
+SAVEDATA 7, "suite save"
+CHKDATA 7
+CALL CHECK, "chkdata after save", RESULT == 0
+CALL CHECKS, "chkdata description", RESULTS, "suite save"
+DELDATA 7
+CHKDATA 7
+CALL CHECK, "deldata", RESULT == 1
+CALL CHECK, "savenos", SAVENOS() >= 20
+;--- SAVETEXT / LOADTEXT
+LOCAL = SAVETEXT("line one\nline two", 3)
+CALL CHECK, "savetext", LOCAL == 1
+CALL CHECKS, "loadtext", LOADTEXT(3), "line one\nline two"
+;--- SAVEGLOBAL / LOADGLOBAL keep GLOBAL / GLOBALS
+GLOBAL:5 = 55
+GLOBALS:2 = kept
+SAVEGLOBAL
+GLOBAL:5 = 0
+GLOBALS:2 = 
+LOADGLOBAL
+CALL CHECK, "loadglobal", GLOBAL:5 == 55 && GLOBALS:2 == "kept"
+;--- SAVECHARA / LOADCHARA
+ADDCHARA 1
+CFLAG:0:好感度 = 4242
+SAVECHARA "suite", "a character", 0
+DELALLCHARA
+LOADCHARA "suite"
+CALL CHECK, "savechara loadchara", CHARANUM == 1 && CFLAG:0:好感度 == 4242 && NO:0 == 1

@@ -1,0 +1,38 @@
+;=== arrays and arithmetic ===
+@TEST_MAIN
+CALL CHECK, "precedence", 1 + 2 * 3 == 7 && (1 + 2) * 3 == 9
+CALL CHECK, "integer division truncates", 7 / 2 == 3 && -7 / 2 == -3 && 7 % 3 == 1 && -7 % 3 == -1
+CALL CHECK, "bit operators", (5 & 3) == 1 && (5 | 3) == 7 && (5 ^ 3) == 6 && (1 << 4) == 16 && (256 >> 4) == 16
+CALL CHECK, "getbit", GETBIT(5, 0) == 1 && GETBIT(5, 1) == 0
+LOCAL = 0
+SETBIT LOCAL, 3
+CALL CHECK, "setbit", LOCAL == 8
+CALL CHECK, "abs sign power sqrt", ABS(-4) == 4 && SIGN(-9) == -1 && POWER(2, 10) == 1024 && SQRT(17) == 4
+CALL CHECK, "max min limit inrange", MAX(1, 9, 3) == 9 && MIN(4, 2) == 2 && LIMIT(15, 0, 10) == 10 && INRANGE(5, 1, 5)
+;--- array statements and functions
+FOR LOCAL, 0, 10
+	LOCAL:(10 + LOCAL) = LOCAL
+NEXT
+CALL CHECK, "sumarray", SUMARRAY(LOCAL, 10, 20) == 45
+CALL CHECK, "maxarray minarray", MAXARRAY(LOCAL, 10, 20) == 9 && MINARRAY(LOCAL, 11, 20) == 1
+CALL CHECK, "findelement", FINDELEMENT(LOCAL, 7, 10, 20) == 17 && FINDELEMENT(LOCAL, 99, 10, 20) == -1
+CALL CHECK, "match", MATCH(LOCAL, 3, 10, 20) == 1
+VARSET LOCAL, 0, 10, 20
+CALL CHECK, "varset range", SUMARRAY(LOCAL, 10, 20) == 0
+LOCAL:30 = 3
+LOCAL:31 = 1
+LOCAL:32 = 2
+ARRAYSORT LOCAL, FORWARD, 30, 3
+CALL CHECK, "arraysort", LOCAL:30 == 1 && LOCAL:31 == 2 && LOCAL:32 == 3
+ARRAYSHIFT LOCAL, 1, 0, 30, 3
+CALL CHECK, "arrayshift", LOCAL:30 == 0 && LOCAL:31 == 1 && LOCAL:32 == 2
+CALL CHECK, "groupmatch", GROUPMATCH(3, 1, 2, 3) == 1 && GROUPMATCH(4, 1, 2) == 0
+CALL CHECK, "nosames allsames", NOSAMES(1, 2, 3) && ALLSAMES(4, 4, 4)
+;--- RAND stays in range (seeded by the suite)
+LOCAL = 1
+FOR LOCAL:1, 0, 100
+	SIF RAND:6 < 0 || RAND:6 > 5
+		LOCAL = 0
+NEXT
+CALL CHECK, "rand range", LOCAL
+CALL CHECK, "rand two args", INRANGE(RAND(5, 8), 5, 7)

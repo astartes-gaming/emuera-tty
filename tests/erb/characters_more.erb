@@ -1,0 +1,23 @@
+;=== more character statements and functions ===
+@TEST_MAIN
+ADDCHARA 1
+ADDCHARA 2
+ADDCHARA 1
+CALL CHECK, "findlastchara", FINDLASTCHARA(NO, 1) == 2
+CALL CHECK, "cmatch", CMATCH(NO, 1) == 2
+CFLAG:0:好感度 = 5
+CFLAG:1:好感度 = 9
+CFLAG:2:好感度 = 1
+CALL CHECK, "sumcarray maxcarray mincarray", SUMCARRAY(CFLAG:好感度) == 15 && MAXCARRAY(CFLAG:好感度) == 9 && MINCARRAY(CFLAG:好感度) == 1
+CALL CHECK, "inrangecarray", INRANGECARRAY(CFLAG:好感度, 2, 6) == 1
+; (MASTER, character 0 by default, stays where it is)
+SORTCHARA CFLAG:好感度, FORWARD
+CALL CHECK, "sortchara keeps MASTER", CFLAG:0:好感度 == 5 && CFLAG:1:好感度 == 1 && CFLAG:2:好感度 == 9
+ADDCOPYCHARA 0
+CALL CHECK, "addcopychara", CHARANUM == 4 && NO:3 == NO:0
+PICKUPCHARA 1, 2
+CALL CHECK, "pickupchara keeps the listed", CHARANUM == 2
+DELALLCHARA
+CALL CHECK, "delallchara", CHARANUM == 0
+CALL CHECK, "csv functions", CSVABL(2, 技巧) == 5 && CSVTALENT(1, 処女) == 1 && CSVCFLAG(1, 好感度) == 10
+CALL CHECKS, "csvname", CSVNAME(2), "霧雨魔理沙"

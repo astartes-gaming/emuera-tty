@@ -1,0 +1,41 @@
+;=== graphics buffers and sprites (colours are ARGB: 0xFF... is opaque) ===
+@TEST_MAIN
+GCREATE 10, 20, 20
+CALL CHECK, "gcreate", GCREATED(10) && GWIDTH(10) == 20 && GHEIGHT(10) == 20
+CALL CHECK, "a new buffer is transparent", GGETCOLOR(10, 0, 0) == 0
+GSETCOLOR 10, 0xFFFF0000, 1, 1
+CALL CHECK, "gsetcolor ggetcolor", GGETCOLOR(10, 1, 1) == 0xFFFF0000
+GSETBRUSH 10, 0xFF00FF00
+GFILLRECTANGLE 10, 2, 2, 3, 3
+CALL CHECK, "gfillrectangle", GGETCOLOR(10, 3, 3) == 0xFF00FF00 && GGETCOLOR(10, 6, 6) == 0
+CALL CHECK, "gsave", GSAVE(10, 5) == 1
+; (GLOAD creates the buffer: one that exists already is refused)
+CALL CHECK, "gload", GLOAD(11, 5) == 1 && GGETCOLOR(11, 1, 1) == 0xFFFF0000 && GLOAD(11, 5) == 0
+GCREATE 12, 20, 20
+GDRAWG 12, 10, 0, 0, 20, 20, 0, 0, 20, 20
+CALL CHECK, "gdrawg", GGETCOLOR(12, 3, 3) == 0xFF00FF00
+GSETFONT 10, "Arial", 12
+CALL CHECK, "gsetfont ggetfont", GGETFONT(10) == "Arial" && GGETFONTSIZE(10) == 12
+CALL CHECK, "gdashstyle", GDASHSTYLE(10, 1, 0) == 1
+;--- sprites
+SPRITECREATE "SUITE_SP", 10, 0, 0, 20, 20
+CALL CHECK, "spritecreate", SPRITECREATED("SUITE_SP") && SPRITEWIDTH("SUITE_SP") == 20 && SPRITEHEIGHT("SUITE_SP") == 20
+CALL CHECK, "spritegetcolor", SPRITEGETCOLOR("SUITE_SP", 1, 1) == 0xFFFF0000
+SPRITESETPOS "SUITE_SP", 5, 6
+SPRITEMOVE "SUITE_SP", 1, 1
+CALL CHECK, "spritesetpos spritemove", SPRITEPOSX("SUITE_SP") == 6 && SPRITEPOSY("SUITE_SP") == 7
+GCREATE 13, 10, 10
+GDRAWSPRITE 13, "SUITE_SP", 0, 0, 10, 10
+CALL CHECK, "gdrawsprite with a base position", GGETCOLOR(13, 0, 0) == 0
+SPRITEANIMECREATE "SUITE_ANI", 20, 20
+SPRITEANIMEADDFRAME "SUITE_ANI", 10, 0, 0, 20, 20, 0, 0, 100
+CALL CHECK, "spriteanime", SPRITECREATED("SUITE_ANI")
+SPRITEDISPOSE "SUITE_SP"
+CALL CHECK, "spritedispose", !SPRITECREATED("SUITE_SP")
+SPRITECREATE "SUITE_SP2", 10
+CALL CHECK, "spritedisposeall counts", SPRITEDISPOSEALL(0) == 2
+CALL CHECK, "spritedisposeall", !SPRITECREATED("SUITE_ANI") && !SPRITECREATED("SUITE_SP2")
+;--- client background layers
+CALL CHECK, "cbgsetg cbgclear", CBGSETG(10, 0, 0, 1) == 1 && CBGCLEAR() == 1
+GDISPOSE 10
+CALL CHECK, "gdispose", !GCREATED(10)

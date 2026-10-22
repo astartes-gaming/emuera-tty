@@ -1,0 +1,36 @@
+;=== shared by every file in tests/erb and tests/golden (see tests/erb_suite.rs) ===
+;
+; A test file defines @TEST_MAIN and checks with:
+;   CALL CHECK, "what", <condition>
+;   CALL CHECKS, "what", <got>, <want>        (strings)
+; Lines starting with ";@input " are typed into the game, in order.
+; A file that needs its own @SYSTEM_TITLE (to use the system flow) calls
+; TEST_DONE itself when done.
+
+@SYSTEM_TITLE
+CALL TEST_MAIN
+CALL TEST_DONE
+QUIT
+
+@TEST_DONE
+PRINTFORML DONE {SUITE_CHECKS} checks
+; (on Emuera: the screen to emuera.log, for tools/erb_suite_compare.py)
+OUTPUTLOG
+
+@CHECK, ARGS, ARG
+SUITE_CHECKS += 1
+IF ARG
+	PRINTFORML OK  %ARGS%
+ELSE
+	PRINTFORML NG  %ARGS%
+ENDIF
+RETURN 0
+
+@CHECKS, ARGS, ARGS:1, ARGS:2
+SUITE_CHECKS += 1
+IF ARGS:1 == ARGS:2
+	PRINTFORML OK  %ARGS%
+ELSE
+	PRINTFORML NG  %ARGS%  got [%ARGS:1%] want [%ARGS:2%]
+ENDIF
+RETURN 0

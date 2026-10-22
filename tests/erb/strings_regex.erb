@@ -1,0 +1,39 @@
+;=== strings and regular expressions (Emuera hands patterns to .NET) ===
+@TEST_MAIN
+;--- STRCOUNT counts regex matches (AnonTW's SPLIT_CHECK: the item menu)
+CALL CHECK, "strcount regex list lookup", STRCOUNT("36:120:", "(^|:)(36|x)($|:)") == 1
+CALL CHECK, "strcount no partial number", STRCOUNT("136:120:", "(^|:)(36)($|:)") == 0
+CALL CHECK, "strcount plain", STRCOUNT("abcabc", "bc") == 2
+CALL CHECK, "strcount dot is any char", STRCOUNT("abc", ".") == 3
+CALL CHECK, "strcount escaped dot", STRCOUNT("a.b.c", "\\.") == 2
+CALL CHECK, "strcount empty pattern like .NET", STRCOUNT("abc", "") == 4
+;--- ESCAPE is Regex.Escape
+CALL CHECKS, "escape metacharacters and space", ESCAPE("a b]{x}.*"), "a\\ b]\\{x}\\.\\*"
+CALL CHECK, "escaped text matches itself", STRCOUNT("1+1 (two)", ESCAPE("1+1 (two)")) == 1
+;--- REPLACE: regex (mode 0), array (1), plain text (2)
+CALL CHECKS, "replace regex", REPLACE("a1b22c", "[0-9]+", "#"), "a#b#c"
+CALL CHECKS, "replace groups", REPLACE("x=1;y=2", "(\\w)=(\\d)", "$2$1"), "1x;2y"
+CALL CHECKS, "replace plain mode 2", REPLACE("a.b.c", ".", "-", 2), "a-b-c"
+; (mode 1 takes the whole array from element 0, whatever index is written)
+LOCALS:0 = one
+LOCALS:1 = two
+CALL CHECKS, "replace from array mode 1", REPLACE("? and ?", "\\?", LOCALS, 1), "one and two"
+CALL CHECKS, "strjoin", STRJOIN(LOCALS, "/", 0, 2), "one/two"
+;--- REGEXPMATCH
+CALL CHECK, "regexpmatch count", REGEXPMATCH("a1b2c3", "[0-9]") == 3
+;--- SPLIT sets RESULT to the number of parts
+SPLIT "a,b,,c", ",", LOCALS
+CALL CHECK, "split count", RESULT == 4
+CALL CHECKS, "split parts", LOCALS:1 + "|" + LOCALS:2 + "|" + LOCALS:3, "b||c"
+;--- widths: Shift_JIS bytes
+CALL CHECK, "strlens sjis", STRLENS("あいu") == 5 && STRLENSU("あいu") == 3
+CALL CHECKS, "substring by sjis width", SUBSTRING("あいうえお", 2, 4), "いう"
+CALL CHECK, "strfind", STRFIND("abcabc", "c") == 2 && STRFIND("abcabc", "c", 3) == 5 && STRFIND("abc", "z") == -1
+;--- formatting
+CALL CHECKS, "tostr padding", TOSTR(42, "0000"), "0042"
+CALL CHECKS, "tostr hex", TOSTR(255, "X4"), "00FF"
+CALL CHECKS, "form width left", @"[%"ab", 4, LEFT%]", "[ab  ]"
+CALL CHECKS, "form width right", @"[{7, 3}]", "[  7]"
+CALL CHECKS, "form ternary", @"\@ 1 > 0 ? yes # no \@", "yes"
+CALL CHECKS, "toupper tohalf", TOUPPER("aBc") + TOHALF("ＡＢ１"), "ABCAB1"
+CALL CHECK, "isnumeric", ISNUMERIC("-12") && !ISNUMERIC("1a")

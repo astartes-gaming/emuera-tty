@@ -1,0 +1,102 @@
+;=== the rest of the console, CSV, data and debugging built-ins ===
+@TEST_MAIN
+#DIM NUMS, 4
+#DIMS NAMES, 4
+#DIMS ALONG, 1 = "NAMES"
+;--- CSV data functions
+CALL CHECK, "csv getters", CSVEXP(1, 0) == 0 && CSVMARK(1, 0) == 0 && CSVJUEL(1, 0) == 0 && CSVEQUIP(1, 0) == 0 && CSVRELATION(1, 0) == 0
+CALL CHECKS, "csvcstr csvmastername", CSVCSTR(1, 0) + CSVMASTERNAME(1), ""
+CALL CHECK, "getexplv getpalamlv", GETEXPLV(0, 1) >= 0 && GETPALAMLV(0, 1) >= 0
+;--- characters made other ways
+ADDDEFCHARA
+CALL CHECK, "adddefchara", CHARANUM == 1 && NO:0 == 0
+ADDSPCHARA 2
+CALL CHECK, "addspchara getspchara", CHARANUM == 2 && GETSPCHARA(2) == 1
+;--- the console
+CALL CHECK, "client size", CLIENTWIDTH() > 0 && CLIENTHEIGHT() > 0
+CALL CHECK, "isactive", ISACTIVE() == 1
+CALL CHECK, "chkfont getfont", STRLENS(GETFONT()) > 0 && CHKFONT(GETFONT()) == 1
+CALL CHECK, "getfocuscolor", GETFOCUSCOLOR() >= 0
+SETBGCOLORBYNAME Black
+CALL CHECK, "setbgcolorbyname", GETBGCOLOR() == 0
+RESETBGCOLOR
+CALL CHECK, "no skipping here", MESSKIP() == 0 && MOUSESKIP() == 0
+CALL CHECK, "no keys held", GETKEY(65) == 0 && GETKEYTRIGGERED(65) == 0
+CALL CHECK, "mouse position", MOUSEX() >= -100000 && MOUSEY() >= -100000
+SETTEXTBOX "typed"
+CLEARTEXTBOX
+CALL CHECKS, "textbox", GETTEXTBOX(), ""
+CALL CHECK, "memory", GETMEMORYUSAGE() > 0
+CLEARMEMORY
+SKIPLOG 0
+FORCEKANA 0
+;--- lines on screen
+PRINTL first visible
+CALL CHECKS, "getlinestr", GETLINESTR("-"), GETLINESTR("-")
+CALL CHECK, "getdisplayline", STRLENS(GETDISPLAYLINE(0)) >= 0
+;--- PRINTDATA / DATALIST: one entry, lines joined
+PRINTDATAL
+	DATALIST
+		DATA list line 1
+		DATA list line 2
+	ENDLIST
+ENDDATA
+;--- files under the game folder
+CALL CHECK, "existfile", EXISTFILE("CSV/Base.csv") == 1 && EXISTFILE("CSV/none.csv") == 0
+CALL CHECK, "enumfiles", ENUMFILES("CSV", "Chara*.csv") == 3
+;--- sound without sound files
+CALL CHECK, "existsound", EXISTSOUND("none.wav") == 0
+STOPSOUND
+PLAYBGM "none.wav"
+STOPBGM
+SETSOUNDVOLUME 50
+SETBGMVOLUME 50
+;--- tooltips and debugging do nothing visible
+TOOLTIP_SETCOLOR 0xFFFFFF, 0
+TOOLTIP_SETDELAY 100
+TOOLTIP_SETDURATION 1000
+TOOLTIP_SETFONT "Arial"
+TOOLTIP_SETFONTSIZE 12
+TOOLTIP_CUSTOM 0
+TOOLTIP_FORMAT 0
+TOOLTIP_IMG 0
+DEBUGPRINT not on screen
+DEBUGPRINTL not on screen
+DEBUGPRINTFORM {1}
+DEBUGPRINTFORML {2}
+DEBUGCLEAR
+DUMPRAND
+ASSERT 1 == 1
+;--- data tables, more
+LOCAL = DT_CREATE("more")
+DT_COLUMN_ADD "more", "Name", "string"
+DT_NOCASE "more", 1
+LOCAL = DT_ROW_ADD("more", "Name", "Reimu")
+CALL CHECK, "dt_nocase select", DT_SELECT("more", "Name = 'reimu'") == 1
+CALL CHECK, "dt_column_names", DT_COLUMN_NAMES("more") >= 2
+DT_COLUMN_OPTIONS "more", "Name", "DEFAULT", "nobody"
+LOCAL = DT_ROW_ADD("more")
+CALL CHECKS, "dt_column_options default", DT_CELL_GETS("more", LOCAL, "Name", 1), "nobody"
+DT_RELEASE "more"
+;--- xml by name
+XML_DOCUMENT "doc", "<r><a/></r>"
+XML_ADDNODE_BYNAME "doc", "/r", "<b>t</b>"
+XML_ADDATTRIBUTE_BYNAME "doc", "/r/b", "k", "v"
+CALL CHECK, "xml by name", XML_GET_BYNAME("doc", "/r/b[@k='v']") == 1
+XML_SET_BYNAME "doc", "/r/b/@k", "w"
+XML_REMOVEATTRIBUTE_BYNAME "doc", "/r/b/@k"
+XML_REPLACE_BYNAME "doc", "/r/a", "<c/>"
+XML_REMOVENODE_BYNAME "doc", "/r/c"
+CALL CHECK, "xml by name edits", XML_GET_BYNAME("doc", "/r/*") == 1
+;--- sorting several arrays by one
+NUMS:0 = 3
+NUMS:1 = 1
+NUMS:2 = 2
+NAMES:0 = c
+NAMES:1 = a
+NAMES:2 = b
+; (the key array, then a string array naming the arrays sorted along)
+ARRAYMSORTEX NUMS, ALONG, 1, 3
+CALL CHECKS, "arraymsortex", NAMES:0 + NAMES:1 + NAMES:2, "abc"
+;--- REFBYNAME / GETCONFIGS
+CALL CHECK, "getconfigs", STRLENS(GETCONFIGS("お金の単位")) > 0

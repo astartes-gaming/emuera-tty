@@ -1,0 +1,13 @@
+;=== HTML_* functions ===
+@TEST_MAIN
+CALL CHECKS, "html_toplaintext", HTML_TOPLAINTEXT("<b>bold</b> &amp; <font color='#FF0000'>red</font>"), "bold & red"
+CALL CHECKS, "html_escape", HTML_ESCAPE("<a & b>"), "&lt;a &amp; b&gt;"
+CALL CHECK, "html_stringlen", HTML_STRINGLEN("<b>abc</b>") == 3
+HTML_TAGSPLIT "x<b>y</b>z"
+CALL CHECK, "html_tagsplit count", RESULT == 5
+CALL CHECKS, "html_tagsplit parts", RESULTS:0 + "|" + RESULTS:1 + "|" + RESULTS:2, "x|<b>|y"
+PRINT pending text
+LOCALS '= HTML_POPPRINTINGSTR()
+CALL CHECKS, "html_popprintingstr", HTML_TOPLAINTEXT(LOCALS), "pending text"
+HTML_PRINT "<b>printed</b>"
+CALL CHECKS, "html_getprintedstr", HTML_TOPLAINTEXT(HTML_GETPRINTEDSTR(0)), "printed"

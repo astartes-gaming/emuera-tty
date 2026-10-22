@@ -1,0 +1,28 @@
+;=== variable indices: numbers, CSV names, names held in strings ===
+@TEST_MAIN
+ADDCHARA 1
+ADDCHARA 2
+;--- a CSV name as an index, written or held in a string (AnonTW's
+;--- RECOVER indexes BASE that way: Vigora restores 気力 with it)
+; (characters are numbered by position: 0 is 霊夢, 1 is 魔理沙)
+BASE:0:気力 = 77
+LOCALS '= "気力"
+CALL CHECK, "index by bare name", BASE:0:1 == 77
+CALL CHECK, "index by string variable", BASE:0:(LOCALS) == 77
+CALL CHECK, "index by string expression", BASE:0:("気" + "力") == 77
+CALL CHECK, "index by string literal", BASE:0:"気力" == 77
+CALL CHECK, "slot 0 by name", BASE:0:("体力") == BASE:0:0 && BASE:0:0 == 2000
+LOCALS '= "技巧"
+ABL:1:(LOCALS) += 1
+CALL CHECK, "abl by string, from the chara csv", ABL:1:技巧 == 6
+CALL CHECK, "getnum", GETNUM(BASE, "気力") == 1 && GETNUM(ABL, "従順") == 2
+;--- a character variable with one index fewer means TARGET's
+TARGET = 1
+CFLAG:好感度 = 3
+CALL CHECK, "chara var defaults to TARGET", CFLAG:1:好感度 == 3 && CFLAG:0:好感度 == 10
+CALL CHECK, "chara csv flags", CFLAG:0:2 == 10
+;--- talents from the CSV
+CALL CHECK, "talent from csv", TALENT:0:処女 == 1 && TALENT:1:処女 == 0
+;--- the CSV name of an index
+CALL CHECKS, "csv name lookup", ABLNAME:1, "技巧"
+CALL CHECKS, "character names", NAME:0 + "/" + CALLNAME:1, "博麗霊夢/魔理沙"

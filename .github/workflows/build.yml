@@ -12,6 +12,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # unit tests, the sample game's self-test and the ERB suite (tests/erb,
+  # tests/golden, tests/save: see tests/erb_suite.rs)
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Tests
+        run: cargo test --release
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}

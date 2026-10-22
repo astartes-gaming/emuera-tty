@@ -1,0 +1,68 @@
+;=== Emuera's own flow: title, first day, shop, save/load, resets ===
+;@input 101
+;@input 102
+;@input 103
+;@input 104
+;@input 999
+@SYSTEM_TITLE
+CALL CHECK, "title runs first", FLAG:0 == 0
+FLAG:0 = 1
+BEGIN FIRST
+
+@EVENTFIRST
+CALL CHECK, "first after title", FLAG:0 == 1
+ADDCHARA 1
+FLAG:0 = 2
+BEGIN SHOP
+
+@SHOW_SHOP
+FLAG:1 += 1
+
+@USERSHOP
+SELECTCASE RESULT
+	CASE 101
+		CALL CHECK, "show_shop before usershop", FLAG:1 >= 1
+		;--- parameter rises: UP applied to TARGET's PALAM
+		TARGET = 0
+		UP:0 = 30
+		UPCHECK
+		CALL CHECK, "upcheck", PALAM:0:0 == 30 && UP:0 == 0
+		CUP:0:1 = 7
+		CUPCHECK 0
+		CALL CHECK, "cupcheck", PALAM:0:1 == 7
+	CASE 102
+		;--- a save, then the load runs SYSTEM_LOADEND before EVENTLOAD
+		FLAG:2 = 55
+		SAVEDATA 3, "flow"
+		FLAG:2 = 0
+		LOADDATA 3
+	CASE 103
+		CALL CHECK, "loaddata restored the save", FLAG:2 == 55 && CHARANUM == 1
+		CALL CHECKS, "load order", SAVESTR:9, "loadend,eventload"
+		;--- RESETDATA clears the game, not GLOBAL
+		GLOBAL:1 = 11
+		RESETDATA
+		CALL CHECK, "resetdata", FLAG:2 == 0 && CHARANUM == 0 && GLOBAL:1 == 11
+		RESETGLOBAL
+		CALL CHECK, "resetglobal", GLOBAL:1 == 0
+	CASE 104
+		; (the name as written; every handler of the event runs)
+		CALLEVENT EVENTEND
+		CALL CHECK, "callevent runs every handler", FLAG:3 == 3
+	CASE 999
+		CALL TEST_DONE
+		QUIT
+ENDSELECT
+
+@SYSTEM_LOADEND
+SAVESTR:9 = loadend
+
+@EVENTLOAD
+SAVESTR:9 += ",eventload"
+
+@EVENTEND
+#PRI
+FLAG:3 += 1
+
+@EVENTEND
+FLAG:3 += 2

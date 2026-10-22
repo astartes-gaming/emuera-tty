@@ -1,0 +1,21 @@
+;=== characters ===
+@TEST_MAIN
+CALL CHECK, "no characters at first", CHARANUM == 0
+ADDCHARA 1
+ADDCHARA 2
+CALL CHECK, "addchara", CHARANUM == 2 && NO:0 == 1 && NO:1 == 2
+CALL CHECK, "csv data on add", BASE:0:体力 == 2000 && MAXBASE:0:体力 == 2000 && ABL:1:技巧 == 5
+CALL CHECK, "findchara", FINDCHARA(NO, 2) == 1 && FINDCHARA(NO, 9) == -1
+CALL CHECK, "getchara", GETCHARA(2) == 1 && GETCHARA(9) == -1
+CALL CHECK, "existcsv", EXISTCSV(1) && !EXISTCSV(9)
+ADDVOIDCHARA
+CALL CHECK, "addvoidchara", CHARANUM == 3 && NAME:2 == "" && NO:2 == 0
+COPYCHARA 0, 2
+CALL CHECKS, "copychara", NAME:2, "博麗霊夢"
+SWAPCHARA 0, 1
+CALL CHECK, "swapchara", NO:0 == 2 && NO:1 == 1
+DELCHARA 2
+CALL CHECK, "delchara", CHARANUM == 2
+CVARSET CFLAG, 好感度, 7
+CALL CHECK, "cvarset", CFLAG:0:好感度 == 7 && CFLAG:1:好感度 == 7
+CALL CHECK, "csv getters", CSVBASE(1, 0) == 2000 && CSVCALLNAME(2) == "魔理沙"

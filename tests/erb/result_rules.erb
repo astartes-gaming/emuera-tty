@@ -1,0 +1,71 @@
+;=== what RESULT holds after calls and statements, as in Emuera ===
+@TEST_MAIN
+;--- running off the end of a function is RETURN 0 (AnonTW's item filters)
+RESULT = 5
+CALL ENDS_WITHOUT_RETURN
+CALL CHECK, "fall-off end sets RESULT 0", RESULT == 0
+;--- ... but not while a #FUNCTION is evaluated (AnonTW's NPC activity names)
+RESULT = 5
+LOCAL = METHOD_CALLING_A_FUNCTION()
+CALL CHECK, "fall-off end inside #FUNCTION keeps RESULT", RESULT == 5 && LOCAL == 1
+;--- RETURN
+RESULT = 5
+CALL BARE_RETURN
+CALL CHECK, "bare RETURN is 0", RESULT == 0
+CALL RETURNS_THREE
+CALL CHECK, "RETURN a, b, c fills RESULT:0..2", RESULT == 1 && RESULT:1 == 2 && RESULT:2 == 3
+;--- a #FUNCTION's value doesn't go to RESULT
+RESULT = 9
+LOCAL = TWICE(4)
+CALL CHECK, "#FUNCTION leaves RESULT", RESULT == 9 && LOCAL == 8
+;--- ISSKIP is SKIPDISP's state (AnonTW's command menu)
+SKIPDISP 1
+LOCAL = ISSKIP()
+SKIPDISP 0
+CALL CHECK, "isskip under skipdisp", LOCAL == 1 && ISSKIP() == 0
+;--- statements that keep RESULT, functions used as statements that set it
+RESULT = 42
+PLAYSOUND "none.wav"
+CALL CHECK, "playsound keeps RESULT", RESULT == 42
+SETANIMETIMER 0
+CALL CHECK, "setanimetimer sets 1", RESULT == 1
+BITMAP_CACHE_ENABLE 1
+CALL CHECK, "bitmap_cache_enable sets 0", RESULT == 0
+;--- TRYCALLFORM / TRYCCALLFORM / GETMETH
+RESULT = 7
+TRYCALLFORM NO_SUCH_{1}
+CALL CHECK, "trycallform of nothing keeps RESULT", RESULT == 7
+LOCAL = 0
+TRYCCALLFORM NO_SUCH_{2}
+	LOCAL = 1
+CATCH
+	LOCAL = 2
+ENDCATCH
+CALL CHECK, "tryccallform catch", LOCAL == 2
+CALL CHECK, "getmeth default and value", GETMETH("NO_SUCH_FN", 13) == 13 && GETMETH("TWICE", 0, 5) == 10
+CALL CHECKS, "getmeths", GETMETHS("NAMED", "none"), "named"
+;--- the text box functions outside a window
+CALL CHECK, "mouseb is a string", MOUSEB() == ""
+
+@ENDS_WITHOUT_RETURN
+LOCAL = 1
+
+@BARE_RETURN
+RETURN
+
+@RETURNS_THREE
+RETURN 1, 2, 3
+
+@METHOD_CALLING_A_FUNCTION
+#FUNCTION
+CALL ENDS_WITHOUT_RETURN
+RETURNF 1
+
+@TWICE(X)
+#FUNCTION
+#DIM X
+RETURNF X * 2
+
+@NAMED
+#FUNCTIONS
+RETURNF "named"
