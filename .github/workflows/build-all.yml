@@ -1,0 +1,214 @@
+name: Build all platforms (manual)
+
+# Only starts when asked for (Actions → "Build all platforms (manual)" → Run
+# workflow). It covers what the README lists under "Other systems" and
+# "Other CPUs":
+#   - builds:  x86-64 Linux, Windows, macOS, and the CPUs the README ran
+#              under emulation (static musl programs); binaries are uploaded
+#   - checks:  the systems and CPUs the README only compile-checks
+#              (`cargo check`, nightly + build-std); nothing is uploaded
+#
+# Choosing what runs: each input takes `all`, `none`, or a comma-separated
+# list of names and/or groups (a group picks all of its members). Anything
+# that isn't a known name fails the run at once and lists the valid ones.
+#
+#   builds   group pc:   linux-x86_64, linux-x86_64-static, windows-x86_64,
+#                        macos-aarch64, macos-x86_64
+#            group cpus: linux-i586-static, linux-armv5-static,
+#                        linux-armv6-static, linux-armv7-static,
+#                        linux-aarch64-static, linux-riscv64-static,
+#                        linux-ppc64-static, linux-ppc64le-static,
+#                        linux-loongarch64-static
+#   checks   group systems: freebsd, netbsd, openbsd, dragonfly, illumos,
+#                           solaris, haiku, redox, android-termux
+#            group cpus:    riscv32, powerpc32, s390x, sparc32, sparc64,
+#                           mips32-be, mips32-le, mips64-be, mips64-le, m68k,
+#                           hexagon, csky, arm-big-endian, aarch64-big-endian,
+#                           x32
+#
+# e.g. builds = "windows-x86_64, linux-armv5-static" with checks = "none"
+# builds just those two.
+on:
+  workflow_dispatch:
+    inputs:
+      builds:
+        description: "Binaries to build: all, none, or names/groups (pc, cpus) separated by commas"
+        type: string
+        default: all
+      checks:
+        description: "Compile-checks to run: all, none, or names/groups (systems, cpus) separated by commas"
+        type: string
+        default: all
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # the README's recipe for static musl programs with Rust's own linker
+  MUSL_FLAGS: "-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"
+
+jobs:
+  # Works out which matrix entries the inputs ask for. (A job's own `if`
+  # can't look at its matrix entry, so the lists are filtered here and handed
+  # to the jobs below.)
+  plan:
+    name: choose what to run
+    runs-on: ubuntu-latest
+    outputs:
+      builds: ${{ steps.pick.outputs.builds }}
+      has_builds: ${{ steps.pick.outputs.has_builds }}
+      checks: ${{ steps.pick.outputs.checks }}
+      has_checks: ${{ steps.pick.outputs.has_checks }}
+    steps:
+      - id: pick
+        env:
+          WANT_BUILDS: ${{ inputs.builds }}
+          WANT_CHECKS: ${{ inputs.checks }}
+        run: |
+          set -euo pipefail
+
+          cat > builds.json <<'EOF'
+          [
+            { "name": "linux-x86_64", "group": "pc", "os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu", "musl": false, "ext": "" },
+            { "name": "linux-x86_64-static", "group": "pc", "os": "ubuntu-latest", "target": "x86_64-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "windows-x86_64", "group": "pc", "os": "windows-latest", "target": "x86_64-pc-windows-msvc", "musl": false, "ext": ".exe" },
+            { "name": "macos-aarch64", "group": "pc", "os": "macos-latest", "target": "aarch64-apple-darwin", "musl": false, "ext": "" },
+            { "name": "macos-x86_64", "group": "pc", "os": "macos-latest", "target": "x86_64-apple-darwin", "musl": false, "ext": "" },
+            { "name": "linux-i586-static", "group": "cpus", "os": "ubuntu-latest", "target": "i586-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-armv5-static", "group": "cpus", "os": "ubuntu-latest", "target": "armv5te-unknown-linux-musleabi", "musl": true, "ext": "" },
+            { "name": "linux-armv6-static", "group": "cpus", "os": "ubuntu-latest", "target": "arm-unknown-linux-musleabihf", "musl": true, "ext": "" },
+            { "name": "linux-armv7-static", "group": "cpus", "os": "ubuntu-latest", "target": "armv7-unknown-linux-musleabihf", "musl": true, "ext": "" },
+            { "name": "linux-aarch64-static", "group": "cpus", "os": "ubuntu-latest", "target": "aarch64-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-riscv64-static", "group": "cpus", "os": "ubuntu-latest", "target": "riscv64gc-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-ppc64-static", "group": "cpus", "os": "ubuntu-latest", "target": "powerpc64-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-ppc64le-static", "group": "cpus", "os": "ubuntu-latest", "target": "powerpc64le-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-loongarch64-static", "group": "cpus", "os": "ubuntu-latest", "target": "loongarch64-unknown-linux-musl", "musl": true, "ext": "" }
+          ]
+          EOF
+
+          cat > checks.json <<'EOF'
+          [
+            { "name": "freebsd", "group": "systems", "target": "x86_64-unknown-freebsd" },
+            { "name": "netbsd", "group": "systems", "target": "x86_64-unknown-netbsd" },
+            { "name": "openbsd", "group": "systems", "target": "x86_64-unknown-openbsd" },
+            { "name": "dragonfly", "group": "systems", "target": "x86_64-unknown-dragonfly" },
+            { "name": "illumos", "group": "systems", "target": "x86_64-unknown-illumos" },
+            { "name": "solaris", "group": "systems", "target": "x86_64-pc-solaris" },
+            { "name": "haiku", "group": "systems", "target": "x86_64-unknown-haiku" },
+            { "name": "redox", "group": "systems", "target": "x86_64-unknown-redox" },
+            { "name": "android-termux", "group": "systems", "target": "aarch64-linux-android" },
+            { "name": "riscv32", "group": "cpus", "target": "riscv32gc-unknown-linux-gnu" },
+            { "name": "powerpc32", "group": "cpus", "target": "powerpc-unknown-linux-gnu" },
+            { "name": "s390x", "group": "cpus", "target": "s390x-unknown-linux-gnu" },
+            { "name": "sparc32", "group": "cpus", "target": "sparc-unknown-linux-gnu" },
+            { "name": "sparc64", "group": "cpus", "target": "sparc64-unknown-linux-gnu" },
+            { "name": "mips32-be", "group": "cpus", "target": "mips-unknown-linux-gnu" },
+            { "name": "mips32-le", "group": "cpus", "target": "mipsel-unknown-linux-gnu" },
+            { "name": "mips64-be", "group": "cpus", "target": "mips64-unknown-linux-gnuabi64" },
+            { "name": "mips64-le", "group": "cpus", "target": "mips64el-unknown-linux-gnuabi64" },
+            { "name": "m68k", "group": "cpus", "target": "m68k-unknown-linux-gnu" },
+            { "name": "hexagon", "group": "cpus", "target": "hexagon-unknown-linux-musl" },
+            { "name": "csky", "group": "cpus", "target": "csky-unknown-linux-gnuabiv2" },
+            { "name": "arm-big-endian", "group": "cpus", "target": "armeb-unknown-linux-gnueabi" },
+            { "name": "aarch64-big-endian", "group": "cpus", "target": "aarch64_be-unknown-linux-gnu" },
+            { "name": "x32", "group": "cpus", "target": "x86_64-unknown-linux-gnux32" }
+          ]
+          EOF
+
+          # pick FILE WANTED KIND: the matrix ({"include": [...]}) of FILE's
+          # entries whose name or group is in the comma-separated WANTED
+          # ("all" takes every entry, "none" or nothing takes none)
+          pick() {
+            local file=$1 want=$2 kind=$3 sel bad
+            sel=$(printf '%s' "$want" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | jq -R . | jq -s -c .)
+            bad=$(jq -r --argjson sel "$sel" '([.[].name] + [.[].group] + ["all", "none"]) as $ok | ($sel - $ok) | join(", ")' "$file")
+            if [ -n "$bad" ]; then
+              echo "::error::Unknown $kind: $bad" >&2
+              echo "Names: $(jq -r '[.[].name] | join(", ")' "$file")" >&2
+              echo "Groups: $(jq -r '[.[].group] | unique | join(", ")' "$file"), and all / none" >&2
+              exit 1
+            fi
+            jq -c --argjson sel "$sel" '{include: [.[] | . as $e | select($sel | any(. == "all" or . == $e.name or . == $e.group))]}' "$file"
+          }
+
+          builds=$(pick builds.json "$WANT_BUILDS" builds)
+          checks=$(pick checks.json "$WANT_CHECKS" checks)
+          {
+            echo "builds=$builds"
+            echo "has_builds=$(jq '.include | length > 0' <<<"$builds")"
+            echo "checks=$checks"
+            echo "has_checks=$(jq '.include | length > 0' <<<"$checks")"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### What this run does"
+            echo
+            echo "- **Builds** (\`$WANT_BUILDS\`): $(jq -r '[.include[].name] | join(", ") | if . == "" then "none" else . end' <<<"$builds")"
+            echo "- **Checks** (\`$WANT_CHECKS\`): $(jq -r '[.include[].name] | join(", ") | if . == "" then "none" else . end' <<<"$checks")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: plan
+    if: ${{ needs.plan.outputs.has_builds == 'true' }}
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # the same steps on every runner, Windows included (Git Bash)
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.builds) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml selects stable with rustfmt and clippy; adding the
+      # target here applies to that same toolchain
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        env:
+          RUSTFLAGS: ${{ matrix.musl && env.MUSL_FLAGS || '' }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Collect the binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/emuera-tty${{ matrix.ext }} dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
+          file dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }} || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emuera-tty-${{ matrix.name }}
+          path: dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
+          if-no-files-found: error
+
+  # What the README only compile-checks: there is no C library to link
+  # against here, and most of these have no prebuilt standard library, so
+  # it is built from source (nightly, `-Z build-std`).
+  check:
+    needs: plan
+    if: ${{ needs.plan.outputs.has_checks == 'true' }}
+    name: check ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.checks) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly with the standard library's source
+        run: rustup toolchain install nightly --profile minimal --component rust-src
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: check-${{ matrix.target }}
+
+      - name: Check
+        run: cargo +nightly check -Z build-std=std,panic_abort --target ${{ matrix.target }}
