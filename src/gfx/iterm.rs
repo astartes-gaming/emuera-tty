@@ -28,6 +28,9 @@ impl Backend for Iterm {
     fn name(&self) -> &'static str {
         "iterm"
     }
+    fn text_erases(&self) -> bool {
+        true
+    }
     fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
         let (cw, ch) = (cell.0.max(1), cell.1.max(1));
         for p in ps {

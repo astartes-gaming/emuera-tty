@@ -112,7 +112,7 @@ with a very large stack.
   characters missing from the console font are drawn as lookalikes
   (`console_lookalike`, font map read with GIO_UNIMAP).
 - **Around the game.** `picker.rs` (game library/launcher), `settings.rs`
-  (F1 settings, `~/.config/emuera-tty/config`), `emuconfig.rs` (Emuera's
+  (F2 settings, `~/.config/emuera-tty/config`), `emuconfig.rs` (Emuera's
   `emuera.config` / `_default.config` / `_fixed.config`), `mt.rs` +
   `translate.rs` (dialogue translation), `sound.rs` (external players).
 

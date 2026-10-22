@@ -313,7 +313,7 @@ enum Key {
     CtrlL,
     Left,
     Right,
-    /// F1 or Ctrl-O: the settings overlay
+    /// F2 or Ctrl-O: the settings overlay
     Settings,
     /// Emuera-Anchor's hotkeys: Ctrl-T title, Ctrl-R restart, F5 / Ctrl-E
     /// reload the ERB files
@@ -440,7 +440,7 @@ pub struct Tty {
     tr_to: String,
     tr_from: String,
     tr_all: bool,
-    /// the memory in use in the bottom row too (it is always in F1)
+    /// the memory in use in the bottom row too (it is always in F2)
     pub show_memory: bool,
     /// the bottom row's right side as last drawn: (columns the prompt may
     /// use, the function asking, the column it starts at); None: not shown
@@ -804,8 +804,9 @@ impl Tty {
             write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h");
         }
         // xterm's modifyOtherKeys (Shift+Enter apart from Enter); not for
-        // the Linux console, which has no such mode
-        if !is_vt {
+        // the Linux console, which has no such mode, nor kitty (its own
+        // keyboard protocol; it logs this as a parse error)
+        if !is_vt && term != "xterm-kitty" {
             write_all(b"\x1b[>4;1m");
         }
         t.mlog(&format!(
@@ -990,7 +991,10 @@ impl Tty {
             }
             _ => {
                 // iTerm2 says who it is (and has no kitty graphics)
-                let iterm = std::env::var("TERM_PROGRAM").as_deref() == Ok("iTerm.app") || std::env::var("LC_TERMINAL").as_deref() == Ok("iTerm2");
+                // (WezTerm too: its kitty pictures flash as they are
+                // replaced, its iTerm ones don't)
+                let iterm = matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("iTerm.app") | Ok("WezTerm"))
+                    || std::env::var("LC_TERMINAL").as_deref() == Ok("iTerm2");
                 if is_vt {
                     try_fb(self);
                 } else if iterm {
@@ -1098,7 +1102,7 @@ impl Tty {
                         }
                         (
                             match b[3] {
-                                b'A' => Key::Settings,
+                                b'B' => Key::Settings,
                                 b'E' => Key::Reload,
                                 _ => Key::Other,
                             },
@@ -1144,8 +1148,8 @@ impl Tty {
                                             Key::Other
                                         }
                                     }
-                                    // F1: xterm-style, and the Linux console's ESC [ [ A
-                                    (p, b'~') if p == b"11" => Key::Settings,
+                                    // F2 as rxvt and VT220-style terminals send it
+                                    (p, b'~') if p == b"12" => Key::Settings,
                                     (p, b'~') if p == b"15" => Key::Reload,
                                     (p, f @ (b'A' | b'B')) if scroll_mods(p) => {
                                         if f == b'A' {
@@ -1179,7 +1183,7 @@ impl Tty {
                 } else if b[1] == b'O' && b.len() >= 3 {
                     (
                         match b[2] {
-                            b'P' => Key::Settings,
+                            b'Q' => Key::Settings,
                             b'A' => Key::Up,
                             b'B' => Key::Down,
                             b'C' => Key::Right,
@@ -1545,7 +1549,7 @@ impl Tty {
         }
         let mut row_keys: Vec<Option<u64>> = Vec::new();
         for (c, k) in chunks.into_iter().zip(chunk_keys).rev() {
-            row_keys.extend(std::iter::repeat(k).take(c.len()));
+            row_keys.extend(std::iter::repeat_n(k, c.len()));
             all.extend(c);
         }
         // <div> content: painted over the rows it reaches (Emuera draws a
@@ -2312,8 +2316,10 @@ impl Tty {
         }
         self.drawn_pointer = new_ptr;
         self.hover = new_hover;
-        // images the repainted cells cut into (only the framebuffer draws
-        // over text: terminal images sit above it)
+        // images the repainted cells cut into: the framebuffer paints them
+        // again over the text; where text erases a picture's cells (sixel,
+        // iTerm in WezTerm and the like) the picture is sent again, or a
+        // hovered picture button would be left with black bands
         let (cw, ch) = (self.cell.0.max(1) as i32, self.cell.1.max(1) as i32);
         let hit: Vec<Placement> = self
             .frame_imgs
@@ -2329,6 +2335,15 @@ impl Tty {
             .cloned()
             .collect();
         if !hit.is_empty() {
+            if self.gfx.text_erases() {
+                let mut again = b"\x1b[?25l".to_vec();
+                self.gfx.draw(&mut again, &hit, self.cell);
+                if let Some((r, c)) = self.frame_cursor {
+                    let _ = write!(again, "\x1b[{};{}H\x1b[?25h", r, c);
+                }
+                write_all(&again);
+                crate::sys::drain_stdout();
+            }
             self.gfx.after_flush(&hit, self.cell);
             self.pointer_over_images(&hit);
         }
@@ -2372,7 +2387,7 @@ impl Tty {
         }
     }
 
-    /// The settings overlay (F1 / Ctrl-O): a box over the game listing
+    /// The settings overlay (F2 / Ctrl-O): a box over the game listing
     /// `settings::ITEMS`, changed with ← / → / Enter and saved at once;
     /// most apply to the running game. Images are hidden while it is up
     /// (kitty would draw them over it).
@@ -2974,7 +2989,7 @@ impl Tty {
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
-        let head = " emuera-tty settings  (F1 / Ctrl-O)";
+        let head = " emuera-tty settings  (F2 / Ctrl-O)";
         let reading = crate::sys::memory_in_use();
         let mem = reading.map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
         let head_cols = head.chars().count();
@@ -3037,14 +3052,14 @@ impl Tty {
                 parts.insert(0, (m, "\x1b[0;1m"));
             }
         }
-        parts.push(("F1 settings".to_string(), "\x1b[0;2m"));
+        parts.push(("F2 settings".to_string(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
             let k = parts
                 .iter()
                 .position(|(s, _)| s.starts_with('@'))
                 .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB")))
-                .or_else(|| parts.iter().position(|(s, _)| s == "F1 settings"))
+                .or_else(|| parts.iter().position(|(s, _)| s == "F2 settings"))
                 .unwrap_or(0);
             parts.remove(k);
         }

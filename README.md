@@ -276,7 +276,7 @@ you have edited, or a repository that needs a login, reports why it
 couldn't update instead (commit or stash your edits, or run `git pull` yourself).
 Saves in the game folder that the repository ignores are left alone.
 
-Inside a game, **F1** (or Ctrl-O) → *Switch game…* goes back to the
+Inside a game, **F2** (or Ctrl-O) → *Switch game…* goes back to the
 launcher. Other ways to start:
 
 ```sh
@@ -319,11 +319,11 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   Alt+↑ / ↓) a line at a time, or the mouse wheel. ↑ / ↓ scroll too
   where the game waits (`▼`), and Home / End while nothing is typed. A
   `[scroll -N]` tag shows you're looking at history; End jumps back.
-- **Settings**: F1 or Ctrl-O opens them over the game (see below).
+- **Settings**: F2 or Ctrl-O opens them over the game (see below).
 - **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask
   first; unsaved progress is lost). **Reload the ERB files** after editing
   them: F5 or Ctrl-E: the game carries on where it was with the new code
-  (Emuera-Anchor's hotkeys, as in Emuera-EE; also in the F1 overlay).
+  (Emuera-Anchor's hotkeys, as in Emuera-EE; also in the F2 overlay).
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.
@@ -332,7 +332,7 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   squares) and the function asking for input. While a script computes
   for more than a moment it says `… working @FUNCTION`. (*Bottom bar
   details* in the settings turns this off.) The memory emuera-tty uses is
-  on the F1 page's title, and in the bottom row too with *Show memory*
+  on the F2 page's title, and in the bottom row too with *Show memory*
   (Linux, Android and Windows); both also show the highest use seen this
   session once it is above the current one (`123 MB (peak 150 MB)`).
 
@@ -342,12 +342,12 @@ the `.m4a` many games use), `mplayer`, `afplay` on macOS, or for WAV
 only `pw-play`, `paplay`, `aplay` and PowerShell on Windows. Install mpv
 for full sound (`pkg install mpv` on Termux). Ten effect channels and a
 looping BGM, as Emuera-EE; volume changes apply to sounds started after
-them. *Sound* in F1 turns it off and on while you play (the BGM picks
+them. *Sound* in F2 turns it off and on while you play (the BGM picks
 up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
-**Translating the game**: in F1, *Translate to* picks the language to
+**Translating the game**: in F2, *Translate to* picks the language to
 show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
 English, so an English translation like AnonTW can be read in Spanish), and
@@ -381,7 +381,7 @@ the internet):
   (a free key works) it uses DeepL's API; without one, the free keyless
   endpoint DeepL's browser extension uses, asked the way
   [egg-translator](https://gitgud.io/Shakes4cc/egg-translator) does. That
-  one is unofficial: it limits how fast you can go and may change; F1
+  one is unofficial: it limits how fast you can go and may change; F2
   says so when it refuses. (Without curl, DeepL's own `deepl` tool and the
   key do.)
 
@@ -411,10 +411,10 @@ translation. It is remembered per line for the session.
 Maps and box drawings are never translated, nor text already in the
 target language, and the game itself still sees the text it printed. Text
 shows untranslated until its translation comes in, which happens in the
-background; text seen again is instant. If the translator fails, F1 says
+background; text seen again is instant. If the translator fails, F2 says
 why on that row's help line.
 
-**Test the translator…** in F1 translates a sample line with the chosen
+**Test the translator…** in F2 translates a sample line with the chosen
 translator and shows the result and how long it took, or why it failed.
 **Clear the translation cache** forgets every translation made this
 session (they are kept in memory only), so what is on screen is
@@ -464,7 +464,7 @@ functions run in, and the order variables are saved in.
 
 ### Settings
 
-F1 (or Ctrl-O) in a game, or *⚙ Settings* in the launcher. ↑ / ↓ choose,
+F2 (or Ctrl-O) in a game, or *⚙ Settings* in the launcher. ↑ / ↓ choose,
 ← / → or Enter change, Esc closes; changes are saved at once in
 `~/.config/emuera-tty/config` and, except where marked, apply to the
 running game:
@@ -478,7 +478,7 @@ running game:
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
-| Show memory | off, on | memory in use in the bottom row too (always on the F1 title) |
+| Show memory | off, on | memory in use in the bottom row too (always on the F2 title) |
 | Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
 | Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
@@ -503,7 +503,7 @@ override saved settings.
 
 ### Game settings (Emuera's settings window)
 
-*Game settings…* in the F1 overlay is a copy of Emuera's own settings
+*Game settings…* in the F2 overlay is a copy of Emuera's own settings
 window, with the settings that do something in a terminal and can't
 break a game, on Emuera's tabs:
 
@@ -567,7 +567,7 @@ Games translated with Emuera-Anchor's system play translated here too:
 
 ### Managing saves
 
-F1 → *Manage saves…* lists the game's saves with their date and the
+F2 → *Manage saves…* lists the game's saves with their date and the
 comment Emuera's save menu shows. Pick one to **copy** or **move** it to
 another slot, **export** it to a file (by default
 `~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
@@ -594,8 +594,8 @@ terminal:
 
 | Terminal | Images | Notes |
 |---|---|---|
-| **kitty**, **WezTerm**, **Ghostty**, Konsole | yes (kitty graphics) | best choice |
-| **iTerm2** (macOS) | yes (iTerm2 inline images) | |
+| **kitty**, **Ghostty**, Konsole | yes (kitty graphics) | best choice |
+| **iTerm2** (macOS), **WezTerm** | yes (iTerm2 inline images) | WezTerm's kitty graphics flicker, so auto uses iTerm images there |
 | **foot**, xterm (`-ti vt340`), mlterm, yaft, Windows Terminal 1.22+ | yes (sixel) | |
 | macOS Terminal.app, GNOME Terminal, Alacritty, others | `░` placeholders | fine for playing |
 | Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
@@ -837,7 +837,7 @@ would be wiped out by every redraw). If the mouse misbehaves there,
 events come from, each event, where the pointer was drawn) for a bug
 report.
 
-**No mouse?** *Keyboard pointer* in F1 (`auto` turns it on by itself on the
+**No mouse?** *Keyboard pointer* in F2 (`auto` turns it on by itself on the
 Linux console when no mouse can be found) puts a pointer on the screen
 that the **cursor keys** move a cell at a time; **Insert** clicks under it,
 and so does **Shift+Enter** where the terminal sends it apart from Enter
@@ -854,7 +854,7 @@ nothing for it.)
 | Environment | Backend | How |
 |---|---|---|
 | `TERM=linux` / `fbterm*` (VT) | **fb** | mmaps `/dev/fb0`, alpha-blends sprites onto the console after each frame. Needs read/write access to the device (`video` group). Cell size = fb resolution ÷ cols/rows. |
-| `TERM_PROGRAM=iTerm.app` / `LC_TERMINAL=iTerm2` | **iterm** | PNG per sprite in `OSC 1337 File=`, sized in whole cells (padded, so never stretched), cached. |
+| `TERM_PROGRAM=iTerm.app` / `WezTerm`, `LC_TERMINAL=iTerm2` | **iterm** | PNG per sprite in `OSC 1337 File=`, sized in whole cells (padded, so never stretched), cached. |
 | kitty graphics reply `_Gi=31;OK` | **kitty** | RGBA transmit once per sprite+size, `a=p` placements, source-rect crop at the screen edge. |
 | inside tmux with `allow-passthrough on`, and a kitty graphics reply or `GHOSTTY_RESOURCES_DIR` / `KITTY_WINDOW_ID` | **kitty-tmux** | the same through tmux's passthrough, placed with kitty's Unicode placeholders (U+10EEEE, the image id as the 256-colour foreground, row/column diacritics), which tmux handles as text. |
 | DA1 reply contains `4` | **sixel** | median-cut 255-colour quantiser, transparent background, cached per sprite. |
@@ -873,6 +873,11 @@ separate pictures by rules of their own (kitty by image id, Konsole by
 which was placed last), so a re-sent layer could land on top of the
 others; one picture can't. It also helps sixel and iTerm2, which can't
 stack transparent pictures at all.
+
+In WezTerm, Windows Terminal and other terminals where sixel and iTerm2
+pictures belong to the cells under them, writing text there erases the
+picture: after redrawing a hovered button or a tooltip over a picture,
+emuera-tty sends that picture again.
 
 **fbcon caveat:** the in-kernel console can't draw CJK glyphs. For
 eratohoTW's Japanese/Chinese text on a bare VT, run under **fbterm** (still

@@ -67,7 +67,7 @@ brought back is selected: typing replaces it). Where the game waits, scroll.
 Scroll back through earlier text (Home and End too while nothing is
 typed); End returns.
 .TP
-.BR F1 ", " Ctrl\-O
+.BR F2 ", " Ctrl\-O
 The options overlay: display settings, \fBGame settings\fR (Emuera's
 settings window: the game's
 .IR emuera.config ,
@@ -111,7 +111,7 @@ the characters' names.
 .B TR_NAME(\fIcode\fB, \fIindex or name\fB)
 gives scripts a translated name.
 .SH MANAGING SAVES
-\fBF1\fR \(-> \fBManage saves\fR lists the game's saves with their date and
+\fBF2\fR \(-> \fBManage saves\fR lists the game's saves with their date and
 the comment Emuera shows. For one save: copy or move it to another slot,
 export it to a file, delete it. For all of them: back up the save folder,
 restore a backup, import a save file. A deleted or overwritten save is
@@ -133,7 +133,7 @@ Open the launcher even if a game is remembered.
 .TP
 .BR \-\-gfx " auto|kitty|iterm|sixel|fb|none"
 How pictures are drawn. \fBauto\fR (default) asks the terminal: kitty
-graphics (kitty, WezTerm, Ghostty, Konsole), iTerm2 inline images, sixel
+graphics (kitty, Ghostty, Konsole), iTerm2 inline images (iTerm2, WezTerm), sixel
 (foot, xterm \-ti vt340, mlterm, Windows Terminal), or the Linux
 framebuffer on the console. \fBnone\fR shows placeholders.
 Inside tmux, kitty graphics go through tmux's passthrough as Unicode
