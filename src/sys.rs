@@ -173,13 +173,13 @@ pub enum MemoryLevel {
     Red,
 }
 
-/// The band for a reading, by the whole MB that is shown: up to 300 MB
-/// green, up to 500 yellow, under 900 orange, 900 and over red.
+/// The band for a reading, by the whole MB that is shown: up to 450 MB
+/// green, up to 650 yellow, under 900 orange, 900 and over red.
 pub fn memory_level(now: u64) -> MemoryLevel {
     match now >> 20 {
-        0..=300 => MemoryLevel::Green,
-        301..=500 => MemoryLevel::Yellow,
-        501..=899 => MemoryLevel::Orange,
+        0..=450 => MemoryLevel::Green,
+        451..=650 => MemoryLevel::Yellow,
+        651..=899 => MemoryLevel::Orange,
         _ => MemoryLevel::Red,
     }
 }
@@ -604,10 +604,10 @@ mod memory_level_tests {
     fn bands_follow_the_mb_shown() {
         let mb = |n: u64| (n << 20) + 1000;
         assert_eq!(memory_level(mb(0)), MemoryLevel::Green);
-        assert_eq!(memory_level(mb(300)), MemoryLevel::Green);
-        assert_eq!(memory_level(mb(301)), MemoryLevel::Yellow);
-        assert_eq!(memory_level(mb(500)), MemoryLevel::Yellow);
-        assert_eq!(memory_level(mb(501)), MemoryLevel::Orange);
+        assert_eq!(memory_level(mb(450)), MemoryLevel::Green);
+        assert_eq!(memory_level(mb(451)), MemoryLevel::Yellow);
+        assert_eq!(memory_level(mb(650)), MemoryLevel::Yellow);
+        assert_eq!(memory_level(mb(651)), MemoryLevel::Orange);
         assert_eq!(memory_level(mb(899)), MemoryLevel::Orange);
         assert_eq!(memory_level(mb(900)), MemoryLevel::Red);
         assert_eq!(memory_level(mb(4000)), MemoryLevel::Red);
