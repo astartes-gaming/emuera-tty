@@ -2352,7 +2352,7 @@ impl Tty {
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ENV_VARS, ITEMS};
         let mut st = Settings::load();
-        let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed));
+        let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64);
         // the variables page is only offered when one of its variables is set
         let env_any = ENV_VARS.iter().any(|(name, _)| std::env::var_os(name).is_some());
         let mut sel = 0usize;
