@@ -317,7 +317,7 @@ you have edited, or a repository that needs a login, reports why it
 couldn't update instead (commit or stash your edits, or run `git pull` yourself).
 Saves in the game folder that the repository ignores are left alone.
 
-Inside a game, **F2** (or Ctrl-O) → *Switch game…* goes back to the
+Inside a game, **Ctrl-O** → *Switch game…* goes back to the
 launcher. Other ways to start:
 
 ```sh
@@ -356,15 +356,31 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   ↑ / ↓ go through your last 100 inputs, as in Emuera: typed ones and
   buttons clicked alike. One brought back is shown selected, so typing
   replaces it and ← / → edit it.
+- **Macros** (Emuera's keyboard macros): one typed line can answer
+  several questions. `\n` separates the answers, `\e` after one skips the
+  text that follows it (as a right click), and `(…)*n` repeats:
+  `(0\e\n)*3` answers `0` three times, skipping after each. Esc stops a
+  macro that is running. Shift+F1…F12 store the line being typed under
+  that key, and F1…F12 put it back (at a `▼` wait, the key gives it at
+  once). Alt+0…9 (also Ctrl+0…9 in terminals that report it, such as
+  kitty) switches between ten groups of twelve keys, and the group's name
+  shows for a moment. They are kept in the game folder's `macro.txt`,
+  the file Emuera.exe uses, so macros made in either work in both. On the
+  Linux console Shift+F1 / F2 are F11 / F12, and Shift+F11 / F12 don't
+  exist. The game setting *Use keyboard macros* (on by default, as in
+  Emuera) gives F2 and F5 to the macros; with it off they are the settings
+  and reload keys again. Typed text is expanded either way, as in Emuera.
 - **Scroll back** through earlier text: PgUp / PgDn, Ctrl+↑ / ↓ (or
   Alt+↑ / ↓) a line at a time, or the mouse wheel. ↑ / ↓ scroll too
   where the game waits (`▼`), and Home / End while nothing is typed. A
   `[scroll -N]` tag shows you're looking at history; End jumps back.
-- **Settings**: F2 or Ctrl-O opens them over the game (see below).
+- **Settings**: Ctrl-O opens them over the game (see below); F2 too in a
+  game with keyboard macros off.
 - **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask
   first; unsaved progress is lost). **Reload the ERB files** after editing
-  them: F5 or Ctrl-E: the game carries on where it was with the new code
-  (Emuera-Anchor's hotkeys, as in Emuera-EE; also in the F2 overlay).
+  them: Ctrl-E (or F5 with macros off): the game carries on where it was
+  with the new code (Emuera-Anchor's hotkeys, as in Emuera-EE; also in
+  the settings).
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.
@@ -373,7 +389,7 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   squares) and the function asking for input. While a script computes
   for more than a moment it says `… working @FUNCTION`. (*Bottom bar
   details* in the settings turns this off.) The memory emuera-tty uses is
-  on the F2 page's title, and in the bottom row too with *Show memory*
+  on the settings page's title, and in the bottom row too with *Show memory*
   (Linux, Android and Windows); both also show the highest use seen this
   session once it is above the current one (`123 MB (peak 150 MB)`).
 
@@ -383,12 +399,12 @@ the `.m4a` many games use), `mplayer`, `afplay` on macOS, or for WAV
 only `pw-play`, `paplay`, `aplay` and PowerShell on Windows. Install mpv
 for full sound (`pkg install mpv` on Termux). Ten effect channels and a
 looping BGM, as Emuera-EE; volume changes apply to sounds started after
-them. *Sound* in F2 turns it off and on while you play (the BGM picks
+them. *Sound* in the settings turns it off and on while you play (the BGM picks
 up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
-**Translating the game**: in F2, *Translate to* picks the language to
+**Translating the game**: in the settings, *Translate to* picks the language to
 show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
 English, so an English translation like AnonTW can be read in Spanish), and
@@ -422,8 +438,8 @@ the internet):
   (a free key works) it uses DeepL's API; without one, the free keyless
   endpoint DeepL's browser extension uses, asked the way
   [egg-translator](https://gitgud.io/Shakes4cc/egg-translator) does. That
-  one is unofficial: it limits how fast you can go and may change; F2
-  says so when it refuses. (Without curl, DeepL's own `deepl` tool and the
+  one is unofficial: it limits how fast you can go and may change; the
+  settings say so when it refuses. (Without curl, DeepL's own `deepl` tool and the
   key do.)
 
 *Dialog* is the lines printed by a character's dialogue code (the `口上`
@@ -452,10 +468,10 @@ translation. It is remembered per line for the session.
 Maps and box drawings are never translated, nor text already in the
 target language, and the game itself still sees the text it printed. Text
 shows untranslated until its translation comes in, which happens in the
-background; text seen again is instant. If the translator fails, F2 says
+background; text seen again is instant. If the translator fails, the settings say
 why on that row's help line.
 
-**Test the translator…** in F2 translates a sample line with the chosen
+**Test the translator…** in the settings translates a sample line with the chosen
 translator and shows the result and how long it took, or why it failed.
 **Clear the translation cache** forgets every translation made this
 session (they are kept in memory only), so what is on screen is
@@ -505,7 +521,7 @@ functions run in, and the order variables are saved in.
 
 ### Settings
 
-F2 (or Ctrl-O) in a game, or *⚙ Settings* in the launcher. ↑ / ↓ choose,
+Ctrl-O in a game (F2 with keyboard macros off), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
 ← / → or Enter change, Esc closes; changes are saved at once in
 `~/.config/emuera-tty/config` and, except where marked, apply to the
 running game:
@@ -519,7 +535,7 @@ running game:
 | Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
-| Show memory | off, on | memory in use in the bottom row too (always on the F2 title) |
+| Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
 | Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
 | Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
@@ -544,7 +560,7 @@ override saved settings.
 
 ### Game settings (Emuera's settings window)
 
-*Game settings…* in the F2 overlay is a copy of Emuera's own settings
+*Game settings…* in the settings overlay is a copy of Emuera's own settings
 window, with the settings that do something in a terminal and can't
 break a game, on Emuera's tabs:
 
@@ -653,7 +669,7 @@ Games translated with Emuera-Anchor's system play translated here too:
 
 ### Managing saves
 
-F2 → *Manage saves…* lists the game's saves with their date and the
+Ctrl-O → *Manage saves…* lists the game's saves with their date and the
 comment Emuera's save menu shows. Pick one to **copy** or **move** it to
 another slot, **export** it to a file (by default
 `~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
@@ -871,7 +887,7 @@ kept in memory meanwhile). A parse error in a function body is reported
 when the function first runs; `--check` compiles everything and lists
 them all (`EMUERA_PARSE=all` compiles everything at load for a normal
 run too). A script file edited while the game runs is read as it is
-then, for functions not run yet; the reload key (F5) reloads everything.
+then, for functions not run yet; the reload key (Ctrl-E) reloads everything.
 
 Two things are kept within a share of the machine's memory, so a 512 MB
 board copes and a PC with memory to spare does exactly what it did:
@@ -926,7 +942,7 @@ would be wiped out by every redraw). If the mouse misbehaves there,
 events come from, each event, where the pointer was drawn) for a bug
 report.
 
-**No mouse?** *Keyboard pointer* in F2 (`auto` turns it on by itself on the
+**No mouse?** *Keyboard pointer* in the settings (`auto` turns it on by itself on the
 Linux console when no mouse can be found) puts a pointer on the screen
 that the **cursor keys** move a cell at a time; **Insert** clicks under it,
 and so does **Shift+Enter** where the terminal sends it apart from Enter
@@ -1076,8 +1092,10 @@ checked.
   per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
 - Emuera-Anchor: the `*_TR.csv` / `ALL_TR.csv` / `TRCHARA` translation
   files and `TR_NAME`, `PARAM.CSV` (read in place of `PALAM.CSV`, with
-  `PARAM` usable for `PALAM` in scripts), the Ctrl-T / Ctrl-R / F5
+  `PARAM` usable for `PALAM` in scripts), the Ctrl-T / Ctrl-R / Ctrl-E
   hotkeys, the clipboard.
+- Keyboard macros: the `\n` / `\e` / `(…)*n` input syntax, F1…F12 in ten
+  groups, the game's `macro.txt` read and written as Emuera does.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,
@@ -1137,7 +1155,7 @@ menu choices in a throwaway copy and reports script errors.
    between phone and PC. Nothing is known to be missing, but nobody has
    tried it on a phone. What needs checking: a phone's narrow screen
    (games are laid out for a wide window), taps arriving as clicks for
-   buttons and picture menus, F1 and Ctrl keys from Termux's extra-keys
+   buttons and picture menus, function keys and Ctrl keys from Termux's extra-keys
    row, Japanese text widths in Termux's font, whether its terminal draws
    sixel pictures, and games kept in shared storage (`/sdcard`). A
    separate Android app would come later, if at all: the engine never

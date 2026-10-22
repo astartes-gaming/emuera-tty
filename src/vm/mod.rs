@@ -231,6 +231,9 @@ pub struct Vm {
     pub flow_input: (i64, bool, bool, String, bool),
     /// SKIPLOG: message skipping on (MESSKIP)
     pub mes_skip: bool,
+    /// the inputs a typed line still holds (`macros::expand`), each with
+    /// its `\e`: given to the next inputs one by one
+    macro_queue: std::collections::VecDeque<(String, bool)>,
     /// instructions run, for the periodic screen update (`tick`)
     ticks: u32,
     last_draw: std::time::Instant,
@@ -322,6 +325,7 @@ impl Vm {
             strict: false,
             flow_input: (0, false, false, String::new(), false),
             mes_skip: false,
+            macro_queue: Default::default(),
             ticks: 0,
             last_draw: std::time::Instant::now(),
             is_timeout: false,
@@ -2313,9 +2317,28 @@ impl Vm {
             let site = self.frames.last().map_or((0, 0), |f| (Rc::as_ptr(&f.func) as usize, f.pc));
             self.con.begin_input(site, req.kind == InputKind::Int);
         }
-        let r = self.fe.input(&mut self.con, &mut self.res, req);
+        // a typed line answers this input and the following ones, as
+        // Emuera's PressEnterKey loop does, until Esc stops it
+        if !self.macro_queue.is_empty() && self.fe.macro_stop() {
+            self.macro_queue.clear();
+        }
+        let r = match self.macro_queue.pop_front() {
+            Some(p) => {
+                self.flush();
+                self.macro_piece(p, req)
+            }
+            None => self.fe.input(&mut self.con, &mut self.res, req),
+        };
+        let r = match r {
+            InputResult::Line(s) => {
+                self.macro_queue = crate::macros::expand(&s).into();
+                let p = self.macro_queue.pop_front().unwrap_or_default();
+                self.macro_piece(p, req)
+            }
+            r => r,
+        };
         match r {
-            InputResult::Text(s) => {
+            InputResult::Line(s) | InputResult::Text(s) => {
                 self.last_input = s.clone();
                 Ok(Some(s))
             }
@@ -2330,6 +2353,18 @@ impl Vm {
                 self.hotkey(h)?;
                 self.raw_input(req)
             }
+        }
+    }
+
+    /// One input of a typed line: `\e` starts message skipping after it,
+    /// and a one-key input takes its first character (whatever the config
+    /// says about long ones, which is for clicks).
+    fn macro_piece(&self, (s, skip): (String, bool), req: &InputReq) -> InputResult {
+        let s = if req.one { s.chars().take(1).collect() } else { s };
+        if skip {
+            InputResult::Skip(s)
+        } else {
+            InputResult::Text(s)
         }
     }
 
