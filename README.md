@@ -468,7 +468,10 @@ set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (�
 set; Enter says what one does; read-only, as they are read at start). It also
 has *Game settings…* and *Manage saves…* (below),
 *Clear the picture cache* (frees the decoded sprites whatever *Images* says;
-they load again when shown), *Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
+they load again when shown), *Recolor…* (draws a colour of the game's as another,
+written `from:to` in hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop
+navy into a softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
+*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
 override saved settings.
 
 ### Game settings (Emuera's settings window)
