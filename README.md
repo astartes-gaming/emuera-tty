@@ -598,7 +598,7 @@ terminal:
 | **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough on` |
 | **tmux** inside a sixel terminal | yes (tmux draws the sixel) | tmux built with sixel |
 | Termux (Android) | no | app not built for displaying images |
-| Android ADB shell | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles |
+| Android ADB shell (why?) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles |
 | Android recovery shell (TWRP, OrangeFox, etc...) | no | images never supported, JP/CN text untested (and why are you even running it there of all places?) |
 
 - Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
