@@ -19,6 +19,10 @@ emuera-tty and Emuera.
 - **Context Preservation**: Do not read full files if you only need a specific block. Use specific line offsets if supported.
 - **No Refactoring Spree**: Do not fix stylistic issues or add unprompted dependencies in surrounding code unless explicitly asked.
 - **snip**: Ensure that `snip` (https://github.com/edouard-claude/snip) is installed prior to running any commands.
+  It can hide what matters: `cargo test`'s result lines, and errors such as
+  a missing command's "command not found". Filter test and error output with
+  `grep` instead (`cargo test --release 2>&1 | grep -E "^test result|FAILED|panicked"`),
+  and check that a command exists (`which`) before trusting its silence.
 
 ## Dependencies
 
