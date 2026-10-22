@@ -3502,8 +3502,11 @@ impl Frontend for Tty {
                                 return InputResult::Text(String::new());
                             }
                             if let Some(b) = self.click_at(x, y) {
-                                let v = self.buttons[b].clone();
-                                return InputResult::Text(v.to_string());
+                                // a click goes through Emuera's input box,
+                                // so it is in the history too
+                                let v = self.buttons[b].to_string();
+                                self.line.remember(&v);
+                                return InputResult::Text(v);
                             }
                         }
                         // a middle click on a translated line flips it
@@ -3519,8 +3522,9 @@ impl Frontend for Tty {
                                 return InputResult::Skip(String::new());
                             }
                             if let Some(b) = self.click_at(x, y) {
-                                let v = self.buttons[b].clone();
-                                return InputResult::Skip(v.to_string());
+                                let v = self.buttons[b].to_string();
+                                self.line.remember(&v);
+                                return InputResult::Skip(v);
                             }
                         }
                         _ => {}
@@ -3566,6 +3570,7 @@ impl Frontend for Tty {
                 }
                 Key::Char(c) => {
                     if req.one {
+                        self.line.remember(&c.to_string());
                         return InputResult::Text(c.to_string());
                     }
                     self.line.insert(c);

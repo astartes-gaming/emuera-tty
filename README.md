@@ -312,8 +312,9 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   stops, and the EE `INPUT default, mouse, canskip` takes its default.)
 - **Typing**: ← / → move in the line being typed, Home / End go to its
   start and end, Delete and Backspace erase, Ctrl-U or Esc clear it.
-  ↑ / ↓ go through your last 100 inputs, as in Emuera; one brought back
-  is shown selected, so typing replaces it and ← / → edit it.
+  ↑ / ↓ go through your last 100 inputs, as in Emuera: typed ones and
+  buttons clicked alike. One brought back is shown selected, so typing
+  replaces it and ← / → edit it.
 - **Scroll back** through earlier text: PgUp / PgDn, Ctrl+↑ / ↓ (or
   Alt+↑ / ↓) a line at a time, or the mouse wheel. ↑ / ↓ scroll too
   where the game waits (`▼`), and Home / End while nothing is typed. A
