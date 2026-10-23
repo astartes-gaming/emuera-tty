@@ -663,11 +663,17 @@ impl Vm {
             }
             Expr::Str(s) => self.index_by_name(s, table, var, dim),
             // an expression that gives a string (`BASE:ARG:(ARGS)`) names
-            // the element too, as in Emuera
-            _ => match self.eval(e)? {
-                Value::Str(s) => self.index_by_name(&s, table, var, dim),
-                v => Ok(v.as_int()),
-            },
+            // the element too, as in Emuera; Emuera-Anchor reads it without
+            // the translate flag (VariableStrArgTerm: GetStrValue(exm))
+            _ => {
+                let tr = std::mem::replace(&mut self.tr_eval, false);
+                let v = self.eval(e);
+                self.tr_eval = tr;
+                match v? {
+                    Value::Str(s) => self.index_by_name(&s, table, var, dim),
+                    v => Ok(v.as_int()),
+                }
+            }
         }
     }
 

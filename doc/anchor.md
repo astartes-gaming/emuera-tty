@@ -73,6 +73,10 @@ commands) evaluates with the flag off.
   built-in function passes it on.
 - A `#FUNCTION(S)` call: its body runs with the caller's flag
   (`Process.cs:312` `GetValue(…, translate)` → `runScriptProc(translate)`).
+  Its arguments are read without it (`SetTransporter`: `GetStrValue(exm)`).
+- A string-valued array index (`EXP:ARG:ARGS`, `TALENT:0:(TALENTNAME:i)`)
+  is never read with the flag (`VariableStrArgTerm`: `GetStrValue(exm)`),
+  so the name it looks up is the CSV's own.
 
 **What a flagged read translates.**
 

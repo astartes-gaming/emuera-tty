@@ -123,6 +123,18 @@ fn string_assignments_store_the_translation() {
 
 /// spec: Flag passed through expressions / Concatenation, User function
 /// result, Ternary does not pass the flag
+/// A string index (`TALENT:0:ARGS`) is a name read without the flag, so
+/// even inside PRINTFORM it finds the CSV name (eraAkumaMaid's EXP_GAIN).
+#[test]
+fn string_index_reads_without_the_flag() {
+    let erb = "@SYSTEM_TITLE\nADDVOIDCHARA\nTALENT:0:5 = 3\nLOCAL = 5\n\
+               PRINTFORML V={TALENT:0:(TALENTNAME:LOCAL)} F={TALENT_OF(TALENTNAME:LOCAL)}\n\
+               QUIT\n\
+               @TALENT_OF(ARGS)\n#FUNCTION\nRETURNF TALENT:0:ARGS\n";
+    let text = play_erb("str-index", &[VIRGIN], erb, |_| {});
+    assert!(text.contains("V=3 F=3"), "{}", text);
+}
+
 #[test]
 fn flag_through_expressions() {
     let erb = "@SYSTEM_TITLE\nLOCAL = 5\n\

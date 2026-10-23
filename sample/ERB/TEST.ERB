@@ -123,6 +123,9 @@ CALLFORM ADD{"TWO"}, 10, 5
 CALL CHECK, "callform", RESULT == 15
 ;--- csv names & chara vars
 CALL CHECK, "csvname", ABL:1:技巧 == 3 && ABL:2:技巧 == 5 && TALENT:1:処女 == 1
+; a string value as the index is a name looked up when it runs (eraAkumaMaid's EXP_GAIN)
+LOCALS = 技巧
+CALL CHECK, "csvname_by_string", ABL:1:LOCALS == 3 && ABL_OF(ABLNAME:1, 2) == 5
 CALL CHECKS, "charname", NAME:1, "博麗霊夢"
 CALL CHECKS, "callname", CALLNAME:2, "魔理沙"
 CALL CHECK, "sjiscsv", CFLAG:1:好感度 == 10 && BASE:1:体力 == 2000 && MAXBASE:1:体力 == 2000
@@ -294,6 +297,10 @@ IF ARGS:1 == ARGS:2
 ELSE
 	PRINTFORML NG  %ARGS%  got [%ARGS:1%] want [%ARGS:2%] <------
 ENDIF
+
+@ABL_OF(ARGS, ARG)
+#FUNCTION
+RETURNF ABL:ARG:ARGS
 
 @SQUARE(X)
 #FUNCTION
