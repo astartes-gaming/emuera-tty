@@ -604,12 +604,14 @@ impl Picker {
     }
 
     /// Ask for a line of text at the bottom of the screen: Enter accepts (an
-    /// empty answer gives `default`), Esc / Ctrl-C cancel, Ctrl-U clears.
-    /// Mouse reports and other escape sequences are ignored.
+    /// untouched empty answer gives `default`), Tab puts `default` in the field
+    /// to edit (an answer emptied after that stays empty), Esc / Ctrl-C cancel,
+    /// Ctrl-U clears. Mouse reports and other escape sequences are ignored.
     fn prompt(&mut self, question: &str, default: &str) -> Option<String> {
         let question = if default.is_empty() { format!("{}: ", question) } else { format!("{} [{}]: ", question, default) };
         let width = |s: &str| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
         let mut text = String::new();
+        let mut edited = false;
         loop {
             // what has been typed so far
             'consume: while let Some(&b) = self.pending.first() {
@@ -617,7 +619,14 @@ impl Picker {
                     b'\r' | b'\n' => {
                         self.pending.drain(..1);
                         let t = text.trim().to_string();
-                        return Some(if t.is_empty() { default.to_string() } else { t });
+                        return Some(if t.is_empty() && !edited { default.to_string() } else { t });
+                    }
+                    0x09 => {
+                        self.pending.drain(..1);
+                        if !edited {
+                            text = default.to_string();
+                            edited = true;
+                        }
                     }
                     0x03 => {
                         self.pending.drain(..1);
@@ -697,7 +706,14 @@ impl Picker {
                 q,
                 shown,
                 rows,
-                fit("Enter accept · Esc cancel · Ctrl-U clear", cols)
+                fit(
+                    if default.is_empty() || edited {
+                        "Enter accept · Esc cancel · Ctrl-U clear"
+                    } else {
+                        "Enter use the [default] · Tab edit it · Esc cancel"
+                    },
+                    cols
+                )
             )
             .as_bytes());
             let r = crate::sys::poll(500, -1);
@@ -724,7 +740,9 @@ impl Picker {
             return;
         }
         let cancelled = "Clone cancelled.";
-        let Some(url) = self.prompt("Repository to clone (URL or path)", "").filter(|u| !u.is_empty()) else {
+        // each field starts from what was used last time
+        let last_url = self.st.get("clone_url").to_string();
+        let Some(url) = self.prompt("Repository to clone (URL or path)", &last_url).filter(|u| !u.is_empty()) else {
             self.note = cancelled.into();
             return;
         };
@@ -732,16 +750,21 @@ impl Picker {
             self.note = format!("\x1b[31mCan't tell a folder name from \"{}\".\x1b[0m", url);
             return;
         };
-        let default_dir = browse_start(&self.st).display().to_string();
+        let default_dir = match self.st.get("clone_dir") {
+            "" => browse_start(&self.st).display().to_string(),
+            d => d.to_string(),
+        };
         let Some(dir) = self.prompt(&format!("Folder to store it in (it gets its own \"{}\" subfolder)", name), &default_dir) else {
             self.note = cancelled.into();
             return;
         };
-        let Some(branch) = self.prompt("Branch to use (optional, Enter for the repository's default)", "") else {
+        let last_branch = self.st.get("clone_branch").to_string();
+        let Some(branch) = self.prompt("Branch to use (optional, empty = the repository's default)", &last_branch) else {
             self.note = cancelled.into();
             return;
         };
-        let Some(depth_text) = self.prompt("Depth (optional, 1 = latest commit only, blank = all)", "") else {
+        let last_depth = self.st.get("clone_depth").to_string();
+        let Some(depth_text) = self.prompt("Depth (optional, 1 = latest commit only, empty = all)", &last_depth) else {
             self.note = cancelled.into();
             return;
         };
@@ -756,6 +779,11 @@ impl Picker {
                 }
             }
         };
+        // remembered now, so a failed or cancelled clone can be retried from them
+        for (k, v) in [("clone_url", &url), ("clone_dir", &dir), ("clone_branch", &branch), ("clone_depth", &depth_text)] {
+            self.st.set(k, v);
+        }
+        self.st.save();
         let parent = expand_home(&dir);
         let target = parent.join(&name);
         let in_use = target.exists()

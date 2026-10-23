@@ -304,7 +304,10 @@ Enter takes the folder next to your last game) and, if you want them, the
 branch to check out straight away (Enter for the repository's default) and
 a history depth for big repositories (`1` fetches only the latest commit,
 Enter the full history; a shallow clone still updates with `u`). It shows
-git's progress, and **Esc** or **Ctrl-C** cancels the clone (git cleans up
+git's progress. Each field starts from what you gave last time, shown in
+[brackets]: Enter on an empty field reuses it, and **Tab** puts it in the
+field for editing (clear it to leave the field empty, e.g. to drop a
+remembered branch). **Esc** or **Ctrl-C** cancels the clone (git cleans up
 after itself; if a half-cloned folder is left, it asks before removing it).
 Otherwise it adds the game to the list without starting it,
 marked **(NEW)** in gold until you first play it (games added with *Add a game…* get the same mark). `g` shows git's full output

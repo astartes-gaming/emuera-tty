@@ -10,6 +10,9 @@
 //! contrast=normal
 //! ```
 //!
+//! (`clone_url=`, `clone_dir=`, `clone_branch=` and `clone_depth=` are what
+//! the launcher's clone prompts were last given: the next defaults.)
+//!
 //! (`new=` marks a game added from the launcher (cloned or picked) and not
 //! played yet: it is listed as "(NEW)" until it is first played.)
 //!
