@@ -5,9 +5,13 @@
 //! game=/path/last/played
 //! library=/path/to/eraTW
 //! library=/path/to/eraMegaten
+//! new=/path/to/eraMegaten
 //! images=auto
 //! contrast=normal
 //! ```
+//!
+//! (`new=` marks a game cloned from the launcher and not played yet: it is
+//! listed as "(NEW)" until it is first played.)
 //!
 //! [`ITEMS`] describes every setting once, for the launcher's settings page
 //! and the in-game overlay. Command-line options and `EMUERA_*` variables
@@ -154,6 +158,8 @@ pub struct Settings {
     pub library: Vec<PathBuf>,
     /// the game played last
     pub last: Option<PathBuf>,
+    /// games cloned from the launcher that haven't been played yet (listed as "(NEW)")
+    pub fresh: Vec<PathBuf>,
 }
 
 /// `$XDG_CONFIG_HOME/emuera-tty/config` (default `~/.config/…`).
@@ -175,6 +181,12 @@ impl Settings {
                     let p = PathBuf::from(v);
                     if !s.library.contains(&p) {
                         s.library.push(p);
+                    }
+                }
+                "new" => {
+                    let p = PathBuf::from(v);
+                    if !s.fresh.contains(&p) {
+                        s.fresh.push(p);
                     }
                 }
                 _ => {
@@ -210,6 +222,9 @@ impl Settings {
         }
         for g in &self.library {
             out += &format!("library={}\n", g.display());
+        }
+        for g in &self.fresh {
+            out += &format!("new={}\n", g.display());
         }
         for (k, v) in &self.values {
             out += &format!("{}={}\n", k, v);
@@ -257,7 +272,17 @@ impl Settings {
         if !self.library.contains(&g) {
             self.library.push(g.clone());
         }
+        // played at last: no longer new
+        self.fresh.retain(|f| *f != g);
         self.last = Some(g);
+    }
+
+    /// Mark a game just added from a clone as "(NEW)" until it is first played.
+    pub fn mark_new(&mut self, game: &Path) {
+        let g = game.canonicalize().unwrap_or_else(|_| game.to_path_buf());
+        if !self.fresh.contains(&g) {
+            self.fresh.push(g);
+        }
     }
 
     pub fn add_game(&mut self, game: &Path) -> PathBuf {
@@ -271,6 +296,7 @@ impl Settings {
     /// Take a game off the list (its files stay where they are).
     pub fn remove_game(&mut self, game: &Path) {
         self.library.retain(|g| g != game);
+        self.fresh.retain(|g| g != game);
         if self.last.as_deref() == Some(game) {
             self.last = None;
         }
@@ -324,5 +350,20 @@ mod tests {
         s.remove_game(Path::new("/nonexistent/eraMegaten"));
         assert_eq!(s.library, vec![PathBuf::from("/nonexistent/eraTW")]);
         assert!(s.last.is_none());
+    }
+
+    #[test]
+    fn new_games_stay_new_until_played() {
+        let mut s = Settings::default();
+        let g = Path::new("/nonexistent/eraNew");
+        s.add_game(g);
+        s.mark_new(g);
+        s.mark_new(g);
+        assert_eq!(s.fresh, vec![PathBuf::from("/nonexistent/eraNew")]);
+        s.played(g);
+        assert!(s.fresh.is_empty());
+        s.mark_new(g);
+        s.remove_game(g);
+        assert!(s.fresh.is_empty());
     }
 }
