@@ -689,9 +689,10 @@ terminal:
 | real VT100 / VT220 / VT52 / ADM-3A / Wyse…, local or on a **serial line** | no | ASCII, see below |
 | **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough on` |
 | **tmux** inside a sixel terminal | yes (tmux draws the sixel) | tmux built with sixel |
-| Termux (Android) | no | app not built for displaying images |
-| Android ADB shell (why?) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles |
-| Android recovery shell (TWRP, OrangeFox, etc...) | no | images never supported, JP/CN text untested (and why are you even running it there of all places?) |
+| Termux (Android) | no | `iterm`/`sixel` floods the terminal with data, `kitty` renders nothing, Termux in general doesn't support in-terminal image rendering |
+| Android to other device (ADB) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles, has an issue that floods the input bar when moving the mouse around |
+| Android to other device (SSH) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles |
+| Android recovery shell (builtins in TWRP, OrangeFox, etc...) | no | images never supported, JP/CN text untested, very finicky in general (and why are you even running it there of all places?) |
 
 - Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
   names and symbols show up.
