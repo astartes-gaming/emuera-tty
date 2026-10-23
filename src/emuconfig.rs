@@ -46,6 +46,7 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
                     con.font_name = v.to_string();
                 }
                 "ボタンの途中で行を折りかえさない" => con.button_wrap = yes(v),
+                "キーボードマクロを使用する" => con.key_macro = yes(v),
                 "セーブデータをsavフォルダ内に作成する" => saves.in_folder = yes(v),
                 "セーブデータをバイナリ形式で保存する" => binary = yes(v),
                 "セーブデータを圧縮して保存する" => zip = yes(v),
@@ -130,13 +131,14 @@ pub const TABS: &[&str] = &["Environment", "Display", "Font", "System2", "Clipbo
 
 /// The settings on the page: those of Emuera's settings window that do
 /// something in emuera-tty and can't break a game. Left out: what only
-/// a window has (size, position, FPS, the menu bar, macros), what changes
+/// a window has (size, position, FPS, the menu bar), what changes
 /// how scripts are read (the System, Compatibility and Debug tabs), the
 /// font size and line height (games compute picture positions from
 /// them), the save folder (existing saves would seem to vanish) and the
 /// background and history colours (the terminal's own are used).
 pub const ITEMS: &[Item] = &[
     item("Environment", "オートセーブを行なう", "Make autosaves", Kind::Bool, "YES"),
+    item("Environment", "キーボードマクロを使用する", "Use keyboard macros (F1…F12)", Kind::Bool, "YES"),
     item("Environment", "履歴ログの行数", "Lines in history log", Kind::Int(100, 1000000), "5000"),
     item("Environment", "表示するセーブデータ数", "Number of save slots", Kind::Int(20, 80), "20"),
     item("Display", "PRINTCを並べる数", "PRINTC items per line", Kind::Int(1, 100), "3"),

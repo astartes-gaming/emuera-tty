@@ -74,6 +74,9 @@ pub fn char_keycode(c: char) -> (i64, i64) {
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputResult {
     Text(String),
+    /// a line typed and entered: the VM expands its macro syntax (`\n`,
+    /// `\e`, `(…)*n`, see `macros.rs`) into the inputs it stands for
+    Line(String),
     /// the input, given with a right click (or Tab): from here on the WAIT
     /// family passes by itself until an input needs a value (Emuera's
     /// message skip)
@@ -116,6 +119,11 @@ pub trait Frontend {
     fn poll_interrupt(&mut self) -> bool {
         false
     }
+    /// Between the inputs of a typed macro: has the player pressed Esc to
+    /// stop it (Emuera's `KillMacro`)?
+    fn macro_stop(&mut self) -> bool {
+        false
+    }
     /// Show output while a script computes (every 150 ms)? Headless runs
     /// don't, so what they print doesn't depend on how fast the machine is.
     fn live_updates(&self) -> bool {
@@ -138,7 +146,7 @@ pub trait Frontend {
             InputResult::Quit => RawInput::Quit,
             InputResult::Hotkey(h) => RawInput::Hotkey(h),
             InputResult::Timeout => RawInput::Timeout,
-            InputResult::Text(t) | InputResult::Skip(t) => match t.trim().parse::<i64>() {
+            InputResult::Text(t) | InputResult::Line(t) | InputResult::Skip(t) => match t.trim().parse::<i64>() {
                 Ok(v) => RawInput::Click { btn: 0, cell: (0, 0), button: Some(crate::vm::value::Value::Int(v)) },
                 Err(_) => {
                     let (code, data) = t.chars().next().map(char_keycode).unwrap_or((13, 13));
@@ -275,7 +283,7 @@ impl Frontend for Headless {
                 } else if !self.log_style {
                     println!();
                 }
-                InputResult::Text(s)
+                InputResult::Line(s)
             }
         }
     }
