@@ -117,3 +117,44 @@ fn trailing_comma_in_assignment() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(text.contains("V=15 12"), "{}", text);
 }
+
+/// Saves are written safely and their history kept (savesafe.rs): the
+/// first save replaced that emuera-tty didn't write is kept as an
+/// original, later ones as automatic copies, each write logged.
+#[test]
+fn save_history() {
+    let dir = temp_dir("savehist");
+    let erb = "@SYSTEM_TITLE\nINPUT\nFLAG:0 = RESULT\nSAVEDATA 1, \"x\"\nQUIT\n";
+    game(&dir, &[("ERB/T.ERB", erb)]);
+    let name = dir.canonicalize().unwrap().file_name().unwrap().to_string_lossy().to_string();
+    let root = dir.join("data/emuera-tty/backups").join(name);
+    let save = |n: &str| run(&dir, format!("{}\n", n).as_bytes());
+    let folders = |kind: &str| -> Vec<std::path::PathBuf> {
+        let mut v: Vec<_> =
+            std::fs::read_dir(&root).unwrap().flatten().map(|e| e.path()).filter(|p| p.to_string_lossy().ends_with(&format!("-{}-save01", kind))).collect();
+        v.sort();
+        v
+    };
+    save("5");
+    let five = std::fs::read(dir.join("save01.sav")).unwrap();
+    // a save emuera-tty has no record of (as if Emuera.exe made it)
+    std::fs::remove_dir_all(dir.join("data")).unwrap();
+    save("6");
+    let six = std::fs::read(dir.join("save01.sav")).unwrap();
+    save("7");
+    let orig = folders("original");
+    let auto = folders("auto");
+    assert_eq!(orig.len(), 1, "{:?}", orig);
+    assert_eq!(std::fs::read(orig[0].join("save01.sav")).unwrap(), five);
+    assert_eq!(auto.len(), 1, "{:?}", auto);
+    assert_eq!(std::fs::read(auto[0].join("save01.sav")).unwrap(), six);
+    let log = std::fs::read_to_string(root.join("save-log.tsv")).unwrap();
+    let kinds: Vec<&str> = log.lines().filter(|l| !l.starts_with('#')).map(|l| l.split('\t').nth(1).unwrap()).collect();
+    // (the first run's line went with the data folder)
+    assert_eq!(kinds, ["original", "written", "written"], "{}", log);
+    assert!(log.contains(env!("CARGO_PKG_VERSION")), "{}", log);
+    // no temporary file left behind
+    let tmp: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().contains(".tmp")).collect();
+    assert!(tmp.is_empty(), "{:?}", tmp);
+    let _ = std::fs::remove_dir_all(&dir);
+}
