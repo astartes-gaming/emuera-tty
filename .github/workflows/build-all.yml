@@ -1,32 +1,35 @@
 name: Build all platforms (manual)
 
 # Only starts when asked for (Actions → "Build all platforms (manual)" → Run
-# workflow). It covers what the README lists under "Other systems" and
-# "Other CPUs":
-#   - builds:  x86-64 Linux, Windows, macOS, and the CPUs the README ran
-#              under emulation (static musl programs); binaries are uploaded
-#   - checks:  the systems and CPUs the README only compile-checks
-#              (`cargo check`, nightly + build-std); nothing is uploaded
+# workflow). Like "Build-check all platforms (manual)", but nothing is only
+# checked: every platform gets a full `cargo build --release` attempt.
+#   - builds:    x86-64 Linux, Windows, macOS, and the CPUs the README ran
+#                under emulation (static musl programs); binaries are uploaded
+#   - attempts:  the systems and CPUs the README only compile-checks, built in
+#                full (nightly + build-std, compiling and linking). The runner
+#                has no C library or cross linker for most of them, so many are
+#                expected to stop at the link step: that is what the attempt
+#                shows. Whatever binary comes out is uploaded.
 #
 # Choosing what runs: each input takes `all`, `none`, or a comma-separated
 # list of names and/or groups (a group picks all of its members). Anything
 # that isn't a known name fails the run at once and lists the valid ones.
 #
 #   builds   group pc:   linux-x86_64, linux-x86_64-static, windows-x86_64,
-#                        macos-aarch64, macos-x86_64
+#                        windows-aarch64, macos-aarch64, macos-x86_64
 #            group cpus: linux-i586-static, linux-armv5-static,
 #                        linux-armv6-static, linux-armv7-static,
 #                        linux-aarch64-static, linux-riscv64-static,
 #                        linux-ppc64-static, linux-ppc64le-static,
 #                        linux-loongarch64-static
-#   checks   group systems: freebsd, netbsd, openbsd, dragonfly, illumos,
+#   attempts group systems: freebsd, netbsd, openbsd, dragonfly, illumos,
 #                           solaris, haiku, redox, android-termux
 #            group cpus:    riscv32, powerpc32, s390x, sparc32, sparc64,
 #                           mips32-be, mips32-le, mips64-be, mips64-le, m68k,
 #                           hexagon, csky, arm-big-endian, aarch64-big-endian,
 #                           x32
 #
-# e.g. builds = "windows-x86_64, linux-armv5-static" with checks = "none"
+# e.g. builds = "windows-x86_64, linux-armv5-static" with attempts = "none"
 # builds just those two.
 on:
   workflow_dispatch:
@@ -35,8 +38,8 @@ on:
         description: "Binaries to build: all, none, or names/groups (pc, cpus) separated by commas"
         type: string
         default: all
-      checks:
-        description: "Compile-checks to run: all, none, or names/groups (systems, cpus) separated by commas"
+      attempts:
+        description: "Full build attempts to run: all, none, or names/groups (systems, cpus) separated by commas"
         type: string
         default: all
 
@@ -58,13 +61,13 @@ jobs:
     outputs:
       builds: ${{ steps.pick.outputs.builds }}
       has_builds: ${{ steps.pick.outputs.has_builds }}
-      checks: ${{ steps.pick.outputs.checks }}
-      has_checks: ${{ steps.pick.outputs.has_checks }}
+      attempts: ${{ steps.pick.outputs.attempts }}
+      has_attempts: ${{ steps.pick.outputs.has_attempts }}
     steps:
       - id: pick
         env:
           WANT_BUILDS: ${{ inputs.builds }}
-          WANT_CHECKS: ${{ inputs.checks }}
+          WANT_ATTEMPTS: ${{ inputs.attempts }}
         run: |
           set -euo pipefail
 
@@ -73,6 +76,7 @@ jobs:
             { "name": "linux-x86_64", "group": "pc", "os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu", "musl": false, "ext": "" },
             { "name": "linux-x86_64-static", "group": "pc", "os": "ubuntu-latest", "target": "x86_64-unknown-linux-musl", "musl": true, "ext": "" },
             { "name": "windows-x86_64", "group": "pc", "os": "windows-latest", "target": "x86_64-pc-windows-msvc", "musl": false, "ext": ".exe" },
+            { "name": "windows-aarch64", "group": "pc", "os": "windows-latest", "target": "aarch64-pc-windows-msvc", "musl": false, "ext": ".exe" },
             { "name": "macos-aarch64", "group": "pc", "os": "macos-latest", "target": "aarch64-apple-darwin", "musl": false, "ext": "" },
             { "name": "macos-x86_64", "group": "pc", "os": "macos-latest", "target": "x86_64-apple-darwin", "musl": false, "ext": "" },
             { "name": "linux-i586-static", "group": "cpus", "os": "ubuntu-latest", "target": "i586-unknown-linux-musl", "musl": true, "ext": "" },
@@ -87,7 +91,7 @@ jobs:
           ]
           EOF
 
-          cat > checks.json <<'EOF'
+          cat > attempts.json <<'EOF'
           [
             { "name": "freebsd", "group": "systems", "target": "x86_64-unknown-freebsd" },
             { "name": "netbsd", "group": "systems", "target": "x86_64-unknown-netbsd" },
@@ -133,19 +137,19 @@ jobs:
           }
 
           builds=$(pick builds.json "$WANT_BUILDS" builds)
-          checks=$(pick checks.json "$WANT_CHECKS" checks)
+          attempts=$(pick attempts.json "$WANT_ATTEMPTS" attempts)
           {
             echo "builds=$builds"
             echo "has_builds=$(jq '.include | length > 0' <<<"$builds")"
-            echo "checks=$checks"
-            echo "has_checks=$(jq '.include | length > 0' <<<"$checks")"
+            echo "attempts=$attempts"
+            echo "has_attempts=$(jq '.include | length > 0' <<<"$attempts")"
           } >> "$GITHUB_OUTPUT"
 
           {
             echo "### What this run does"
             echo
             echo "- **Builds** (\`$WANT_BUILDS\`): $(jq -r '[.include[].name] | join(", ") | if . == "" then "none" else . end' <<<"$builds")"
-            echo "- **Checks** (\`$WANT_CHECKS\`): $(jq -r '[.include[].name] | join(", ") | if . == "" then "none" else . end' <<<"$checks")"
+            echo "- **Attempts** (\`$WANT_ATTEMPTS\`): $(jq -r '[.include[].name] | join(", ") | if . == "" then "none" else . end' <<<"$attempts")"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
@@ -189,17 +193,18 @@ jobs:
           path: dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
           if-no-files-found: error
 
-  # What the README only compile-checks: there is no C library to link
-  # against here, and most of these have no prebuilt standard library, so
-  # it is built from source (nightly, `-Z build-std`).
-  check:
+  # What the README only compile-checks, built in full: there is no C library
+  # to link against here, and most of these have no prebuilt standard library,
+  # so it is built from source (nightly, `-Z build-std`). Many will fail at
+  # the link step; the rest produce a binary.
+  attempt:
     needs: plan
-    if: ${{ needs.plan.outputs.has_checks == 'true' }}
-    name: check ${{ matrix.name }}
+    if: ${{ needs.plan.outputs.has_attempts == 'true' }}
+    name: attempt ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.checks) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.attempts) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -208,7 +213,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: check-${{ matrix.target }}
+          key: attempt-${{ matrix.target }}
 
-      - name: Check
-        run: cargo +nightly check -Z build-std=std,panic_abort --target ${{ matrix.target }}
+      - name: Build
+        run: cargo +nightly build --release -Z build-std=std,panic_abort --target ${{ matrix.target }}
+
+      - name: Collect the binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/emuera-tty dist/emuera-tty-${{ matrix.name }}
+          file dist/emuera-tty-${{ matrix.name }} || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emuera-tty-${{ matrix.name }}
+          path: dist/emuera-tty-${{ matrix.name }}
+          if-no-files-found: error
