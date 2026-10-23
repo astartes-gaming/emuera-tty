@@ -102,14 +102,30 @@ Emuera-Anchor's translation files are read from the game's
 .I CSV/
 folder:
 .IR Abl_TR.csv ", " Talent_TR.csv ", ..."
-(\fIoriginal\fB,\fItranslation\fR lines) translate CSV names when they
-are printed,
+(\fIoriginal\fB,\fItranslation\fR lines, kept as written after the
+original's leading spaces; \fB;\fR starts a comment) translate CSV names
+when a script prints them, stores them in a string or returns them with
+RETURNF, as in Anchor (conditions, CALL arguments and most built-in
+functions see the originals; saves hold the translations; a name with a
+fixed index, like \fBTALENTNAME:5\fR, is treated as Anchor treats such
+constants),
 .I ALL_TR.csv
-any other printed \fB%...%\fR value, and
+a whole printed or stored \fB%...%\fR value, and
 .I TRCHARA*.csv
-the characters' names.
+the characters' names (blocks from \fBNO,\fIn\fR to \fBENDCHR\fR or
+\fBENDCHAR\fR, keys in any case; a field replaces only what the
+character's own CSV gives; problems are reported when the game loads).
 .B TR_NAME(\fIcode\fB, \fIindex or name\fB)
-gives scripts a translated name.
+gives scripts a translated name; an unknown table, or a key that isn't a
+name or named index in it, is a script error, as in Anchor.
+Lines from a \fB{\fR line to a \fB}\fR line are read as one, as in Anchor.
+A \fI_TR.csv\fR line without exactly one comma, a misplaced \fB{\fR or \fB}\fR,
+or a name given twice, is reported when the game loads and skipped.
+.I PARAM.CSV
+is read in place of
+.IR PALAM.CSV ,
+and in such a game, or one with translation files, scripts may write
+\fBPARAM\fR for \fBPALAM\fR, as in Anchor.
 .SH MANAGING SAVES
 \fBF2\fR \(-> \fBManage saves\fR lists the game's saves with their date and
 the comment Emuera shows. For one save: copy or move it to another slot,
@@ -148,7 +164,8 @@ once and the end of input quits.
 Echo the inputs in headless mode.
 .TP
 .B \-\-check
-Load the game, compile every function, report parse errors and exit.
+Load the game, compile every function, report parse errors (also, as in
+Emuera, statements a \fB#FUNCTION\fR may not use) and exit.
 (Otherwise a function is compiled when it first runs, and its errors are
 reported then.)
 .TP

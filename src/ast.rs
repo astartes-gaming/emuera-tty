@@ -426,12 +426,15 @@ pub struct Body {
     pub n_slots: usize,
     /// Private `#DIM`s (and EE `VARI` / `VARS` locals) of the function.
     pub dims: Vec<DimDecl>,
+    /// Emuera-Anchor, in games with TR files only (else empty): one byte
+    /// per instruction from its line's text (`translate::line_byte`).
+    pub tr_line: Vec<u8>,
 }
 
 impl Body {
     /// Roughly the memory it takes: instructions with their expressions.
     pub fn approx_bytes(&self) -> usize {
-        self.code.len() * 320
+        self.code.len() * 320 + self.tr_line.len()
     }
 }
 

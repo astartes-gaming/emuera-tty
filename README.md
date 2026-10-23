@@ -14,6 +14,7 @@
 >   [EvilMask's emuera.em](https://gitlab.com/EvilMask/emuera.em) source for
 >   reference; no code from it is included.
 > - No game files are included. You need your own copy of the game.
+> - MIT licensed (see [LICENSE](LICENSE)).
 >
 > If it works for you anyway: nice. If it doesn't: that's the expected
 > outcome of a proof of concept.
@@ -553,17 +554,62 @@ settings.
 Games translated with Emuera-Anchor's system play translated here too:
 
 - `Abl_TR.csv`, `Talent_TR.csv`, `Item_TR.csv`… (any CSV name table, also
-  `Palam`/`Param`, `Str`, `CSTR`, `Flag`…): `original,translation` lines,
-  `;` starts a comment. A name is translated when it is printed
-  (`%ABLNAME:2%`, PRINTS, PRINT_ABL, the TRAIN command list, the shop),
-  not when a script stores or compares it, so the scripts keep working
-  on the original names and saves stay as Emuera writes them.
-- `ALL_TR.csv`: the same for any other `%…%` value a PRINTFORM shows.
-- `TRCHARA*.csv`: character names (`NAME`, `CALLNAME`, `NICKNAME`,
-  `MASTERNAME`, `CSTR,n,text`) in blocks from `NO,n` (or `番号,n`) to
-  `ENDCHR`; characters added in a new game come out translated.
+  `Palam`/`Param`, `Str`, `CSTR`, `Flag`…) in the `CSV/` folder itself
+  (not its subfolders, as Anchor): `original,translation` lines, `;`
+  starts a comment. As in Anchor, only spaces before the original are
+  dropped: `技巧, Technique` translates to " Technique", which some games
+  use for alignment. Lines from a `{` line to a `}` line are read as
+  one, as Anchor's file reader does. A line without exactly one comma, a
+  misplaced `{` or `}`, or a name given twice, is shown as a warning when
+  the game loads (with the file and line) and skipped; Anchor refuses to
+  start the game instead.
+- When a name comes out translated, as in Anchor: when a script prints
+  it (`PRINTV TALENTNAME:LOCAL`, `PRINTFORM %TALENTNAME:LOCAL%`, PRINTS,
+  PRINTDATA, HTML_PRINT), stores it in a string (`LOCALS '=
+  TALENTNAME:LOCAL`, `LOCALS = [%TALENTNAME:LOCAL%]`, `+=`), or returns
+  it with RETURNF from a `#FUNCTIONS` that is being printed or stored.
+  Joining strings with `+` keeps the translation. Everything else sees
+  the original name, so the scripts keep working: conditions (`IF
+  TALENTNAME:LOCAL == "処女"`), CALL arguments, PRINTBUTTON's text, the
+  branches of `? #`, and the arguments of built-in functions other than
+  TOUPPER, TOLOWER, TOHALF, TOFULL, REPLACE and STRFORM. The values of
+  STR, TSTR, SAVESTR, RESULTS and GLOBALS translate the same way, through
+  `Str_TR.csv`. Because stored text is translated, saves made in a
+  translated game hold the translations, as Anchor's do (Emuera loads
+  them like any other save; saves from older emuera-tty versions hold the
+  originals). PRINT_ABL and the like, the TRAIN command list, the shop
+  list and PRINTDATA are translated too, though Anchor prints those
+  untranslated.
+- A name with a fixed index (`TALENTNAME:5`) follows Anchor's own rule:
+  inside a comparison, a calculation, a function call or a `%…%` it is
+  translated even in a condition (`IF TALENTNAME:5 == "処女"` is false in
+  a translated game, as in Anchor), while stored or returned on its own
+  (`LOCALS '= TALENTNAME:5`) it stays the original. Quoted text printed
+  with PRINTS, PRINTV or PRINTPLAIN (`PRINTS "男"`) is looked up in
+  `ALL_TR.csv`, or in the table of the first `XXXNAME` on the same line.
+  STRLENS and STRLENSU measure the translated text, so layouts built on
+  them fit the translation.
+- `ALL_TR.csv`: also looked up for a whole `%…%` value when it is
+  printed or stored (or has a width, `%X,10%`). Failing that, as in
+  Anchor, a name the script read untranslated shortly before (Anchor
+  remembers the last 19) is translated inside the value, and then the
+  value without its digits, `LV` and brackets is tried (`技巧LV3` →
+  `TechniqueLV3`); a `%…%` in a RETURNF line gets none of this.
+- `TRCHARA*.csv` (any case, anywhere under `CSV/`): character names
+  (`NAME`, `CALLNAME`, `NICKNAME`, `MASTERNAME`, `CSTR,n,text`) in blocks
+  from `NO,n` (or `番号,n`) to `ENDCHR` or `ENDCHAR`; characters added in
+  a new game come out translated, while those in a save keep their saved
+  names. As in Anchor, keys are matched in any case, a value is the field
+  up to the next comma, and a field replaces only what the character's
+  own `Chara*.csv` gives (a TRCHARA CALLNAME for a character whose CSV
+  has none is ignored). Problems (an unknown key, data before `NO`, a
+  missing `ENDCHR`…) are shown as warnings when the game loads, with the
+  file and line.
 - `TR_NAME(ABL, 25)` / `TR_NAME("TALENT", "処女")`: a translated name for
-  scripts, the original when there is none.
+  scripts, the original when there is none. As in Anchor, the table is a
+  bare variable or its name in capitals (`ABL`, `"ABLNAME"`…), and the key
+  an index that has a name or a name in that CSV; anything else is a
+  script error ("Invalid first argument" / "Invalid second argument").
 
 ### Managing saves
 
@@ -718,7 +764,9 @@ This is a proof of concept, so it will happen.
 - **`warning: … not implemented (ignored)`** lines in the terminal after
   quitting are commands emuera-tty skipped; the game usually carries on.
 - **Check a game without playing it:** `emuera-tty /path/to/game --check`
-  lists every line that fails to parse.
+  lists every line that fails to parse, and, as Emuera does, every
+  statement a `#FUNCTION(S)` may not use (input, CALL/JUMP, BEGIN, QUIT,
+  RETURN, PRINTW…: it is an error if it runs).
 - **Screen looks broken:** Ctrl-L redraws; try `--gfx none` to rule out
   image problems; make the window wider.
 - **Reporting a bug:** include the error text and, if you can, a trace:
@@ -986,7 +1034,9 @@ checked.
 - Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
   per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
 - Emuera-Anchor: the `*_TR.csv` / `ALL_TR.csv` / `TRCHARA` translation
-  files and `TR_NAME`, the Ctrl-T / Ctrl-R / F5 hotkeys, the clipboard.
+  files and `TR_NAME`, `PARAM.CSV` (read in place of `PALAM.CSV`, with
+  `PARAM` usable for `PALAM` in scripts), the Ctrl-T / Ctrl-R / F5
+  hotkeys, the clipboard.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,
@@ -1041,12 +1091,22 @@ menu choices in a throwaway copy and reports script errors.
 1. Run it on the other systems (macOS, Windows, the BSDs, Termux, Haiku,
    Redox) and on a real Raspberry Pi Zero: they compile (the Pi build
    also runs under emulation), nobody has played on them yet.
-2. Play deeper into AnonTW, pops-tw and eraTohoK, and more games.
+2. A good way to play on Android phones, through Termux: players keep
+   asking for an up-to-date eraBASIC player there, and saves would move
+   between phone and PC. Nothing is known to be missing, but nobody has
+   tried it on a phone. What needs checking: a phone's narrow screen
+   (games are laid out for a wide window), taps arriving as clicks for
+   buttons and picture menus, F1 and Ctrl keys from Termux's extra-keys
+   row, Japanese text widths in Termux's font, whether its terminal draws
+   sixel pictures, and games kept in shared storage (`/sdcard`). A
+   separate Android app would come later, if at all: the engine never
+   talks to the terminal directly, so another frontend could be added.
+3. Play deeper into AnonTW, pops-tw and eraTohoK, and more games.
    AnonTW's 5 remaining parse errors and pops-tw's 16 are mistakes in the
    games' own scripts (Emuera reports them too); eraTohoK has none.
-3. Dialog translation and sound with real translators and players on
+4. Dialog translation and sound with real translators and players on
    other systems: tested here with stand-ins and mpv only.
-4. Speed of script-heavy games: pops-tw's new game takes about 14
+5. Speed of script-heavy games: pops-tw's new game takes about 14
    seconds of CPU (its own object system looks names up in 1000-entry
    arrays hundreds of thousands of times, through a million statements);
    compiling variables to slots ahead of time would be the next step.

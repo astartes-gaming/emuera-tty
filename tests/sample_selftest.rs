@@ -1,44 +1,7 @@
 //! Runs the sample game headlessly: the ERB self-test, and a save / load
 //! round trip through Emuera's save format.
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-
-/// A fresh copy of `sample/` (the tests write save files into it).
-fn sample_copy(tag: &str) -> PathBuf {
-    fn copy(from: &Path, to: &Path) {
-        std::fs::create_dir_all(to).unwrap();
-        for e in std::fs::read_dir(from).unwrap() {
-            let e = e.unwrap();
-            let t = to.join(e.file_name());
-            if e.file_type().unwrap().is_dir() {
-                copy(&e.path(), &t);
-            } else {
-                std::fs::copy(e.path(), t).unwrap();
-            }
-        }
-    }
-    let dir = std::env::temp_dir().join(format!("emuera-tty-test-{}-{}", tag, std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    copy(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/sample")), &dir);
-    dir
-}
-
-fn run(dir: &Path, input: &[u8]) -> String {
-    let exe = env!("CARGO_BIN_EXE_emuera-tty");
-    let mut child = Command::new(exe)
-        .arg(dir)
-        .args(["--headless", "--echo"])
-        .env("EMUERA_SEED", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
-    let out = child.wait_with_output().unwrap();
-    String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
-}
+mod common;
+use common::{game, run, sample_copy, temp_dir};
 
 #[test]
 fn sample_selftest_passes() {
@@ -50,9 +13,10 @@ fn sample_selftest_passes() {
     // every CHECK/CHECKS call must have run and printed OK
     let oks = text.lines().filter(|l| l.starts_with("OK  ")).count();
     assert!(text.contains(&format!("selftest: {} checks done", oks)), "{}", text);
-    assert!(oks >= 104, "only {} checks ran\n{}", oks, text);
+    assert!(oks >= 105, "only {} checks ran\n{}", oks, text);
     assert!(text.contains("1日目"), "{}", text);
-    // Emuera-Anchor: Abl_TR.csv applies when the name is printed
+    // Emuera-Anchor: Abl_TR.csv applies when the name is printed (not in
+    // the CALL CHECKS arguments, "ablname")
     assert!(text.contains("printed: Technique"), "{}", text);
     assert!(!text.contains("script error"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);
@@ -95,18 +59,14 @@ fn save_load_roundtrip() {
 /// command runs in place of what came next; inside a command it is an error.
 #[test]
 fn dotrain_runs_after_the_event() {
-    let dir = std::env::temp_dir().join(format!("emuera-tty-test-dotrain-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("CSV")).unwrap();
-    std::fs::create_dir_all(dir.join("ERB")).unwrap();
-    std::fs::write(dir.join("CSV/Train.csv"), "0,A\n1,B\n999,C\n").unwrap();
+    let dir = temp_dir("dotrain");
     let erb = "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = -1\n\
         @SHOW_STATUS\nFLAG:0 += 1\nPRINTFORML status {FLAG:0}\nSIF FLAG:0 == 1\n  DOTRAIN 1\nSIF FLAG:0 == 1\n  PRINTL rest of status\nSIF FLAG:0 == 3\n  QUIT\n\
         @SHOW_USERCOM\nPRINTL usercom list\n\
         @USERCOM\nPRINTFORML usercom {RESULT}\nSIF RESULT == 50\n  DOTRAIN 999\nPRINTL rest of usercom\n\
         @COM1\nPRINTL com1\nRETURN 1\n@COM999\nPRINTL com999\nRETURN 1\n@COM0\nDOTRAIN 1\nRETURN 1\n\
         @EVENTCOMEND\nPRINTFORML comend {SELECTCOM}\n";
-    std::fs::write(dir.join("ERB/T.ERB"), erb).unwrap();
+    game(&dir, &[("CSV/Train.csv", "0,A\n1,B\n999,C\n"), ("ERB/T.ERB", erb)]);
     let text = run(&dir, b"\n50\n\n0\n\n");
     let order =
         ["status 1", "rest of status", "com1", "comend 1", "status 2", "usercom list", "usercom 50", "rest of usercom", "com999", "comend 999", "status 3"];
@@ -117,11 +77,43 @@ fn dotrain_runs_after_the_event() {
     }
     let _ = std::fs::remove_dir_all(&dir);
     // DOTRAIN inside @COMn: Emuera refuses it
-    std::fs::create_dir_all(dir.join("CSV")).unwrap();
-    std::fs::create_dir_all(dir.join("ERB")).unwrap();
-    std::fs::write(dir.join("CSV/Train.csv"), "0,A\n1,B\n").unwrap();
-    std::fs::write(dir.join("ERB/T.ERB"), "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = 0\n@COM0\nDOTRAIN 1\nRETURN 1\n").unwrap();
+    game(&dir, &[("CSV/Train.csv", "0,A\n1,B\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = 0\n@COM0\nDOTRAIN 1\nRETURN 1\n")]);
     let text = run(&dir, b"\n\n");
     assert!(text.contains("DOTRAIN can only be used"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Inside a `#FUNCTION(S)`, statements without Emuera's METHOD_SAFE flag
+/// (input, CALL, BEGIN, PRINTW…) are errors when they run, as in Emuera-EM
+/// and Anchor; one that never runs is harmless; `--check` lists them all.
+#[test]
+fn commands_not_allowed_in_functions() {
+    let dir = temp_dir("not-in-function");
+    let erb = "@SYSTEM_TITLE\nPRINTFORML [%GOOD()%]\nPRINTFORML [%BAD()%]\nPRINTL after\nQUIT\n\
+        @GOOD\n#FUNCTIONS\nSIF 0\n  WAIT\nIF 0\n  PRINTW x\nENDIF\nPRINTL printing is allowed\nRETURNF \"good\"\n\
+        @BAD\n#FUNCTIONS\nBEGIN TITLE\nRETURNF \"x\"\n";
+    game(&dir, &[("ERB/T.ERB", erb)]);
+    let text = run(&dir, b"\n");
+    assert!(text.contains("printing is allowed"), "{}", text);
+    assert!(text.contains("[good]"), "{}", text);
+    assert!(text.contains("BEGIN instruction cannot be used in #FUNCTION(S)"), "{}", text);
+    assert!(!text.contains("after"), "{}", text);
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty")).arg(&dir).arg("--check").output().unwrap();
+    let check = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    for c in ["WAIT", "PRINTW", "BEGIN"] {
+        assert!(check.contains(&format!("{} instruction cannot be used in #FUNCTION(S)", c)), "{}: {}", c, check);
+    }
+    assert!(!check.contains("PRINTL instruction"), "{}", check);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `X += expr,` with a trailing comma is one value, as in Emuera (eraTW's
+/// SOURCE.ERB writes `TCVAR:LCOUNT:体力回復 += 10 + RAND:10,`).
+#[test]
+fn trailing_comma_in_assignment() {
+    let dir = temp_dir("trailing-comma");
+    game(&dir, &[("ERB/T.ERB", "@SYSTEM_TITLE\nLOCAL = 5\nLOCAL += 10,\nLOCAL:1 = 1, 2,\nPRINTFORML V={LOCAL} {LOCAL:1}{LOCAL:2}\nQUIT\n")]);
+    let text = run(&dir, b"");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(text.contains("V=15 12"), "{}", text);
 }

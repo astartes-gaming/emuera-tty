@@ -76,6 +76,8 @@ pub struct GameCsv {
     pub str_init: Vec<(i64, String)>,
     /// Emuera-Anchor translations (*_TR.csv)
     pub tr: crate::translate::Tr,
+    /// Emuera-Anchor: the parameter names came from PARAM.CSV.
+    pub param_csv: bool,
     pub warnings: Vec<String>,
 }
 
@@ -164,9 +166,11 @@ impl GameCsv {
     /// Read every CSV the engine knows from `csv_dir` (file names are
     /// matched case-insensitively), plus `*.ERD` tables under `erb_dir`.
     pub fn load(csv_dir: &Path, erb_dir: Option<&Path>) -> GameCsv {
-        let mut g = GameCsv::default();
+        // Emuera-Anchor: PARAM.CSV, when there is one, in place of PALAM.CSV
+        let mut g = GameCsv { param_csv: find_file_ci(csv_dir, "PARAM.CSV").is_some(), ..Default::default() };
         for (file, key) in TABLE_FILES {
             let mut t = NameTable::default();
+            let file = if *key == "PALAM" && g.param_csv { "PARAM.CSV" } else { file };
             if let Some(p) = find_file_ci(csv_dir, file) {
                 if let Ok(text) = read_text(&p) {
                     for line in text.lines() {
@@ -268,6 +272,7 @@ impl GameCsv {
         g.charas.sort_by_key(|c| c.no);
         // Emuera-Anchor translations
         g.tr = crate::translate::Tr::load(csv_dir);
+        g.warnings.append(&mut g.tr.warnings);
         let w = crate::translate::apply_trchara(csv_dir, &mut g.charas);
         g.warnings.extend(w);
         // EmueraEE: *.ERD name tables for user variables.

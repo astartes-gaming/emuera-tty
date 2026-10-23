@@ -123,6 +123,9 @@ CALLFORM ADD{"TWO"}, 10, 5
 CALL CHECK, "callform", RESULT == 15
 ;--- csv names & chara vars
 CALL CHECK, "csvname", ABL:1:技巧 == 3 && ABL:2:技巧 == 5 && TALENT:1:処女 == 1
+; a string value as the index is a name looked up when it runs (eraAkumaMaid's EXP_GAIN)
+LOCALS = 技巧
+CALL CHECK, "csvname_by_string", ABL:1:LOCALS == 3 && ABL_OF(ABLNAME:1, 2) == 5
 CALL CHECKS, "charname", NAME:1, "博麗霊夢"
 CALL CHECKS, "callname", CALLNAME:2, "魔理沙"
 CALL CHECK, "sjiscsv", CFLAG:1:好感度 == 10 && BASE:1:体力 == 2000 && MAXBASE:1:体力 == 2000
@@ -131,7 +134,7 @@ BASE:1:気力 = 77
 LOCALS:7 '= "気力"
 CALL CHECK, "index by string expression", BASE:1:(LOCALS:7) == 77 && BASE:1:("体" + "力") == BASE:1:0
 CALL CHECKS, "ablname", ABLNAME:1, "技巧"
-; Emuera-Anchor translation: TR_NAME, TRCHARA (stored names stay as they are)
+; Emuera-Anchor translation: TR_NAME, TRCHARA (CALL arguments, as in "ablname", see the originals)
 CALL CHECKS, "tr_name", TR_NAME(ABL, 1) + "/" + TR_NAME("ABL", "技巧") + "/" + TR_NAME(ABL, 2), "Technique/Technique/従順"
 CALL CHECKS, "trchara", CSVNICKNAME(2), "Ordinary Magician"
 PRINTFORML printed: %ABLNAME:1%
@@ -205,7 +208,8 @@ CALL CHECK, "varsizechara", VARSIZE("TALENT") == 1200
 LOCALSTR:1 = b
 CALL REFFILL, LOCALSTR, SQUARE(2)
 CALL CHECK, "refparam", LOCALSTR:0 == "x4" && LOCALSTR:1 == "by"
-CALL CHECKS, "refdynamic", REFDYN(), "x0"
+CALL REFDYN
+CALL CHECKS, "refdynamic", RESULTS, "x0"
 LOCAL = COUNTUP() + COUNTUP()
 CALL CHECK, "localpersist", LOCAL == 3
 LOCAL = STATICUP() + STATICUP()
@@ -294,6 +298,10 @@ ELSE
 	PRINTFORML NG  %ARGS%  got [%ARGS:1%] want [%ARGS:2%] <------
 ENDIF
 
+@ABL_OF(ARGS, ARG)
+#FUNCTION
+RETURNF ABL:ARG:ARGS
+
 @SQUARE(X)
 #FUNCTION
 #DIM X
@@ -327,10 +335,9 @@ R:0 = x{N}
 R:1 += "y"
 
 @REFDYN
-#FUNCTIONS
 #DIMS DYNAMIC D, 2
 CALL REFFILL, D, 0
-RETURNF D:0
+RESULTS = %D:0%
 
 @COUNTUP
 #FUNCTION
@@ -455,7 +462,13 @@ RETURN A:0 * 100000 + A:1 * 10000 + A:2 * 1000 + A:3 * 100 + A:4 * 10 + A:5
 @FALLS_OFF_END
 LOCAL = 1
 
+; (a #FUNCTION can't CALL: CALLF reaches one that ends without RETURNF,
+; as AnonTW's GET_OBJ → FreeAct* → MAKE_STR chain does)
 @CALLS_FALLER
 #FUNCTION
-CALL FALLS_OFF_END
+CALLF FUNC_FALLS_OFF_END
 RETURNF 1
+
+@FUNC_FALLS_OFF_END
+#FUNCTION
+LOCAL = 1

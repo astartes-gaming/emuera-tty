@@ -84,6 +84,20 @@ const STR_FUNCTIONS: &[&str] = &[
     "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS", "TR_NAME",
 ];
 
+/// Statements a `#FUNCTION(S)` can't use: those without Emuera's
+/// METHOD_SAFE flag (FunctionIdentifier.cs, and PRINT_Instruction /
+/// PRINT_DATA_Instruction for the PRINT…W forms), the same in Emuera-EM
+/// and Emuera-Anchor. Sorted, for `binary_search`.
+pub const NOT_IN_FUNCTION: &[&str] = &[
+    "AWAIT", "BEGIN", "BINPUT", "BINPUTS", "CALL", "CALLEVENT", "CALLFORM", "CALLTRAIN", "DOTRAIN", "ENDFUNC", "FORCEWAIT", "FORCE_BEGIN", "FORCE_QUIT",
+    "FORCE_QUIT_AND_RESTART", "FUNC", "INPUT", "INPUTANY", "INPUTMOUSEKEY", "INPUTS", "JUMP", "JUMPFORM", "LOADDATA", "LOADGAME", "ONEBINPUT", "ONEBINPUTS",
+    "ONEINPUT", "ONEINPUTS", "OUTPUTLOG", "PRINTDATADW", "PRINTDATAKW", "PRINTDATAW", "PRINTDW", "PRINTFORMDW", "PRINTFORMKW", "PRINTFORMSDW", "PRINTFORMSKW",
+    "PRINTFORMSW", "PRINTFORMW", "PRINTKW", "PRINTSDW", "PRINTSKW", "PRINTSW", "PRINTVDW", "PRINTVKW", "PRINTVW", "PRINTW", "QUIT", "QUIT_AND_RESTART",
+    "RETURN", "RETURNFORM", "SAVEGAME", "STOPCALLTRAIN", "TINPUT", "TINPUTS", "TONEINPUT", "TONEINPUTS", "TOOLTIP_CUSTOM", "TOOLTIP_FORMAT", "TOOLTIP_IMG",
+    "TOOLTIP_SETFONT", "TOOLTIP_SETFONTSIZE", "TRYCALL", "TRYCALLFORM", "TRYCALLLIST", "TRYCCALL", "TRYCCALLFORM", "TRYCJUMP", "TRYCJUMPFORM", "TRYGOTOLIST",
+    "TRYJUMP", "TRYJUMPFORM", "TRYJUMPLIST", "TWAIT", "VARI", "VARS", "WAIT", "WAITANYKEY",
+];
+
 /// Is `c` (upper-case) a statement-only built-in? (hash set: checked for
 /// every statement while parsing)
 pub fn is_builtin_command(c: &str) -> bool {
@@ -614,11 +628,8 @@ impl Vm {
                 self.con.push_seg(Seg::Space { w: w * fs / 100.0 });
             }
             "HTML_PRINT" => {
-                // (Emuera-Anchor: a FORM string's %…% names are translated)
-                let s = match a.first() {
-                    Some(Expr::Form(f)) if !self.csv.tr.is_empty() => self.eval_form_tr(f)?,
-                    _ => self.as_(a, 0, "")?,
-                };
+                // (Emuera-Anchor: read with the translate flag, set in `step`)
+                let s = self.as_(a, 0, "")?;
                 self.html_print(&s);
             }
             "BAR" | "BARL" => {
@@ -2722,7 +2733,45 @@ impl Vm {
 
     // ============================================================== functions
     /// Evaluate a built-in function; `Ok(None)` if `name` isn't one.
+    /// Emuera-Anchor: only TOUPPER, TOLOWER, TOHALF, TOFULL, REPLACE and
+    /// STRFORM (and PRINTFORMS' `__FORMS`) read their arguments with the
+    /// translate flag (Creator.Method.cs:2256, 2307, 2514); every other
+    /// function, including any added later, reads without it.
     pub fn builtin_fn(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
+        if name == crate::translate::TRCONST {
+            return self.tr_const(&a[0], matches!(a.get(1), Some(Expr::Int(1)))).map(Some);
+        }
+        if !self.tr_eval || matches!(name, "TOUPPER" | "TOLOWER" | "TOHALF" | "TOFULL" | "REPLACE" | "STRFORM" | "__FORMS") {
+            return self.builtin_fn_body(name, a);
+        }
+        self.tr_eval = false;
+        let r = self.builtin_fn_body(name, a);
+        self.tr_eval = true;
+        r
+    }
+
+    /// STRLENS / STRLENSU's argument. In a game with TR files, as in
+    /// Emuera-Anchor (Creator.Method.cs StrlenMethod): read with the
+    /// translate flag, then looked up whole in ALL_TR, so the translated
+    /// text is what gets measured.
+    fn tr_measured(&mut self, a: &[Expr]) -> VmResult<String> {
+        if !self.tr_on {
+            return self.as_(a, 0, "");
+        }
+        let keep = std::mem::replace(&mut self.tr_eval, true);
+        let s = self.as_(a, 0, "");
+        self.tr_eval = keep;
+        let s = s?;
+        Ok(match self.csv.tr.all(&s) {
+            Some(t) => {
+                self.tr_last.clone_from(t);
+                t.clone()
+            }
+            None => s,
+        })
+    }
+
+    fn builtin_fn_body(&mut self, name: &str, a: &[Expr]) -> VmResult<Option<Value>> {
         let i = |v: i64| Ok(Some(Value::Int(v)));
         let s = |v: String| Ok(Some(Value::Str(v)));
         if name.starts_with("MAP_") {
@@ -2968,7 +3017,11 @@ impl Vm {
                 i(r as i64)
             }
             "VARSIZE" => {
-                let n = self.as_(a, 0, "")?.to_uppercase();
+                let mut n = self.as_(a, 0, "")?.to_uppercase();
+                // (Emuera-Anchor: VARSIZE("PARAM") is PALAM's)
+                if n == "PARAM" && crate::translate::param_renamed(&n).is_some() {
+                    n = "PALAM".into();
+                }
                 let d = self.ai(a, 1, -1)?;
                 let dims = match super::vars::system_var(&n) {
                     // character variables have a size even when no character exists
@@ -2995,11 +3048,11 @@ impl Vm {
                 i(dims[k] as i64)
             }
             "STRLENS" => {
-                let x = self.as_(a, 0, "")?;
+                let x = self.tr_measured(a)?;
                 i(sjis_len(&x) as i64)
             }
             "STRLENSU" => {
-                let x = self.as_(a, 0, "")?;
+                let x = self.tr_measured(a)?;
                 i(x.chars().count() as i64)
             }
             "SUBSTRING" => {
@@ -3409,17 +3462,61 @@ impl Vm {
             // Emuera-Anchor: TR_NAME(code, index or name): the translated name
             // from the code's *_TR.csv (the original if there is none)
             "TR_NAME" => {
-                let code = match a.first() {
-                    Some(Expr::Var(v)) if v.idx.is_empty() && (crate::csvdata::table_for_var(&v.name).is_some() || &*v.name == "ALL") => v.name.to_string(),
-                    _ => self.as_(a, 0, "")?.trim().to_uppercase(),
+                // As Emuera-Anchor (TRCommands.cs): the table as a string
+                // (exactly as written) or a bare variable; the key a name
+                // defined in it or an index with a name; else an error.
+                let table = match a.first() {
+                    Some(Expr::Var(v)) if v.idx.is_empty() => match &*v.name {
+                        "ABL" | "BASE" | "CFLAG" | "CSTR" | "EQUIP" | "EX" | "EXP" | "FLAG" | "GLOBAL" | "GLOBALS" | "ITEM" | "MARK" | "PALAM" | "SAVESTR"
+                        | "SOURCE" | "STAIN" | "STR" | "TALENT" | "TCVAR" | "TEQUIP" | "TFLAG" | "TRAINNAME" | "TSTR" => crate::csvdata::table_for_var(&v.name),
+                        "CDFLAGNAME1" => Some("CDFLAG1"),
+                        "CDFLAGNAME2" => Some("CDFLAG2"),
+                        _ => None,
+                    }
+                    .ok_or_else(|| Ctrl::Error(format!("TR_NAME: Invalid first argument: {}", v.name), false))?,
+                    _ => {
+                        let code = self.as_(a, 0, "")?;
+                        match code.as_str() {
+                            "ABL" | "ABLNAME" => "ABL",
+                            "BASE" | "BASENAME" => "BASE",
+                            "CDFLAG1" | "CDFLAGNAME1" => "CDFLAG1",
+                            "CDFLAG2" | "CDFLAGNAME2" => "CDFLAG2",
+                            "CFLAG" | "CFLAGNAME" => "CFLAG",
+                            "CSTR" | "CSTRNAME" => "CSTR",
+                            "EQUIP" | "EQUIPNAME" => "EQUIP",
+                            "EX" | "EXNAME" => "EX",
+                            "EXP" | "EXPNAME" => "EXP",
+                            "FLAG" | "FLAGNAME" => "FLAG",
+                            "GLOBAL" | "GLOBALNAME" => "GLOBAL",
+                            "GLOBALS" | "GLOBALSNAME" => "GLOBALS",
+                            "ITEM" | "ITEMNAME" => "ITEM",
+                            "MARK" | "MARKNAME" => "MARK",
+                            "PALAM" | "PALAMNAME" | "PARAM" | "PARAMNAME" => "PALAM",
+                            "SAVESTR" | "SAVESTRNAME" => "SAVESTR",
+                            "SOURCE" | "SOURCENAME" => "SOURCE",
+                            "STAIN" | "STAINNAME" => "STAIN",
+                            "STR" | "STRNAME" => "STRNAME",
+                            "TALENT" | "TALENTNAME" => "TALENT",
+                            "TCVAR" | "TCVARNAME" => "TCVAR",
+                            "TEQUIP" | "TEQUIPNAME" => "TEQUIP",
+                            "TFLAG" | "TFLAGNAME" => "TFLAG",
+                            "TRAIN" | "TRAINNAME" => "TRAIN",
+                            "TSTR" | "TSTRNAME" => "TSTR",
+                            _ => return err(format!("TR_NAME: Invalid first argument: {}", code)),
+                        }
+                    }
                 };
-                let table = crate::csvdata::table_for_var(&code).unwrap_or(&code).to_string();
                 let orig = match self.arg(a, 1)? {
-                    Some(Value::Int(i)) => self.csv.name_of(&table, i).unwrap_or("").to_string(),
-                    Some(Value::Str(s)) => s,
-                    None => String::new(),
+                    Some(Value::Str(k)) if self.csv.lookup(table, &k).is_some() => k,
+                    Some(Value::Int(i)) if self.csv.name_of(table, i).is_some() => self.csv.name_of(table, i).unwrap_or("").to_string(),
+                    Some(v) => return err(format!("TR_NAME: Invalid second argument: {}", v.as_string())),
+                    None => return err("TR_NAME: Invalid second argument: (omitted)"),
                 };
-                s(self.csv.tr.or_same(&table, &orig).to_string())
+                let t = self.csv.tr.name(table, &orig).map(str::to_string);
+                if let Some(t) = &t {
+                    self.tr_last.clone_from(t);
+                }
+                s(t.unwrap_or(orig))
             }
             "EXISTMETH" => {
                 // 1: returns a number, 2: a string, 0: no such function
@@ -4371,6 +4468,12 @@ fn html_tag_split(s: &str) -> Option<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    /// `binary_search` needs it sorted.
+    #[test]
+    fn not_in_function_is_sorted() {
+        assert!(super::NOT_IN_FUNCTION.windows(2).all(|w| w[0] < w[1]));
+    }
+
     /// HTML colours as Emuera reads them: names, `#` and hex (0x allowed).
     #[test]
     fn html_colors() {

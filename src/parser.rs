@@ -182,6 +182,9 @@ struct FuncBuilder {
 impl FuncBuilder {
     /// Append an instruction; returns its index (for later patching).
     fn emit(&mut self, i: Instr) -> usize {
+        if let Some(t) = crate::translate::instr_byte(&i) {
+            self.body.tr_line.push(t);
+        }
         self.body.code.push(i);
         self.body.lines.push(self.cur_line);
         self.body.code.len() - 1
@@ -334,6 +337,8 @@ impl LazySrc {
             return self.changed_body(f, file);
         };
         let end = rest.iter().position(|(_, l)| l.starts_with('@')).unwrap_or(rest.len());
+        // (the attributes were read at load; statements check #FUNCTION)
+        b.f.is_function = f.is_function;
         p.statements(&mut b, &file.rel, &rest[..end]);
         let mut g = p.finish(b, &file.rel);
         let errors = std::mem::take(&mut p.prog.errors);
@@ -948,7 +953,9 @@ impl Parser {
                 continue;
             }
             b.cur_line = (file_idx, *no);
+            let first = b.body.code.len();
             let r = self.statement(b, line);
+            crate::translate::set_line_bytes(&mut b.body, first, line);
             if let Some(e) = b.soft_error.take() {
                 self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
             }
@@ -1155,6 +1162,11 @@ impl Parser {
         }
 
         let (cmd, rest) = split_cmd(line);
+        // Emuera (ErbLoader.setArgument): a #FUNCTION(S) can't use input,
+        // calls, BEGIN… The line is an error when it runs.
+        if b.f.is_function && crate::vm::builtins::NOT_IN_FUNCTION.binary_search(&cmd.as_str()).is_ok() {
+            return Err(format!("{} instruction cannot be used in #FUNCTION(S)", cmd));
+        }
         let defs = &self.prog.defines;
         let arg_c = strip_comment(rest).trim();
 
@@ -1800,7 +1812,14 @@ fn find_word(up: &str, w: &str) -> Option<usize> {
 }
 
 /// Normalize identifiers to uppercase (Emuera is case-insensitive by default).
+/// Upper-case the names in a parsed expression; in a game with Anchor's
+/// TR files, also mark its constants as Anchor folds them
+/// (`translate::fold_expr`).
 pub fn upper_expr(e: Expr) -> Expr {
+    crate::translate::fold_expr(upper_expr_in(e))
+}
+
+fn upper_expr_in(e: Expr) -> Expr {
     match e {
         Expr::Var(v) => {
             let mut v = v;
@@ -1809,19 +1828,19 @@ pub fn upper_expr(e: Expr) -> Expr {
         }
         Expr::Call(c) => {
             let (n, a, kind) = *c;
-            let mut a: Vec<Expr> = a.into_iter().map(upper_expr).collect();
+            let mut a: Vec<Expr> = a.into_iter().map(upper_expr_in).collect();
             a.shrink_to_fit();
             Expr::Call(Box::new((n.to_uppercase(), a, kind)))
         }
-        Expr::Unary(o, x) => Expr::Unary(o, Box::new(upper_expr(*x))),
-        Expr::Binary(o, a, b) => Expr::Binary(o, Box::new(upper_expr(*a)), Box::new(upper_expr(*b))),
-        Expr::Ternary(a, b, c) => Expr::Ternary(Box::new(upper_expr(*a)), Box::new(upper_expr(*b)), Box::new(upper_expr(*c))),
+        Expr::Unary(o, x) => Expr::Unary(o, Box::new(upper_expr_in(*x))),
+        Expr::Binary(o, a, b) => Expr::Binary(o, Box::new(upper_expr_in(*a)), Box::new(upper_expr_in(*b))),
+        Expr::Ternary(a, b, c) => Expr::Ternary(Box::new(upper_expr_in(*a)), Box::new(upper_expr_in(*b)), Box::new(upper_expr_in(*c))),
         Expr::IncDec(v, p, d) => {
             let mut v = v;
             upper_var(&mut v);
             Expr::IncDec(v, p, d)
         }
-        Expr::Form(f) => Expr::Form(Rc::new(upper_form(Rc::try_unwrap(f).unwrap_or_else(|f| (*f).clone())))),
+        Expr::Form(f) => Expr::Form(Rc::new(upper_form_in(Rc::try_unwrap(f).unwrap_or_else(|f| (*f).clone())))),
         e => e,
     }
 }
@@ -1847,7 +1866,17 @@ pub fn upper_var(v: &mut Rc<VarRef>) {
     let inner = Rc::make_mut(v);
     // CSV-name indices (`ABL:技巧`) are upper-cased too: name-table
     // lookups are case-insensitive, so nothing is lost.
-    inner.name = intern(inner.name.to_uppercase());
+    let mut name = inner.name.to_uppercase();
+    // Emuera-Anchor renames PARAM to PALAM in every identifier; here only
+    // where that names a built-in (PARAM, PARAMNAME…), so a game's own
+    // `#DIM MYPARAM` keeps its name and saves stay Emuera's (the VM falls
+    // back on the renamed name for a variable it can't find)
+    if let Some(r) = crate::translate::param_renamed(&name) {
+        if crate::vm::vars::system_var(&r).is_some() || (r.ends_with("NAME") && crate::csvdata::table_for_var(&r).is_some()) {
+            name = r;
+        }
+    }
+    inner.name = intern(name);
     let mut idx: Vec<Expr> = std::mem::take(&mut inner.idx).into_iter().map(upper_expr).collect();
     idx.shrink_to_fit();
     inner.idx = idx;
@@ -1861,17 +1890,22 @@ pub fn upper_var(v: &mut Rc<VarRef>) {
     }
 }
 
+/// [`upper_expr`] for a FORM string.
 pub fn upper_form(f: Form) -> Form {
+    crate::translate::fold_form(upper_form_in(f))
+}
+
+fn upper_form_in(f: Form) -> Form {
     Form {
         parts: f
             .parts
             .into_iter()
             .map(|p| match p {
-                FormPart::Str(e, w, a) => FormPart::Str(upper_expr(e), w.map(|w| Box::new(upper_expr(*w))), a),
-                FormPart::Int(e, w, a) => FormPart::Int(upper_expr(e), w.map(|w| Box::new(upper_expr(*w))), a),
+                FormPart::Str(e, w, a) => FormPart::Str(upper_expr_in(e), w.map(|w| Box::new(upper_expr_in(*w))), a),
+                FormPart::Int(e, w, a) => FormPart::Int(upper_expr_in(e), w.map(|w| Box::new(upper_expr_in(*w))), a),
                 FormPart::Cond(c) => {
                     let (c, a, b) = *c;
-                    FormPart::Cond(Box::new((upper_expr(c), upper_form(a), upper_form(b))))
+                    FormPart::Cond(Box::new((upper_expr_in(c), upper_form_in(a), upper_form_in(b))))
                 }
                 l => l,
             })
