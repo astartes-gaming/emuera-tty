@@ -285,7 +285,10 @@ impl Vm {
         }
     }
 
-    /// Is training command `n` available? (@COM_ABLEn, default yes.)
+    /// Is training command `n` available? @COM_ABLEn says; without one,
+    /// _Replace.csv's "COM_ABLE初期値" (default 1: yes), as Emuera's
+    /// endCallComAbleXX. eratohoReverse sets it to 0 and lists its
+    /// reactions itself.
     fn com_able(&mut self, n: i64) -> VmResult<bool> {
         let name = format!("COM_ABLE{}", n);
         if self.has_func(&name) {
@@ -293,7 +296,7 @@ impl Vm {
             self.call_name(&name, vec![])?;
             Ok(self.get_global_i("RESULT", 0) != 0)
         } else {
-            Ok(true)
+            Ok(self.csv.replace.get("COM_ABLE初期値").and_then(|v| v.trim().parse::<i64>().ok()).unwrap_or(1) != 0)
         }
     }
 
