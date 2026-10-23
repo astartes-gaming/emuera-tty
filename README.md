@@ -452,7 +452,9 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   first; unsaved progress is lost). **Reload the ERB files** after editing
   them: Ctrl-E or F5 (unless a macro is stored on F5): the game carries on where it was
   with the new code (Emuera-Anchor's hotkeys, as in Emuera-EE; also in
-  the settings).
+  the settings). *Restart in debug mode* in the settings restarts with
+  `--debug` (Emuera's debug mode: `[IF_DEBUG]` blocks and `;#;` lines run),
+  and *Restart without debug mode* turns it off again.
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.
