@@ -262,10 +262,16 @@ Play the game's sounds (default: yes, except over SSH).
 The player program for sounds:
 .BR mpv ", " ffplay ", " mplayer ", " afplay ", " pw-play ", " paplay ", " aplay " or " powershell
 (default: the first of these found). MIDI files play through
-.BR fluidsynth ,
-with the game's
+.B fluidsynth
+found in
+.B PATH
+(Linux packages; on Windows the release zip's
+.I bin
+folder added to
+.BR PATH ;
+on macOS Homebrew), with the game's
 .I soundfont.sf2
-if it has one. In a game that comes with eraMidi
+if it has one, else on Linux the system's. In a game that comes with eraMidi
 .RI ( eramidi.exe ,
 as eratohoReverse), a printed song title after a \[u266A] plays
 .IR media/reverse/ title .mid

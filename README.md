@@ -388,9 +388,22 @@ up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
-**MIDI music** plays through [FluidSynth](https://www.fluidsynth.org)
-(`sudo apt install fluidsynth fluid-soundfont-gm`), with the game's
-`soundfont.sf2` if it has one, else the system's. Games that come with
+**MIDI music** plays through [FluidSynth](https://www.fluidsynth.org),
+found in `PATH` like the other players, with the game's `soundfont.sf2`
+if it has one, else the system's:
+
+- Linux: `sudo apt install fluidsynth fluid-soundfont-gm` (Fedora:
+  `sudo dnf install fluidsynth fluid-soundfont-gm`).
+- Windows: download the Windows zip from
+  [FluidSynth's releases](https://github.com/FluidSynth/fluidsynth/releases),
+  extract it, and add its `bin` folder to your `PATH` (*Edit environment
+  variables for your account* → `Path` → *New*); open a new terminal
+  afterwards.
+- macOS: `brew install fluidsynth` (untested).
+
+Games that don't bring a SoundFont need one on the system; on Windows and
+macOS emuera-tty finds none by itself, so MIDI there plays only with a
+game's own `soundfont.sf2`. Games that come with
 **eraMidi** (`eramidi.exe`, as eratohoReverse does) get their music
 without it: eraMidi watches Emuera-Anchor's clipboard for a line with a ♪
 (the song title the game shows) and plays `media/reverse/<title>.mid`;
