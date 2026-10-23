@@ -323,6 +323,12 @@ just done. It only fast-forwards and never asks for a password, so a game
 you have edited, or a repository that needs a login, reports why it
 couldn't update instead (commit or stash your edits, or run `git pull` yourself).
 Saves in the game folder that the repository ignores are left alone.
+Games that keep their pictures in Git LFS (pops-tw) also get `git lfs
+pull`. Without [git-lfs](https://git-lfs.com) a clone holds small pointer
+files instead of the pictures, and scripts that measure a picture fail
+(pops-tw's title: a division by zero in `@TITLE_NAS`). Install git-lfs and
+run `git lfs pull` in the game folder (or `u` again); the script error
+screen says so when it finds such pointers.
 
 Inside a game, **Ctrl-O** → *Switch game…* goes back to the
 launcher. Other ways to start:

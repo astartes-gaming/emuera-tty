@@ -31,6 +31,9 @@ pub struct Resources {
     cropped: HashMap<String, Option<Rc<RgbaImage>>>,
     scaled: HashMap<(String, u32, u32), Rc<RgbaImage>>,
     pub warnings: Vec<String>,
+    /// pictures that are Git LFS pointers, not images (a git copy of the
+    /// game made without git-lfs), for the hint under a script error
+    pub lfs_pointers: Vec<PathBuf>,
     /// Emuera's graphics buffers (GCREATE…), by id
     pub graphics: HashMap<i64, Graphic>,
     /// the bytes buffers may take unpacked (see [`Resources::trim_graphics`])
@@ -1028,6 +1031,19 @@ impl Resources {
         gone
     }
 
+    /// Note a picture that can't be decoded (and whether it is a Git LFS
+    /// pointer: a few lines of text standing in for the picture).
+    fn cannot_load(&mut self, p: &Path, e: &dyn std::fmt::Display) {
+        if is_lfs_pointer(p) {
+            if self.lfs_pointers.len() < 8 {
+                self.lfs_pointers.push(p.to_path_buf());
+            }
+            self.warnings.push(format!("cannot load {}: a Git LFS pointer, not the picture (git-lfs missing?)", p.display()));
+        } else {
+            self.warnings.push(format!("cannot load {}: {}", p.display(), e));
+        }
+    }
+
     /// Decode an image file once; failures are remembered as None.
     fn file(&mut self, p: &Path) -> Option<Rc<RgbaImage>> {
         if let Some(v) = self.files.get(p) {
@@ -1036,7 +1052,7 @@ impl Resources {
         let img = match image::open(p) {
             Ok(i) => Some(Rc::new(i.to_rgba8())),
             Err(e) => {
-                self.warnings.push(format!("cannot load {}: {}", p.display(), e));
+                self.cannot_load(p, &e);
                 None
             }
         };
@@ -1056,7 +1072,13 @@ impl Resources {
             self.loaded.push(e);
             return Some(img);
         }
-        let img = image::open(p).ok()?.to_rgba8();
+        let img = match image::open(p) {
+            Ok(i) => i.to_rgba8(),
+            Err(e) => {
+                self.cannot_load(p, &e);
+                return None;
+            }
+        };
         let cap = (16usize << 20).min(self.gbuf_budget / 8);
         if stamp.is_some() && img.as_raw().len() <= cap / 2 {
             self.loaded.push((p.to_path_buf(), stamp, Rc::new(img.clone())));
@@ -1175,7 +1197,7 @@ impl Resources {
                 let img = match r {
                     Ok(i) => Some(Rc::new(i)),
                     Err(e) => {
-                        self.warnings.push(format!("cannot load {}: {}", p.display(), e));
+                        self.cannot_load(&p, &e);
                         None
                     }
                 };
@@ -1286,9 +1308,31 @@ fn find_ci(base: &Path, rel: &str) -> PathBuf {
     cur
 }
 
+/// Is `p` a Git LFS pointer (the text git leaves in place of a large file
+/// when git-lfs didn't fetch it)?
+pub fn is_lfs_pointer(p: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 40];
+    let n = std::fs::File::open(p).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
+    head[..n].starts_with(b"version https://git-lfs.github.com/spec/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lfs_pointer() {
+        let d = std::env::temp_dir().join(format!("emuera-lfs-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("t.webp"), "version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 9\n").unwrap();
+        RgbaImage::from_pixel(2, 2, image::Rgba([9, 9, 9, 255])).save(d.join("ok.png")).unwrap();
+        assert!(is_lfs_pointer(&d.join("t.webp")) && !is_lfs_pointer(&d.join("ok.png")));
+        let mut r = Resources::load(Some(&d));
+        assert!(r.load_for_buffer(&d.join("t.webp")).is_none());
+        assert_eq!(r.lfs_pointers, vec![d.join("t.webp")]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn anime_csv() {
