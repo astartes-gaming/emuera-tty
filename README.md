@@ -1084,7 +1084,7 @@ them all (`EMUERA_PARSE=all` compiles everything at load for a normal
 run too). A script file edited while the game runs is read as it is
 then, for functions not run yet; the reload key (Ctrl-E) reloads everything.
 
-Two things are kept within a share of the machine's memory, so a 512 MB
+Three things are kept within a share of the machine's memory, so a 512 MB
 board copes and a PC with memory to spare does exactly what it did:
 
 - **Compiled functions** beyond 1/16 of the memory (`EMUERA_CODE_MB=n`
@@ -1094,6 +1094,18 @@ board copes and a PC with memory to spare does exactly what it did:
   least recently used are kept packed (run-length coded, exactly) until
   drawn or shown again. pops-tw keeps three portraits per character in
   buffers, 270 MB unpacked, 40 MB packed.
+- **Decoded picture files** beyond 1/8 (`EMUERA_PICTURES_MB=n`): the
+  least recently used whole files are dropped; the parts cut from them
+  stay. AnonTW's whereabouts listing decodes 32 portrait sheets, 242 MB,
+  to cut 33 MB of portraits from them.
+
+**Pictures warm up while the game starts.** emuera-tty notes which picture
+files a game decoded (in `~/.local/share/emuera-tty/pictures/`) and, the
+next time it starts, decodes them again in the background on the spare
+cores, within three quarters of that budget. The first screen full of
+portraits then doesn't wait for them: AnonTW's whereabouts listing (166
+characters) went from 1.5 s to 0.4 s on its first showing. Headless runs
+don't do this; `EMUERA_WARMUP=1` (or `0`) turns it on (or off).
 
 | | before | now (PC) | with a 512 MB machine's budgets |
 |---|---|---|---|

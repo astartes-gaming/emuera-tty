@@ -389,6 +389,16 @@ Graphics buffers may take
 MB unpacked (default: an eighth of the memory); the least recently used
 are packed until used again.
 .TP
+.BI EMUERA_PICTURES_MB= n
+Decoded picture files may take
+.I n
+MB (default: an eighth of the memory); the least recently used are
+dropped (the parts cut from them stay).
+.TP
+.BR EMUERA_WARMUP= 1|0
+Decode the pictures the game used last time in the background while it
+starts (default: on, off in headless runs).
+.TP
 .BI EMUERA_MEMSTATS= file
 Write what the memory holds to
 .I file
