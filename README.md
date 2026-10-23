@@ -128,20 +128,20 @@ export PATH="$HOME/.local/bin:$PATH"
 | OS/Architecture | Status | Notes |
 |---|---|---|
 | Linux x86-64 | Build passed | Most common platform, under constant testing |
-| Linux x86-64 (static) | Build passed | Untested, but should work |
+| Linux x86-64 (static) | Build passed | Untested, but should work the same as above |
 | Windows x86-64 | Build passed | Tested launching and basic playthrough, but nothing further than that yet |
 | Windows ARM64 | Build passed | Untested |
 | macOS ARM64 (Apple silicon) | Build passed | Untested |
 | macOS x86-64 | Build passed | Untested |
-| Linux i586 (static) | Build passed | |
-| Linux ARMv5 (static) | Build passed | |
-| Linux ARMv6 (static) | Build passed | |
-| Linux ARMv7 (static) | Build passed | |
-| Linux AArch64 (static) | Build passed | |
-| Linux RISC-V 64 (static) | Build passed | |
-| Linux PowerPC 64, big-endian (static) | Build passed | |
-| Linux PowerPC 64, little-endian (static) | Build passed | |
-| Linux LoongArch 64 (static) | Build passed | |
+| Linux i586 (static) | Build passed | Untested |
+| Linux ARMv5 (static) | Build passed | Untested |
+| Linux ARMv6 (static) | Build passed | Untested |
+| Linux ARMv7 (static) | Build passed | Untested |
+| Linux AArch64 (static) | Build passed | Untested |
+| Linux RISC-V 64 (static) | Build passed | Untested |
+| Linux PowerPC 64, big-endian (static) | Build passed | Untested |
+| Linux PowerPC 64, little-endian (static) | Build passed | Untested |
+| Linux LoongArch 64 (static) | Build passed | Untested |
 | FreeBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | NetBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | OpenBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
@@ -150,7 +150,7 @@ export PATH="$HOME/.local/bin:$PATH"
 | Solaris x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Haiku x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Redox x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
-| Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP).... somehow |
+| Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)... somehow |
 | Linux RISC-V 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux PowerPC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux IBM Z (s390x) | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
