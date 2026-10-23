@@ -56,6 +56,17 @@ Continue and skip the text that follows until the game asks for a choice
 .BR \(<- ", " \(-> ", " Home ", " End ", " Delete ", " Backspace
 Edit the line being typed.
 .TP
+.BR \en ", " \ee ", " (...)*\fIn\fR " in typed text"
+One line answers several inputs, as in Emuera:
+.B \en
+separates them,
+.B \ee
+after one skips the text that follows, and
+.BI ( ... )* n
+repeats:
+.B (0\ee\en)*3
+answers 0 three times.
+.TP
 .BR Ctrl\-U ", " Esc
 Clear the line being typed.
 .TP
@@ -67,8 +78,8 @@ brought back is selected: typing replaces it). Where the game waits, scroll.
 Scroll back through earlier text (Home and End too while nothing is
 typed); End returns.
 .TP
-.BR F2 ", " Ctrl\-O
-The options overlay: display settings, \fBGame settings\fR (Emuera's
+.B Ctrl\-O
+The options overlay (also F2 with keyboard macros off): display settings, \fBGame settings\fR (Emuera's
 settings window: the game's
 .IR emuera.config ,
 shared with Emuera.exe), \fBManage saves\fR, switching game, quitting.
@@ -79,8 +90,23 @@ Back to the title screen (asks first).
 .B Ctrl\-R
 Restart the game (asks first).
 .TP
-.BR F5 ", " Ctrl\-E
-Read the ERB files again and carry on with the game as it is.
+.B Ctrl\-E
+Read the ERB files again and carry on with the game as it is (also F5
+with keyboard macros off).
+.TP
+.BR F1 " ... " F12 ", " Shift+F1 " ... " F12
+Keyboard macros, while the game's \fBUse keyboard macros\fR is on (as in
+Emuera, the default): Shift+F\fIn\fR stores the line being typed, F\fIn\fR
+puts it back (at a wait, gives it at once). Kept in the game's
+.IR macro.txt ,
+shared with Emuera.exe.
+.TP
+.BR Alt+0 " ... " 9
+Switch between the ten macro groups (also Ctrl+0...9 where the terminal
+reports it).
+.TP
+.B Esc
+Stop a running macro.
 .TP
 .B Ctrl\-L
 Redraw the screen.
@@ -127,7 +153,7 @@ is read in place of
 and in such a game, or one with translation files, scripts may write
 \fBPARAM\fR for \fBPALAM\fR, as in Anchor.
 .SH MANAGING SAVES
-\fBF2\fR \(-> \fBManage saves\fR lists the game's saves with their date and
+\fBCtrl\-O\fR \(-> \fBManage saves\fR lists the game's saves with their date and
 the comment Emuera shows. For one save: copy or move it to another slot,
 export it to a file, delete it. For all of them: back up the save folder,
 restore a backup, import a save file. A deleted or overwritten save is
@@ -362,6 +388,10 @@ comes out byte for byte as Emuera writes it.
 Emuera's configuration; font size, line height, colours, PRINTC widths,
 save options and the ERB folder options (search subfolders, sort by file
 name, which set the load order as in Emuera) are honoured.
+.TP
+.IR GAME /macro.txt
+The keyboard macros, in Emuera's format (written on quitting when one was
+stored).
 .SH NOTES
 Developed and tested on Linux. macOS, the BSDs, Windows, Termux (Android)
 and the other systems are compile-checked only and untested. Small boards

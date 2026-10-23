@@ -1319,7 +1319,7 @@ impl Retro {
                 _ if req.kind == InputKind::Wait => return done(self, InputResult::Text(String::new())),
                 Key::Enter => {
                     let s = std::mem::take(&mut self.buf);
-                    return done(self, InputResult::Text(s));
+                    return done(self, InputResult::Line(s));
                 }
                 Key::Backspace => {
                     if self.buf.pop().is_some() {
@@ -1407,7 +1407,7 @@ impl Frontend for Retro {
                     }
                     redraw = false;
                 }
-                Key::Enter => return InputResult::Text(std::mem::take(&mut self.buf)),
+                Key::Enter => return InputResult::Line(std::mem::take(&mut self.buf)),
                 Key::Backspace => {
                     self.buf.pop();
                 }

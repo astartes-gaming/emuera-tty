@@ -58,6 +58,27 @@ fn save_load_roundtrip() {
 /// DOTRAIN as in Emuera: the event it is in runs to its end, then the
 /// command runs in place of what came next; inside a command it is an error.
 #[test]
+fn typed_macros_answer_several_inputs() {
+    // Emuera's input syntax: `\n` separates inputs, `\e` skips the
+    // following waits, `(…)*n` repeats; ONEINPUT takes the first character
+    let dir = std::env::temp_dir().join(format!("emuera-tty-test-macro-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("CSV")).unwrap();
+    std::fs::create_dir_all(dir.join("ERB")).unwrap();
+    let erb = "@SYSTEM_TITLE\nREPEAT 3\nINPUT\nPRINTFORML got {RESULT}\nREND\nWAIT\nPRINTL after wait\nWAIT\n\
+        INPUT\nPRINTFORML got {RESULT}\nONEINPUT\nPRINTFORML one {RESULT}\nQUIT\n";
+    std::fs::write(dir.join("ERB/T.ERB"), erb).unwrap();
+    let text = run(&dir, b"(1\\n)*2\\n5\\e\\n7\\n42\n");
+    let order = ["got 1", "got 1", "got 5", "after wait", "got 7", "one 4"];
+    let mut at = 0;
+    for o in order {
+        let p = text[at..].find(o).unwrap_or_else(|| panic!("{:?} missing after byte {}:\n{}", o, at, text));
+        at += p + o.len();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn dotrain_runs_after_the_event() {
     let dir = temp_dir("dotrain");
     let erb = "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = -1\n\

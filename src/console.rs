@@ -180,6 +180,8 @@ pub struct Console {
     /// "ボタンの途中で行を折りかえさない": a button that doesn't fit the
     /// rest of the line moves to the next one whole
     pub button_wrap: bool,
+    /// "キーボードマクロを使用する": F1…F12 are macro keys (`macros.rs`)
+    pub key_macro: bool,
     /// Generation stamped on new lines (Emuera's `newButtonGeneration`).
     pub gen: u64,
     /// `<button title=…>` tooltips: button value → (generation, text)
@@ -261,6 +263,7 @@ impl Console {
             printc_len: 25,
             printc_per_line: 3,
             button_wrap: false,
+            key_macro: true,
             gen: 0,
             tooltips: std::collections::HashMap::new(),
             tip_areas: 0,
