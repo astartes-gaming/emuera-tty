@@ -188,7 +188,7 @@ impl Picker {
                         },
                         None => String::new(),
                     };
-                    // a game cloned from here and not played yet: "★ (NEW) Title" (gold in `draw`)
+                    // a game added from here (cloned or picked) and not played yet: "★ (NEW) Title" (gold in `draw`)
                     let new = if self.st.fresh.contains(&g) { "(NEW) " } else { "" };
                     self.entries.push(Entry { label: format!("★ {}{}   {}{}{}", new, title, g.display(), last, git), kind: Kind::Game { path: g, ok } });
                 }
@@ -604,12 +604,14 @@ impl Picker {
     }
 
     /// Ask for a line of text at the bottom of the screen: Enter accepts (an
-    /// empty answer gives `default`), Esc / Ctrl-C cancel, Ctrl-U clears.
-    /// Mouse reports and other escape sequences are ignored.
+    /// untouched empty answer gives `default`), Tab puts `default` in the field
+    /// to edit (an answer emptied after that stays empty), Esc / Ctrl-C cancel,
+    /// Ctrl-U clears. Mouse reports and other escape sequences are ignored.
     fn prompt(&mut self, question: &str, default: &str) -> Option<String> {
         let question = if default.is_empty() { format!("{}: ", question) } else { format!("{} [{}]: ", question, default) };
         let width = |s: &str| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
         let mut text = String::new();
+        let mut edited = false;
         loop {
             // what has been typed so far
             'consume: while let Some(&b) = self.pending.first() {
@@ -617,7 +619,14 @@ impl Picker {
                     b'\r' | b'\n' => {
                         self.pending.drain(..1);
                         let t = text.trim().to_string();
-                        return Some(if t.is_empty() { default.to_string() } else { t });
+                        return Some(if t.is_empty() && !edited { default.to_string() } else { t });
+                    }
+                    0x09 => {
+                        self.pending.drain(..1);
+                        if !edited {
+                            text = default.to_string();
+                            edited = true;
+                        }
                     }
                     0x03 => {
                         self.pending.drain(..1);
@@ -678,7 +687,8 @@ impl Picker {
             }
             // the question, and the end of the answer if it is longer than the line
             let (cols, rows) = term_size();
-            let q = fit(&question, cols.saturating_sub(2));
+            // (a long question is cut so there is always room to type)
+            let q = fit(&question, cols.saturating_sub(24).max(cols / 2));
             let room = cols.saturating_sub(width(&q) + 2).max(1);
             let (mut shown, mut used) = (Vec::new(), 0);
             for c in text.chars().rev() {
@@ -696,7 +706,14 @@ impl Picker {
                 q,
                 shown,
                 rows,
-                fit("Enter accept · Esc cancel · Ctrl-U clear", cols)
+                fit(
+                    if default.is_empty() || edited {
+                        "Enter accept · Esc cancel · Ctrl-U clear"
+                    } else {
+                        "Enter use the [default] · Tab edit it · Esc cancel"
+                    },
+                    cols
+                )
             )
             .as_bytes());
             let r = crate::sys::poll(500, -1);
@@ -723,7 +740,9 @@ impl Picker {
             return;
         }
         let cancelled = "Clone cancelled.";
-        let Some(url) = self.prompt("Repository to clone (URL or path)", "").filter(|u| !u.is_empty()) else {
+        // each field starts from what was used last time
+        let last_url = self.st.get("clone_url").to_string();
+        let Some(url) = self.prompt("Repository to clone (URL or path)", &last_url).filter(|u| !u.is_empty()) else {
             self.note = cancelled.into();
             return;
         };
@@ -731,15 +750,40 @@ impl Picker {
             self.note = format!("\x1b[31mCan't tell a folder name from \"{}\".\x1b[0m", url);
             return;
         };
-        let default_dir = browse_start(&self.st).display().to_string();
+        let default_dir = match self.st.get("clone_dir") {
+            "" => browse_start(&self.st).display().to_string(),
+            d => d.to_string(),
+        };
         let Some(dir) = self.prompt(&format!("Folder to store it in (it gets its own \"{}\" subfolder)", name), &default_dir) else {
             self.note = cancelled.into();
             return;
         };
-        let Some(branch) = self.prompt("Branch to use (optional, Enter for the repository's default)", "") else {
+        let last_branch = self.st.get("clone_branch").to_string();
+        let Some(branch) = self.prompt("Branch to use (optional, empty = the repository's default)", &last_branch) else {
             self.note = cancelled.into();
             return;
         };
+        let last_depth = self.st.get("clone_depth").to_string();
+        let Some(depth_text) = self.prompt("Depth (optional, 1 = latest commit only, empty = all)", &last_depth) else {
+            self.note = cancelled.into();
+            return;
+        };
+        let depth = if depth_text.is_empty() {
+            None
+        } else {
+            match depth_text.parse::<u32>() {
+                Ok(d) if d > 0 => Some(d),
+                _ => {
+                    self.note = "\x1b[31mThe depth must be a whole number of 1 or more (or empty for the full history).\x1b[0m".into();
+                    return;
+                }
+            }
+        };
+        // remembered now, so a failed or cancelled clone can be retried from them
+        for (k, v) in [("clone_url", &url), ("clone_dir", &dir), ("clone_branch", &branch), ("clone_depth", &depth_text)] {
+            self.st.set(k, v);
+        }
+        self.st.save();
         let parent = expand_home(&dir);
         let target = parent.join(&name);
         let in_use = target.exists()
@@ -758,12 +802,39 @@ impl Picker {
         let (cols, rows) = term_size();
         let line = rows.saturating_sub(1);
         out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", line, fit(&format!("Cloning {}…", url), cols)).as_bytes());
+        out(format!("\x1b[{};1H\x1b[2K\x1b[2m{}\x1b[0m", rows, fit("Esc / Ctrl-C: cancel the clone", cols)).as_bytes());
         let mut show = |p: &str| out(format!("\x1b[{};1H\x1b[2K{}", line, fit(&format!("Cloning {}… {}", name, p), cols)).as_bytes());
-        let (res, log) = git_clone(&url, branch.trim(), &target, &mut show);
+        let (end, log) = git_clone(&url, branch.trim(), depth, &target, &mut show, &mut || self.cancel_pressed());
         self.git_log = Some(log);
-        if let Err(e) = res {
-            self.note = format!("\x1b[31m{}\x1b[0m", e);
-            return;
+        match end {
+            CloneEnd::Done => {}
+            CloneEnd::Cancelled => {
+                // git removes the folder it was making when it can; if something
+                // is left, ask before deleting it (it was missing or empty before
+                // we started)
+                let left = target.exists()
+                    && match std::fs::read_dir(&target) {
+                        Ok(mut d) => d.next().is_some(),
+                        Err(_) => false,
+                    };
+                self.note = if !left {
+                    "Clone cancelled: nothing was added (g: git output).".to_string()
+                } else {
+                    let yes = self
+                        .prompt(&format!("Remove the half-cloned \"{}\" folder? (y/N)", name), "")
+                        .is_some_and(|a| matches!(a.to_lowercase().as_str(), "y" | "yes"));
+                    if yes && std::fs::remove_dir_all(&target).is_ok() {
+                        "Clone cancelled: the half-cloned folder was removed, nothing was added (g: git output).".to_string()
+                    } else {
+                        format!("Clone cancelled: nothing was added; the half-cloned folder is still at {}.", target.display())
+                    }
+                };
+                return;
+            }
+            CloneEnd::Failed(e) => {
+                self.note = format!("\x1b[31m{}\x1b[0m", e);
+                return;
+            }
         }
         // the game may sit in a subfolder of the repository (see `git_root`)
         let Some(game) = find_game_dir(&target, 2) else {
@@ -775,8 +846,62 @@ impl Picker {
         self.st.save();
         self.load();
         self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == g)).unwrap_or(0);
-        let at = git_root(&g).and_then(|r| git_head(&r)).map(|h| format!(" ({})", h)).unwrap_or_default();
+        let at = match (git_root(&g).and_then(|r| git_head(&r)), depth) {
+            (Some(h), Some(d)) => format!(" ({}, depth {})", h, d),
+            (Some(h), None) => format!(" ({})", h),
+            (None, Some(d)) => format!(" (depth {})", d),
+            (None, None) => String::new(),
+        };
         self.note = format!("Cloned {}{}: NEW, Enter to play (g: git output).", game_title(&g).unwrap_or_else(|| g.display().to_string()), at);
+    }
+
+    /// Has Esc or Ctrl-C been pressed? Reads what was typed meanwhile and
+    /// throws it away; mouse reports and other escape sequences don't count.
+    fn cancel_pressed(&mut self) -> bool {
+        if crate::sys::poll(0, -1).input {
+            let mut b = [0u8; 256];
+            if let Ok(n) = crate::sys::read_stdin(&mut b) {
+                self.pending.extend_from_slice(&b[..n]);
+            }
+        }
+        let b = std::mem::take(&mut self.pending);
+        let mut keep = Vec::new();
+        let mut i = 0;
+        while i < b.len() {
+            match b[i] {
+                0x03 => return true,
+                0x1b => {
+                    let rest = &b[i..];
+                    if rest.len() == 1 {
+                        // a lone ESC cancels unless more bytes arrive right away
+                        if crate::sys::poll(30, -1).input {
+                            keep.push(0x1b);
+                            break;
+                        }
+                        return true;
+                    }
+                    let end = if rest[1] != b'[' {
+                        Some(2)
+                    } else if rest.get(2) == Some(&b'M') {
+                        // X10 mouse: ESC [ M b x y
+                        (rest.len() >= 6).then_some(6)
+                    } else {
+                        rest[2..].iter().position(|c| (0x40..=0x7e).contains(c)).map(|p| p + 3)
+                    };
+                    match end {
+                        Some(n) => i += n,
+                        None => {
+                            // a sequence still arriving: look at it next time
+                            keep.extend_from_slice(rest);
+                            break;
+                        }
+                    }
+                }
+                _ => i += 1,
+            }
+        }
+        self.pending = keep;
+        false
     }
 
     /// A game folder was chosen in the browser: add it to the library (when
@@ -785,7 +910,12 @@ impl Picker {
         if !self.adding {
             return Some(game);
         }
+        let known = self.st.library.len();
         let g = self.st.add_game(&game);
+        // a game that wasn't on the list yet is "(NEW)" until it is played
+        if self.st.library.len() > known {
+            self.st.mark_new(&g);
+        }
         self.st.save();
         self.adding = false;
         self.mode = Mode::Library;
@@ -1233,46 +1363,126 @@ fn find_game_dir(dir: &Path, depth: u8) -> Option<PathBuf> {
     subs.into_iter().find_map(|d| find_game_dir(&d, depth - 1))
 }
 
-/// `git clone` of `url` into `target` (on `branch` if one is given), without
-/// prompts. `progress` is handed git's latest progress line. Returns the
-/// outcome and everything git said (for the launcher's `g`).
-fn git_clone(url: &str, branch: &str, target: &Path, progress: &mut dyn FnMut(&str)) -> (Result<(), String>, String) {
+/// How a `git clone` ended.
+enum CloneEnd {
+    Done,
+    /// stopped by the user (`cancel` said so)
+    Cancelled,
+    Failed(String),
+}
+
+/// Stop a running `git clone`: SIGTERM first (git then removes the folder it
+/// was making and stops its helpers), SIGKILL if it is still there after 3
+/// seconds. Where there are no signals it is simply killed.
+fn stop_git(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: kill(2) on the pid of our own child
+        let _ = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+        for _ in 0..30 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// `git clone` of `url` into `target` (on `branch` and with only the last
+/// `depth` commits, when given), without prompts. `progress` is handed git's
+/// latest progress line; `cancel` is asked about every 100 ms and stops the
+/// clone when it says true. Returns the outcome and everything git said (for
+/// the launcher's `g`).
+fn git_clone(
+    url: &str,
+    branch: &str,
+    depth: Option<u32>,
+    target: &Path,
+    progress: &mut dyn FnMut(&str),
+    cancel: &mut dyn FnMut() -> bool,
+) -> (CloneEnd, String) {
     use std::io::Read;
     use std::process::{Command, Stdio};
+    use std::sync::mpsc::{channel, RecvTimeoutError};
+    use std::time::Duration;
     let mut c = Command::new("git");
     c.args(["clone", "--progress"]);
     if !branch.is_empty() {
         c.args(["--branch", branch]);
     }
+    if let Some(d) = depth {
+        c.args(["--depth", &d.to_string()]);
+    }
     c.arg("--").arg(url).arg(target).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0");
     if std::env::var_os("GIT_SSH_COMMAND").is_none() {
         c.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
     }
-    let mut log = format!("$ git clone{} {}\n", if branch.is_empty() { String::new() } else { format!(" --branch {}", branch) }, url);
+    let mut log = format!(
+        "$ git clone{}{} {}\n",
+        if branch.is_empty() { String::new() } else { format!(" --branch {}", branch) },
+        depth.map(|d| format!(" --depth {}", d)).unwrap_or_default(),
+        url
+    );
     let mut child = match c.spawn() {
         Ok(ch) => ch,
-        Err(e) => return (Err(format!("git: {}", e)), log),
+        Err(e) => return (CloneEnd::Failed(format!("git: {}", e)), log),
     };
     let mut raw: Vec<u8> = Vec::new();
+    let mut cancelled = false;
     if let Some(mut err) = child.stderr.take() {
-        let mut buf = [0u8; 4096];
-        while let Ok(n) = err.read(&mut buf) {
-            if n == 0 {
-                break;
+        // git's output is read on a thread of its own, so the keyboard can be
+        // watched meanwhile. (Git's helpers may keep the pipe open after git
+        // itself is gone, so the thread is never waited for.)
+        let (tx, rx) = channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = err.read(&mut buf) {
+                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
             }
-            raw.extend_from_slice(&buf[..n]);
+        });
+        let mut take = |chunk: Vec<u8>, raw: &mut Vec<u8>| {
+            raw.extend_from_slice(&chunk);
             let from = raw.len().saturating_sub(300);
             let tail = String::from_utf8_lossy(&raw[from..]);
             if let Some(l) = tail.split(|c: char| c == '\r' || c == '\n').map(str::trim).rev().find(|l| !l.is_empty()) {
                 progress(l);
             }
+        };
+        loop {
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(chunk) => take(chunk, &mut raw),
+                Err(RecvTimeoutError::Timeout) => {
+                    // git is gone but something else holds the pipe: take what is left and go on
+                    if matches!(child.try_wait(), Ok(Some(_))) {
+                        while let Ok(chunk) = rx.recv_timeout(Duration::from_millis(50)) {
+                            take(chunk, &mut raw);
+                        }
+                        break;
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            if cancel() {
+                cancelled = true;
+                break;
+            }
         }
+    }
+    if cancelled {
+        stop_git(&mut child);
+        log += &String::from_utf8_lossy(&raw);
+        log += "\n(cancelled)\n";
+        return (CloneEnd::Cancelled, log);
     }
     let ok = child.wait().map(|s| s.success()).unwrap_or(false);
     let text = String::from_utf8_lossy(&raw).into_owned();
     log += &text;
     if ok {
-        return (Ok(()), log);
+        return (CloneEnd::Done, log);
     }
     let lines: Vec<&str> = text.split(|c: char| c == '\r' || c == '\n').map(str::trim).collect();
     let why = lines
@@ -1282,7 +1492,7 @@ fn git_clone(url: &str, branch: &str, target: &Path, progress: &mut dyn FnMut(&s
         .and_then(|l| l.split_once(':').map(|x| x.1.trim().to_string()))
         .filter(|w| !w.is_empty())
         .unwrap_or_else(|| "git clone didn't work".to_string());
-    (Err(format!("Clone failed: {}", why)), log)
+    (CloneEnd::Failed(format!("Clone failed: {}", why)), log)
 }
 
 /// `root`'s HEAD as "<branch> @ <short hash>" ("detached @ <short hash>" when
