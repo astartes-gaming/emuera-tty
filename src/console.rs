@@ -948,12 +948,28 @@ pub fn contrast(a: Rgb, b: Rgb) -> f32 {
 /// reaches contrast `min` against `bg`, keeping its hue. Greys are left
 /// alone: games use dark greys on purpose (shading, faded map edges);
 /// it is saturated colours like pure blue on black that are unreadable.
+#[cfg(test)]
 pub fn readable(fg: Rgb, bg: Rgb, min: f32) -> Rgb {
+    readable_on(fg, bg, bg, min)
+}
+
+/// `readable` where the background shown (`shown`, the terminal's own where
+/// the game sets none) may differ from the one the game meant its colours
+/// for (`meant`, Emuera's black): coloured text reaches `min` against what
+/// is shown, and greys keep at least the contrast they had against what was
+/// meant (up to `min`), so a dimmed grey stays dim but doesn't vanish on a
+/// dark grey terminal (AnonTW's C_GRAY, 0x404040, on #282C34), and a grey
+/// that is readable stays as it is. With both the same, greys are left
+/// alone as before.
+pub fn readable_on(fg: Rgb, shown: Rgb, meant: Rgb, min: f32) -> Rgb {
     if min <= 1.0 {
         return fg;
     }
     let (mx, mn) = (fg.0.max(fg.1).max(fg.2) as i32, fg.0.min(fg.1).min(fg.2) as i32);
-    if (mx - mn) * 4 < mx.max(1) || contrast(fg, bg) >= min {
+    let grey = (mx - mn) * 4 < mx.max(1);
+    let min = if grey { contrast(fg, meant).min(min) } else { min };
+    let bg = shown;
+    if contrast(fg, bg) >= min - 0.01 {
         return fg;
     }
     let target = if luminance(bg) < 0.4 { Rgb(255, 255, 255) } else { Rgb(0, 0, 0) };
@@ -973,6 +989,25 @@ pub fn readable(fg: Rgb, bg: Rgb, min: f32) -> Rgb {
 #[cfg(test)]
 mod contrast_tests {
     use super::*;
+
+    /// A grey keeps the contrast the game meant (against its black) on a
+    /// terminal with a dark grey background; on black it is left alone.
+    #[test]
+    fn greys_keep_their_contrast() {
+        let (black, term) = (Rgb(0, 0, 0), Rgb(0x28, 0x2c, 0x34));
+        let gray = Rgb(0x40, 0x40, 0x40);
+        assert_eq!(readable_on(gray, black, black, 3.0), gray);
+        let c = readable_on(gray, term, black, 3.0);
+        assert!(c.0 > 0x40 && c.0 == c.1 && c.1 == c.2, "{:?}", c);
+        assert!(contrast(c, term) >= contrast(gray, black) - 0.01, "{:?}", c);
+        // (still dim: not pushed to the coloured-text minimum)
+        assert!(contrast(c, term) < 3.0, "{:?}", c);
+        // a light grey already readable stays as it is
+        let light = Rgb(0xc0, 0xc0, 0xc0);
+        assert_eq!(readable_on(light, term, black, 3.0), light);
+        // off: nothing changes
+        assert_eq!(readable_on(gray, term, black, 1.0), gray);
+    }
 
     #[test]
     fn dark_blue_gets_readable() {
