@@ -341,6 +341,22 @@ fn scroll_mods(p: &[u8]) -> bool {
     m.is_some_and(|m| m.saturating_sub(1) & 6 != 0)
 }
 
+/// Cells for a shape `w` cells wide (fractional) starting at `col`, with
+/// `frac` cells carried from the shape before it in the same run (None: it
+/// starts one): up to where its exact right edge rounds to; a rectangle
+/// (`rect`) starting a run gets at least one cell, and the shapes after it
+/// give that back. The difference goes on in `frac`.
+pub(crate) fn shape_cells(col: usize, frac: &mut Option<f32>, w: f32, rect: bool) -> usize {
+    let start = frac.is_none();
+    let exact = col as f32 + frac.unwrap_or(0.0) + w.max(0.0);
+    let mut end = exact.round().max(col as f32) as usize;
+    if rect && start && w > 0.0 {
+        end = end.max(col + 1);
+    }
+    *frac = Some(exact - end as f32);
+    end - col
+}
+
 /// What the settings overlay asks the input loop to do next.
 enum OverlayExit {
     Close,
@@ -466,6 +482,9 @@ pub struct Tty {
     force_frame: bool,
     /// the game's "ボタンの途中で行を折りかえさない" setting (per frame)
     button_wrap: bool,
+    /// Emuera pixels per text cell: half the font size, the width of a
+    /// half-width character, which shapes are measured against
+    text_px: f32,
     /// CBG pictures scaled to the terminal, by (fingerprint, size)
     cbg_scaled: std::collections::HashMap<(u64, u32, u32), std::rc::Rc<image::RgbaImage>>,
     /// the game folder and its save folder, for the save manager
@@ -760,6 +779,7 @@ impl Tty {
             show_orig: std::collections::HashSet::new(),
             row_lines: Vec::new(),
             button_wrap: false,
+            text_px: 9.0,
         };
         if xp > 0 && yp > 0 {
             t.cell = (xp / cols as u32, yp / rows as u32);
@@ -1266,7 +1286,17 @@ impl Tty {
                 _ => None,
             }
         };
+        // shapes are measured in Emuera's text grid (a cell is half the
+        // font size, as games count them: 50% of the font is one half-width
+        // character) and placed at their pixel positions: each one ends
+        // where its exact right edge rounds to, the rest carried to the
+        // next, so shapes in a row (a bar's filled and empty parts) keep
+        // their total width and what follows lines up
+        let mut frac: Option<f32> = None;
         for (si, seg) in line.segs.iter().enumerate() {
+            if !matches!(seg, Seg::Rect { .. } | Seg::Space { .. }) {
+                frac = None;
+            }
             match seg {
                 Seg::Text { text, style, button, .. } => {
                     // Emuera's "ボタンの途中で行を折りかえさない": a button that
@@ -1341,7 +1371,7 @@ impl Tty {
                     col += cells.min(width);
                 }
                 Seg::Space { w } => {
-                    let cells = ((w * scale) / cw).round().max(0.0) as usize;
+                    let cells = shape_cells(col, &mut frac, w / self.text_px, false);
                     let r = rows.last_mut().unwrap();
                     let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
                     for _ in 0..cells.min(width.saturating_sub(col)) {
@@ -1351,10 +1381,12 @@ impl Tty {
                 }
                 Seg::Rect { w, color, button, .. } => {
                     let bid = push_btn(button, &mut self.buttons);
-                    let cells = ((w * scale) / cw).round().max(1.0) as usize;
+                    let mut cells = shape_cells(col, &mut frac, w / self.text_px, true);
                     if col + cells > width && col > 0 {
                         rows.push(DRow::default());
                         col = 0;
+                        frac = None;
+                        cells = shape_cells(col, &mut frac, w / self.text_px, true);
                     }
                     let r = rows.last_mut().unwrap();
                     let st = Style { fg: *color, bg: None, bold: false, italic: false, underline: false, strike: false };
@@ -1492,6 +1524,7 @@ impl Tty {
         }
         con.width = cols.saturating_sub(1).max(20);
         self.button_wrap = con.button_wrap;
+        self.text_px = (con.font_size / 2.0).max(1.0);
         let scale = self.cell.1 as f32 / con.line_height.max(1.0);
         let view_h = self.rows - 1;
         self.buttons.clear();
@@ -3923,6 +3956,23 @@ impl Drop for Tty {
 #[cfg(test)]
 mod tests {
     use super::{char_cells, console_lookalike, Ambi};
+
+    /// A bar drawn as two rectangles (filled, empty) is as wide whatever
+    /// the split, so a column after it lines up (eratohoReverse's gauges:
+    /// 800% of the font in all, 50% a cell)
+    #[test]
+    fn shape_runs_keep_their_width() {
+        for filled in [0, 1, 5, 37, 49, 50, 51, 99, 400, 763, 799, 800] {
+            let mut frac = None;
+            let mut col = 3;
+            for w in [filled, 800 - filled] {
+                if w > 0 {
+                    col += super::shape_cells(col, &mut frac, w as f32 / 50.0, true);
+                }
+            }
+            assert_eq!(col, 3 + 16, "split {} + {}", filled, 800 - filled);
+        }
+    }
 
     /// Ctrl / Alt + arrow scroll; plain and Shift+arrow don't
     #[test]

@@ -807,7 +807,12 @@ impl Retro {
                 }
             }
         };
+        // shapes keep their total width, as in tty.rs (shape_cells)
+        let mut frac: Option<f32> = None;
         for (si, seg) in line.segs.iter().enumerate() {
+            if !matches!(seg, Seg::Rect { .. } | Seg::Space { .. }) {
+                frac = None;
+            }
             match seg {
                 Seg::Text { text, style, button, .. } => {
                     // a button that doesn't fit the rest of the row starts
@@ -864,11 +869,12 @@ impl Retro {
                     push(&mut rows, vec![BLANK; n]);
                 }
                 Seg::Space { w } => {
-                    let n = ((w / cell_px).round().max(0.0) as usize).min(width.saturating_sub(rows.last().unwrap().len()));
+                    let col = rows.last().unwrap().len();
+                    let n = crate::tty::shape_cells(col, &mut frac, w / cell_px, false).min(width.saturating_sub(col));
                     push(&mut rows, vec![BLANK; n]);
                 }
                 Seg::Rect { w, .. } => {
-                    let n = ((w / cell_px).round().max(1.0) as usize).min(width);
+                    let n = crate::tty::shape_cells(rows.last().unwrap().len(), &mut frac, w / cell_px, true).min(width);
                     let cell = self.cs.alt(b'0').unwrap_or(RCell { ch: b'#', ..BLANK });
                     push(&mut rows, vec![cell; n]);
                 }
