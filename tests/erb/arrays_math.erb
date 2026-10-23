@@ -3,6 +3,18 @@
 CALL CHECK, "precedence", 1 + 2 * 3 == 7 && (1 + 2) * 3 == 9
 CALL CHECK, "integer division truncates", 7 / 2 == 3 && -7 / 2 == -3 && 7 % 3 == 1 && -7 % 3 == -1
 CALL CHECK, "bit operators", (5 & 3) == 1 && (5 | 3) == 7 && (5 ^ 3) == 6 && (1 << 4) == 16 && (256 >> 4) == 16
+;--- ^^ (eratohoReverse), !& and !|; the logical operators share one priority
+;--- and the bitwise ones another, read left to right (OperatorCode.cs)
+CALL CHECK, "xor nand nor", (1 ^^ 0) == 1 && (2 ^^ 3) == 0 && (0 ^^ 0) == 0 && (0 !& 5) == 1 && (4 !& 5) == 0 && (0 !| 0) == 1 && (3 !| 0) == 0
+LOCAL = 1 || 0 && 0
+LOCAL:1 = 6 | 1 & 2
+LOCAL:2 = 1 ^^ 1 || 1
+CALL CHECK, "logical and bitwise left to right", LOCAL == 0 && LOCAL:1 == 2 && LOCAL:2 == 1
+FLAG:0 = 0
+LOCAL = 0 !& BUMP()
+LOCAL:1 = 1 !| BUMP()
+LOCAL:2 = 1 ^^ BUMP()
+CALL CHECK, "!& !| stop early, ^^ reads both", FLAG:0 == 1 && LOCAL == 1 && LOCAL:1 == 0 && LOCAL:2 == 0
 CALL CHECK, "getbit", GETBIT(5, 0) == 1 && GETBIT(5, 1) == 0
 LOCAL = 0
 SETBIT LOCAL, 3
@@ -36,3 +48,8 @@ FOR LOCAL:1, 0, 100
 NEXT
 CALL CHECK, "rand range", LOCAL
 CALL CHECK, "rand two args", INRANGE(RAND(5, 8), 5, 7)
+
+@BUMP
+#FUNCTION
+FLAG:0 += 1
+RETURNF 1

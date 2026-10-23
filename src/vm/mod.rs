@@ -1183,15 +1183,20 @@ impl Vm {
                 let x = self.eval(a)?.truthy();
                 return Ok(Value::Int((x || self.eval(b)?.truthy()) as i64));
             }
+            // (as in Emuera: `!&` and `!|` stop at a left side that
+            // decides, `^^` always reads both)
             BinOp::Nand => {
                 let x = self.eval(a)?.truthy();
-                let y = self.eval(b)?.truthy();
-                return Ok(Value::Int(!(x && y) as i64));
+                return Ok(Value::Int(!(x && self.eval(b)?.truthy()) as i64));
             }
             BinOp::Nor => {
                 let x = self.eval(a)?.truthy();
+                return Ok(Value::Int(!(x || self.eval(b)?.truthy()) as i64));
+            }
+            BinOp::Xor => {
+                let x = self.eval(a)?.truthy();
                 let y = self.eval(b)?.truthy();
-                return Ok(Value::Int(!(x || y) as i64));
+                return Ok(Value::Int((x != y) as i64));
             }
             _ => {}
         }

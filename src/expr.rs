@@ -177,21 +177,21 @@ impl<'a> ExprParser<'a> {
     }
 
     /// Consume a binary operator of the given precedence level (0 binds
-    /// loosest). Levels follow Emuera: `||` < `&&` < `|` < `^` < `&` <
-    /// equality < comparison < shifts < `+ -` < `* / %`.
+    /// loosest). Levels are Emuera's (OperatorCode.cs priorities): the
+    /// logical operators `|| && ^^ !& !|` share one level and the bitwise
+    /// `| ^ &` another, each read left to right (so `a || b && c` is
+    /// `(a || b) && c`), then equality < comparison < shifts < `+ -` <
+    /// `* / %`.
     fn binop(&mut self, level: usize) -> Option<BinOp> {
         self.skip_ws();
         let ops: &[(&str, BinOp)] = match level {
-            0 => &[("||", BinOp::Or), ("!|", BinOp::Nor)],
-            1 => &[("&&", BinOp::And), ("!&", BinOp::Nand)],
-            2 => &[("|", BinOp::BitOr)],
-            3 => &[("^", BinOp::BitXor)],
-            4 => &[("&", BinOp::BitAnd)],
-            5 => &[("==", BinOp::Eq), ("!=", BinOp::Ne)],
-            6 => &[("<=", BinOp::Le), (">=", BinOp::Ge), ("<", BinOp::Lt), (">", BinOp::Gt)],
-            7 => &[("<<", BinOp::Shl), (">>", BinOp::Shr)],
-            8 => &[("+", BinOp::Add), ("-", BinOp::Sub)],
-            9 => &[("*", BinOp::Mul), ("/", BinOp::Div), ("%", BinOp::Mod)],
+            0 => &[("||", BinOp::Or), ("&&", BinOp::And), ("^^", BinOp::Xor), ("!&", BinOp::Nand), ("!|", BinOp::Nor)],
+            1 => &[("|", BinOp::BitOr), ("^", BinOp::BitXor), ("&", BinOp::BitAnd)],
+            2 => &[("==", BinOp::Eq), ("!=", BinOp::Ne)],
+            3 => &[("<=", BinOp::Le), (">=", BinOp::Ge), ("<", BinOp::Lt), (">", BinOp::Gt)],
+            4 => &[("<<", BinOp::Shl), (">>", BinOp::Shr)],
+            5 => &[("+", BinOp::Add), ("-", BinOp::Sub)],
+            6 => &[("*", BinOp::Mul), ("/", BinOp::Div), ("%", BinOp::Mod)],
             _ => return None,
         };
         for (t, op) in ops {
@@ -201,7 +201,8 @@ impl<'a> ExprParser<'a> {
                 let bad = match *t {
                     "|" => matches!(after, Some('|') | Some('=')),
                     "&" => matches!(after, Some('&') | Some('=')),
-                    "^" | "+" | "-" | "*" | "/" | "%" => after == Some('=') || (*t == "+" && after == Some('+')) || (*t == "-" && after == Some('-')),
+                    "^" => matches!(after, Some('^') | Some('=')),
+                    "+" | "-" | "*" | "/" | "%" => after == Some('=') || (*t == "+" && after == Some('+')) || (*t == "-" && after == Some('-')),
                     "<" => matches!(after, Some('<') | Some('=')),
                     ">" => matches!(after, Some('>') | Some('=')),
                     "<<" | ">>" => after == Some('='),
@@ -219,7 +220,7 @@ impl<'a> ExprParser<'a> {
 
     /// Left-associative chain of operators at `level` and tighter ones.
     fn binary(&mut self, level: usize) -> PResult<Expr> {
-        if level > 9 {
+        if level > 6 {
             return self.unary();
         }
         let mut lhs = self.binary(level + 1)?;
