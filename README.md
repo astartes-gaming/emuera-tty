@@ -24,7 +24,7 @@
 - [Guide](#guide)
   - [1. What you need](#1-what-you-need)
   - [2. Install](#2-install)
-    - [Build stats](#build-stats)
+    - [Build status](#build-status)
     - [Other systems](#other-systems)
     - [Other CPUs](#other-cpus)
     - [Small machines (Raspberry Pi Zero and the like)](#small-machines-raspberry-pi-zero-and-the-like)
@@ -123,20 +123,49 @@ and tell you to add that to `PATH`, with this line in `~/.bashrc` (or
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Build stats
+### Build status
 
-> (spec of common devices and architectures, others will be listed later)
-
-| Target | Type | Status | Testing |
-|---|---|---|---|
-|Linux x86_84|Build|Success|Most common platform, under constant testing|
-|Linux x86_84-static|Build|Success|Untested, but should work|
-|Windows x86_84|Build|Success|Tested launching and basic playthrough, but nothing further than that yet|
-|Windows arm64|N/A|Untested, no build job or specification|N/A|
-|macOS x86_64|Build|Success|Untested|
-|macOS aarch64|Build|Untested, literally every runner is busy|N/A|
-|Android|Build|Success|Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP).... somehow|
-
+| OS/Architecture | Status | Notes |
+|---|---|---|
+| Linux x86-64 | Build passed | Most common platform, under constant testing |
+| Linux x86-64 (static) | Build passed | Untested, but should work the same as above |
+| Windows x86-64 | Build passed | Tested launching and basic playthrough, but nothing further than that yet |
+| Windows ARM64 | Build passed | Untested |
+| macOS ARM64 (Apple silicon) | Build passed | Untested |
+| macOS x86-64 | Build passed | Untested |
+| Linux i586 (static) | Build passed | Untested |
+| Linux ARMv5 (static) | Build passed | Untested |
+| Linux ARMv6 (static) | Build passed | Untested |
+| Linux ARMv7 (static) | Build passed | Untested |
+| Linux AArch64 (static) | Build passed | Untested |
+| Linux RISC-V 64 (static) | Build passed | Untested |
+| Linux PowerPC 64, big-endian (static) | Build passed | Untested |
+| Linux PowerPC 64, little-endian (static) | Build passed | Untested |
+| Linux LoongArch 64 (static) | Build passed | Untested |
+| FreeBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| NetBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| OpenBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| DragonFly BSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| illumos x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Solaris x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Haiku x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Redox x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)... somehow |
+| Linux RISC-V 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux PowerPC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux IBM Z (s390x) | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux SPARC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux SPARC 64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux MIPS 32, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux MIPS 32, little-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux MIPS 64, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux MIPS 64, little-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux Motorola 68000 | Build failed (under actions), check failed | Fails under Github Actions, needs testing on emulated/real hardware instead. Very likely might not compile at all |
+| Linux Hexagon | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux C-SKY | Build failed (under actions), check failed | Fails under Github Actions, needs testing on emulated/real hardware instead. Very likely might not compile at all |
+| Linux ARM, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux AArch64, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux x32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 
 ### Other systems
 
