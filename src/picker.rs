@@ -188,7 +188,7 @@ impl Picker {
                         },
                         None => String::new(),
                     };
-                    // a game cloned from here and not played yet: "★ (NEW) Title" (gold in `draw`)
+                    // a game added from here (cloned or picked) and not played yet: "★ (NEW) Title" (gold in `draw`)
                     let new = if self.st.fresh.contains(&g) { "(NEW) " } else { "" };
                     self.entries.push(Entry { label: format!("★ {}{}   {}{}{}", new, title, g.display(), last, git), kind: Kind::Game { path: g, ok } });
                 }
@@ -882,7 +882,12 @@ impl Picker {
         if !self.adding {
             return Some(game);
         }
+        let known = self.st.library.len();
         let g = self.st.add_game(&game);
+        // a game that wasn't on the list yet is "(NEW)" until it is played
+        if self.st.library.len() > known {
+            self.st.mark_new(&g);
+        }
         self.st.save();
         self.adding = false;
         self.mode = Mode::Library;

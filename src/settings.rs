@@ -10,8 +10,8 @@
 //! contrast=normal
 //! ```
 //!
-//! (`new=` marks a game cloned from the launcher and not played yet: it is
-//! listed as "(NEW)" until it is first played.)
+//! (`new=` marks a game added from the launcher (cloned or picked) and not
+//! played yet: it is listed as "(NEW)" until it is first played.)
 //!
 //! [`ITEMS`] describes every setting once, for the launcher's settings page
 //! and the in-game overlay. Command-line options and `EMUERA_*` variables
@@ -158,7 +158,7 @@ pub struct Settings {
     pub library: Vec<PathBuf>,
     /// the game played last
     pub last: Option<PathBuf>,
-    /// games cloned from the launcher that haven't been played yet (listed as "(NEW)")
+    /// games added from the launcher that haven't been played yet (listed as "(NEW)")
     pub fresh: Vec<PathBuf>,
 }
 
@@ -277,7 +277,7 @@ impl Settings {
         self.last = Some(g);
     }
 
-    /// Mark a game just added from a clone as "(NEW)" until it is first played.
+    /// Mark a game just added from the launcher as "(NEW)" until it is first played.
     pub fn mark_new(&mut self, game: &Path) {
         let g = game.canonicalize().unwrap_or_else(|_| game.to_path_buf());
         if !self.fresh.contains(&g) {

@@ -288,7 +288,7 @@ you play or add goes into your **library**. Once there are two or more,
 | Key | Action |
 |---|---|
 | Enter (or click twice) | play the selected game |
-| `a` / **＋ Add a game…** | open the folder picker above to add a folder or archive (it only joins the list; Enter then plays it) |
+| `a` / **＋ Add a game…** | open the folder picker above to add a folder or archive (it only joins the list, marked gold **(NEW)** until you first play it; Enter then plays it) |
 | **↓ Clone a game…** | ask for a git repository, the folder to keep it in and (optionally) a branch and a history depth, `git clone` it (Esc cancels) and add it to the list, marked gold **(NEW)** until you first play it; it doesn't start |
 | `u` | update a game kept in a git checkout (`git pull --ff-only`; marked **· git** with its branch and short commit hash) |
 | `U` (Shift-U) | update all of them, each checkout once, then sum up what changed |
@@ -307,7 +307,7 @@ Enter the full history; a shallow clone still updates with `u`). It shows
 git's progress, and **Esc** or **Ctrl-C** cancels the clone (git cleans up
 after itself; if a half-cloned folder is left, it asks before removing it).
 Otherwise it adds the game to the list without starting it,
-marked **(NEW)** in gold until you first play it. `g` shows git's full output
+marked **(NEW)** in gold until you first play it (games added with *Add a game…* get the same mark). `g` shows git's full output
 of the clone, also when it failed. A game kept in a subfolder of the
 repository (up to two levels down) is found too.
 
