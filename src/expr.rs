@@ -431,6 +431,16 @@ impl<'a> ExprParser<'a> {
             if !sub.at_end() {
                 return Err(format!("bad #DEFINE body for {}", name));
             }
+            // Emuera replaces the name by the body's tokens, so indices
+            // after it belong to the variable it names (`#DEFINE KFLAG
+            // JUEL`, then `KFLAG:1` is `JUEL:1`)
+            if let (Expr::Var(v), true) = (&e, allow_index) {
+                let more = self.index_chain()?;
+                if !more.is_empty() {
+                    let idx: Vec<Expr> = v.idx.iter().cloned().chain(more).collect();
+                    return Ok(Expr::Var(Rc::new(VarRef::new(v.name.clone(), idx))));
+                }
+            }
             return Ok(e);
         }
         // Emuera accepts a space between a function name and its '('
@@ -450,22 +460,26 @@ impl<'a> ExprParser<'a> {
             };
             return Ok(Expr::Call(Box::new((name, args, Default::default()))));
         }
-        let mut idx = Vec::new();
-        if allow_index {
-            // index chain: NAME:a:b:c (Emuera also accepts `NAME :a`)
-            loop {
-                let save = self.pos;
-                self.skip_ws();
-                if self.peek() != Some(':') {
-                    self.pos = save;
-                    break;
-                }
-                self.pos += 1;
-                self.skip_ws();
-                idx.push(self.primary(false)?);
-            }
-        }
+        let idx = if allow_index { self.index_chain()? } else { Vec::new() };
         Ok(Expr::Var(Rc::new(VarRef::new(name.into(), idx))))
+    }
+
+    /// An index chain after a variable: `:a:b:c` (Emuera also accepts
+    /// `NAME :a`).
+    fn index_chain(&mut self) -> PResult<Vec<Expr>> {
+        let mut idx = Vec::new();
+        loop {
+            let save = self.pos;
+            self.skip_ws();
+            if self.peek() != Some(':') {
+                self.pos = save;
+                break;
+            }
+            self.pos += 1;
+            self.skip_ws();
+            idx.push(self.primary(false)?);
+        }
+        Ok(idx)
     }
 
     /// Parse a variable reference (assignment target).
