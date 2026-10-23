@@ -192,6 +192,10 @@ pub struct Console {
     cur_kojo: bool,
     /// the Sound setting (the settings page turns it on and off)
     pub sound_on: bool,
+    /// eraMidi's music (`sound::eramidi_song`): note the last line printed
+    /// with a ♪ in `note_line`
+    pub note_watch: bool,
+    pub note_line: Option<String>,
     /// EMUERA_TRANSLATE_LOG: the VM keeps `src` (file index, line) at the
     /// statement running, so lines know where they were printed from;
     /// `src_files` names the files
@@ -268,6 +272,8 @@ impl Console {
             in_kojo: false,
             cur_kojo: false,
             sound_on: false,
+            note_watch: false,
+            note_line: None,
             track_src: false,
             src: (0, 0),
             waits: 0,
@@ -399,6 +405,10 @@ impl Console {
             // new buttons are the clickable ones (UpdateGeneration)
             self.valid_gen = self.gen;
             self.buttons_since_input = true;
+        }
+        if self.note_watch && segs.iter().any(|s| matches!(s, Seg::Text { text, .. } if text.contains('♪'))) {
+            let text: String = segs.iter().filter_map(|s| if let Seg::Text { text, .. } = s { Some(text.as_str()) } else { None }).collect();
+            self.note_line = Some(text);
         }
         let kojo = std::mem::take(&mut self.cur_kojo) || self.in_kojo;
         let src = if self.track_src { ((self.src.0 as u64 + 1) << 32) | self.src.1 as u64 } else { 0 };

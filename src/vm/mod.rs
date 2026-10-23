@@ -2249,6 +2249,15 @@ impl Vm {
     pub fn raw_input(&mut self, req: &InputReq) -> VmResult<Option<String>> {
         self.note_running();
         self.con.waits = self.con.waits.wrapping_add(1);
+        // eraMidi: a song named in a line printed since the last input
+        // starts as it shows, unless it is the one playing already
+        if let Some(n) = self.con.note_line.take().and_then(|l| crate::sound::eramidi_song(&l)) {
+            if let (Some(s), Some(f)) = (self.sound.as_mut(), crate::sound::eramidi_file(&self.game_dir, &n)) {
+                if s.bgm_file() != Some(f.as_path()) {
+                    s.play_bgm(&f);
+                }
+            }
+        }
         let r = self.raw_input_in(req);
         // (the settings page may have turned sound off or on meanwhile)
         if let Some(s) = self.sound.as_mut() {

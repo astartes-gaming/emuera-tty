@@ -388,6 +388,16 @@ up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
+**MIDI music** plays through [FluidSynth](https://www.fluidsynth.org)
+(`sudo apt install fluidsynth fluid-soundfont-gm`), with the game's
+`soundfont.sf2` if it has one, else the system's. Games that come with
+**eraMidi** (`eramidi.exe`, as eratohoReverse does) get their music
+without it: eraMidi watches Emuera-Anchor's clipboard for a line with a ♪
+(the song title the game shows) and plays `media/reverse/<title>.mid`;
+emuera-tty reads its own printed lines the same way, so no clipboard
+setting is needed. The song loops until another one starts; one that is
+already playing isn't restarted.
+
 **Translating the game**: in F2, *Translate to* picks the language to
 show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
