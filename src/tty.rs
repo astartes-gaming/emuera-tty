@@ -410,6 +410,30 @@ fn digit_group(p: &[u8], fin: u8) -> Option<u8> {
     ((48..=57).contains(&c) && mods & 6 != 0 && mods & 1 == 0).then(|| (c - 48) as u8)
 }
 
+/// Does the game's font draw `\` (U+005C) as ¥, as Japanese fonts do so
+/// that Shift-JIS text shows yen? Emuera never changes the character: games
+/// made in Japan show ¥ (eraTW's money unit is a backslash in its
+/// _Replace.csv) because its default font, MS Gothic, draws it that way.
+/// Its MS Gothic / Mincho family and Meiryo do; Yu Gothic and others don't.
+/// No font set means Emuera's default, MS Gothic.
+fn backslash_is_yen(font: &str) -> bool {
+    // full-width letters (ＭＳ) as ASCII, no spaces, any case
+    let f: String = font
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '\u{3000}')
+        .map(|c| match c {
+            '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
+            c => c,
+        })
+        .collect::<String>()
+        .to_lowercase();
+    if f.is_empty() {
+        return true;
+    }
+    let ms = f.starts_with("ms") && ["ゴシック", "明朝", "gothic", "mincho"].iter().any(|k| f.contains(k));
+    ms || f.contains("meiryo") || f.contains("メイリオ")
+}
+
 /// What the settings overlay asks the input loop to do next.
 enum OverlayExit {
     Close,
@@ -495,6 +519,10 @@ pub struct Tty {
     pub recolor: Vec<(Rgb, Rgb)>,
     /// lines per mouse-wheel step
     pub wheel: usize,
+    /// the "Backslash as ¥" setting: auto, on, off
+    pub yen_mode: String,
+    /// draw `\` in game text as ¥ on this screen (see `backslash_is_yen`)
+    yen: bool,
     /// show the hovered button's value, memory and the running function
     /// in the bottom row
     pub status_info: bool,
@@ -812,6 +840,8 @@ impl Tty {
             contrast: 3.0,
             recolor: Vec::new(),
             wheel: 3,
+            yen_mode: "auto".into(),
+            yen: false,
             status_info: true,
             kbd_ptr: false,
             mouse_log: std::env::var_os("EMUERA_MOUSE_LOG").and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()),
@@ -1475,6 +1505,7 @@ impl Tty {
                     }
                     let bid = push_btn(button, &mut self.buttons);
                     for ch in text.chars() {
+                        let ch = if self.yen && ch == '\\' { '¥' } else { ch };
                         let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied()) };
                         let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
                         let w = tw + extra;
@@ -1673,6 +1704,11 @@ impl Tty {
         con.width = cols.saturating_sub(1).max(20);
         self.button_wrap = con.button_wrap;
         self.text_px = (con.font_size / 2.0).max(1.0);
+        self.yen = match self.yen_mode.as_str() {
+            "on" => true,
+            "off" => false,
+            _ => backslash_is_yen(&con.default_font),
+        };
         let scale = self.cell.1 as f32 / con.line_height.max(1.0);
         let view_h = self.rows - 1;
         self.buttons.clear();
@@ -2196,6 +2232,7 @@ impl Tty {
     fn text_cells(&self, text: &str, st: &Style) -> Vec<Cell> {
         let mut v = Vec::new();
         for ch in text.chars() {
+            let ch = if self.yen && ch == '\\' { '¥' } else { ch };
             let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied());
             let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
             if tw == 0 {
@@ -2838,6 +2875,10 @@ impl Tty {
         match key {
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
+            "yen" => {
+                self.yen_mode = v.to_string();
+                self.redraw_all.set(true);
+            }
             "statusbar" => self.status_info = v == "on",
             "kbdpointer" => self.set_kbd_pointer(v),
             "translate" | "translator" => self.setting_note = self.set_translate(st),
@@ -4223,6 +4264,18 @@ mod tests {
                 }
             }
             assert_eq!(col, 3 + 16, "split {} + {}", filled, 800 - filled);
+        }
+    }
+
+    /// The fonts that draw a backslash as ¥ (Emuera's default among them)
+    #[test]
+    fn yen_fonts() {
+        for f in ["", "ＭＳ ゴシック", "ＭＳ Ｐゴシック", "MS Gothic", "ＭＳ 明朝", "MS PMincho", "MS UI Gothic", "メイリオ", "Meiryo UI"]
+        {
+            assert!(super::backslash_is_yen(f), "{:?}", f);
+        }
+        for f in ["游ゴシック", "Yu Gothic", "Consolas", "DFKai-SB", "Courier New", "ＤＦ平成ゴシック体"] {
+            assert!(!super::backslash_is_yen(f), "{:?}", f);
         }
     }
 

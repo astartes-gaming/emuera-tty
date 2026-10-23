@@ -58,6 +58,13 @@ pub const ITEMS: &[Item] = &[
         help: "how box drawing / symbols get Emuera's two columns (auto: measured)",
     },
     Item {
+        key: "yen",
+        label: "Backslash as ¥",
+        choices: &["auto", "on", "off"],
+        live: true,
+        help: "draw \\ as ¥ as Japanese fonts do (auto: when the game's font is one, as Emuera's default MS Gothic)",
+    },
+    Item {
         key: "clipboard",
         label: "Copy to clipboard",
         choices: &["game", "on", "off"],

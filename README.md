@@ -788,6 +788,105 @@ several lines) is logged one row per line, each with its own file and line,
 when the translation comes back with as many lines; if it merged or split
 them, the batch is one row.
 
+**Saving** uses the game's own save menu, and the files are Emuera's own
+(binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
+`dat/chara_*.dat` for SAVECHARA. Saves move both ways between emuera-tty
+and Emuera on Windows: loading an Emuera save and saving it again gives
+the same bytes Emuera writes (the variables in Emuera's order, character
+names never set left out as Emuera does), checked on AnonTW saves of
+day 43 and day 1336. They go where Emuera puts them: in `sav/` when
+the game's config says so (`セーブデータをsavフォルダ内に作成する`, as
+AnonTW's does), else next to the game; compressed when it asks for that
+(`セーブデータを圧縮して保存する`). Emuera-EM maps, XML documents and data
+tables named in `VarExt.csv` are saved too, and the autosave runs on
+entering the shop, like Emuera's. Older emuera-tty saves (`sav/*.rsav`)
+still load, and the next save of that slot writes a `.sav`. Saves in
+Emuera's text format (games whose config turns the binary option off)
+load too; saving always writes the binary format, which Emuera reads
+whatever its config says. After a load, `@SYSTEM_LOADEND` runs and then
+`@EVENTLOAD`, as in Emuera.
+
+ERB and ERH files load in Emuera's order: each folder's files before its
+subfolders, sorted the way Emuera sorts them when the config's
+`読み込み順をファイル名順にソートする` is on (else the order Windows lists
+them in), and folders whose name has a `#` first (Emuera-EE). Subfolders
+are read only when `サブディレクトリを検索する` is on, as in Emuera; a
+note at startup says how many files that leaves out. The order decides
+which of two functions with the same name wins, the order event
+functions run in, and the order variables are saved in.
+
+### Settings
+
+F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
+← / → or Enter change, Esc closes; changes are saved at once in
+`~/.config/emuera-tty/config` and, except where marked, apply to the
+running game:
+
+| Setting | Values | |
+|---|---|---|
+| Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn; `none`: pictures are never decoded or scaled (and those already held are freed) until another choice is made |
+| Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
+| Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
+| Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
+| Backslash as ¥ | auto, on, off | draw `\` in game text as ¥, as Japanese fonts do; `auto`: when the game's font is one (MS Gothic, Emuera's default, MS Mincho, Meiryo), so eraTW's `\0` money shows `¥0` |
+| Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
+| Bottom bar details | on, off | hovered button's value, running function |
+| Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
+| Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
+| Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
+| Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
+| Translate from | auto, ja, en | the game's language; auto: per line |
+| Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
+| Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
+| Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
+| Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
+| Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
+
+The overlay shows the *Random seed* in use: selectable for its description,
+but read-only (start with `EMUERA_SEED=N` to choose it; the game's
+`RANDOMIZE` / `INITRAND` change it). *Environment variables…* (shown only when one is
+set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
+set; Enter says what one does; read-only, as they are read at start). It also
+has *Game settings…* and *Manage saves…* (below),
+*Clear the picture cache* (frees the decoded sprites whatever *Images* says;
+they load again when shown), *Recolor…* (draws a colour of the game's as another,
+written `from:to` in hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop
+navy into a softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
+*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
+override saved settings.
+
+### Game settings (Emuera's settings window)
+
+*Game settings…* in the settings overlay is a copy of Emuera's own settings
+window, with the settings that do something in a terminal and can't
+break a game, on Emuera's tabs:
+
+| Tab | Settings |
+|---|---|
+| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`) |
+| Display | PRINTC items per line and width, don't break lines inside a button |
+| Font | text colour, selected button colour, the font for text drawn into pictures |
+| System2 | compress save data (Emuera reads compressed saves too) |
+| Clipboard | all of the clipboard options (see below) |
+
+Left out: what only a window has (size, position, FPS, menu bar,
+keyboard macros), what changes how the scripts are read (the System,
+Compatibility and Debug tabs), the font size and line height (games work
+out where pictures go from them), the save folder (existing saves would
+seem to vanish), the background and history colours (the terminal's own
+are used) and Rikai.
+
+← / → (or Tab, or a click) switch tabs, ↑ / ↓ choose, Enter or a click
+toggles a check box or asks for a number, a colour (`R,G,B` or `#RRGGBB`)
+or text, `+` / `-` step a number, `d` puts back the game's value. Each
+setting shows where its value comes from: nothing for Emuera's default,
+*game* for the game's (`CSV/_default.config`), *changed* for yours,
+*fixed* when `CSV/_fixed.config` doesn't let it change. Changes go into
+the game's `emuera.config` as Emuera's settings window writes them
+(UTF-8, Japanese or English keys as the game's files use, other lines
+kept), so Emuera.exe sees them too; the running game takes them when the
+page closes.
+
 ### Copying text to the clipboard
 
 For translation tools and text hookers, as Emuera-EE's clipboard feature
