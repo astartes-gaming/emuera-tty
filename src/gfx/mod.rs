@@ -44,6 +44,13 @@ pub trait Backend {
     fn draw(&mut self, _out: &mut Vec<u8>, _p: &[Placement], _cell: (u32, u32)) {}
     /// Called after the frame has been written and drained to the tty.
     fn after_flush(&mut self, _p: &[Placement], _cell: (u32, u32)) {}
+    /// Does text written into a cell erase the picture there? (sixel and
+    /// iTerm pictures belong to their cells in WezTerm, Windows Terminal…,
+    /// and in tmux kitty's are placeholder text; elsewhere kitty's sit above
+    /// the text)
+    fn text_erases(&self) -> bool {
+        false
+    }
     /// Invert the colours of the cell at (`col`, `row`) in pixels, for a
     /// pointer over a picture that was painted over the text (fb only).
     fn invert_cell(&mut self, _col: usize, _row: usize, _cell: (u32, u32)) {}

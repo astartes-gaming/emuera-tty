@@ -53,10 +53,21 @@ Continue where the game waits
 Continue and skip the text that follows until the game asks for a choice
 (Emuera's message skip). On a choice: pick it and skip after it.
 .TP
-.BR PgUp ", " PgDn ", " \(ua ", " \(da ", " Home ", " End ", wheel"
-Scroll back through earlier text; End returns.
+.BR \(<- ", " \(-> ", " Home ", " End ", " Delete ", " Backspace
+Edit the line being typed.
 .TP
-.BR F1 ", " Ctrl\-O
+.BR Ctrl\-U ", " Esc
+Clear the line being typed.
+.TP
+.BR \(ua ", " \(da
+Go through the last 100 inputs, typed or clicked, as in Emuera (one
+brought back is selected: typing replaces it). Where the game waits, scroll.
+.TP
+.BR PgUp ", " PgDn ", " Ctrl+\(ua ", " Ctrl+\(da ", " Alt+\(ua ", " Alt+\(da ", wheel"
+Scroll back through earlier text (Home and End too while nothing is
+typed); End returns.
+.TP
+.BR F2 ", " Ctrl\-O
 The options overlay: display settings, \fBGame settings\fR (Emuera's
 settings window: the game's
 .IR emuera.config ,
@@ -116,7 +127,7 @@ is read in place of
 and in such a game, or one with translation files, scripts may write
 \fBPARAM\fR for \fBPALAM\fR, as in Anchor.
 .SH MANAGING SAVES
-\fBF1\fR \(-> \fBManage saves\fR lists the game's saves with their date and
+\fBF2\fR \(-> \fBManage saves\fR lists the game's saves with their date and
 the comment Emuera shows. For one save: copy or move it to another slot,
 export it to a file, delete it. For all of them: back up the save folder,
 restore a backup, import a save file. A deleted or overwritten save is
@@ -138,7 +149,7 @@ Open the launcher even if a game is remembered.
 .TP
 .BR \-\-gfx " auto|kitty|iterm|sixel|fb|none"
 How pictures are drawn. \fBauto\fR (default) asks the terminal: kitty
-graphics (kitty, WezTerm, Ghostty, Konsole), iTerm2 inline images, sixel
+graphics (kitty, Ghostty, Konsole), iTerm2 inline images (iTerm2, WezTerm), sixel
 (foot, xterm \-ti vt340, mlterm, Windows Terminal), or the Linux
 framebuffer on the console. \fBnone\fR shows placeholders.
 Inside tmux, kitty graphics go through tmux's passthrough as Unicode

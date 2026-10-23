@@ -235,6 +235,11 @@ impl Backend for Kitty {
             "kitty"
         }
     }
+    /// (inside tmux the pictures are placeholder text: text written over
+    /// them takes their place)
+    fn text_erases(&self) -> bool {
+        self.tmux
+    }
     fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
         if self.tmux {
             return self.draw_placeholders(out, ps, cell);

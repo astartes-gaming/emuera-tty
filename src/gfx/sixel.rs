@@ -24,6 +24,9 @@ impl Backend for Sixel {
     fn name(&self) -> &'static str {
         "sixel"
     }
+    fn text_erases(&self) -> bool {
+        true
+    }
     fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], _cell: (u32, u32)) {
         for p in ps {
             if p.crop_h == 0 || p.row < 0 {

@@ -91,7 +91,7 @@ fn usage_exit(code: i32) -> ! {
          \x20 --strict                         unknown commands are errors\n\
          \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
          \n\
-         saves (also in the F1 overlay: Manage saves):\n\
+         saves (also in the F2 overlay: Manage saves):\n\
          \x20 --saves                          list the game's saves with their comments\n\
          \x20 --backup-saves                   copy all of them to a new backup folder\n\
          \n\

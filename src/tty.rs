@@ -26,6 +26,7 @@ use unicode_width::UnicodeWidthChar;
 
 mod envvars;
 mod gamecfg;
+mod lineedit;
 mod saves;
 
 /// How many rows above / below the view are searched for images that
@@ -303,11 +304,16 @@ enum Key {
     PageDown,
     Home,
     End,
+    Delete,
+    /// Ctrl or Alt + Up / Down: scroll the log a line (Up / Down alone go
+    /// through the inputs given before, as in Emuera)
+    ScrollUp,
+    ScrollDown,
     CtrlC,
     CtrlL,
     Left,
     Right,
-    /// F1 or Ctrl-O: the settings overlay
+    /// F2 or Ctrl-O: the settings overlay
     Settings,
     /// Emuera-Anchor's hotkeys: Ctrl-T title, Ctrl-R restart, F5 / Ctrl-E
     /// reload the ERB files
@@ -326,6 +332,13 @@ enum Key {
     /// click with the keyboard pointer
     Click,
     Other,
+}
+
+/// Do a modified arrow's parameters (`1;5` in `ESC [ 1 ; 5 A`) hold Ctrl
+/// or Alt?
+fn scroll_mods(p: &[u8]) -> bool {
+    let m = std::str::from_utf8(p).ok().and_then(|s| s.split(';').nth(1)).and_then(|m| m.parse::<u8>().ok());
+    m.is_some_and(|m| m.saturating_sub(1) & 6 != 0)
 }
 
 /// What the settings overlay asks the input loop to do next.
@@ -348,7 +361,8 @@ pub struct Tty {
     rows: usize,
     color: ColorMode,
     scroll: usize,
-    buf: String,
+    /// the input line: what is typed, its cursor, the inputs given before
+    line: lineedit::LineEdit,
     /// the last input timed out (TINPUT): what was typed stays for the
     /// next, as Emuera's input box keeps it (AnonTW's animated map is a
     /// TINPUT loop)
@@ -426,7 +440,7 @@ pub struct Tty {
     tr_to: String,
     tr_from: String,
     tr_all: bool,
-    /// the memory in use in the bottom row too (it is always in F1)
+    /// the memory in use in the bottom row too (it is always in F2)
     pub show_memory: bool,
     /// the bottom row's right side as last drawn: (columns the prompt may
     /// use, the function asking, the column it starts at); None: not shown
@@ -681,7 +695,7 @@ impl Tty {
             rows,
             color,
             scroll: 0,
-            buf: String::new(),
+            line: Default::default(),
             keep_buf: false,
             keys_down: Default::default(),
             keys_hit: Default::default(),
@@ -790,8 +804,9 @@ impl Tty {
             write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h");
         }
         // xterm's modifyOtherKeys (Shift+Enter apart from Enter); not for
-        // the Linux console, which has no such mode
-        if !is_vt {
+        // the Linux console, which has no such mode, nor kitty (its own
+        // keyboard protocol; it logs this as a parse error)
+        if !is_vt && term != "xterm-kitty" {
             write_all(b"\x1b[>4;1m");
         }
         t.mlog(&format!(
@@ -976,7 +991,10 @@ impl Tty {
             }
             _ => {
                 // iTerm2 says who it is (and has no kitty graphics)
-                let iterm = std::env::var("TERM_PROGRAM").as_deref() == Ok("iTerm.app") || std::env::var("LC_TERMINAL").as_deref() == Ok("iTerm2");
+                // (WezTerm too: its kitty pictures flash as they are
+                // replaced, its iTerm ones don't)
+                let iterm = matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("iTerm.app") | Ok("WezTerm"))
+                    || std::env::var("LC_TERMINAL").as_deref() == Ok("iTerm2");
                 if is_vt {
                     try_fb(self);
                 } else if iterm {
@@ -1084,7 +1102,7 @@ impl Tty {
                         }
                         (
                             match b[3] {
-                                b'A' => Key::Settings,
+                                b'B' => Key::Settings,
                                 b'E' => Key::Reload,
                                 _ => Key::Other,
                             },
@@ -1130,9 +1148,16 @@ impl Tty {
                                             Key::Other
                                         }
                                     }
-                                    // F1: xterm-style, and the Linux console's ESC [ [ A
-                                    (p, b'~') if p == b"11" => Key::Settings,
+                                    // F2 as rxvt and VT220-style terminals send it
+                                    (p, b'~') if p == b"12" => Key::Settings,
                                     (p, b'~') if p == b"15" => Key::Reload,
+                                    (p, f @ (b'A' | b'B')) if scroll_mods(p) => {
+                                        if f == b'A' {
+                                            Key::ScrollUp
+                                        } else {
+                                            Key::ScrollDown
+                                        }
+                                    }
                                     (_, b'A') => Key::Up,
                                     (_, b'B') => Key::Down,
                                     (_, b'C') => Key::Right,
@@ -1143,6 +1168,7 @@ impl Tty {
                                     // CSI-u terminals send it
                                     (p, b'~') if p == b"2" || p == b"27;2;13" => Key::Click,
                                     (p, b'u') if p == b"13;2" => Key::Click,
+                                    (p, b'~') if p == b"3" => Key::Delete,
                                     (p, b'~') if p == b"5" => Key::PageUp,
                                     (p, b'~') if p == b"6" => Key::PageDown,
                                     (p, b'~') if p == b"1" || p == b"7" => Key::Home,
@@ -1157,11 +1183,14 @@ impl Tty {
                 } else if b[1] == b'O' && b.len() >= 3 {
                     (
                         match b[2] {
-                            b'P' => Key::Settings,
+                            b'Q' => Key::Settings,
                             b'A' => Key::Up,
                             b'B' => Key::Down,
                             b'C' => Key::Right,
                             b'D' => Key::Left,
+                            // rxvt's Ctrl+Up / Down
+                            b'a' => Key::ScrollUp,
+                            b'b' => Key::ScrollDown,
                             // Konsole's Shift+Enter (and the keypad's Enter)
                             b'M' => Key::Click,
                             _ => Key::Other,
@@ -1520,7 +1549,7 @@ impl Tty {
         }
         let mut row_keys: Vec<Option<u64>> = Vec::new();
         for (c, k) in chunks.into_iter().zip(chunk_keys).rev() {
-            row_keys.extend(std::iter::repeat(k).take(c.len()));
+            row_keys.extend(std::iter::repeat_n(k, c.len()));
             all.extend(c);
         }
         // <div> content: painted over the rows it reaches (Emuera draws a
@@ -1724,8 +1753,10 @@ impl Tty {
         self.clear_eol(&mut out);
         let prompt = match req {
             Some(r) if r.kind == InputKind::Wait => "\x1b[2m▼ (Enter)\x1b[0m".to_string(),
-            Some(_) if self.buf.is_empty() && self.notice.is_some() => format!("\x1b[1m>\x1b[0m \x1b[2m({})\x1b[0m", self.notice.as_deref().unwrap_or("")),
-            Some(_) => format!("\x1b[1m>\x1b[0m {}", self.buf),
+            Some(_) if self.line.is_empty() && self.notice.is_some() => format!("\x1b[1m>\x1b[0m \x1b[2m({})\x1b[0m", self.notice.as_deref().unwrap_or("")),
+            // a recalled input is selected: typing replaces it
+            Some(_) if self.line.selected() => format!("\x1b[1m>\x1b[0m \x1b[7m{}\x1b[0m", self.line.text()),
+            Some(_) => format!("\x1b[1m>\x1b[0m {}", self.line.text()),
             None => String::new(),
         };
         out.extend_from_slice(prompt.as_bytes());
@@ -1734,7 +1765,7 @@ impl Tty {
         }
         self.bar = None;
         if self.scroll == 0 && cols > 40 && req.is_some() && !self.no_images {
-            let used = 2 + self.buf.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 20;
+            let used = 2 + self.line.cols() + 20;
             self.bar = Some((used, con.running.clone(), 0));
             self.draw_bar(&mut out, hover);
         }
@@ -1765,7 +1796,10 @@ impl Tty {
         };
         self.tip_drawn = tip.is_some();
         // pictures sit above text: the tooltip's place is cut out of them
-        if let Some(t) = &tip {
+        // (not out of tmux's placeholders, which are text the tooltip
+        // overwrites anyway: a cut picture would be a new one, sent whole
+        // through tmux, and the portrait would vanish until it arrived)
+        if let (Some(t), false) = (&tip, self.gfx.name() == "kitty-tmux") {
             let cells = (t.left as i64 - 1, t.top as i64 - 1, (t.left + t.w) as i64 - 1, (t.top + t.lines.len()) as i64 - 1);
             placements = placements.into_iter().map(|p| self.merger.cut(p, cells, self.cell)).collect();
         }
@@ -1783,9 +1817,9 @@ impl Tty {
             self.mlog(&format!("frame: mouse={:?} pointer drawn at {:?} (ours={} on={})", m, d, own, self.ptr_on));
         }
         self.frame_cursor = None;
-        // cursor at end of input
+        // the cursor where the input line's is
         if req.map(|r| r.kind != InputKind::Wait).unwrap_or(false) {
-            let w: usize = self.buf.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+            let w = self.line.cursor_cols();
             let _ = write!(out, "\x1b[{};{}H\x1b[?25h", self.rows, 3 + w);
             self.frame_cursor = Some((self.rows, 3 + w));
         }
@@ -2285,8 +2319,11 @@ impl Tty {
         }
         self.drawn_pointer = new_ptr;
         self.hover = new_hover;
-        // images the repainted cells cut into (only the framebuffer draws
-        // over text: terminal images sit above it)
+        // images the repainted cells cut into: the framebuffer paints them
+        // again over the text; where text erases a picture's cells (sixel,
+        // iTerm in WezTerm and the like, kitty's placeholders in tmux) the
+        // picture is sent again, or a hovered picture button would be left
+        // with black bands
         let (cw, ch) = (self.cell.0.max(1) as i32, self.cell.1.max(1) as i32);
         let hit: Vec<Placement> = self
             .frame_imgs
@@ -2302,6 +2339,15 @@ impl Tty {
             .cloned()
             .collect();
         if !hit.is_empty() {
+            if self.gfx.text_erases() {
+                let mut again = b"\x1b[?25l".to_vec();
+                self.gfx.draw(&mut again, &hit, self.cell);
+                if let Some((r, c)) = self.frame_cursor {
+                    let _ = write!(again, "\x1b[{};{}H\x1b[?25h", r, c);
+                }
+                write_all(&again);
+                crate::sys::drain_stdout();
+            }
             self.gfx.after_flush(&hit, self.cell);
             self.pointer_over_images(&hit);
         }
@@ -2345,7 +2391,7 @@ impl Tty {
         }
     }
 
-    /// The settings overlay (F1 / Ctrl-O): a box over the game listing
+    /// The settings overlay (F2 / Ctrl-O): a box over the game listing
     /// `settings::ITEMS`, changed with ← / → / Enter and saved at once;
     /// most apply to the running game. Images are hidden while it is up
     /// (kitty would draw them over it).
@@ -2947,7 +2993,7 @@ impl Tty {
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
-        let head = " emuera-tty settings  (F1 / Ctrl-O)";
+        let head = " emuera-tty settings  (F2 / Ctrl-O)";
         let reading = crate::sys::memory_in_use();
         let mem = reading.map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
         let head_cols = head.chars().count();
@@ -3010,14 +3056,14 @@ impl Tty {
                 parts.insert(0, (m, "\x1b[0;1m"));
             }
         }
-        parts.push(("F1 settings".to_string(), "\x1b[0;2m"));
+        parts.push(("F2 settings".to_string(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
             let k = parts
                 .iter()
                 .position(|(s, _)| s.starts_with('@'))
                 .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB")))
-                .or_else(|| parts.iter().position(|(s, _)| s == "F1 settings"))
+                .or_else(|| parts.iter().position(|(s, _)| s == "F2 settings"))
                 .unwrap_or(0);
             parts.remove(k);
         }
@@ -3314,7 +3360,7 @@ impl Frontend for Tty {
     /// wheel move through the log meanwhile.
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
         if !std::mem::take(&mut self.keep_buf) || req.kind == InputKind::Wait {
-            self.buf.clear();
+            self.line.clear();
         }
         self.scroll = 0;
         self.render(con, res, Some(req));
@@ -3413,12 +3459,28 @@ impl Frontend for Tty {
                         return InputResult::Quit;
                     }
                 },
-                Key::PageUp | Key::Up if req.kind == InputKind::Wait || self.buf.is_empty() => {
+                // Up / Down: the inputs given before, as in Emuera (at a
+                // WAIT, which shows no input line, they scroll)
+                Key::Up | Key::Down if req.kind != InputKind::Wait => {
+                    self.line.recall(if matches!(k, Key::Up) { -1 } else { 1 });
+                    redraw = true;
+                }
+                Key::PageUp | Key::Up | Key::ScrollUp => {
                     self.scroll += if matches!(k, Key::PageUp) { self.rows / 2 } else { 1 };
                     redraw = true;
                 }
-                Key::PageDown | Key::Down => {
+                Key::PageDown | Key::Down | Key::ScrollDown => {
                     self.scroll = self.scroll.saturating_sub(if matches!(k, Key::PageDown) { self.rows / 2 } else { 1 });
+                    redraw = true;
+                }
+                // Home / End: in the text typed, or through the log when
+                // there is none
+                Key::Home | Key::End if req.kind != InputKind::Wait && !self.line.is_empty() => {
+                    if matches!(k, Key::Home) {
+                        self.line.home();
+                    } else {
+                        self.line.end();
+                    }
                     redraw = true;
                 }
                 Key::Home => {
@@ -3459,8 +3521,11 @@ impl Frontend for Tty {
                                 return InputResult::Text(String::new());
                             }
                             if let Some(b) = self.click_at(x, y) {
-                                let v = self.buttons[b].clone();
-                                return InputResult::Text(v.to_string());
+                                // a click goes through Emuera's input box,
+                                // so it is in the history too
+                                let v = self.buttons[b].to_string();
+                                self.line.remember(&v);
+                                return InputResult::Text(v);
                             }
                         }
                         // a middle click on a translated line flips it
@@ -3476,8 +3541,9 @@ impl Frontend for Tty {
                                 return InputResult::Skip(String::new());
                             }
                             if let Some(b) = self.click_at(x, y) {
-                                let v = self.buttons[b].clone();
-                                return InputResult::Skip(v.to_string());
+                                let v = self.buttons[b].to_string();
+                                self.line.remember(&v);
+                                return InputResult::Skip(v);
                             }
                         }
                         _ => {}
@@ -3493,26 +3559,40 @@ impl Frontend for Tty {
                     }
                 }
                 Key::Enter => {
-                    let s = std::mem::take(&mut self.buf);
+                    let s = self.line.take();
+                    self.line.remember(&s);
                     return InputResult::Text(s);
                 }
                 Key::Backspace => {
-                    self.buf.pop();
+                    self.line.backspace();
+                    redraw = true;
+                }
+                Key::Delete => {
+                    self.line.delete();
+                    redraw = true;
+                }
+                Key::Left => {
+                    self.line.left();
+                    redraw = true;
+                }
+                Key::Right => {
+                    self.line.right();
                     redraw = true;
                 }
                 Key::Esc => {
-                    self.buf.clear();
+                    self.line.clear();
                     redraw = true;
                 }
                 Key::Char('\u{15}') => {
-                    self.buf.clear();
+                    self.line.clear();
                     redraw = true;
                 }
                 Key::Char(c) => {
                     if req.one {
+                        self.line.remember(&c.to_string());
                         return InputResult::Text(c.to_string());
                     }
-                    self.buf.push(c);
+                    self.line.insert(c);
                     redraw = true;
                 }
                 _ => {}
@@ -3549,20 +3629,33 @@ impl Frontend for Tty {
             match k {
                 Key::CtrlC => return true,
                 Key::Char(c) => {
-                    self.buf.push(c);
+                    self.line.insert(c);
                     hit(self, char_keycode(c).0);
                     changed = true;
                 }
                 Key::Backspace => {
-                    self.buf.pop();
+                    self.line.backspace();
                     hit(self, 8);
+                    changed = true;
+                }
+                Key::Delete => {
+                    self.line.delete();
+                    hit(self, 46);
                     changed = true;
                 }
                 Key::Enter => hit(self, 13),
                 Key::Esc => hit(self, 27),
-                Key::Left => hit(self, 37),
+                Key::Left => {
+                    self.line.left();
+                    hit(self, 37);
+                    changed = true;
+                }
                 Key::Up => hit(self, 38),
-                Key::Right => hit(self, 39),
+                Key::Right => {
+                    self.line.right();
+                    hit(self, 39);
+                    changed = true;
+                }
                 Key::Down => hit(self, 40),
                 Key::Mouse { btn, x, y, press } => {
                     let (x, y) = (x.saturating_sub(1) as usize, y.saturating_sub(1) as usize);
@@ -3594,11 +3687,11 @@ impl Frontend for Tty {
     }
 
     fn textbox(&self) -> String {
-        self.buf.clone()
+        self.line.text().to_string()
     }
 
     fn set_textbox(&mut self, s: &str) {
-        self.buf = s.to_string();
+        self.line.set(s);
     }
 
     fn hover_value(&self) -> String {
@@ -3623,7 +3716,7 @@ impl Frontend for Tty {
     fn input_raw(&mut self, con: &mut Console, res: &mut Resources, timeout_ms: Option<u64>) -> crate::frontend::RawInput {
         use crate::frontend::{char_keycode, RawInput};
         self.scroll = 0;
-        self.buf.clear();
+        self.line.clear();
         self.render(con, res, None);
         let deadline = timeout_ms.map(|t| Instant::now() + Duration::from_millis(t));
         let mut moved = false;
@@ -3712,7 +3805,11 @@ impl Frontend for Tty {
                 Key::Up => return key(38),
                 Key::Right => return key(39),
                 Key::Down => return key(40),
+                // (as Ctrl, Keys.Control: Alt can't be told apart here)
+                Key::ScrollUp => return RawInput::Key { code: 38, data: 38 | 0x20000 },
+                Key::ScrollDown => return RawInput::Key { code: 40, data: 40 | 0x20000 },
                 Key::Click => return key(45),
+                Key::Delete => return key(46),
                 Key::Skip => return key(9),
                 Key::Char(c) => {
                     let (code, data) = char_keycode(c);
@@ -3826,6 +3923,14 @@ impl Drop for Tty {
 #[cfg(test)]
 mod tests {
     use super::{char_cells, console_lookalike, Ambi};
+
+    /// Ctrl / Alt + arrow scroll; plain and Shift+arrow don't
+    #[test]
+    fn scroll_modifiers() {
+        for (p, want) in [("1;5", true), ("1;3", true), ("1;7", true), ("1;6", true), ("1;2", false), ("", false), ("1", false)] {
+            assert_eq!(super::scroll_mods(p.as_bytes()), want, "{}", p);
+        }
+    }
 
     #[test]
     fn recolor_pairs() {
