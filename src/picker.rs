@@ -53,6 +53,8 @@ enum Kind {
         ok: bool,
     },
     AddGame,
+    /// library: clone a game's git repository and add it
+    CloneGame,
     OpenSettings,
     /// settings: `crate::settings::ITEMS[i]`
     Setting(usize),
@@ -186,9 +188,12 @@ impl Picker {
                         },
                         None => String::new(),
                     };
-                    self.entries.push(Entry { label: format!("★ {}   {}{}{}", title, g.display(), last, git), kind: Kind::Game { path: g, ok } });
+                    // a game cloned from here and not played yet: "★ (NEW) Title" (gold in `draw`)
+                    let new = if self.st.fresh.contains(&g) { "(NEW) " } else { "" };
+                    self.entries.push(Entry { label: format!("★ {}{}   {}{}{}", new, title, g.display(), last, git), kind: Kind::Game { path: g, ok } });
                 }
                 self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), kind: Kind::AddGame });
+                self.entries.push(Entry { label: "↓ Clone a game from a git repository…".into(), kind: Kind::CloneGame });
                 self.entries.push(Entry { label: "⚙ Settings".into(), kind: Kind::OpenSettings });
                 self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if self.st.last.as_ref() == Some(path))).unwrap_or(0);
                 self.top = 0;
@@ -287,7 +292,7 @@ impl Picker {
             let color = match e.kind {
                 Kind::Game { ok: false, .. } => "\x1b[2m",
                 Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
-                Kind::AddGame | Kind::OpenSettings => "\x1b[36m",
+                Kind::AddGame | Kind::CloneGame | Kind::OpenSettings => "\x1b[36m",
                 Kind::Archive { .. } => "\x1b[36m",
                 _ => "",
             };
@@ -305,6 +310,11 @@ impl Picker {
                 let git_tail = |l: String| match l.rfind("· git") {
                     Some(at) => format!("{}\x1b[38;5;117m{}{}", &l[..at], &l[at..], back),
                     None => l,
+                };
+                // "(NEW)" (bold gold) comes first, right after the star
+                let line = match line.strip_prefix("★ (NEW)") {
+                    Some(rest) => format!("★ \x1b[1;38;5;220m(NEW){}{}", back, rest),
+                    None => line,
                 };
                 // the tags come after the path, so the last match is theirs
                 git_tail(tint(line, "· last played", "\x1b[32m"))
@@ -593,6 +603,182 @@ impl Picker {
         self.load();
     }
 
+    /// Ask for a line of text at the bottom of the screen: Enter accepts (an
+    /// empty answer gives `default`), Esc / Ctrl-C cancel, Ctrl-U clears.
+    /// Mouse reports and other escape sequences are ignored.
+    fn prompt(&mut self, question: &str, default: &str) -> Option<String> {
+        let question = if default.is_empty() { format!("{}: ", question) } else { format!("{} [{}]: ", question, default) };
+        let width = |s: &str| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+        let mut text = String::new();
+        loop {
+            // what has been typed so far
+            'consume: while let Some(&b) = self.pending.first() {
+                match b {
+                    b'\r' | b'\n' => {
+                        self.pending.drain(..1);
+                        let t = text.trim().to_string();
+                        return Some(if t.is_empty() { default.to_string() } else { t });
+                    }
+                    0x03 => {
+                        self.pending.drain(..1);
+                        return None;
+                    }
+                    0x15 => {
+                        self.pending.drain(..1);
+                        text.clear();
+                    }
+                    0x7f | 0x08 => {
+                        self.pending.drain(..1);
+                        text.pop();
+                    }
+                    0x1b => {
+                        if self.pending.len() == 1 {
+                            // a lone ESC cancels unless more bytes arrive right away
+                            if crate::sys::poll(30, -1).input {
+                                break 'consume;
+                            }
+                            self.pending.clear();
+                            return None;
+                        }
+                        let skip = if self.pending[1] != b'[' {
+                            Some(2)
+                        } else if self.pending.get(2) == Some(&b'M') {
+                            // X10 mouse: ESC [ M b x y
+                            (self.pending.len() >= 6).then_some(6)
+                        } else {
+                            // arrows, SGR / urxvt mouse…: up to the final byte
+                            self.pending[2..].iter().position(|c| (0x40..=0x7e).contains(c)).map(|p| p + 3)
+                        };
+                        match skip {
+                            Some(n) => {
+                                self.pending.drain(..n);
+                            }
+                            None => break 'consume,
+                        }
+                    }
+                    c if c < 0x20 => {
+                        self.pending.drain(..1);
+                    }
+                    _ => {
+                        let len = match b {
+                            0xc0..=0xdf => 2,
+                            0xe0..=0xef => 3,
+                            0xf0..=0xf7 => 4,
+                            _ => 1,
+                        };
+                        if self.pending.len() < len {
+                            break 'consume;
+                        }
+                        if let Ok(s) = std::str::from_utf8(&self.pending[..len]) {
+                            text.push_str(s);
+                        }
+                        self.pending.drain(..len);
+                    }
+                }
+            }
+            // the question, and the end of the answer if it is longer than the line
+            let (cols, rows) = term_size();
+            let q = fit(&question, cols.saturating_sub(2));
+            let room = cols.saturating_sub(width(&q) + 2).max(1);
+            let (mut shown, mut used) = (Vec::new(), 0);
+            for c in text.chars().rev() {
+                let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+                if used + cw > room {
+                    break;
+                }
+                used += cw;
+                shown.push(c);
+            }
+            let shown: String = shown.into_iter().rev().collect();
+            out(format!(
+                "\x1b[{};1H\x1b[0m\x1b[2K{}{}\x1b[7m \x1b[0m\x1b[{};1H\x1b[2K\x1b[2m{}\x1b[0m",
+                rows.saturating_sub(1),
+                q,
+                shown,
+                rows,
+                fit("Enter accept · Esc cancel · Ctrl-U clear", cols)
+            )
+            .as_bytes());
+            let r = crate::sys::poll(500, -1);
+            if r.hangup {
+                return None;
+            }
+            if r.input {
+                let mut b = [0u8; 256];
+                match crate::sys::read_stdin(&mut b) {
+                    Ok(n) if n > 0 => self.pending.extend_from_slice(&b[..n]),
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock) => {}
+                    _ => return None,
+                }
+            }
+        }
+    }
+
+    /// "Clone a game…": ask for the repository, the folder to keep it in and,
+    /// optionally, a branch; `git clone` it, add it to the library without
+    /// starting it, and mark it "(NEW)" until it is played.
+    fn clone_game(&mut self) {
+        if which("git").is_none() {
+            self.note = "\x1b[31mgit isn't installed (or isn't on PATH): can't clone.\x1b[0m".into();
+            return;
+        }
+        let cancelled = "Clone cancelled.";
+        let Some(url) = self.prompt("Repository to clone (URL or path)", "").filter(|u| !u.is_empty()) else {
+            self.note = cancelled.into();
+            return;
+        };
+        let Some(name) = repo_name(&url) else {
+            self.note = format!("\x1b[31mCan't tell a folder name from \"{}\".\x1b[0m", url);
+            return;
+        };
+        let default_dir = browse_start(&self.st).display().to_string();
+        let Some(dir) = self.prompt(&format!("Folder to store it in (it gets its own \"{}\" subfolder)", name), &default_dir) else {
+            self.note = cancelled.into();
+            return;
+        };
+        let Some(branch) = self.prompt("Branch to use (optional, Enter for the repository's default)", "") else {
+            self.note = cancelled.into();
+            return;
+        };
+        let parent = expand_home(&dir);
+        let target = parent.join(&name);
+        let in_use = target.exists()
+            && match std::fs::read_dir(&target) {
+                Ok(mut d) => d.next().is_some(),
+                Err(_) => true,
+            };
+        if in_use {
+            self.note = format!("\x1b[31m{} already exists and isn't empty.\x1b[0m", target.display());
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(&parent) {
+            self.note = format!("\x1b[31mCan't create {}: {}\x1b[0m", parent.display(), e);
+            return;
+        }
+        let (cols, rows) = term_size();
+        let line = rows.saturating_sub(1);
+        out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", line, fit(&format!("Cloning {}…", url), cols)).as_bytes());
+        let mut show = |p: &str| out(format!("\x1b[{};1H\x1b[2K{}", line, fit(&format!("Cloning {}… {}", name, p), cols)).as_bytes());
+        let (res, log) = git_clone(&url, branch.trim(), &target, &mut show);
+        self.git_log = Some(log);
+        if let Err(e) = res {
+            self.note = format!("\x1b[31m{}\x1b[0m", e);
+            return;
+        }
+        // the game may sit in a subfolder of the repository (see `git_root`)
+        let Some(game) = find_game_dir(&target, 2) else {
+            self.note = format!("Cloned into {}, but no Emuera game (CSV and ERB folders) is in it, so it wasn't added.", target.display());
+            return;
+        };
+        let g = self.st.add_game(&game);
+        self.st.mark_new(&g);
+        self.st.save();
+        self.load();
+        self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == g)).unwrap_or(0);
+        let at = git_root(&g).and_then(|r| git_head(&r)).map(|h| format!(" ({})", h)).unwrap_or_default();
+        self.note = format!("Cloned {}{}: NEW, Enter to play (g: git output).", game_title(&g).unwrap_or_else(|| g.display().to_string()), at);
+    }
+
     /// A game folder was chosen in the browser: add it to the library (when
     /// adding), or play it.
     fn chosen(&mut self, game: PathBuf) -> Option<PathBuf> {
@@ -622,6 +808,7 @@ impl Picker {
             Kind::Game { path, ok: true } => return Some(path),
             Kind::Game { path, ok: false } => self.note = format!("\x1b[31m{} is gone (d removes it from the list)\x1b[0m", path.display()),
             Kind::AddGame => self.start_adding(),
+            Kind::CloneGame => self.clone_game(),
             Kind::OpenSettings => {
                 self.mode = Mode::Settings;
                 self.sel = 0;
@@ -1004,6 +1191,98 @@ pub fn upgrade() -> Result<String, String> {
 fn git_root(game: &Path) -> Option<PathBuf> {
     which("git")?;
     game.ancestors().take(3).find(|d| d.join(".git").exists()).map(Path::to_path_buf)
+}
+
+/// The folder `git clone` makes for `url`: its last path part without ".git".
+fn repo_name(url: &str) -> Option<String> {
+    let u = url.trim().trim_end_matches('/');
+    let start = u.rfind(|c: char| matches!(c, '/' | ':' | '\\')).map_or(0, |i| i + 1);
+    let last = &u[start..];
+    let name = last.strip_suffix(".git").unwrap_or(last);
+    (!name.is_empty() && name != "." && name != "..").then(|| name.to_string())
+}
+
+/// `~` and `~/…` mean the home folder.
+fn expand_home(p: &str) -> PathBuf {
+    let home = crate::sys::home_dir();
+    if p == "~" {
+        return home.unwrap_or_else(|| PathBuf::from(p));
+    }
+    match (p.strip_prefix("~/"), home) {
+        (Some(rest), Some(h)) => h.join(rest),
+        _ => PathBuf::from(p),
+    }
+}
+
+/// The game folder in a fresh clone: `dir` itself or a folder up to `depth`
+/// levels below it (hidden folders skipped).
+fn find_game_dir(dir: &Path, depth: u8) -> Option<PathBuf> {
+    if is_game_dir(dir) {
+        return Some(dir.to_path_buf());
+    }
+    if depth == 0 {
+        return None;
+    }
+    let mut subs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')))
+        .collect();
+    subs.sort();
+    subs.into_iter().find_map(|d| find_game_dir(&d, depth - 1))
+}
+
+/// `git clone` of `url` into `target` (on `branch` if one is given), without
+/// prompts. `progress` is handed git's latest progress line. Returns the
+/// outcome and everything git said (for the launcher's `g`).
+fn git_clone(url: &str, branch: &str, target: &Path, progress: &mut dyn FnMut(&str)) -> (Result<(), String>, String) {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut c = Command::new("git");
+    c.args(["clone", "--progress"]);
+    if !branch.is_empty() {
+        c.args(["--branch", branch]);
+    }
+    c.arg("--").arg(url).arg(target).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0");
+    if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+        c.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
+    }
+    let mut log = format!("$ git clone{} {}\n", if branch.is_empty() { String::new() } else { format!(" --branch {}", branch) }, url);
+    let mut child = match c.spawn() {
+        Ok(ch) => ch,
+        Err(e) => return (Err(format!("git: {}", e)), log),
+    };
+    let mut raw: Vec<u8> = Vec::new();
+    if let Some(mut err) = child.stderr.take() {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = err.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            raw.extend_from_slice(&buf[..n]);
+            let from = raw.len().saturating_sub(300);
+            let tail = String::from_utf8_lossy(&raw[from..]);
+            if let Some(l) = tail.split(|c: char| c == '\r' || c == '\n').map(str::trim).rev().find(|l| !l.is_empty()) {
+                progress(l);
+            }
+        }
+    }
+    let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    log += &text;
+    if ok {
+        return (Ok(()), log);
+    }
+    let lines: Vec<&str> = text.split(|c: char| c == '\r' || c == '\n').map(str::trim).collect();
+    let why = lines
+        .iter()
+        .rev()
+        .find(|l| l.starts_with("fatal:") || l.starts_with("error:"))
+        .and_then(|l| l.split_once(':').map(|x| x.1.trim().to_string()))
+        .filter(|w| !w.is_empty())
+        .unwrap_or_else(|| "git clone didn't work".to_string());
+    (Err(format!("Clone failed: {}", why)), log)
 }
 
 /// `root`'s HEAD as "<branch> @ <short hash>" ("detached @ <short hash>" when
