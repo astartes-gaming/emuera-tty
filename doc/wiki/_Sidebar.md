@@ -19,4 +19,5 @@
 - [Implemented](Implemented)
 - [Debugging](Debugging)
 - [Development](Development)
+- [Translating emuera-tty](Translating-emuera-tty)
 - [Roadmap](Roadmap)

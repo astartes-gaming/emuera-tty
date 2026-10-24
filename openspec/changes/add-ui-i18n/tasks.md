@@ -33,8 +33,8 @@
 
 ## 6. Integration check
 
-- [ ] 6.1 `cargo test`, `cargo clippy`, `cargo fmt --check`, a Windows cross-check, and a big-endian check (`cargo check --target powerpc64-unknown-linux-gnu` or under qemu); peak memory unchanged on AnonTW (`EMUERA_TIMING=1`). Verify: all pass, and peak memory is within 1 MB of the master build.
-- [ ] 6.2 README *Translating emuera-tty* section for translators: which file, Poedit or Weblate, how to test with `EMUERA_LANG`. Verify: following it, a test translation of one message shows up in the overlay.
+- [x] 6.1 `cargo test`, `cargo clippy`, `cargo fmt --check`, a Windows cross-check, and a big-endian check (`cargo check --target powerpc64-unknown-linux-gnu` or under qemu); peak memory unchanged on AnonTW (`EMUERA_TIMING=1`). Verify: all pass, and peak memory is within 1 MB of the master build.
+- [x] 6.2 README *Translating emuera-tty* section for translators: which file, Poedit or Weblate, how to test with `EMUERA_LANG`. Verify: following it, a test translation of one message shows up in the overlay.
 
 ## Workflow follow-up
 
