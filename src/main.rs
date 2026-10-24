@@ -21,6 +21,7 @@ mod gfx;
 mod html;
 mod lint;
 mod loader;
+mod macros;
 #[cfg(target_os = "linux")]
 mod mice;
 #[cfg(not(target_os = "linux"))]
@@ -33,6 +34,7 @@ mod regex;
 mod resources;
 mod retro;
 mod savemgr;
+mod savesafe;
 mod settings;
 mod sound;
 mod sys;

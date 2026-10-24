@@ -94,7 +94,7 @@ pub fn when(t: Option<std::time::SystemTime>) -> String {
 }
 
 /// Days since 1970-01-01 to (year, month, day) (Howard Hinnant's algorithm).
-fn civil(z: i64) -> (i64, i64, i64) {
+pub(crate) fn civil(z: i64) -> (i64, i64, i64) {
     let z = z + 719468;
     let era = z.div_euclid(146097);
     let doe = z - era * 146097;

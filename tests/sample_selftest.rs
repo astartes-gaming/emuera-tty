@@ -58,6 +58,27 @@ fn save_load_roundtrip() {
 /// DOTRAIN as in Emuera: the event it is in runs to its end, then the
 /// command runs in place of what came next; inside a command it is an error.
 #[test]
+fn typed_macros_answer_several_inputs() {
+    // Emuera's input syntax: `\n` separates inputs, `\e` skips the
+    // following waits, `(…)*n` repeats; ONEINPUT takes the first character
+    let dir = std::env::temp_dir().join(format!("emuera-tty-test-macro-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("CSV")).unwrap();
+    std::fs::create_dir_all(dir.join("ERB")).unwrap();
+    let erb = "@SYSTEM_TITLE\nREPEAT 3\nINPUT\nPRINTFORML got {RESULT}\nREND\nWAIT\nPRINTL after wait\nWAIT\n\
+        INPUT\nPRINTFORML got {RESULT}\nONEINPUT\nPRINTFORML one {RESULT}\nQUIT\n";
+    std::fs::write(dir.join("ERB/T.ERB"), erb).unwrap();
+    let text = run(&dir, b"(1\\n)*2\\n5\\e\\n7\\n42\n");
+    let order = ["got 1", "got 1", "got 5", "after wait", "got 7", "one 4"];
+    let mut at = 0;
+    for o in order {
+        let p = text[at..].find(o).unwrap_or_else(|| panic!("{:?} missing after byte {}:\n{}", o, at, text));
+        at += p + o.len();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn dotrain_runs_after_the_event() {
     let dir = temp_dir("dotrain");
     let erb = "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = -1\n\
@@ -131,5 +152,45 @@ fn com_able_default_from_replace_csv() {
     let text = run(&dir, b"0\n");
     assert!(text.contains("Shown[  1]") && !text.contains("Hidden"), "{}", text);
     assert!(text.contains("usercom 0") && !text.contains("com1"), "{}", text);
+}
+
+/// Saves are written safely and their history kept (savesafe.rs): the
+/// first save replaced that emuera-tty didn't write is kept as an
+/// original, later ones as automatic copies, each write logged.
+#[test]
+fn save_history() {
+    let dir = temp_dir("savehist");
+    let erb = "@SYSTEM_TITLE\nINPUT\nFLAG:0 = RESULT\nSAVEDATA 1, \"x\"\nQUIT\n";
+    game(&dir, &[("ERB/T.ERB", erb)]);
+    let name = dir.canonicalize().unwrap().file_name().unwrap().to_string_lossy().to_string();
+    let root = dir.join("data/emuera-tty/backups").join(name);
+    let save = |n: &str| run(&dir, format!("{}\n", n).as_bytes());
+    let folders = |kind: &str| -> Vec<std::path::PathBuf> {
+        let mut v: Vec<_> =
+            std::fs::read_dir(&root).unwrap().flatten().map(|e| e.path()).filter(|p| p.to_string_lossy().ends_with(&format!("-{}-save01", kind))).collect();
+        v.sort();
+        v
+    };
+    save("5");
+    let five = std::fs::read(dir.join("save01.sav")).unwrap();
+    // a save emuera-tty has no record of (as if Emuera.exe made it)
+    std::fs::remove_dir_all(dir.join("data")).unwrap();
+    save("6");
+    let six = std::fs::read(dir.join("save01.sav")).unwrap();
+    save("7");
+    let orig = folders("original");
+    let auto = folders("auto");
+    assert_eq!(orig.len(), 1, "{:?}", orig);
+    assert_eq!(std::fs::read(orig[0].join("save01.sav")).unwrap(), five);
+    assert_eq!(auto.len(), 1, "{:?}", auto);
+    assert_eq!(std::fs::read(auto[0].join("save01.sav")).unwrap(), six);
+    let log = std::fs::read_to_string(root.join("save-log.tsv")).unwrap();
+    let kinds: Vec<&str> = log.lines().filter(|l| !l.starts_with('#')).map(|l| l.split('\t').nth(1).unwrap()).collect();
+    // (the first run's line went with the data folder)
+    assert_eq!(kinds, ["original", "written", "written"], "{}", log);
+    assert!(log.contains(env!("CARGO_PKG_VERSION")), "{}", log);
+    // no temporary file left behind
+    let tmp: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().contains(".tmp")).collect();
+    assert!(tmp.is_empty(), "{:?}", tmp);
     let _ = std::fs::remove_dir_all(&dir);
 }

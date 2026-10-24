@@ -47,6 +47,20 @@ impl Vm {
                         self.con.print_ex(l, false);
                         self.con.newline();
                     }
+                    // a git copy of the game without its pictures (Git LFS)
+                    // breaks scripts that measure them: say why
+                    if let Some(f) = self.res.lfs_pointers.first() {
+                        let f = f.strip_prefix(&self.game_dir).unwrap_or(f).display().to_string();
+                        self.con.style.fg = Rgb(255, 200, 80);
+                        for l in [
+                            format!("Note: some pictures, like {}, are Git LFS pointers, not pictures:", f),
+                            "this copy of the game was made without git-lfs. Install git-lfs, then run".to_string(),
+                            "`git lfs pull` in the game folder (or update the game from the launcher).".to_string(),
+                        ] {
+                            self.con.print_ex(&l, false);
+                            self.con.newline();
+                        }
+                    }
                     self.con.style = st;
                     self.con.print_ex("(press Enter to quit)", false);
                     self.con.newline();

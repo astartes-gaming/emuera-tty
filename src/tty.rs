@@ -313,15 +313,21 @@ enum Key {
     CtrlL,
     Left,
     Right,
-    /// F2 or Ctrl-O: the settings overlay
+    /// Ctrl-O (and F2 with the game's keyboard macros off): the settings
+    /// overlay
     Settings,
-    /// Emuera-Anchor's hotkeys: Ctrl-T title, Ctrl-R restart, F5 / Ctrl-E
-    /// reload the ERB files
+    /// Emuera-Anchor's hotkeys: Ctrl-T title, Ctrl-R restart, Ctrl-E (and
+    /// F5 with macros off) reload the ERB files
     Title,
     Restart,
     Reload,
     /// Tab: continue and skip messages until a choice (as a right click)
     Skip,
+    /// F1…F12, with Shift or not: keyboard macros (`macros.rs`), when the
+    /// game's config has them on; otherwise F2 is Settings and F5 Reload
+    F(u8, bool),
+    /// Alt+0…9, or Ctrl+0…9 where the terminal reports it: the macro group
+    Group(u8),
     Mouse {
         btn: u16,
         x: u16,
@@ -355,6 +361,52 @@ pub(crate) fn shape_cells(col: usize, frac: &mut Option<f32>, w: f32, rect: bool
     }
     *frac = Some(exact - end as f32);
     end - col
+}
+
+/// A function key from a CSI sequence's parameters and final byte, with
+/// whether Shift was held: xterm's `ESC [ 15 ; 2 ~` and `ESC [ 1 ; 2 P`,
+/// VT220's `ESC [ 11 ~` (F1), and the Linux console's and rxvt's F13–F20,
+/// which are Shift+F3…F10 there (their Shift+F1 / F2 are F11 / F12).
+fn fkey(p: &[u8], fin: u8) -> Option<(u8, bool)> {
+    let s = std::str::from_utf8(p).ok()?;
+    let mut it = s.split(';');
+    let a: u8 = match it.next()? {
+        "" => 1,
+        x => x.parse().ok()?,
+    };
+    let m: u8 = match it.next() {
+        None => 1,
+        Some(x) => x.parse().ok()?,
+    };
+    if it.next().is_some() {
+        return None;
+    }
+    let shift = m.saturating_sub(1) & 1 != 0;
+    let (n, f13) = match (fin, a) {
+        (b'P'..=b'S', 1) => (fin - b'P' + 1, false),
+        (b'~', 11..=15) => (a - 10, false),
+        (b'~', 17..=21) => (a - 11, false),
+        (b'~', 23 | 24) => (a - 12, false),
+        (b'~', 25 | 26) => (a - 22, true),
+        (b'~', 28 | 29) => (a - 23, true),
+        (b'~', 31..=34) => (a - 24, true),
+        _ => return None,
+    };
+    Some((n, shift || f13))
+}
+
+/// Ctrl+digit or Alt+digit as xterm's modifyOtherKeys (`ESC [ 27 ; 5 ; 49 ~`)
+/// and CSI-u terminals (`ESC [ 49 ; 5 u`) report it: the digit.
+fn digit_group(p: &[u8], fin: u8) -> Option<u8> {
+    let n: Vec<u32> = std::str::from_utf8(p).ok()?.split(';').map(|x| x.parse().ok()).collect::<Option<_>>()?;
+    let (c, m) = match (fin, n.as_slice()) {
+        (b'~', [27, m, c]) => (*c, *m),
+        (b'u', [c, m]) => (*c, *m),
+        _ => return None,
+    };
+    // Alt (2) or Ctrl (4), without Shift
+    let mods = m.checked_sub(1)?;
+    ((48..=57).contains(&c) && mods & 6 != 0 && mods & 1 == 0).then(|| (c - 48) as u8)
 }
 
 /// What the settings overlay asks the input loop to do next.
@@ -412,6 +464,13 @@ pub struct Tty {
     hangup: bool,
     /// a setup problem the user should see (e.g. no console mouse)
     notice: Option<String>,
+    /// the game's "Use keyboard macros": F1…F12 are macro keys
+    macros_on: bool,
+    /// the game's macro.txt, read when a macro key is first used
+    macros: Option<crate::macros::Macros>,
+    /// what a macro key did (the group chosen…), shown in the input line
+    /// for a moment
+    macro_note: Option<(String, Instant)>,
     fb_cell_fixed: bool,
     /// the last frame, for moving the console pointer without a full
     /// redraw (which makes images flicker): per screen row (col, cell,
@@ -731,6 +790,9 @@ impl Tty {
             active: true,
             hangup: false,
             notice: None,
+            macros_on: true,
+            macros: None,
+            macro_note: None,
             fb_cell_fixed: false,
             frame: Vec::new(),
             frame_imgs: Vec::new(),
@@ -1081,9 +1143,70 @@ impl Tty {
         format!("graphics backend: {} (cell {}x{} px){}", self.gfx.name(), self.cell.0, self.cell.1, why)
     }
 
+    /// The game's macros, read from its macro.txt the first time.
+    fn macros(&mut self) -> &mut crate::macros::Macros {
+        if self.macros.is_none() {
+            let m = self.macro_path().map(|p| crate::macros::Macros::load(&p)).unwrap_or_default();
+            self.macros = Some(m);
+        }
+        self.macros.as_mut().unwrap()
+    }
+
+    /// The game folder's macro.txt (Emuera keeps it beside the exe, which
+    /// is in the game folder).
+    fn macro_path(&self) -> Option<std::path::PathBuf> {
+        let dir = &self.game.as_ref()?.0;
+        Some(crate::loader::find_file_ci(dir, "macro.txt").unwrap_or_else(|| dir.join("macro.txt")))
+    }
+
+    /// F`n`: the macro into the input box; Shift+F`n`: what is typed there
+    /// stored as the macro (nothing typed, nothing stored).
+    fn macro_key(&mut self, n: u8, shift: bool) {
+        let i = n as usize - 1;
+        if !shift {
+            let text = self.macros().get(i).to_string();
+            self.line.set(&text);
+        } else if !self.line.is_empty() {
+            let text = self.line.text().to_string();
+            self.macros().set(i, &text);
+            self.note_macro(format!("F{} stored", n));
+        }
+    }
+
+    /// Alt+`g` / Ctrl+`g`: F1…F12 use group `g` now; its name shows.
+    fn macro_group(&mut self, g: u8) {
+        let m = self.macros();
+        m.group = g as usize;
+        let name = m.group_name().to_string();
+        self.note_macro(name);
+    }
+
+    /// Show what a macro key did for two seconds, as Emuera's label does.
+    fn note_macro(&mut self, s: String) {
+        self.macro_note = Some((s, Instant::now() + Duration::from_secs(2)));
+    }
+
+    /// The next key or mouse event, waiting up to `timeout_ms`. F1…F12
+    /// and Alt+digit stay macro keys while the game's macros are on; with
+    /// them off F2 is the settings and F5 the reload key, as before.
+    fn next_key(&mut self, timeout_ms: i32) -> Option<Key> {
+        let k = self.next_key_raw(timeout_ms)?;
+        Some(match k {
+            Key::F(..) | Key::Group(_) if self.macros_on => k,
+            Key::F(2, false) => Key::Settings,
+            Key::F(5, false) => Key::Reload,
+            Key::F(..) => Key::Other,
+            Key::Group(d) => {
+                self.queued.push_front(Key::Char((b'0' + d) as char));
+                Key::Esc
+            }
+            k => k,
+        })
+    }
+
     /// Decode the next key or mouse event, waiting up to `timeout_ms`.
     /// Incomplete escape sequences wait briefly for their remaining bytes.
-    fn next_key(&mut self, timeout_ms: i32) -> Option<Key> {
+    fn next_key_raw(&mut self, timeout_ms: i32) -> Option<Key> {
         if let Some(k) = self.queued.pop_front() {
             return Some(k);
         }
@@ -1122,8 +1245,7 @@ impl Tty {
                         }
                         (
                             match b[3] {
-                                b'B' => Key::Settings,
-                                b'E' => Key::Reload,
+                                c @ b'A'..=b'E' => Key::F(c - b'A' + 1, false),
                                 _ => Key::Other,
                             },
                             4,
@@ -1168,9 +1290,6 @@ impl Tty {
                                             Key::Other
                                         }
                                     }
-                                    // F2 as rxvt and VT220-style terminals send it
-                                    (p, b'~') if p == b"12" => Key::Settings,
-                                    (p, b'~') if p == b"15" => Key::Reload,
                                     (p, f @ (b'A' | b'B')) if scroll_mods(p) => {
                                         if f == b'A' {
                                             Key::ScrollUp
@@ -1178,6 +1297,8 @@ impl Tty {
                                             Key::ScrollDown
                                         }
                                     }
+                                    (p, f) if fkey(p, f).is_some() => fkey(p, f).map_or(Key::Other, |(n, s)| Key::F(n, s)),
+                                    (p, f) if digit_group(p, f).is_some() => digit_group(p, f).map_or(Key::Other, Key::Group),
                                     (_, b'A') => Key::Up,
                                     (_, b'B') => Key::Down,
                                     (_, b'C') => Key::Right,
@@ -1203,7 +1324,7 @@ impl Tty {
                 } else if b[1] == b'O' && b.len() >= 3 {
                     (
                         match b[2] {
-                            b'Q' => Key::Settings,
+                            c @ b'P'..=b'S' => Key::F(c - b'P' + 1, false),
                             b'A' => Key::Up,
                             b'B' => Key::Down,
                             b'C' => Key::Right,
@@ -1217,6 +1338,9 @@ impl Tty {
                         },
                         3,
                     )
+                } else if b[1].is_ascii_digit() {
+                    // Alt+digit (sent as ESC and the digit)
+                    (Key::Group(b[1] - b'0'), 2)
                 } else {
                     (Key::Esc, 1)
                 }
@@ -1793,12 +1917,16 @@ impl Tty {
             None => String::new(),
         };
         out.extend_from_slice(prompt.as_bytes());
+        let note = self.macro_note.as_ref().filter(|_| req.is_some()).map(|(s, _)| format!("  [{}]", s)).unwrap_or_default();
+        if !note.is_empty() {
+            let _ = write!(out, "\x1b[2m{}\x1b[0m", note);
+        }
         if req.is_some() {
             self.busy_since = None;
         }
         self.bar = None;
         if self.scroll == 0 && cols > 40 && req.is_some() && !self.no_images {
-            let used = 2 + self.line.cols() + 20;
+            let used = 2 + self.line.cols() + note.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 20;
             self.bar = Some((used, con.running.clone(), 0));
             self.draw_bar(&mut out, hover);
         }
@@ -2424,7 +2552,7 @@ impl Tty {
         }
     }
 
-    /// The settings overlay (F2 / Ctrl-O): a box over the game listing
+    /// The settings overlay (Ctrl-O, or F2 with macros off): a box over the game listing
     /// `settings::ITEMS`, changed with ← / → / Enter and saved at once;
     /// most apply to the running game. Images are hidden while it is up
     /// (kitty would draw them over it).
@@ -2459,7 +2587,7 @@ impl Tty {
                 ("Recolor…  (draw a colour of the game's as another)", 12),
                 ("Back to the title  (Ctrl-T)", 6),
                 ("Restart the game  (Ctrl-R)", 7),
-                ("Reload ERB files  (F5 / Ctrl-E)", 8),
+                (if self.macros_on { "Reload ERB files  (Ctrl-E)" } else { "Reload ERB files  (F5 / Ctrl-E)" }, 8),
                 ("Switch game…  (unsaved progress is lost)", 9),
                 ("Quit emuera-tty", 10),
                 ("Close  (Esc)", 11),
@@ -3026,7 +3154,7 @@ impl Tty {
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
-        let head = " emuera-tty settings  (F2 / Ctrl-O)";
+        let head = if self.macros_on { " emuera-tty settings  (Ctrl-O)" } else { " emuera-tty settings  (F2 / Ctrl-O)" };
         let reading = crate::sys::memory_in_use();
         let mem = reading.map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
         let head_cols = head.chars().count();
@@ -3089,14 +3217,15 @@ impl Tty {
                 parts.insert(0, (m, "\x1b[0;1m"));
             }
         }
-        parts.push(("F2 settings".to_string(), "\x1b[0;2m"));
+        // (F2 is a macro key while the game's macros are on)
+        parts.push((if self.macros_on { "Ctrl-O settings" } else { "F2 settings" }.to_string(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
             let k = parts
                 .iter()
                 .position(|(s, _)| s.starts_with('@'))
                 .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB")))
-                .or_else(|| parts.iter().position(|(s, _)| s == "F2 settings"))
+                .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" settings")))
                 .unwrap_or(0);
             parts.remove(k);
         }
@@ -3395,6 +3524,7 @@ impl Frontend for Tty {
         if !std::mem::take(&mut self.keep_buf) || req.kind == InputKind::Wait {
             self.line.clear();
         }
+        self.macros_on = con.key_macro;
         self.scroll = 0;
         self.render(con, res, Some(req));
         self.copy_text(con, if req.kind == InputKind::Wait { crate::clipboard::Trigger::Wait } else { crate::clipboard::Trigger::Input });
@@ -3443,10 +3573,19 @@ impl Frontend for Tty {
             let wait = if self.mt.as_ref().is_some_and(|m| m.busy()) { wait.min(250) } else { wait };
             // the pointer blinking
             let wait = self.blink_wait(con.focus_fg).map_or(wait, |b| wait.min(b));
+            // a macro key's note going away
+            let wait = match &self.macro_note {
+                Some((_, t)) => wait.min(t.saturating_duration_since(Instant::now()).as_millis() as i32 + 1),
+                None => wait,
+            };
             let Some(k) = self.next_key(wait).map(|k| self.kbd_pointer(k, false)) else {
                 let (c, r, _, _) = winsize();
                 let translated = self.mt.as_mut().is_some_and(|m| m.poll());
-                if (c, r) != (last_cols, last_rows) || anim || translated || self.tip_due(con).0 != self.tip_drawn {
+                let note_gone = self.macro_note.as_ref().is_some_and(|(_, t)| Instant::now() >= *t);
+                if note_gone {
+                    self.macro_note = None;
+                }
+                if (c, r) != (last_cols, last_rows) || anim || translated || note_gone || self.tip_due(con).0 != self.tip_drawn {
                     last_cols = c;
                     last_rows = r;
                     self.render(con, res, Some(req));
@@ -3586,6 +3725,24 @@ impl Frontend for Tty {
                     self.scroll = 0;
                     return InputResult::Skip(String::new());
                 }
+                // Emuera's macro keys (MainWindow): Fn puts its macro in
+                // the input box, Shift+Fn stores what is typed there; at a
+                // WAIT, which has no box here, Fn gives it at once
+                Key::F(n, false) if req.kind == InputKind::Wait => {
+                    let text = self.macros().get(n as usize - 1).to_string();
+                    if !text.is_empty() {
+                        self.scroll = 0;
+                        return InputResult::Line(text);
+                    }
+                }
+                Key::F(n, shift) => {
+                    self.macro_key(n, shift);
+                    redraw = true;
+                }
+                Key::Group(g) => {
+                    self.macro_group(g);
+                    redraw = true;
+                }
                 _ if req.kind == InputKind::Wait => {
                     if !matches!(k, Key::Other | Key::Left | Key::Right) {
                         return InputResult::Text(String::new());
@@ -3594,7 +3751,7 @@ impl Frontend for Tty {
                 Key::Enter => {
                     let s = self.line.take();
                     self.line.remember(&s);
-                    return InputResult::Text(s);
+                    return InputResult::Line(s);
                 }
                 Key::Backspace => {
                     self.line.backspace();
@@ -3750,6 +3907,7 @@ impl Frontend for Tty {
         use crate::frontend::{char_keycode, RawInput};
         self.scroll = 0;
         self.line.clear();
+        self.macros_on = con.key_macro;
         self.render(con, res, None);
         let deadline = timeout_ms.map(|t| Instant::now() + Duration::from_millis(t));
         let mut moved = false;
@@ -3848,6 +4006,10 @@ impl Frontend for Tty {
                     let (code, data) = char_keycode(c);
                     return RawInput::Key { code, data };
                 }
+                // macro keys work on the input box here too (Emuera takes
+                // them before the game sees keys)
+                Key::F(n, shift) => self.macro_key(n, shift),
+                Key::Group(g) => self.macro_group(g),
                 Key::Other => {}
             }
         }
@@ -3913,6 +4075,24 @@ impl Frontend for Tty {
         self.last_frame = 0;
     }
 
+    fn macro_stop(&mut self) -> bool {
+        if self.input_waiting() {
+            self.read_bytes(0);
+        }
+        if let Some(i) = self.queued.iter().position(|k| matches!(k, Key::Esc)) {
+            self.queued.drain(..=i);
+            return true;
+        }
+        // a lone ESC: one not starting a sequence
+        let p = &self.pending;
+        let lone = (0..p.len()).find(|&i| p[i] == 0x1b && p.get(i + 1).is_none_or(|&c| c == 0x1b));
+        if let Some(i) = lone {
+            self.pending.drain(..=i);
+            return true;
+        }
+        false
+    }
+
     fn poll_interrupt(&mut self) -> bool {
         if self.input_waiting() {
             self.read_bytes(0);
@@ -3933,6 +4113,12 @@ impl Frontend for Tty {
             return;
         }
         self.active = false;
+        // stored macros go to macro.txt, as Emuera writes it on closing
+        if let (Some(m), Some(p)) = (&self.macros, self.macro_path()) {
+            if let Err(e) = m.save(&p) {
+                self.notice = Some(format!("can't write {}: {}", p.display(), e));
+            }
+        }
         let mut out = Vec::new();
         self.gfx.shutdown(&mut out);
         if !(self.term == "linux" || self.term.starts_with("fbterm")) {
@@ -3980,6 +4166,32 @@ mod tests {
         for (p, want) in [("1;5", true), ("1;3", true), ("1;7", true), ("1;6", true), ("1;2", false), ("", false), ("1", false)] {
             assert_eq!(super::scroll_mods(p.as_bytes()), want, "{}", p);
         }
+    }
+
+    /// F-keys and Ctrl/Alt+digit from the CSI sequences terminals send
+    #[test]
+    fn function_keys() {
+        let f = |p: &str, fin: u8| super::fkey(p.as_bytes(), fin);
+        assert_eq!(f("", b'P'), Some((1, false)));
+        assert_eq!(f("1;2", b'S'), Some((4, true)));
+        assert_eq!(f("11", b'~'), Some((1, false)));
+        assert_eq!(f("15", b'~'), Some((5, false)));
+        assert_eq!(f("17;2", b'~'), Some((6, true)));
+        assert_eq!(f("24", b'~'), Some((12, false)));
+        // the Linux console's F13 / F20: Shift+F3 / F10
+        assert_eq!(f("25", b'~'), Some((3, true)));
+        assert_eq!(f("34", b'~'), Some((10, true)));
+        // not function keys: Insert, Home, arrows, Shift+Enter
+        for (p, fin) in [("2", b'~'), ("1", b'~'), ("1;2", b'A'), ("27;2;13", b'~'), ("16", b'~')] {
+            assert_eq!(f(p, fin), None, "{} {}", p, fin as char);
+        }
+        let g = |p: &str, fin: u8| super::digit_group(p.as_bytes(), fin);
+        assert_eq!(g("27;5;49", b'~'), Some(1));
+        assert_eq!(g("48;5", b'u'), Some(0));
+        assert_eq!(g("57;3", b'u'), Some(9));
+        // Shift+digit is a symbol, Ctrl+Enter no digit
+        assert_eq!(g("50;2", b'u'), None);
+        assert_eq!(g("27;5;13", b'~'), None);
     }
 
     #[test]
