@@ -280,6 +280,45 @@ macro_rules! tc {
     };
 }
 
+/// How many terminal columns `s` takes: two for wide (CJK) characters,
+/// none for combining marks, which share their base character's cell.
+/// Control characters count as one (they are shown as spaces).
+pub fn width(s: &str) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    s.chars().map(|c| if c.is_control() { 1 } else { c.width().unwrap_or(0) }).sum()
+}
+
+/// `s` cut to at most `w` columns, and the columns it takes. A character
+/// that doesn't fit is left out with the marks that follow it, so a
+/// cluster (base + marks) is never split; controls become spaces.
+pub fn cut(s: &str, w: usize) -> (String, usize) {
+    use unicode_width::UnicodeWidthChar;
+    let mut out = String::new();
+    let mut used = 0;
+    for c in s.chars().map(|c| if c.is_control() { ' ' } else { c }) {
+        let cw = c.width().unwrap_or(0);
+        if used + cw > w {
+            break;
+        }
+        out.push(c);
+        used += cw;
+    }
+    (out, used)
+}
+
+/// `s` cut or padded with spaces to exactly `w` columns.
+pub fn fit(s: &str, w: usize) -> String {
+    let (mut out, used) = cut(s, w);
+    out.push_str(&" ".repeat(w - used));
+    out
+}
+
+/// `s` padded with spaces to at least `w` columns (`format!("{:<w$}")`
+/// counts characters, which misaligns wide ones); never cut.
+pub fn pad(s: &str, w: usize) -> String {
+    format!("{}{}", s, " ".repeat(w.saturating_sub(width(s))))
+}
+
 /// A `.po` file's translations. Entries with an empty `msgstr`, the header
 /// (`msgid ""`) and fuzzy entries (not yet checked by a translator) are
 /// left out, so those messages show in English.
@@ -666,6 +705,32 @@ msgstr "未確認"
                 (String::new(), "Esc\"aped\n".to_string()),
             ]
         );
+    }
+
+    /// Widths and cuts in several scripts: combining marks take no column
+    /// and stay with their base, CJK takes two, beyond-BMP letters one
+    #[test]
+    fn widths_and_cuts() {
+        let hindi = "हिन्दी"; // ह ि न ् द ी: ि and ी are spacing, ् a mark
+        assert_eq!(width(hindi), 5);
+        let e = "cafe\u{301}";
+        assert_eq!(width(e), 4);
+        assert_eq!(cut(e, 4), (e.to_string(), 4));
+        // the accent never ends up without its e
+        assert_eq!(cut(e, 3), ("caf".to_string(), 3));
+        let avst = "\u{10B00}\u{10B01}\u{10B02}";
+        assert_eq!(width(avst), 3);
+        assert_eq!(cut(avst, 2).0.chars().count(), 2);
+        let mixed = "Save مرحبا 日本";
+        assert_eq!(width(mixed), 5 + 5 + 1 + 4);
+        assert_eq!(cut("日本語", 3), ("日".to_string(), 2));
+        assert_eq!(fit("日本語", 5), "日本 ");
+        assert_eq!(fit("na\u{301}ive", 3), "na\u{301}i");
+        assert_eq!(pad("言語", 6), "言語  ");
+        assert_eq!(pad("Language", 4), "Language");
+        // the virama stays with न when cut right after it
+        let (h, w) = cut(hindi, 3);
+        assert!(h.ends_with('\u{94D}') && w == 3, "{:?}", h);
     }
 
     /// Locale names to catalogue codes, Chinese by script

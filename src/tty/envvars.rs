@@ -12,11 +12,11 @@ use crate::frontend::InputReq;
 use crate::resources::Resources;
 use crate::settings::ENV_VARS;
 
-/// `v` on one line, cut to `max` characters with a `…`.
+/// `v` on one line, cut to `max` columns with a `…`.
 fn short(v: &str, max: usize) -> String {
     let one: String = v.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    if one.chars().count() > max {
-        format!("{}…", one.chars().take(max.saturating_sub(1)).collect::<String>())
+    if crate::i18n::width(&one) > max {
+        format!("{}…", crate::i18n::cut(&one, max.saturating_sub(1)).0)
     } else {
         one
     }

@@ -15,10 +15,10 @@
 
 ## 3. Width and combining marks
 
-- [ ] 3.1 `display_width` / `fit` helpers over grapheme clusters, with the same width rules as game text. Verify: unit tests in Hindi ("हिन्दी"), decomposed "é", Old Avestan, and mixed Arabic/English; `fit` never cuts inside a cluster.
-- [ ] 3.2 Combining marks kept with their base cell: a side table per screen row, written after the base character; wrapping never splits a cluster; applies to game text and interface text. Verify: a test game printing "हिन्दी", a decomposed "é" and Old Avestan reaches the TUI's output with every code point, in order; the same with `--headless`.
+- [x] 3.1 `display_width` / `fit` helpers over grapheme clusters, with the same width rules as game text. Verify: unit tests in Hindi ("हिन्दी"), decomposed "é", Old Avestan, and mixed Arabic/English; `fit` never cuts inside a cluster.
+- [x] 3.2 Combining marks kept with their base cell: a side table per screen row, written after the base character; wrapping never splits a cluster; applies to game text and interface text. Verify: a test game printing "हिन्दी", a decomposed "é" and Old Avestan reaches the TUI's output with every code point, in order; the same with `--headless`.
 - [ ] 3.3 Width audit of interface code: replace character counts used as widths (overlay title, bottom row, save manager columns, confirmation boxes, launcher list, game settings page). Verify: with `EMUERA_LANG=x-cjk` (or a CJK test string where 5.1 isn't done yet), each of those screens keeps its borders aligned in an 80-column pty capture.
-- [ ] 3.4 `doc/differences.md`, or the README, notes combining marks and right-to-left text in logical order. Verify: the note says what a terminal without BiDi shows.
+- [x] 3.4 `doc/differences.md`, or the README, notes combining marks and right-to-left text in logical order. Verify: the note says what a terminal without BiDi shows.
 
 ## 4. Wrapping the strings
 

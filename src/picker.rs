@@ -94,13 +94,7 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
 
 /// `s` cut to `w` display cells (kept for backward compatibility where truncation is needed).
 fn fit(s: &str, w: usize) -> String {
-    let mut used = 0;
-    s.chars()
-        .take_while(|c| {
-            used += UnicodeWidthChar::width(*c).unwrap_or(0);
-            used <= w
-        })
-        .collect()
+    crate::i18n::cut(s, w).0
 }
 
 /// Is `dir` an Emuera game (has CSV/ and ERB/, any letter case)?
@@ -318,8 +312,7 @@ fn term_size() -> (usize, usize) {
 
 /// `s` cut to `w` display cells, ending in "…" when something was cut.
 fn fit_dots(s: &str, w: usize) -> String {
-    let width: usize = s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
-    if width <= w {
+    if crate::i18n::width(s) <= w {
         s.to_string()
     } else {
         format!("{}…", fit(s, w.saturating_sub(1)))
@@ -328,9 +321,7 @@ fn fit_dots(s: &str, w: usize) -> String {
 
 /// `s` cut or padded with spaces to exactly `w` display cells.
 fn padded(s: &str, w: usize) -> String {
-    let f = fit(s, w);
-    let used: usize = f.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
-    f + &" ".repeat(w.saturating_sub(used))
+    crate::i18n::fit(s, w)
 }
 
 /// A checkout's folder name, for the gauge's title.
@@ -443,7 +434,7 @@ impl Gauge {
             }
         };
         let title = fit(&self.title, inner.saturating_sub(4));
-        let tw: usize = title.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+        let tw = crate::i18n::width(&title);
         let left = (inner - tw - 2) / 2;
         row(0, &format!("┌{} {} {}┐", "─".repeat(left), title, "─".repeat(inner - tw - 2 - left)), false);
         let blank = format!("│{}│", " ".repeat(inner));
@@ -469,7 +460,7 @@ impl Gauge {
         row(5, &blank, true);
         if !self.hint.is_empty() {
             let hint = fit(&self.hint, inner - 2);
-            let hw: usize = hint.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+            let hw = crate::i18n::width(&hint);
             let l = (inner - hw) / 2;
             row(6, &format!("│{}{}{}│", " ".repeat(l), hint, " ".repeat(inner - hw - l)), true);
         }
@@ -521,7 +512,7 @@ impl Picker {
                 for (i, it) in crate::settings::ITEMS.iter().enumerate().filter(|(_, it)| self.st.shown(it)) {
                     let v = self.st.shown_value(it.key);
                     let restart = if it.live { "" } else { "  (next start)" };
-                    self.entries.push(Entry { label: format!("{:<18} ‹ {} ›{}", it.label, v, restart), wrapped: Vec::new(), kind: Kind::Setting(i) });
+                    self.entries.push(Entry { label: format!("{} ‹ {} ›{}", crate::i18n::pad(it.label, 18), v, restart), wrapped: Vec::new(), kind: Kind::Setting(i) });
                 }
                 self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
                 self.rebuild_entry_line();
@@ -734,7 +725,7 @@ impl Picker {
                     break;
                 }
 
-                let pad = cols.saturating_sub(wrapped_line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 1);
+                let pad = cols.saturating_sub(crate::i18n::width(&wrapped_line) + 1);
                 let color = match e.kind {
                     Kind::Game { ok: false, .. } => "\x1b[2m",
                     Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
@@ -1100,7 +1091,7 @@ impl Picker {
     /// `prompt`, its answer shown as dots when `secret` (a password).
     fn prompt_with(&mut self, question: &str, default: &str, secret: bool) -> Option<String> {
         let question = if default.is_empty() { format!("{}: ", question) } else { format!("{} [{}]: ", question, default) };
-        let width = |s: &str| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+        let width = crate::i18n::width;
         let mut text = String::new();
         let mut edited = false;
         loop {

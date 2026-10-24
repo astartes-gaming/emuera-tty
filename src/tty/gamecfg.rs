@@ -9,28 +9,9 @@ use crate::emuconfig::{normalize, Item, Kind, Source, Values, ITEMS, TABS};
 use crate::frontend::InputReq;
 use crate::resources::Resources;
 use std::io::Write;
-use unicode_width::UnicodeWidthChar;
 
 /// Columns `s` takes (wide characters count two).
-fn width(s: &str) -> usize {
-    s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum()
-}
-
-/// `s` cut or padded to exactly `w` columns.
-fn fit(s: &str, w: usize) -> String {
-    let mut out = String::new();
-    let mut used = 0;
-    for c in s.chars().map(|c| if c.is_control() { ' ' } else { c }) {
-        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
-        if used + cw > w {
-            break;
-        }
-        out.push(c);
-        used += cw;
-    }
-    out.push_str(&" ".repeat(w - used));
-    out
-}
+use crate::i18n::{fit, width};
 
 /// "R,G,B" as a colour.
 fn rgb(v: &str) -> Option<(u8, u8, u8)> {

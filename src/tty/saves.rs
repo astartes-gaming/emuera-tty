@@ -19,20 +19,7 @@ pub(super) enum Pick {
     Quit,
 }
 
-/// `s` cut to `w` columns.
-fn fit(s: &str, w: usize) -> (String, usize) {
-    let mut t = String::new();
-    let mut used = 0;
-    for c in s.chars().map(|c| if c.is_control() { ' ' } else { c }) {
-        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
-        if used + cw > w {
-            break;
-        }
-        t.push(c);
-        used += cw;
-    }
-    (t, used)
-}
+use crate::i18n::cut as fit;
 
 impl Tty {
     /// Run the save manager. Returns true if the player asked to quit.
@@ -43,7 +30,8 @@ impl Tty {
         let mut note = String::new();
         loop {
             let saves = sm::list(&dir);
-            let mut rows: Vec<String> = saves.iter().map(|s| format!("{:<8} {:<16} {}", s.label(), sm::when(s.modified), s.comment)).collect();
+            let mut rows: Vec<String> =
+                saves.iter().map(|s| format!("{} {} {}", crate::i18n::pad(&s.label(), 8), crate::i18n::pad(&sm::when(s.modified), 16), s.comment)).collect();
             if rows.is_empty() {
                 rows.push("(no saves yet)".into());
             }

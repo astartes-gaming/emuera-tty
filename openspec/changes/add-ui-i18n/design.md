@@ -83,14 +83,14 @@ cluster boundary and pads. The overlay's own drawing (`line()` in
 titles, the bottom row's parts, the save manager's columns, confirmation
 boxes, the launcher's list.
 
-### Combining marks: kept in the row, drawn with their base cell
+### Combining marks: kept in their base character's cell
 
-A cell keeps one `char`, and each screen row gets a side table of the
-combining marks that follow a cell's character (`DRow.marks: Vec<(col,
-String)>`), written right after the base character when the row is drawn.
-Most rows have none, so ordinary text costs nothing more (a `Vec` per row
-that stays empty). Wrapping happens before a base character, never between
-it and its marks.
+A cell gets an optional string of the combining marks that follow its
+character (`Cell.marks: Option<Box<str>>`), written right after the base
+character whenever the cell is drawn. Most cells have none, so ordinary text
+costs only the 16 bytes of an empty field (about 200 KB on a 200×60
+screen). Wrapping happens before a base character, never between it and its
+marks.
 
 What counts as a mark: a character `unicode-width` gives width 0 that is
 not a control character. That includes Devanagari vowel signs and virama,
@@ -99,8 +99,11 @@ reach the terminal whole. A cluster's width is its base character's (some
 Devanagari spacing vowel signs are width 1 in `unicode-width` and keep their
 own cell, which is what terminals do too).
 
-Alternative: `Cell { ch: String }` or a small inline buffer: bigger cells
-for every character on screen, for a case that is rare in these games.
+*Changed during implementation:* the plan was a side table per screen row
+(`DRow.marks`). But the hover repaint redraws single cells from a saved copy
+of the frame, so marks kept outside the cell would have to be carried
+through every place that copies cells; inside the cell they come along with
+it.
 
 ### Right-to-left text: logical order
 

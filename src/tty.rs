@@ -48,6 +48,9 @@ struct Cell {
     w: u8,
     style: Style,
     button: Option<usize>,
+    /// combining marks drawn with `ch` (Devanagari vowel signs, accents
+    /// written as separate characters, variation selectors, ZWJ)
+    marks: Option<Box<str>>,
 }
 
 /// An image anchored at a column of a screen row.
@@ -185,6 +188,7 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
         w: 1,
         style: Style { fg: Rgb(0, 0, 0), bg, bold: false, italic: false, underline: false, strike: false },
         button: None,
+        marks: None,
     };
     let edge = blank(deco.bcolor);
     let fill = blank(deco.bg);
@@ -266,7 +270,7 @@ fn paint_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
     }
     let width: usize = cells.iter().map(|c| c.w.max(1) as usize).sum();
     let end = col + width;
-    let blank = |st: &Style| Cell { ch: ' ', w: 1, style: st.clone(), button: None };
+    let blank = |st: &Style| Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None };
     let plain = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
     let mut before = Vec::new();
     let mut after = Vec::new();
@@ -727,6 +731,21 @@ fn console_lookalike(ch: char, has: &std::collections::HashSet<char>) -> char {
         _ => return ch,
     };
     cands.iter().copied().find(|c| c.is_ascii() || has.contains(c)).unwrap_or(ch)
+}
+
+/// A character drawn with the one before it, in its cell: zero width and
+/// not a control character (combining marks, Devanagari vowel signs and
+/// virama, variation selectors, ZWJ). Kept with their base character rather
+/// than dropped, so the terminal can compose them.
+fn is_mark(ch: char) -> bool {
+    !ch.is_control() && UnicodeWidthChar::width(ch) == Some(0)
+}
+
+/// Add combining mark `ch` to the cell holding its base character.
+fn add_mark(cell: &mut Cell, ch: char) {
+    let mut m = cell.marks.take().map(String::from).unwrap_or_default();
+    m.push(ch);
+    cell.marks = Some(m.into_boxed_str());
 }
 
 /// How to draw one character so the screen matches Emuera's layout:
@@ -1684,12 +1703,19 @@ impl Tty {
                         }
                     }
                     let bid = push_btn(button, &mut self.buttons);
+                    // the cell (in the last row) a combining mark belongs to:
+                    // to start with, the previous run's last (a mark printed
+                    // in another colour than its base)
+                    let mut base: Option<usize> = rows.last().and_then(|r| r.cells.len().checked_sub(1));
                     for ch in text.chars() {
                         let ch = if self.yen && ch == '\\' { '¥' } else { ch };
                         let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied()) };
                         let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
                         let w = tw + extra;
                         if tw == 0 {
+                            if let (Some(i), true) = (base, is_mark(ch)) {
+                                add_mark(&mut rows.last_mut().unwrap().cells[i], ch);
+                            }
                             continue;
                         }
                         if col + w > width {
@@ -1697,14 +1723,15 @@ impl Tty {
                             col = 0;
                         }
                         let r = rows.last_mut().unwrap();
+                        base = (ch != '\t').then_some(r.cells.len());
                         if ch == '\t' {
                             for _ in 0..4 {
-                                r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid });
+                                r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid, marks: None });
                             }
                         } else {
-                            r.cells.push(Cell { ch, w: tw as u8, style: style.clone(), button: bid });
+                            r.cells.push(Cell { ch, w: tw as u8, style: style.clone(), button: bid, marks: None });
                             for _ in 0..extra {
-                                r.cells.push(Cell { ch: fill, w: 1, style: style.clone(), button: bid });
+                                r.cells.push(Cell { ch: fill, w: 1, style: style.clone(), button: bid, marks: None });
                             }
                         }
                         col += w;
@@ -1725,7 +1752,7 @@ impl Tty {
                     let st = Style { fg: Rgb(90, 90, 90), bg: None, bold: false, italic: false, underline: false, strike: false };
                     let fill = if self.gfx.name() == "none" { '░' } else { ' ' };
                     for _ in 0..cells.min(width) {
-                        r.cells.push(Cell { ch: fill, w: 1, style: st.clone(), button: bid });
+                        r.cells.push(Cell { ch: fill, w: 1, style: st.clone(), button: bid, marks: None });
                     }
                     col += cells.min(width);
                 }
@@ -1734,7 +1761,7 @@ impl Tty {
                     let r = rows.last_mut().unwrap();
                     let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
                     for _ in 0..cells.min(width.saturating_sub(col)) {
-                        r.cells.push(Cell { ch: ' ', w: 1, style: st.clone(), button: None });
+                        r.cells.push(Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None });
                     }
                     col = (col + cells).min(width);
                 }
@@ -1750,7 +1777,7 @@ impl Tty {
                     let r = rows.last_mut().unwrap();
                     let st = Style { fg: *color, bg: None, bold: false, italic: false, underline: false, strike: false };
                     for _ in 0..cells.min(width) {
-                        r.cells.push(Cell { ch: '█', w: 1, style: st.clone(), button: bid });
+                        r.cells.push(Cell { ch: '█', w: 1, style: st.clone(), button: bid, marks: None });
                     }
                     col += cells.min(width);
                 }
@@ -1783,7 +1810,7 @@ impl Tty {
                 };
                 if pad > 0 {
                     let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
-                    let mut nc: Vec<Cell> = (0..pad).map(|_| Cell { ch: ' ', w: 1, style: st.clone(), button: None }).collect();
+                    let mut nc: Vec<Cell> = (0..pad).map(|_| Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None }).collect();
                     nc.append(&mut r.cells);
                     r.cells = nc;
                     for im in r.imgs.iter_mut() {
@@ -2065,13 +2092,15 @@ impl Tty {
                     out.extend_from_slice(b"\x1b[7m");
                     pointer_drawn = true;
                 }
+                let marks = cell.marks.as_deref().unwrap_or("");
                 if self.ambi == Ambi::Osc66 && cell.w == 2 && UnicodeWidthChar::width(cell.ch) == Some(1) {
                     // a one-column glyph drawn across two cells (see char_cells)
-                    let _ = write!(out, "\x1b]66;w=2;{}\x1b\\", cell.ch);
+                    let _ = write!(out, "\x1b]66;w=2;{}{}\x1b\\", cell.ch, marks);
                 } else if self.ascii_only && !cell.ch.is_ascii() {
                     self.put_ascii(&mut out, cell.ch, cell.w as usize);
                 } else {
                     out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
+                    out.extend_from_slice(marks.as_bytes());
                 }
                 if at_pointer {
                     out.extend_from_slice(b"\x1b[27m");
@@ -2445,17 +2474,22 @@ impl Tty {
 
     /// Cells for a run of text in one style (for text painted over rows).
     fn text_cells(&self, text: &str, st: &Style) -> Vec<Cell> {
-        let mut v = Vec::new();
+        let mut v: Vec<Cell> = Vec::new();
+        let mut base: Option<usize> = None;
         for ch in text.chars() {
             let ch = if self.yen && ch == '\\' { '¥' } else { ch };
             let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied());
             let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
             if tw == 0 {
+                if let (Some(i), true) = (base, is_mark(ch)) {
+                    add_mark(&mut v[i], ch);
+                }
                 continue;
             }
-            v.push(Cell { ch, w: tw as u8, style: st.clone(), button: None });
+            base = Some(v.len());
+            v.push(Cell { ch, w: tw as u8, style: st.clone(), button: None, marks: None });
             for _ in 0..extra {
-                v.push(Cell { ch: fill, w: 1, style: st.clone(), button: None });
+                v.push(Cell { ch: fill, w: 1, style: st.clone(), button: None, marks: None });
             }
         }
         v
@@ -2760,12 +2794,14 @@ impl Tty {
                     out.extend_from_slice(b"\x1b[7m");
                 }
                 let mut tmp = [0u8; 4];
+                let marks = cell.marks.as_deref().unwrap_or("");
                 if self.ambi == Ambi::Osc66 && cell.w == 2 && UnicodeWidthChar::width(cell.ch) == Some(1) {
-                    let _ = write!(out, "\x1b]66;w=2;{}\x1b\\", cell.ch);
+                    let _ = write!(out, "\x1b]66;w=2;{}{}\x1b\\", cell.ch, marks);
                 } else if self.ascii_only && !cell.ch.is_ascii() {
                     self.put_ascii(&mut out, cell.ch, cell.w as usize);
                 } else {
                     out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
+                    out.extend_from_slice(marks.as_bytes());
                 }
                 out.extend_from_slice(b"\x1b[0m");
                 touched.push((c, r, w));
@@ -2886,7 +2922,8 @@ impl Tty {
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ENV_VARS, ITEMS};
         let mut st = Settings::load();
-        let seed_row = format!("{:<18} {}  (read-only)", "Random seed", crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64);
+        let seed_row =
+            format!("{} {}  (read-only)", crate::i18n::pad("Random seed", 18), crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64);
         // the variables page is only offered when one of its variables is set
         let env_any = ENV_VARS.iter().any(|(name, _)| std::env::var_os(name).is_some());
         let mut sel = 0usize;
@@ -3576,7 +3613,7 @@ impl Tty {
         for (i, &ix) in vis.iter().enumerate() {
             let it = &ITEMS[ix];
             let later = if it.live { "" } else { "  (next start)" };
-            let text = format!("  {:<18} ‹ {} ›{}", it.label, st.shown_value(it.key), later);
+            let text = format!("  {} ‹ {} ›{}", crate::i18n::pad(it.label, 18), st.shown_value(it.key), later);
             line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
         }
         for (k, e) in extra.iter().enumerate() {
@@ -3953,7 +3990,7 @@ mod colour_tests {
     fn row(text: &str) -> DRow {
         let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
         DRow {
-            cells: text.chars().map(|ch| Cell { ch, w: if ch.is_ascii() { 1 } else { 2 }, style: st.clone(), button: None }).collect(),
+            cells: text.chars().map(|ch| Cell { ch, w: if ch.is_ascii() { 1 } else { 2 }, style: st.clone(), button: None, marks: None }).collect(),
             ..Default::default()
         }
     }
@@ -5020,6 +5057,33 @@ mod tests {
     fn no_filler_when_terminal_draws_ambiguous_wide() {
         assert_eq!(char_cells('━', Ambi::Wide, None), (2, 0, '━'));
         assert_eq!(char_cells('■', Ambi::Wide, None), (2, 0, '■'));
+    }
+}
+
+#[cfg(test)]
+mod mark_tests {
+    use super::*;
+
+    /// Combining marks, vowel signs, variation selectors and ZWJ are marks;
+    /// controls and spacing characters aren't
+    #[test]
+    fn what_is_a_mark() {
+        for c in ['\u{301}', '\u{94D}', '\u{941}', '\u{FE0F}', '\u{200D}'] {
+            assert!(is_mark(c), "{:?}", c);
+        }
+        for c in ['a', 'あ', '\n', '\t', '\u{7}', '\u{10B00}'] {
+            assert!(!is_mark(c), "{:?}", c);
+        }
+    }
+
+    /// Marks pile up on their base cell in order
+    #[test]
+    fn marks_kept_in_order() {
+        let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
+        let mut c = Cell { ch: 'क', w: 1, style: st, button: None, marks: None };
+        add_mark(&mut c, '\u{94D}');
+        add_mark(&mut c, '\u{200D}');
+        assert_eq!(c.marks.as_deref(), Some("\u{94D}\u{200D}"));
     }
 }
 
