@@ -757,7 +757,10 @@ translate it now; click again to flip between the two as above. This
 needs a translator to be on.
 
 **Quote marks**: the translation keeps the quote marks of the original
-(「」, 『』, “” or "") instead of the plain `"` translators write.
+(「」, 『』, “” or "") instead of the plain `"` translators write. It is
+done line by line for a speech over several lines, and a pair of quotes a
+translator puts round a line that had none (they often quote every line
+of a speech on its own) is taken off.
 
 #### Testing and the cache
 

@@ -601,54 +601,107 @@ pub fn is_dialog(text: &str, kojo: bool, src: &str) -> bool {
 }
 
 /// The quote marks of dialog in `s`: byte position, the mark, and whether
-/// it opens a quote. 「 『 “ open, 」 』 ” close; a plain `"` opens or
-/// closes by turns.
+/// it opens a quote. 「 『 “ open, 」 』 ” close; a plain `"` opens where it
+/// starts a word and closes where it ends one (else by turns).
 fn quote_marks(s: &str) -> Vec<(usize, char, bool)> {
     let mut inside = false;
     let mut out = Vec::new();
-    for (i, c) in s.char_indices() {
+    let mut prev: Option<char> = None;
+    let mut it = s.char_indices().peekable();
+    while let Some((i, c)) = it.next() {
+        let next = it.peek().map(|&(_, n)| n);
         let opens = match c {
-            '「' | '『' | '“' => true,
-            '」' | '』' | '”' => false,
-            '"' | '＂' => !inside,
-            _ => continue,
+            '「' | '『' | '“' => Some(true),
+            '」' | '』' | '”' => Some(false),
+            '"' | '＂' => {
+                let starts = prev.is_none_or(|p| p.is_whitespace() || "([{—-".contains(p));
+                let ends = next.is_none_or(|n| n.is_whitespace() || ".,!?;:)]}…—-".contains(n));
+                Some(if starts && !ends {
+                    true
+                } else if !starts && ends {
+                    false
+                } else {
+                    !inside
+                })
+            }
+            _ => None,
         };
-        inside = opens;
-        out.push((i, c, opens));
+        prev = Some(c);
+        if let Some(opens) = opens {
+            inside = opens;
+            out.push((i, c, opens));
+        }
     }
     out
 }
 
 /// `tr`, the translation of `orig`, with the quote marks `orig` used: a
-/// translator writes plain `"` where the original had 「」, 『』 or “”. As
-/// many marks of the same kinds go one for one; otherwise the first opening
-/// and the last closing mark are the ones put back.
+/// translator writes plain `"` where the original had 「」, 『』 or “”, and
+/// may put a pair round a line that had none (a speech over lines, each
+/// line quoted alone). A translation with as many lines as the original is
+/// done line by line, so each line gets the marks of its own original.
 pub fn restore_quotes(orig: &str, tr: &str) -> String {
+    let (ol, tl): (Vec<&str>, Vec<&str>) = (orig.split('\n').collect(), tr.split('\n').collect());
+    if ol.len() > 1 && ol.len() == tl.len() {
+        ol.iter().zip(&tl).map(|(o, t)| restore_line(o, t)).collect::<Vec<_>>().join("\n")
+    } else {
+        restore_line(orig, tr)
+    }
+}
+
+/// What to do with a quote mark of a translation.
+enum Mark {
+    Keep,
+    Set(char),
+    Drop,
+}
+
+/// [`restore_quotes`] for one piece of text. As many marks of the same kinds
+/// as the original's go one for one. Otherwise the first opening mark and
+/// the last closing mark take the original's, and a pair round the whole
+/// text that the original has no mark for is dropped.
+fn restore_line(orig: &str, tr: &str) -> String {
     let (o, t) = (quote_marks(orig), quote_marks(tr));
-    if o.is_empty() || t.is_empty() {
+    if t.is_empty() {
         return tr.to_string();
     }
-    let mut want: Vec<Option<char>> = vec![None; t.len()];
+    let mut act: Vec<Mark> = t.iter().map(|_| Mark::Keep).collect();
     if o.len() == t.len() && o.iter().zip(&t).all(|(a, b)| a.2 == b.2) {
-        for (w, m) in want.iter_mut().zip(&o) {
-            *w = Some(m.1);
+        for (a, m) in act.iter_mut().zip(&o) {
+            *a = Mark::Set(m.1);
         }
     } else {
-        if let (Some(a), Some(b)) = (o.iter().find(|m| m.2), t.iter().position(|m| m.2)) {
-            want[b] = Some(a.1);
+        let open = t.iter().position(|m| m.2);
+        let close = t.iter().rposition(|m| !m.2);
+        // the pair a translator puts round the whole text: the first mark
+        // opens at its start and the last one closes at its end
+        let round = open.is_some_and(|k| tr[..t[k].0].trim().is_empty()) && close.is_some_and(|k| tr[t[k].0 + t[k].1.len_utf8()..].trim().is_empty());
+        if let Some(k) = open {
+            if let Some(a) = o.iter().find(|m| m.2) {
+                act[k] = Mark::Set(a.1);
+            } else if round {
+                act[k] = Mark::Drop;
+            }
         }
-        if let (Some(a), Some(b)) = (o.iter().rev().find(|m| !m.2), t.iter().rposition(|m| !m.2)) {
-            want[b] = Some(a.1);
+        if let Some(k) = close {
+            if let Some(a) = o.iter().rev().find(|m| !m.2) {
+                act[k] = Mark::Set(a.1);
+            } else if round {
+                act[k] = Mark::Drop;
+            }
         }
     }
     let mut out = String::with_capacity(tr.len());
     let mut last = 0;
-    for (m, w) in t.iter().zip(want) {
-        if let Some(w) = w {
-            out.push_str(&tr[last..m.0]);
-            out.push(w);
-            last = m.0 + m.1.len_utf8();
-        }
+    for (m, a) in t.iter().zip(act) {
+        let w = match a {
+            Mark::Keep => continue,
+            Mark::Set(c) => Some(c),
+            Mark::Drop => None,
+        };
+        out.push_str(&tr[last..m.0]);
+        out.extend(w);
+        last = m.0 + m.1.len_utf8();
     }
     out.push_str(&tr[last..]);
     out
@@ -696,8 +749,17 @@ mod tests {
         assert_eq!(restore_quotes("「A」と「B」", "\"A and B\""), "「A and B」");
         // a speech over lines: the opening on the first, the closing on the last
         assert_eq!(restore_quotes("「一\n二」", "\"One\nTwo\""), "「One\nTwo」");
+        // ... also when the translator quoted every line on its own
+        assert_eq!(restore_quotes("「一\n二」", "\"One\"\n\"Two\""), "「One\nTwo」");
+        // a line without quotes that the translator put some round
+        assert_eq!(
+            restore_quotes("「sample text」\nthe bottom text", "\"sample text\"\n\"translated bottom text\""),
+            "「sample text」\ntranslated bottom text"
+        );
+        assert_eq!(restore_quotes("おはよう", "\"Hi\""), "Hi");
+        // but quotes inside a line stay
+        assert_eq!(restore_quotes("彼は言った", "He said \"hi\" there"), "He said \"hi\" there");
         // nothing to restore
-        assert_eq!(restore_quotes("おはよう", "\"Hi\""), "\"Hi\"");
         assert_eq!(restore_quotes("「おはよう」", "Hi"), "Hi");
     }
 
