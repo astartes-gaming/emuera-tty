@@ -138,7 +138,7 @@ pub const TABS: &[&str] = &["Environment", "Display", "Font", "System2", "Clipbo
 /// background and history colours (the terminal's own are used).
 pub const ITEMS: &[Item] = &[
     item("Environment", "オートセーブを行なう", "Make autosaves", Kind::Bool, "YES"),
-    item("Environment", "キーボードマクロを使用する", "Use keyboard macros (F1…F12)", Kind::Bool, "YES"),
+    item("Environment", "キーボードマクロを使用する", "Use keyboard macros (F1…F12; off: other Fn keys take over)", Kind::Bool, "YES"),
     item("Environment", "履歴ログの行数", "Lines in history log", Kind::Int(100, 1000000), "5000"),
     item("Environment", "表示するセーブデータ数", "Number of save slots", Kind::Int(20, 80), "20"),
     item("Display", "PRINTCを並べる数", "PRINTC items per line", Kind::Int(1, 100), "3"),

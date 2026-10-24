@@ -506,6 +506,14 @@ spaces.
 also at a wait) to see the original text; middle-click again for the
 translation. It is remembered per line for the session.
 
+**Force a translation**: middle-click a line that is shown as printed (a
+menu, narration, anything the *Translate* setting leaves alone) to
+translate it now; click again to flip between the two as above. This
+needs a translator to be on.
+
+**Quote marks**: the translation keeps the quote marks of the original
+(「」, 『』, “” or "") instead of the plain `"` translators write.
+
 Maps and box drawings are never translated, nor text already in the
 target language, and the game itself still sees the text it printed. Text
 shows untranslated until its translation comes in, which happens in the
@@ -525,8 +533,12 @@ and the translation, separated by tabs, ready to find and fix in the
 game's scripts:
 
 ```text
-ERB/口上/K9.ERB:3	ja>en	「おはようございます、お嬢様」	"Good morning, my lady."
+ERB/口上/K9.ERB:3	ja>en	「おはようございます、お嬢様」	「Good morning, my lady.」
 ```
+
+A line translated by a middle click that can't be traced to the file that
+printed it has `(force-translated, cannot trace original file)` in the
+first column.
 
 Dialog sent to the translator several lines at a time (a speech over
 several lines) is logged one row per line, each with its own file and line,
