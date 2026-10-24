@@ -37,6 +37,11 @@ pub struct Kitty {
     /// without sending them), least recently shown first, and their bytes
     parked: std::collections::VecDeque<u32>,
     parked_bytes: usize,
+    /// ids of freed pictures, given to the next new ones: Konsole never
+    /// frees a picture's data (it reads `d=I` as `d=i`, 25.04), but
+    /// replaces it when another comes with the same id, so new ids for
+    /// every frame of a canvas game would pile up there without end
+    free_ids: Vec<u32>,
     /// what is on screen: image id → its placement commands
     shown: HashMap<u32, Vec<String>>,
     /// inside tmux: passthrough and Unicode placeholders
@@ -102,6 +107,7 @@ impl Kitty {
             size: HashMap::new(),
             parked: Default::default(),
             parked_bytes: 0,
+            free_ids: Vec::new(),
             shown: HashMap::new(),
             tmux: false,
             virt: HashMap::new(),
@@ -151,12 +157,16 @@ impl Kitty {
             self.parked_bytes = 0;
             self.virt.clear();
             self.opaque.clear();
-            if self.tmux {
-                self.next_id = 1;
-            }
+            // (from 1 again: the same ids replace the old pictures in
+            // terminals that don't free them, see `free_ids`)
+            self.next_id = 1;
+            self.free_ids.clear();
         }
-        let id = self.next_id;
-        self.next_id = self.next_id.wrapping_add(1).max(1);
+        let id = self.free_ids.pop().unwrap_or_else(|| {
+            let id = self.next_id;
+            self.next_id = self.next_id.wrapping_add(1).max(1);
+            id
+        });
         // zlib-compressed (o=z): a picture redrawn every frame (a game's
         // whole-window CBG, mostly one colour) shrinks a hundredfold, which
         // is what limits the frame rate (and over SSH, everything)
@@ -279,6 +289,7 @@ impl Kitty {
             self.ids.retain(|_, v| *v != id);
             self.virt.remove(&id);
             self.opaque.remove(&id);
+            self.free_ids.push(id);
         }
     }
 
@@ -441,6 +452,26 @@ mod tests {
 
     /// Inside tmux: commands in passthrough (ESC doubled), one virtual
     /// placement, and the cells as placeholders with row/column diacritics.
+    /// A canvas game sends a new picture every frame: off screen they are
+    /// freed past the budget, and their ids are given to the next ones, so
+    /// a terminal that never frees data (Konsole) only ever holds a few.
+    #[test]
+    fn frames_reuse_ids() {
+        let mut k = Kitty::new();
+        let mut ids = std::collections::HashSet::new();
+        for f in 0..40 {
+            // 2000x1000 RGBA = 8 MB each, a new key every frame
+            let p = Placement { key: format!("frame{}", f), img: Rc::new(image::RgbaImage::new(2000, 1000)), ..placement(20, 32, 0, 32) };
+            let mut out = Vec::new();
+            k.draw(&mut out, &[p], (10, 16));
+            let s = String::from_utf8_lossy(&out).into_owned();
+            let id = s.split("a=t,").nth(1).and_then(|t| t.split("i=").nth(1)).and_then(|t| t.split(',').next()).unwrap().to_string();
+            ids.insert(id);
+        }
+        assert!(ids.len() <= 5, "{} distinct ids", ids.len());
+        assert!(k.parked_bytes <= PARKED_BUDGET);
+    }
+
     #[test]
     fn tmux_placeholders() {
         let mut k = Kitty::new_tmux();

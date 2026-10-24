@@ -1036,7 +1036,11 @@ Games that draw everything into a window-sized canvas every frame
 terminal. Each frame is sent as one synchronized update (DEC mode 2026);
 kitty pictures go compressed (a mostly empty canvas shrinks a
 hundredfold), and scaling (`GDRAWSPRITE`, the canvas to the screen) uses
-a fixed-point version of the Triangle filter on several cores. At a
+a fixed-point version of the Triangle filter on several cores. Off-screen
+pictures stay in the terminal only up to 24 MB, and freed pictures'
+ids are given to new ones: Konsole (25.04) never frees a picture's data
+when told to, only when another picture comes with the same id, so
+fresh ids for every frame would fill its memory within a minute. At a
 1440×900 window, eraFlappyTengu runs at about 85 frames per second, using
 about 4 ms of CPU per frame.
 
