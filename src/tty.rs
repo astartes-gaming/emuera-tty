@@ -22,7 +22,7 @@ use crate::resources::Resources;
 use crate::vm::value::Value;
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
-use unicode_width::UnicodeWidthChar;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 mod envvars;
 mod gamecfg;
@@ -2992,7 +2992,7 @@ impl Tty {
                     }
                     note = std::mem::take(&mut self.setting_note);
                 } else {
-                    note = format!("{} takes effect the next time emuera-tty starts", it.label);
+                    note = t!("{setting} takes effect the next time emuera-tty starts", setting = it.label);
                 }
             } else if rows[sel - vis.len()].1 == SEED_ROW {
                 // the seed row: selectable for its description, never changed
@@ -3141,6 +3141,10 @@ impl Tty {
     /// Apply a changed setting to the running terminal.
     fn apply_setting(&mut self, key: &str, v: &str, st: &crate::settings::Settings) {
         match key {
+            "language" => {
+                crate::i18n::select(v);
+                self.redraw_all.set(true);
+            }
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
             "yen" => {
@@ -3554,24 +3558,25 @@ impl Tty {
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
-        let head = if self.f_key_free(3) { " emuera-tty settings  (F3 / Ctrl-O)" } else { " emuera-tty settings  (Ctrl-O)" };
+        let head = format!(" {}  ({})", t!("emuera-tty settings"), if self.f_key_free(3) { "F3 / Ctrl-O" } else { "Ctrl-O" });
         let reading = crate::sys::memory_in_use();
-        let mem = reading.map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
-        let head_cols = head.chars().count();
-        let gap = inner.saturating_sub(head_cols + mem.len());
+        let mem_label = t!("memory");
+        let mem = reading.map(|b| format!("{} {} ", mem_label, crate::sys::memory_text(b))).unwrap_or_default();
+        let head_cols = UnicodeWidthStr::width(head.as_str());
+        let gap = inner.saturating_sub(head_cols + UnicodeWidthStr::width(mem.as_str()));
         let head = if gap > 0 { format!("{}{}{}", head, " ".repeat(gap), mem) } else { head.to_string() };
         line(&mut out, top + 1, &head, &title);
         // only the live counter is coloured (not the peak after it): drawn
         // over its place in the title row, after the box's left border
         if let (true, Some(b)) = (gap > 0, reading) {
             let (live, _) = crate::sys::memory_parts(b);
-            let col = left + 1 + head_cols + gap + "memory ".len();
+            let col = left + 1 + head_cols + gap + UnicodeWidthStr::width(mem_label.as_str()) + 1;
             let _ = write!(out, "\x1b[{};{}H{}{}{}", top + 1, col, title, self.mem_fg(crate::sys::memory_level(b)), live);
         }
         for (i, &ix) in vis.iter().enumerate() {
             let it = &ITEMS[ix];
             let later = if it.live { "" } else { "  (next start)" };
-            let text = format!("  {:<18} ‹ {} ›{}", it.label, st.get(it.key), later);
+            let text = format!("  {:<18} ‹ {} ›{}", it.label, st.shown_value(it.key), later);
             line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
         }
         for (k, e) in extra.iter().enumerate() {

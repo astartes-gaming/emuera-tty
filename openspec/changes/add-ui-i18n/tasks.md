@@ -1,17 +1,17 @@
 ## 1. Catalogue and lookup
 
-- [ ] 1.1 `src/i18n.rs`: `.po` parser (`msgctxt`, `msgid`, `msgstr`, escapes, multi-line strings). Verify: unit tests parse a sample with each construct, and an entry with an empty `msgstr` falls back to its `msgid`.
-- [ ] 1.2 `t!` macro: lookup in the loaded catalogue, English fallback, `{name}` placeholders filled by name. Verify: unit tests, including a translation that reorders two placeholders and one that leaves a placeholder out.
-- [ ] 1.3 Catalogues `i18n/ja.po`, `zh-Hans.po`, `zh-Hant.po`, `ko.po` (headers only), compiled in with `include_str!`; one language parsed on first use and replaced when the setting changes. Verify: a unit test switches language twice and gets each catalogue's text, and an empty catalogue gives English.
-- [ ] 1.4 Template test: extract `t!("…")` literals from `src/`, compare them with `i18n/emuera-tty.pot`, and have `UPDATE_POT=1` rewrite it. Verify: adding a `t!` without updating the template fails `cargo test` and names the message; `UPDATE_POT=1 cargo test` fixes it.
-- [ ] 1.5 CLAUDE.md: interface text goes through `t!`, and the template test. Verify: the section names the macro, the template file and `UPDATE_POT=1`.
+- [x] 1.1 `src/i18n.rs`: `.po` parser (`msgctxt`, `msgid`, `msgstr`, escapes, multi-line strings). Verify: unit tests parse a sample with each construct, and an entry with an empty `msgstr` falls back to its `msgid`.
+- [x] 1.2 `t!` macro: lookup in the loaded catalogue, English fallback, `{name}` placeholders filled by name. Verify: unit tests, including a translation that reorders two placeholders and one that leaves a placeholder out.
+- [x] 1.3 Catalogues `i18n/ja.po`, `zh-Hans.po`, `zh-Hant.po`, `ko.po` (headers only), compiled in with `include_str!`; one language parsed on first use and replaced when the setting changes. Verify: a unit test switches language twice and gets each catalogue's text, and an empty catalogue gives English.
+- [x] 1.4 Template test: extract `t!("…")` literals from `src/`, compare them with `i18n/emuera-tty.pot`, and have `UPDATE_POT=1` rewrite it. Verify: adding a `t!` without updating the template fails `cargo test` and names the message; `UPDATE_POT=1 cargo test` fixes it.
+- [x] 1.5 CLAUDE.md: interface text goes through `t!`, and the template test. Verify: the section names the macro, the template file and `UPDATE_POT=1`.
 
 ## 2. Language selection
 
 - [ ] 2.1 `Language` setting (`auto`, `en`, `ja`, `zh-Hans`, `zh-Hant`, `ko`, each label in its own language) in `settings.rs` and the overlay, applied from the next screen drawn. Verify: a unit test round-trips the setting through the config file, and choosing 日本語 with a test catalogue changes the overlay's title on the next frame.
-- [ ] 2.2 Locale detection: `LC_ALL` / `LC_MESSAGES` / `LANG` on Unix and Termux, `GetUserDefaultLocaleName` on Windows (`Win32_Globalization`), with Chinese region mapped to script. Verify: unit tests for `ja_JP.UTF-8`, `zh_TW`, `zh_HK`, `zh_CN`, `zh-Hant`, `ko_KR`, `C`, `POSIX` and an empty value; `cargo check --target x86_64-pc-windows-gnu` builds.
-- [ ] 2.3 `EMUERA_LANG` overrides both, and also accepts the pseudo-languages (`x-cjk`, `x-arab`, `x-cyrl`, `x-deva`, `x-avst`) for looking at layout by hand. Verify: a unit test of the precedence (setting `en` + `EMUERA_LANG=ja` gives Japanese).
-- [ ] 2.4 README *Settings* (Language) and man page (`Language`, `EMUERA_LANG`). Verify: `emuera-tty --manual` shows both.
+- [x] 2.2 Locale detection: `LC_ALL` / `LC_MESSAGES` / `LANG` on Unix and Termux, `GetUserDefaultLocaleName` on Windows (`Win32_Globalization`), with Chinese region mapped to script. Verify: unit tests for `ja_JP.UTF-8`, `zh_TW`, `zh_HK`, `zh_CN`, `zh-Hant`, `ko_KR`, `C`, `POSIX` and an empty value; `cargo check --target x86_64-pc-windows-gnu` builds.
+- [x] 2.3 `EMUERA_LANG` overrides both, and also accepts the pseudo-languages (`x-cjk`, `x-arab`, `x-cyrl`, `x-deva`, `x-avst`) for looking at layout by hand. Verify: a unit test of the precedence (setting `en` + `EMUERA_LANG=ja` gives Japanese).
+- [x] 2.4 README *Settings* (Language) and man page (`Language`, `EMUERA_LANG`). Verify: `emuera-tty --manual` shows both.
 
 ## 3. Width and combining marks
 
@@ -28,7 +28,7 @@
 
 ## 5. Tests in five scripts
 
-- [ ] 5.1 Pseudo-translation builder: CJK, Arabic, Cyrillic, Devanagari and Old Avestan transformations of every template message, placeholders kept, about 40% longer. Verify: unit tests check each script's code-point range, the kept placeholders and the length ratio.
+- [x] 5.1 Pseudo-translation builder: CJK, Arabic, Cyrillic, Devanagari and Old Avestan transformations of every template message, placeholders kept, about 40% longer. Verify: unit tests check each script's code-point range, the kept placeholders and the length ratio.
 - [ ] 5.2 Render the overlay, launcher, save manager and confirmation boxes into an in-memory screen in each pseudo-language, and check that borders line up, nothing overflows its space, and every code point is present. Verify: the tests pass, and break when a width call is reverted to `chars().count()`.
 
 ## 6. Integration check

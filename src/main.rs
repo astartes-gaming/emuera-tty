@@ -6,6 +6,10 @@
 //! the VM's system loop on a thread with a large stack (ERB code can
 //! recurse deeply, and each ERB call is a Rust call).
 
+// first: its `t!` / `tc!` macros are used by the modules below
+#[macro_use]
+mod i18n;
+
 mod archive;
 mod ast;
 mod atomic64;
@@ -784,6 +788,8 @@ fn stack_sizes(want: usize) -> impl Iterator<Item = usize> {
 }
 
 fn main() {
+    // the interface language, before anything is printed
+    i18n::select(settings::Settings::load().get("language"));
     let o = parse_args();
     // ERB call chains can be deep: run on a thread with a large stack
     // (EMUERA_STACK_MB, default 512), or the largest the system allows

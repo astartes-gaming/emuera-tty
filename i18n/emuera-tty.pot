@@ -1,0 +1,18 @@
+# emuera-tty's interface messages: the template for translations.
+# Made from the source by `UPDATE_POT=1 cargo test`; don't edit it by hand.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+#: src/tty.rs
+#, no-c-format
+msgid "{setting} takes effect the next time emuera-tty starts"
+msgstr ""
+
+#: src/tty.rs
+msgid "emuera-tty settings"
+msgstr ""
+
+#: src/tty.rs
+msgid "memory"
+msgstr ""

@@ -519,7 +519,7 @@ impl Picker {
             }
             Mode::Settings => {
                 for (i, it) in crate::settings::ITEMS.iter().enumerate().filter(|(_, it)| self.st.shown(it)) {
-                    let v = self.st.get(it.key);
+                    let v = self.st.shown_value(it.key);
                     let restart = if it.live { "" } else { "  (next start)" };
                     self.entries.push(Entry { label: format!("{:<18} ‹ {} ›{}", it.label, v, restart), wrapped: Vec::new(), kind: Kind::Setting(i) });
                 }
@@ -1027,6 +1027,9 @@ impl Picker {
                         let key = crate::settings::ITEMS[*i].key;
                         self.st.cycle(key, if matches!(act, Act::Up) { -1 } else { 1 });
                         self.st.save();
+                        if key == "language" {
+                            crate::i18n::select(self.st.get(key));
+                        }
                         self.load();
                         return Err(None);
                     }
@@ -1713,8 +1716,12 @@ impl Picker {
                 self.load();
             }
             Kind::Setting(i) => {
-                self.st.cycle(crate::settings::ITEMS[i].key, 1);
+                let key = crate::settings::ITEMS[i].key;
+                self.st.cycle(key, 1);
                 self.st.save();
+                if key == "language" {
+                    crate::i18n::select(self.st.get(key));
+                }
                 self.load();
             }
             Kind::Back => self.back(),

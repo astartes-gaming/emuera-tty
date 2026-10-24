@@ -44,6 +44,11 @@ the saved setting. A value can also be written `--colors=256`.
   characters are fitted to Emuera's two columns (detected at startup:
   terminals that draw them wide need nothing, others are padded; `osc66`
   tries kitty's text-sizing protocol instead, which some may prefer).
+- `EMUERA_LANG=ja|zh-Hans|zh-Hant|ko|en` sets the interface language, over
+  the setting and the system's. `x-cjk`, `x-arab`, `x-cyrl`, `x-deva` and
+  `x-avst` show every message rewritten in CJK, Arabic, Cyrillic, Devanagari
+  or Old Avestan letters and made longer, to check the layout holds in any
+  script.
 - `EMUERA_MEASURE=0` skips what emuera-tty does at startup: measuring how wide the terminal
   really draws those characters (terminals' width tables differ), which keeps maps
   aligned in Konsole, kitty and others.

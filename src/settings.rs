@@ -36,6 +36,13 @@ pub struct Item {
 
 pub const ITEMS: &[Item] = &[
     Item {
+        key: "language",
+        label: "Language",
+        choices: &["auto", "en", "ja", "zh-Hans", "zh-Hant", "ko"],
+        live: true,
+        help: "the language of emuera-tty's own menus and messages, not the game's (auto: the system's)",
+    },
+    Item {
         key: "images",
         label: "Images",
         choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"],
@@ -198,8 +205,12 @@ pub fn config_path() -> Option<PathBuf> {
 
 impl Settings {
     pub fn load() -> Settings {
+        config_path().and_then(|p| std::fs::read_to_string(p).ok()).map_or_else(Settings::default, |t| Settings::from_text(&t))
+    }
+
+    /// Settings from the config file's text.
+    fn from_text(text: &str) -> Settings {
         let mut s = Settings::default();
-        let Some(text) = config_path().and_then(|p| std::fs::read_to_string(p).ok()) else { return s };
         for line in text.lines() {
             let Some((k, v)) = line.split_once('=') else { continue };
             let (k, v) = (k.trim(), v.trim());
@@ -244,6 +255,14 @@ impl Settings {
 
     pub fn save(&self) {
         let Some(p) = config_path() else { return };
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(p, self.to_text());
+    }
+
+    /// The config file's text for these settings.
+    fn to_text(&self) -> String {
         let mut out = String::new();
         if let Some(g) = &self.last {
             out += &format!("game={}\n", g.display());
@@ -257,10 +276,7 @@ impl Settings {
         for (k, v) in &self.values {
             out += &format!("{}={}\n", k, v);
         }
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        let _ = std::fs::write(p, out);
+        out
     }
 
     /// A setting's value (its default if unset or not a known choice).
@@ -271,6 +287,15 @@ impl Settings {
             (_, Some(i)) => i.choices[0],
             (Some(v), None) => v.as_str(),
             (None, None) => "",
+        }
+    }
+
+    /// A setting's value as the menus show it: a language by its own name.
+    pub fn shown_value(&self, key: &str) -> String {
+        let v = self.get(key);
+        match key {
+            "language" => crate::i18n::LANGUAGES.iter().find(|l| l.0 == v).map_or(v, |l| l.1).to_string(),
+            _ => v.to_string(),
         }
     }
 
@@ -359,6 +384,20 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The language is saved as its code and shown by its own name
+    #[test]
+    fn language_setting() {
+        let mut s = Settings::default();
+        assert_eq!(s.get("language"), "auto");
+        s.set("language", "zh-Hant");
+        let back = Settings::from_text(&s.to_text());
+        assert_eq!(back.get("language"), "zh-Hant");
+        assert_eq!(back.shown_value("language"), "繁體中文");
+        assert_eq!(back.shown_value("images"), "auto");
+        s.set("language", "x-cjk");
+        assert_eq!(Settings::from_text(&s.to_text()).get("language"), "auto");
+    }
 
     #[test]
     fn defaults_and_cycling() {
