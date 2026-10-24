@@ -33,13 +33,12 @@ impl Tty {
             let mut rows: Vec<String> =
                 saves.iter().map(|s| format!("{} {} {}", crate::i18n::pad(&s.label(), 8), crate::i18n::pad(&sm::when(s.modified), 16), s.comment)).collect();
             if rows.is_empty() {
-                rows.push("(no saves yet)".into());
+                rows.push(t!("(no saves yet)"));
             }
             let first_action = rows.len();
-            let actions = ["Back up all saves now", "Restore a backup…", "Import a save file…", "Back  (Esc)"];
-            rows.extend(actions.iter().map(|a| a.to_string()));
-            let help = if note.is_empty() { format!("Enter: save actions   saves in {}", dir.display()) } else { std::mem::take(&mut note) };
-            let pick = self.list_box(con, res, req, "Saves", &rows, first_action, &mut sel, &help);
+            rows.extend([t!("Back up all saves now"), t!("Restore a backup…"), t!("Import a save file…"), t!("Back") + "  (Esc)"]);
+            let help = if note.is_empty() { t!("Enter: save actions   saves in {dir}", dir = dir.display()) } else { std::mem::take(&mut note) };
+            let pick = self.list_box(con, res, req, &t!("Saves"), &rows, first_action, &mut sel, &help);
             let k = match pick {
                 Pick::Quit => return true,
                 Pick::Back => return false,
@@ -49,7 +48,7 @@ impl Tty {
                 match k - first_action {
                     0 => {
                         note = match sm::backup_all(&dir, &root, "") {
-                            Ok((p, n)) => format!("backed up {} files to {}", n, p.display()),
+                            Ok((p, n)) => t!("backed up {n} files to {dir}", n = n, dir = p.display()),
                             Err(e) => e,
                         }
                     }
@@ -57,29 +56,30 @@ impl Tty {
                         Err(true) => return true,
                         Err(false) => {}
                         Ok(b) => {
-                            if self.confirm(con, res, req, &format!("Replace the saves with {}? (the current ones are backed up first)", b.display())) {
+                            if self.confirm(con, res, req, &t!("Replace the saves with {backup}? (the current ones are backed up first)", backup = b.display()))
+                            {
                                 note = match sm::restore(&b, &dir, &root) {
-                                    Ok(n) => format!("restored {} files; load one from the game's load menu", n),
+                                    Ok(n) => t!("restored {n} files; load one from the game's load menu", n = n),
                                     Err(e) => e,
                                 };
                             }
                         }
                     },
                     2 => {
-                        let Some(path) = self.prompt(con, res, req, "Import a save", "File to import:", "") else { continue };
+                        let Some(path) = self.prompt(con, res, req, &t!("Import a save"), &t!("File to import:"), "") else { continue };
                         let src = PathBuf::from(expand_home(path.trim()));
                         let global = src.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase().contains("global"));
                         let slot = if global {
                             None
                         } else {
                             let free = (0..1000).find(|n| !dir.join(sm::slot_name(*n)).exists()).unwrap_or(99);
-                            match self.prompt(con, res, req, "Import a save", "Into slot:", &free.to_string()).and_then(|s| s.trim().parse().ok()) {
+                            match self.prompt(con, res, req, &t!("Import a save"), &t!("Into slot:"), &free.to_string()).and_then(|s| s.trim().parse().ok()) {
                                 Some(n) => Some(n),
                                 None => continue,
                             }
                         };
                         note = match sm::import(&src, &dir, slot, &root) {
-                            Ok(p) => format!("imported as {}", p.display()),
+                            Ok(p) => t!("imported as {file}", file = p.display()),
                             Err(e) => e,
                         };
                     }
@@ -89,34 +89,37 @@ impl Tty {
             }
             let Some(s) = saves.get(k) else { continue };
             let what = format!("{}: {}", s.label(), s.comment);
-            let opts: Vec<String> = ["Copy to slot…", "Move to slot…", "Export to a file…", "Delete", "Cancel"].iter().map(|x| x.to_string()).collect();
+            let opts: Vec<String> = vec![t!("Copy to slot…"), t!("Move to slot…"), t!("Export to a file…"), t!("Delete"), t!("Cancel")];
             let mut osel = 0;
-            match self.list_box(con, res, req, &what, &opts, 0, &mut osel, "a deleted or overwritten save is kept in the backups") {
+            match self.list_box(con, res, req, &what, &opts, 0, &mut osel, &t!("a deleted or overwritten save is kept in the backups")) {
                 Pick::Quit => return true,
                 Pick::Back | Pick::Row(4) => {}
                 Pick::Row(o @ (0 | 1)) => {
                     let free = (0..1000).find(|n| !dir.join(sm::slot_name(*n)).exists()).unwrap_or(99);
-                    let Some(n) = self.prompt(con, res, req, &what, "To slot:", &free.to_string()).and_then(|t| t.trim().parse::<u32>().ok()) else { continue };
-                    if dir.join(sm::slot_name(n)).exists() && !self.confirm(con, res, req, &format!("Slot {:02} has a save. Overwrite it?", n)) {
+                    let Some(n) = self.prompt(con, res, req, &what, &t!("To slot:"), &free.to_string()).and_then(|t| t.trim().parse::<u32>().ok()) else {
+                        continue;
+                    };
+                    if dir.join(sm::slot_name(n)).exists() && !self.confirm(con, res, req, &t!("Slot {n} has a save. Overwrite it?", n = format!("{:02}", n))) {
                         continue;
                     }
                     note = match sm::copy_to_slot(&s.path, &dir, n, &root, o == 1) {
-                        Ok(_) => format!("{} {} to slot {:02}", if o == 1 { "moved" } else { "copied" }, s.label(), n),
+                        Ok(_) if o == 1 => t!("moved {save} to slot {n}", save = s.label(), n = format!("{:02}", n)),
+                        Ok(_) => t!("copied {save} to slot {n}", save = s.label(), n = format!("{:02}", n)),
                         Err(e) => e,
                     };
                 }
                 Pick::Row(2) => {
                     let def = sm::default_export(&game, s);
-                    let Some(p) = self.prompt(con, res, req, &what, "Export to:", &def.display().to_string()) else { continue };
+                    let Some(p) = self.prompt(con, res, req, &what, &t!("Export to:"), &def.display().to_string()) else { continue };
                     note = match sm::export(&s.path, Path::new(&expand_home(p.trim()))) {
-                        Ok(p) => format!("exported to {}", p.display()),
+                        Ok(p) => t!("exported to {file}", file = p.display()),
                         Err(e) => e,
                     };
                 }
                 Pick::Row(3) => {
-                    if self.confirm(con, res, req, &format!("Delete {}?", s.label())) {
+                    if self.confirm(con, res, req, &t!("Delete {save}?", save = s.label())) {
                         note = match sm::delete(&s.path, &root) {
-                            Ok(()) => format!("deleted {} (a copy is in {})", s.label(), root.display()),
+                            Ok(()) => t!("deleted {save} (a copy is in {dir})", save = s.label(), dir = root.display()),
                             Err(e) => e,
                         };
                     }
@@ -135,20 +138,22 @@ impl Tty {
                 con,
                 res,
                 req,
-                "Restore a backup",
-                &["(no backups yet)".to_string()],
+                &t!("Restore a backup"),
+                &[t!("(no backups yet)")],
                 1,
                 &mut s,
-                &format!("backups go to {}", root.display()),
+                &t!("backups go to {dir}", dir = root.display()),
             ) {
                 Pick::Quit => Err(true),
                 _ => Err(false),
             };
         }
-        let rows: Vec<String> =
-            bks.iter().map(|(p, n)| format!("{}  ({} files)", p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(), n)).collect();
+        let rows: Vec<String> = bks
+            .iter()
+            .map(|(p, n)| format!("{}  {}", p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(), t!("({n} files)", n = n)))
+            .collect();
         let mut s = 0;
-        match self.list_box(con, res, req, "Restore a backup", &rows, rows.len(), &mut s, &format!("in {}", root.display())) {
+        match self.list_box(con, res, req, &t!("Restore a backup"), &rows, rows.len(), &mut s, &t!("in {dir}", dir = root.display())) {
             Pick::Row(k) => Ok(bks[k].0.clone()),
             Pick::Quit => Err(true),
             Pick::Back => Err(false),
@@ -159,7 +164,7 @@ impl Tty {
         let mut s = 1;
         // (the box hides pictures; put them back as they were)
         let images = self.no_images;
-        let yes = matches!(self.list_box(con, res, req, q, &["Yes".to_string(), "No".to_string()], 0, &mut s, ""), Pick::Row(0));
+        let yes = matches!(self.list_box(con, res, req, q, &[t!("Yes"), t!("No")], 0, &mut s, ""), Pick::Row(0));
         self.no_images = images;
         yes
     }
@@ -177,7 +182,8 @@ impl Tty {
     /// Returns the top row and the first row shown.
     fn draw_list(&self, title: &str, rows: &[String], first_action: usize, sel: usize, help: &str) -> (usize, usize) {
         self.redraw_all.set(true);
-        let help_lines: Vec<&str> = if help.is_empty() { vec!["↑↓ choose  Enter pick  Esc back"] } else { help.split('\n').collect() };
+        let default_help = t!("↑↓ choose  Enter pick  Esc back");
+        let help_lines: Vec<&str> = if help.is_empty() { vec![default_help.as_str()] } else { help.split('\n').collect() };
         let vis = rows.len().min(self.rows.saturating_sub(5 + help_lines.len()).max(3));
         let start = sel.saturating_sub(vis.saturating_sub(1)).min(rows.len() - vis);
         let (left, top, inner) = self.box_geo(vis + help_lines.len() - 1);
@@ -327,7 +333,7 @@ impl Tty {
             }
             let shown: String = shown.into_iter().rev().collect();
             row(&mut out, top + 3, &format!(" {}▏", shown), &field);
-            row(&mut out, top + 4, " Enter accept  Esc cancel  Ctrl-U clear", &helpc);
+            row(&mut out, top + 4, &format!(" {}", t!("Enter accept  Esc cancel  Ctrl-U clear")), &helpc);
             let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 5, left, frame, "─".repeat(inner));
             write_all(&out);
             let Some(k) = self.next_key(500) else {

@@ -26,13 +26,13 @@ impl Tty {
     /// Run the page. Returns true when the player asked to quit.
     pub(super) fn env_panel(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> bool {
         let mut sel = 0usize;
-        let mut help = String::from("Normal users shouldn't need these: they are mostly for debugging and testing. ● set  ○ not set. Enter: what a variable does. They are read when emuera-tty starts, so set them in the shell before launching.");
+        let mut help = t!("Normal users shouldn't need these: they are mostly for debugging and testing. ● set  ○ not set. Enter: what a variable does. They are read when emuera-tty starts, so set them in the shell before launching.");
         loop {
             let rows: Vec<String> = ENV_VARS
                 .iter()
                 .map(|(name, _)| match std::env::var_os(name) {
                     Some(v) => format!("● {:<24} = {}", name, short(&v.to_string_lossy(), 40)),
-                    None => format!("○ {:<24}   (not set)", name),
+                    None => format!("○ {:<24}   {}", name, t!("(not set)")),
                 })
                 .collect();
             // the help wraps (up to four lines, always four high so the box
@@ -43,7 +43,7 @@ impl Tty {
                 con,
                 res,
                 req,
-                "Environment variables (EMUERA_*): for debugging, not normal use",
+                &t!("Environment variables (EMUERA_*): for debugging, not normal use"),
                 &rows,
                 rows.len(),
                 &mut sel,
@@ -53,7 +53,7 @@ impl Tty {
                 Pick::Quit => return true,
                 Pick::Row(i) => {
                     let (name, what) = ENV_VARS[i];
-                    help = format!("{}: {}", name, what);
+                    help = format!("{}: {}", name, crate::i18n::tr(what));
                 }
             }
         }

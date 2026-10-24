@@ -99,7 +99,8 @@ struct Opts {
 /// Print help; exit 0 when asked for (--help), 2 on bad options.
 fn usage_exit(code: i32) -> ! {
     eprintln!(
-        "usage: emuera-tty [GAME_DIR | GIT_URL] [options]\n\
+        "{}",
+        t!("usage: emuera-tty [GAME_DIR | GIT_URL] [options]\n\
          \n\
          GAME_DIR may be a game folder or an archive of one (.zip, .tar.gz, .7z…;\n\
          extracted once to ~/.local/share/emuera-tty/games).\n\
@@ -153,7 +154,7 @@ fn usage_exit(code: i32) -> ! {
          \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
          \x20 --uninstall                      remove the installed copy\n\
          \x20 --reset-data                     forget settings and the game library; saves are kept\n\
-         \x20 --manual                         the full manual (also: man emuera-tty once installed)"
+         \x20 --manual                         the full manual (also: man emuera-tty once installed)")
     );
     std::process::exit(code)
 }
@@ -321,7 +322,13 @@ fn build_program(
             if !l.subdirs {
                 let skipped = loader::walk(erb, &["erb", "erh"]).len().saturating_sub(erhs.len() + erbs.len());
                 if skipped > 0 {
-                    eprintln!("note: {} ERB/ERH files in subfolders not loaded: the game's config doesn't turn on サブディレクトリを検索する (Search subfolders), so Emuera skips them too", skipped);
+                    eprintln!(
+                        "{}",
+                        t!(
+                            "note: {n} ERB/ERH files in subfolders not loaded: the game's config doesn't turn on サブディレクトリを検索する (Search subfolders), so Emuera skips them too",
+                            n = skipped
+                        )
+                    );
                 }
             }
             (erhs, erbs)
@@ -438,7 +445,7 @@ fn run(o: Opts) -> i32 {
         return saves_cmd(cmd, &game);
     }
     let Some(csv_dir) = loader::find_dir_ci(&game, "CSV") else {
-        eprintln!("{}: no CSV directory found", game.display());
+        eprintln!("{}", t!("{dir}: no CSV directory found", dir = game.display()));
         return 1;
     };
     let erb_dir = loader::find_dir_ci(&game, "ERB");
@@ -564,7 +571,7 @@ fn run(o: Opts) -> i32 {
                 Box::new(t)
             }
             Err(e) => {
-                eprintln!("terminal init failed ({}); falling back to headless", e);
+                eprintln!("{}", t!("terminal init failed ({error}); falling back to headless", error = e));
                 Box::new(frontend::Headless::new(o.echo))
             }
         }
@@ -698,7 +705,7 @@ fn saves_cmd(cmd: &str, game: &std::path::Path) -> i32 {
     if cmd == "backup" {
         return match savemgr::backup_all(&dir, &root, "") {
             Ok((p, n)) => {
-                println!("backed up {} files to {}", n, p.display());
+                println!("{}", t!("backed up {n} files to {dir}", n = n, dir = p.display()));
                 0
             }
             Err(e) => {
@@ -707,13 +714,13 @@ fn saves_cmd(cmd: &str, game: &std::path::Path) -> i32 {
             }
         };
     }
-    println!("saves in {}:", dir.display());
+    println!("{}", t!("saves in {dir}:", dir = dir.display()));
     for s in savemgr::list(&dir) {
-        println!("  {:<8} {:<16} {:>9}  {}", s.label(), savemgr::when(s.modified), s.size, s.comment);
+        println!("  {} {} {:>9}  {}", i18n::pad(&s.label(), 8), i18n::pad(&savemgr::when(s.modified), 16), s.size, s.comment);
     }
     let bks = savemgr::backups(&root);
     if !bks.is_empty() {
-        println!("{} backups in {}", bks.len(), root.display());
+        println!("{}", t!("{n} backups in {dir}", n = bks.len(), dir = root.display()));
     }
     0
 }
@@ -738,12 +745,12 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
             if let Some(dir) = archive::already_extracted(g) {
                 return Some(dir);
             }
-            eprint!("Extracting {}…", g.display());
-            let r = archive::extract_game(g, &mut |n| eprint!("\rExtracting {}… {} files", g.display(), n));
+            eprint!("{}", t!("Extracting {archive}…", archive = g.display()));
+            let r = archive::extract_game(g, &mut |n| eprint!("\r{}", t!("Extracting {archive}… {n} files", archive = g.display(), n = n)));
             eprintln!();
             return match r {
                 Ok(dir) => {
-                    eprintln!("Game folder: {}", dir.display());
+                    eprintln!("{}", t!("Game folder: {dir}", dir = dir.display()));
                     Some(dir)
                 }
                 Err(e) => {
@@ -772,7 +779,7 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
         }
     }
     if !interactive {
-        eprintln!("emuera-tty: no game folder given (pass GAME_DIR, or run in a terminal to pick one)");
+        eprintln!("emuera-tty: {}", t!("no game folder given (pass GAME_DIR, or run in a terminal to pick one)"));
         return None;
     }
     let g = picker::launcher(None)?;

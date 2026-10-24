@@ -479,8 +479,8 @@ impl Picker {
             Mode::Library => {
                 for g in self.st.library.clone() {
                     let ok = is_game_dir(&g);
-                    let title = if ok { game_title(&g).unwrap_or_else(|| "Emuera game".into()) } else { "(folder missing)".into() };
-                    let last = if self.st.last.as_ref() == Some(&g) { "  · last played" } else { "" };
+                    let title = if ok { game_title(&g).unwrap_or_else(|| t!("Emuera game")) } else { t!("(folder missing)") };
+                    let last = if self.st.last.as_ref() == Some(&g) { format!("  · {}", t!("last played")) } else { String::new() };
                     // "· git <branch> @ <short hash>" (just "· git" if HEAD can't be read)
                     let git = match git_root(&g).filter(|_| ok) {
                         Some(root) => match git_head(&root) {
@@ -490,17 +490,17 @@ impl Picker {
                         None => String::new(),
                     };
                     // a game added from here (cloned or picked) and not played yet: "★ (NEW) Title" (gold in `draw`)
-                    let new = if self.st.fresh.contains(&g) { "(NEW) " } else { "" };
+                    let new = if self.st.fresh.contains(&g) { format!("{} ", t!("(NEW)")) } else { String::new() };
                     self.entries.push(Entry {
                         label: format!("★ {}{}   {}{}{}", new, title, g.display(), last, git),
                         wrapped: Vec::new(),
                         kind: Kind::Game { path: g, ok },
                     });
                 }
-                self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), wrapped: Vec::new(), kind: Kind::AddGame });
-                self.entries.push(Entry { label: "↓ Clone a game from a git repository…".into(), wrapped: Vec::new(), kind: Kind::CloneGame });
+                self.entries.push(Entry { label: format!("＋ {}", t!("Add a game (folder or archive)…")), wrapped: Vec::new(), kind: Kind::AddGame });
+                self.entries.push(Entry { label: format!("↓ {}", t!("Clone a game from a git repository…")), wrapped: Vec::new(), kind: Kind::CloneGame });
                 self.entries.push(Entry { label: "⇩ Download a game (from the eraGames wiki)…".into(), wrapped: Vec::new(), kind: Kind::Download });
-                self.entries.push(Entry { label: "⚙ Settings".into(), wrapped: Vec::new(), kind: Kind::OpenSettings });
+                self.entries.push(Entry { label: format!("⚙ {}", t!("Settings")), wrapped: Vec::new(), kind: Kind::OpenSettings });
                 self.rebuild_entry_line();
                 let entry_sel =
                     self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if self.st.last.as_ref() == Some(path))).unwrap_or(0);
@@ -511,8 +511,9 @@ impl Picker {
             Mode::Settings => {
                 for (i, it) in crate::settings::ITEMS.iter().enumerate().filter(|(_, it)| self.st.shown(it)) {
                     let v = self.st.shown_value(it.key);
-                    let restart = if it.live { "" } else { "  (next start)" };
-                    self.entries.push(Entry { label: format!("{} ‹ {} ›{}", crate::i18n::pad(it.label, 18), v, restart), wrapped: Vec::new(), kind: Kind::Setting(i) });
+                    let restart = if it.live { String::new() } else { format!("  {}", t!("(next start)")) };
+                    let label = format!("{} ‹ {} ›{}", crate::i18n::pad(&crate::i18n::tr(it.label), 18), v, restart);
+                    self.entries.push(Entry { label, wrapped: Vec::new(), kind: Kind::Setting(i) });
                 }
                 self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
                 self.rebuild_entry_line();
@@ -570,7 +571,7 @@ impl Picker {
                         self.entries.push(Entry { label, wrapped: Vec::new(), kind: Kind::WikiRepo(i) });
                     }
                 }
-                self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
+                self.entries.push(Entry { label: format!("← {}", t!("Back")), wrapped: Vec::new(), kind: Kind::Back });
                 self.rebuild_entry_line();
                 let first = self.entries.iter().position(|e| matches!(e.kind, Kind::WikiRepo(_))).unwrap_or(0);
                 self.sel = self.first_line(first);
@@ -580,8 +581,8 @@ impl Picker {
             Mode::Browse => {}
         }
         if is_game_dir(&self.dir) {
-            let t = game_title(&self.dir).unwrap_or_else(|| "this game".into());
-            self.entries.push(Entry { label: format!("▶ Play {}", t), wrapped: Vec::new(), kind: Kind::PlayHere });
+            let title = game_title(&self.dir).unwrap_or_else(|| t!("this game"));
+            self.entries.push(Entry { label: format!("▶ {}", t!("Play {game}", game = title)), wrapped: Vec::new(), kind: Kind::PlayHere });
         }
         if self.dir.parent().is_some() {
             self.entries.push(Entry { label: "../".into(), wrapped: Vec::new(), kind: Kind::Up });
@@ -592,7 +593,7 @@ impl Picker {
         for d in dirs {
             let name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let game = is_game_dir(&d);
-            let label = if game { format!("★ {}/   ({})", name, game_title(&d).unwrap_or_else(|| "Emuera game".into())) } else { format!("  {}/", name) };
+            let label = if game { format!("★ {}/   ({})", name, game_title(&d).unwrap_or_else(|| t!("Emuera game"))) } else { format!("  {}/", name) };
             self.entries.push(Entry { label, wrapped: Vec::new(), kind: Kind::Dir { path: d, game } });
         }
         let mut archives: Vec<PathBuf> =
@@ -603,7 +604,11 @@ impl Picker {
             let name = a.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let bytes = std::fs::metadata(&a).map(|m| m.len()).unwrap_or(0);
             let size = if bytes >= 1 << 20 { format!("{:.0} MB", bytes as f64 / 1048576.0) } else { format!("{} KB", bytes.div_ceil(1024)) };
-            self.entries.push(Entry { label: format!("▣ {}   [archive, {}]", name, size), wrapped: Vec::new(), kind: Kind::Archive { path: a } });
+            self.entries.push(Entry {
+                label: format!("▣ {}   [{}]", name, t!("archive, {size}", size = size)),
+                wrapped: Vec::new(),
+                kind: Kind::Archive { path: a },
+            });
         }
         // start on "Play" or the first folder rather than on ../
         let entry_sel = self.entries.iter().position(|e| e.kind != Kind::Up).unwrap_or(0);
@@ -679,19 +684,23 @@ impl Picker {
         match self.mode {
             Mode::Library => {
                 s += &format!(
-                    "\x1b[1memuera-tty — your games\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
-                    fit("Enter to play · a add a game · u update (git) · U update all · d remove from the list · s settings", cols)
+                    "\x1b[1memuera-tty — {}\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
+                    t!("your games"),
+                    fit(&t!("Enter to play · a add a game · u update (git) · U update all · d remove from the list · s settings"), cols)
                 )
             }
             Mode::Settings => {
                 s += &format!(
-                    "\x1b[1mSettings\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
+                    "\x1b[1m{}\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
+                    t!("Settings"),
                     fit(&crate::settings::config_path().map(|p| p.display().to_string()).unwrap_or_default(), cols)
                 )
             }
             Mode::Browse => {
                 s += &format!(
-                    "\x1b[1mChoose an Emuera game folder or archive\x1b[0m  (★ = game, ▣ = archive)\r\n\x1b[2m{}\x1b[0m\r\n",
+                    "\x1b[1m{}\x1b[0m  {}\r\n\x1b[2m{}\x1b[0m\r\n",
+                    t!("Choose an Emuera game folder or archive"),
+                    t!("(★ = game, ▣ = archive)"),
                     fit(&self.dir.display().to_string(), cols)
                 )
             }
@@ -725,7 +734,7 @@ impl Picker {
                     break;
                 }
 
-                let pad = cols.saturating_sub(crate::i18n::width(&wrapped_line) + 1);
+                let pad = cols.saturating_sub(crate::i18n::width(wrapped_line) + 1);
                 let color = match e.kind {
                     Kind::Game { ok: false, .. } => "\x1b[2m",
                     Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
@@ -751,11 +760,13 @@ impl Picker {
                         Some(at) => format!("{}\x1b[{}m{}{}", &l[..at], sky, &l[at..], back),
                         None => l,
                     };
-                    let line = match wrapped_line.strip_prefix("★ (NEW)") {
-                        Some(rest) => format!("★ \x1b[1;{}m(NEW){}{}", gold, back, rest),
+                    // "(NEW)" (bold gold) comes first, right after the star
+                    let new = t!("(NEW)");
+                    let line = match wrapped_line.strip_prefix(&format!("★ {}", new)) {
+                        Some(rest) => format!("★ \x1b[1;{}m{}{}{}", gold, new, back, rest),
                         None => wrapped_line.clone(),
                     };
-                    git_tail(tint(line, "· last played", "\x1b[32m"))
+                    git_tail(tint(line, &format!("· {}", t!("last played")), "\x1b[32m"))
                 } else {
                     wrapped_line.clone()
                 };
@@ -772,29 +783,29 @@ impl Picker {
             }
         }
         if self.entries.is_empty() {
-            s += "  (empty)\r\n";
+            s += &format!("  {}\r\n", t!("(empty)"));
         }
         let help = match self.mode {
             // right after an update, `g` is the full git output (not "top")
-            Mode::Library if self.git_log.is_some() => "g git output  ↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit",
-            Mode::Library => "↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit",
-            Mode::Settings => "↑↓ move  ←/→ or Enter change  Esc back",
-            Mode::Download => "↑↓ move  Enter details  Esc back",
-            Mode::DownloadGame => "↑↓ move  Enter download  Esc back",
-            Mode::Browse if self.adding => "↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back",
-            Mode::Browse => "↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit",
+            Mode::Library if self.git_log.is_some() => t!("g git output  ↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit"),
+            Mode::Library => t!("↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit"),
+            Mode::Settings => t!("↑↓ move  ←/→ or Enter change  Esc back"),
+            Mode::Download => t!("↑↓ move  Enter details  Esc back"),
+            Mode::DownloadGame => t!("↑↓ move  Enter download  Esc back"),
+            Mode::Browse if self.adding => t!("↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back"),
+            Mode::Browse => t!("↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit"),
         };
         // the selected setting's explanation - find which entry the selected line belongs to
         if self.mode == Mode::Settings && !self.entry_line.is_empty() && self.sel < self.entry_line.len() {
             let entry_idx = self.entry_line[self.sel];
             if let Some(Entry { kind: Kind::Setting(i), .. }) = self.entries.get(entry_idx) {
                 if self.note.is_empty() {
-                    self.note = crate::settings::ITEMS[*i].help.to_string();
+                    self.note = crate::i18n::tr(crate::settings::ITEMS[*i].help);
                 }
             }
         }
         let (_, trows) = term_size();
-        s += &format!("\x1b[{};1H\x1b[0m{}\x1b[{};1H\x1b[2m{}\x1b[0m", trows.saturating_sub(1), fit(&self.note, cols), trows, fit(help, cols));
+        s += &format!("\x1b[{};1H\x1b[0m{}\x1b[{};1H\x1b[2m{}\x1b[0m", trows.saturating_sub(1), fit(&self.note, cols), trows, fit(&help, cols));
         out(s.as_bytes());
     }
 
@@ -912,7 +923,7 @@ impl Picker {
                         let line_sel = self.sel;
                         self.load();
                         self.sel = line_sel.min(self.entry_line.len().saturating_sub(1));
-                        self.note = format!("Removed {} from the list (its files are still there).", p.display());
+                        self.note = t!("Removed {game} from the list (its files are still there).", game = p.display());
                     }
                 }
                 Err(None)
@@ -922,15 +933,16 @@ impl Picker {
                     if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(idx) {
                         let p = path.clone();
                         let (note, log) = match git_root(&p) {
-                            None => ("This game isn't a git checkout: nothing to update from.".to_string(), None),
+                            None => (t!("This game isn't a git checkout: nothing to update from."), None),
                             Some(root) => {
                                 let origin = git_origin(&root).unwrap_or_default();
-                                let mut g = Gauge::new(&format!("Updating {}", repo_title(&root)), "");
+                                let title = t!("Updating {game}", game = repo_title(&root));
+                                let mut g = Gauge::new(&title, "");
                                 let (mut res, mut log) = git_pull(&root, self.login_for(&origin).as_ref(), &mut |s| g.step(s));
                                 // a repository for signed-in users: ask, and try again
                                 if res.as_ref().is_err_and(|e| e.contains(LOGIN_WANTED)) {
                                     if let Some(l) = self.ask_login(&origin) {
-                                        let mut g = Gauge::new(&format!("Updating {}", repo_title(&root)), "");
+                                        let mut g = Gauge::new(&title, "");
                                         (res, log) = git_pull(&root, Some(&l), &mut |s| g.step(s));
                                         if res.is_ok() {
                                             self.draw();
@@ -940,8 +952,9 @@ impl Picker {
                                 }
                                 (
                                     match res {
-                                        Ok(m) => m,
-                                        Err(e) => format!("\x1b[31m{}\x1b[0m", e),
+                                        Ok(Pulled::Current { pics }) => t!("Already up to date.") + &pics,
+                                        Ok(Pulled::Updated { what, pics }) => t!("Updated: {what}.", what = what) + &pics,
+                                        Err(e) => format!("\x1b[31m{}\x1b[0m", t!("Update failed: {why}", why = e)),
                                     },
                                     Some(log),
                                 )
@@ -967,7 +980,7 @@ impl Picker {
                     }
                 }
                 if roots.is_empty() {
-                    self.note = "None of these games is a git checkout: nothing to update from.".into();
+                    self.note = t!("None of these games is a git checkout: nothing to update from.");
                     return Err(None);
                 }
                 let (mut updated, mut current, mut failed) = (Vec::new(), 0, Vec::new());
@@ -975,27 +988,27 @@ impl Picker {
                 let mut g = Gauge::new("Updating", "");
                 for (i, root) in roots.iter().enumerate() {
                     let name = repo_title(root);
-                    g.job(i, roots.len(), &format!("Updating {} of {}: {}", i + 1, roots.len(), name));
+                    g.job(i, roots.len(), &t!("Updating {i} of {n}: {game}", i = i + 1, n = roots.len(), game = &name));
                     let login = git_origin(root).and_then(|o| self.login_for(&o));
                     let (res, text) = git_pull(root, login.as_ref(), &mut |s| g.step(s));
                     log += &format!("== {} ==\n{}\n", root.display(), text);
                     match res {
-                        Ok(m) if m.starts_with("Already") => current += 1,
-                        Ok(m) => updated.push(format!("{} ({})", name, m.trim_start_matches("Updated: ").trim_end_matches('.'))),
-                        Err(e) => failed.push(format!("{}: {}", name, e.trim_start_matches("Update failed: "))),
+                        Ok(Pulled::Current { .. }) => current += 1,
+                        Ok(Pulled::Updated { what, .. }) => updated.push(format!("{} ({})", name, what)),
+                        Err(e) => failed.push(format!("{}: {}", name, e)),
                     }
                 }
                 let mut parts = Vec::new();
                 if !updated.is_empty() {
-                    parts.push(format!("updated {}", updated.join(", ")));
+                    parts.push(t!("updated {games}", games = updated.join(", ")));
                 }
                 if current > 0 {
-                    parts.push(format!("{} already up to date", current));
+                    parts.push(t!("{n} already up to date", n = current));
                 }
                 if !failed.is_empty() {
-                    parts.push(format!("\x1b[31mfailed {}\x1b[0m", failed.join("; ")));
+                    parts.push(format!("\x1b[31m{}\x1b[0m", t!("failed {games}", games = failed.join("; "))));
                 }
-                self.note = format!("Update all: {}.", parts.join("; "));
+                self.note = t!("Update all: {result}.", result = parts.join("; "));
                 self.git_log = Some(log);
                 let line_sel = self.sel;
                 self.load();
@@ -1005,7 +1018,7 @@ impl Picker {
             // `g`: the full git output of the update just done, else "top" as usual
             (Mode::Library | Mode::DownloadGame, Act::Letter('g')) => match self.git_log.clone() {
                 Some(log) => {
-                    self.view_text("Full git output", &log);
+                    self.view_text(&t!("Full git output"), &log);
                     Err(None)
                 }
                 None => Ok(Act::Top),
@@ -1055,12 +1068,12 @@ impl Picker {
             s += &format!(
                 "\x1b[1m{}\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
                 fit(title, cols),
-                fit(&format!("lines {}-{} of {}", (top + 1).min(last), last, wrapped_lines.len()), cols)
+                fit(&t!("lines {from}-{to} of {total}", from = (top + 1).min(last), to = last, total = wrapped_lines.len()), cols)
             );
             for l in wrapped_lines.iter().skip(top).take(rows) {
                 s += &format!("{}\r\n", l);
             }
-            s += &format!("\x1b[{};1H\x1b[2m{}\x1b[0m", trows, fit("↑↓ PgUp PgDn Home End scroll  q / Esc / Enter / g close", cols));
+            s += &format!("\x1b[{};1H\x1b[2m{}\x1b[0m", trows, fit(&t!("↑↓ PgUp PgDn Home End scroll  q / Esc / Enter / g close"), cols));
             out(s.as_bytes());
             match self.next_act() {
                 Act::Move(d) => top = top.saturating_add_signed(d),
@@ -1190,10 +1203,10 @@ impl Picker {
                 shown,
                 rows,
                 fit(
-                    if default.is_empty() || edited {
-                        "Enter accept · Esc cancel · Ctrl-U clear"
+                    &if default.is_empty() || edited {
+                        t!("Enter accept · Esc cancel · Ctrl-U clear")
                     } else {
-                        "Enter use the [default] · Tab edit it · Esc cancel"
+                        t!("Enter use the [default] · Tab edit it · Esc cancel")
                     },
                     cols
                 )
@@ -1219,36 +1232,36 @@ impl Picker {
     /// starting it, and mark it "(NEW)" until it is played.
     fn clone_game(&mut self) {
         if which("git").is_none() {
-            self.note = "\x1b[31mgit isn't installed (or isn't on PATH): can't clone.\x1b[0m".into();
+            self.note = format!("\x1b[31m{}\x1b[0m", t!("git isn't installed (or isn't on PATH): can't clone."));
             return;
         }
-        let cancelled = "Clone cancelled.";
+        let cancelled = t!("Clone cancelled.");
         // each field starts from what was used last time
         let last_url = self.st.get("clone_url").to_string();
-        let Some(url) = self.prompt("Repository to clone (URL or path)", &last_url).filter(|u| !u.is_empty()) else {
-            self.note = cancelled.into();
+        let Some(url) = self.prompt(&t!("Repository to clone (URL or path)"), &last_url).filter(|u| !u.is_empty()) else {
+            self.note = cancelled;
             return;
         };
         let Some(name) = repo_name(&url) else {
-            self.note = format!("\x1b[31mCan't tell a folder name from \"{}\".\x1b[0m", url);
+            self.note = format!("\x1b[31m{}\x1b[0m", t!("Can't tell a folder name from \"{url}\".", url = url));
             return;
         };
         let default_dir = match self.st.get("clone_dir") {
             "" => browse_start(&self.st).display().to_string(),
             d => d.to_string(),
         };
-        let Some(dir) = self.prompt(&format!("Folder to store it in (it gets its own \"{}\" subfolder)", name), &default_dir) else {
-            self.note = cancelled.into();
+        let Some(dir) = self.prompt(&t!("Folder to store it in (it gets its own \"{name}\" subfolder)", name = name), &default_dir) else {
+            self.note = cancelled;
             return;
         };
         let last_branch = self.st.get("clone_branch").to_string();
-        let Some(branch) = self.prompt("Branch to use (optional, empty = the repository's default)", &last_branch) else {
-            self.note = cancelled.into();
+        let Some(branch) = self.prompt(&t!("Branch to use (optional, empty = the repository's default)"), &last_branch) else {
+            self.note = cancelled;
             return;
         };
         let last_depth = self.st.get("clone_depth").to_string();
-        let Some(depth_text) = self.prompt("Depth (optional, 1 = latest commit only, empty = all)", &last_depth) else {
-            self.note = cancelled.into();
+        let Some(depth_text) = self.prompt(&t!("Depth (optional, 1 = latest commit only, empty = all)"), &last_depth) else {
+            self.note = cancelled;
             return;
         };
         let depth = if depth_text.is_empty() {
@@ -1257,7 +1270,7 @@ impl Picker {
             match depth_text.parse::<u32>() {
                 Ok(d) if d > 0 => Some(d),
                 _ => {
-                    self.note = "\x1b[31mThe depth must be a whole number of 1 or more (or empty for the full history).\x1b[0m".into();
+                    self.note = format!("\x1b[31m{}\x1b[0m", t!("The depth must be a whole number of 1 or more (or empty for the full history)."));
                     return;
                 }
             }
@@ -1519,11 +1532,11 @@ impl Picker {
                 self.note = format!("Already cloned at {}: Enter to play, u to update.", g.display());
                 return;
             }
-            self.note = format!("\x1b[31m{} already exists and isn't empty.\x1b[0m", target.display());
+            self.note = format!("\x1b[31m{}\x1b[0m", t!("{folder} already exists and isn't empty.", folder = target.display()));
             return;
         }
         if let Err(e) = std::fs::create_dir_all(parent) {
-            self.note = format!("\x1b[31mCan't create {}: {}\x1b[0m", parent.display(), e);
+            self.note = format!("\x1b[31m{}\x1b[0m", t!("Can't create {folder}: {error}", folder = parent.display(), error = e));
             return;
         }
         // (the launcher again behind the gauge, without the prompts)
@@ -1531,7 +1544,7 @@ impl Picker {
         let mut login = self.login_for(url);
         let mut asked = false;
         let (end, mut log, mut g) = loop {
-            let mut g = Gauge::new(&format!("Cloning {}", name), "Esc / Ctrl-C: cancel the clone");
+            let mut g = Gauge::new(&t!("Cloning {repo}", repo = &name), &t!("Esc / Ctrl-C: cancel the clone"));
             let (end, log) = git_clone(url, branch, depth, &target, login.as_ref(), &mut |s| g.step(s), &mut || self.cancel_pressed());
             // a repository for signed-in users: ask once, then again with it
             if matches!(end, CloneEnd::Failed(_)) && needs_login(&log) && !asked {
@@ -1567,15 +1580,15 @@ impl Picker {
                         Err(_) => false,
                     };
                 self.note = if !left {
-                    "Clone cancelled: nothing was added (g: git output).".to_string()
+                    t!("Clone cancelled: nothing was added (g: git output).")
                 } else {
                     let yes = self
-                        .prompt(&format!("Remove the half-cloned \"{}\" folder? (y/N)", name), "")
+                        .prompt(&t!("Remove the half-cloned \"{name}\" folder? (y/N)", name = name), "")
                         .is_some_and(|a| matches!(a.to_lowercase().as_str(), "y" | "yes"));
                     if yes && std::fs::remove_dir_all(&target).is_ok() {
-                        "Clone cancelled: the half-cloned folder was removed, nothing was added (g: git output).".to_string()
+                        t!("Clone cancelled: the half-cloned folder was removed, nothing was added (g: git output).")
                     } else {
-                        format!("Clone cancelled: nothing was added; the half-cloned folder is still at {}.", target.display())
+                        t!("Clone cancelled: nothing was added; the half-cloned folder is still at {folder}.", folder = target.display())
                     }
                 };
                 return;
@@ -1587,19 +1600,20 @@ impl Picker {
         }
         // the game may sit in a subfolder of the repository (see `git_root`)
         let Some(game) = find_game_dir(&target, 2) else {
-            self.note = format!("Cloned into {}, but no Emuera game (CSV and ERB folders) is in it, so it wasn't added.", target.display());
+            self.note = t!("Cloned into {folder}, but no Emuera game (CSV and ERB folders) is in it, so it wasn't added.", folder = target.display());
             return;
         };
         let g = self.st.add_game(&game);
         self.st.mark_new(&g);
         let g = self.select_game(&g);
         let at = match (git_root(&g).and_then(|r| git_head(&r)), depth) {
-            (Some(h), Some(d)) => format!(" ({}, depth {})", h, d),
+            (Some(h), Some(d)) => format!(" ({}, {})", h, t!("depth {n}", n = d)),
             (Some(h), None) => format!(" ({})", h),
-            (None, Some(d)) => format!(" (depth {})", d),
+            (None, Some(d)) => format!(" ({})", t!("depth {n}", n = d)),
             (None, None) => String::new(),
         };
-        self.note = format!("Cloned {}{}: NEW, Enter to play (g: git output).{}", game_title(&g).unwrap_or_else(|| g.display().to_string()), at, pics);
+        self.note =
+            t!("Cloned {game}{at}: NEW, Enter to play (g: git output).", game = game_title(&g).unwrap_or_else(|| g.display().to_string()), at = at) + &pics;
     }
 
     /// Has Esc or Ctrl-C been pressed? Reads what was typed meanwhile and
@@ -1668,7 +1682,7 @@ impl Picker {
         self.mode = Mode::Library;
         self.load();
         self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == g)).unwrap_or(0);
-        self.note = format!("Added {} — Enter to play.", game_title(&g).unwrap_or_else(|| g.display().to_string()));
+        self.note = t!("Added {game} — Enter to play.", game = game_title(&g).unwrap_or_else(|| g.display().to_string()));
         None
     }
 
@@ -1684,7 +1698,9 @@ impl Picker {
         let kind = self.entries.get(entry_idx)?.kind.clone();
         match kind {
             Kind::Game { path, ok: true } => return Some(path),
-            Kind::Game { path, ok: false } => self.note = format!("\x1b[31m{} is gone (d removes it from the list)\x1b[0m", path.display()),
+            Kind::Game { path, ok: false } => {
+                self.note = format!("\x1b[31m{}\x1b[0m", t!("{folder} is gone (d removes it from the list)", folder = path.display()))
+            }
             Kind::AddGame => self.start_adding(),
             Kind::CloneGame => self.clone_game(),
             Kind::Download => self.open_downloader(),
@@ -1729,7 +1745,7 @@ impl Picker {
             Kind::Dir { path, game: false } => {
                 self.cd(path);
                 if self.entries.iter().all(|e| e.kind == Kind::Up) {
-                    self.note = "Nothing here: no folders or archives.".into();
+                    self.note = t!("Nothing here: no folders or archives.");
                 }
             }
         }
@@ -1739,8 +1755,8 @@ impl Picker {
     /// Extract an archive, showing progress in a gauge.
     fn extract(&mut self, archive: &Path) -> Result<PathBuf, String> {
         let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let mut g = Gauge::new(&format!("Extracting {}", name), "");
-        crate::archive::extract_game(archive, &mut |n| g.show(&format!("{} files", n), None))
+        let mut g = Gauge::new(&t!("Extracting {archive}", archive = &name), "");
+        crate::archive::extract_game(archive, &mut |n| g.show(&t!("{n} files", n = n), None))
     }
 
     /// Wait for input and turn it into an action.
@@ -1915,7 +1931,7 @@ pub fn library_size() -> usize {
 
 /// `--install`: copy this binary to the user binary folder.
 pub fn install() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("can't find this program: {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| t!("can't find this program: {error}", error = e))?;
     install_from(&exe)
 }
 
@@ -1957,7 +1973,7 @@ fn install_from(exe: &Path) -> Result<String, String> {
     let dir = bin_dir()?;
     let dest = dir.join(crate::sys::EXE_NAME);
     if dest.canonicalize().ok() == exe.canonicalize().ok() {
-        return Ok(format!("{} is already installed.", dest.display()));
+        return Ok(t!("{file} is already installed.", file = dest.display()));
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
     // write beside the target and rename, so replacing a running copy is safe
@@ -1973,17 +1989,25 @@ fn install_from(exe: &Path) -> Result<String, String> {
     crate::sys::set_executable(&tmp).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &dest).map_err(|e| format!("{}: {}", dest.display(), e))?;
     let on_path = std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d == dir));
-    let mut msg = format!("Installed {}.", dest.display());
+    let mut msg = t!("Installed {file}.", file = dest.display());
     match install_man(&dir) {
-        Ok(Some(p)) => msg += &format!("\nManual page: {} (man emuera-tty).", p.display()),
+        Ok(Some(p)) => msg += &format!("\n{}", t!("Manual page: {file} (man emuera-tty).", file = p.display())),
         Ok(None) => {}
-        Err(e) => msg += &format!("\n(manual page not installed: {})", e),
+        Err(e) => msg += &format!("\n{}", t!("(manual page not installed: {error})", error = e)),
     }
     if !on_path {
         if cfg!(windows) {
-            msg += &format!("\n{} is not on your PATH; add it with (then open a new terminal):\n  setx PATH \"%PATH%;{}\"", dir.display(), dir.display());
+            msg += &format!(
+                "\n{}\n  setx PATH \"%PATH%;{}\"",
+                t!("{dir} is not on your PATH; add it with (then open a new terminal):", dir = dir.display()),
+                dir.display()
+            );
         } else {
-            msg += &format!("\n{} is not on your PATH; add this to ~/.bashrc or ~/.profile:\n  export PATH=\"{}:$PATH\"", dir.display(), dir.display());
+            msg += &format!(
+                "\n{}\n  export PATH=\"{}:$PATH\"",
+                t!("{dir} is not on your PATH; add this to ~/.bashrc or ~/.profile:", dir = dir.display()),
+                dir.display()
+            );
         }
     }
     Ok(msg)
@@ -2041,9 +2065,9 @@ pub fn uninstall() -> Result<String, String> {
             if let Some(m) = dest.parent().and_then(man_path) {
                 let _ = std::fs::remove_file(m);
             }
-            Ok(format!("Removed {}.", dest.display()))
+            Ok(t!("Removed {file}.", file = dest.display()))
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!("{} is not installed.", dest.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(t!("{file} is not installed.", file = dest.display())),
         Err(e) => Err(format!("{}: {}", dest.display(), e)),
     }
 }
@@ -2054,8 +2078,8 @@ pub fn reset_data() -> Result<String, String> {
     let cfg = crate::settings::config_path().ok_or("HOME is not set")?;
     let dir = cfg.parent().map(Path::to_path_buf).unwrap_or(cfg);
     match std::fs::remove_dir_all(&dir) {
-        Ok(()) => Ok(format!("Removed {} (settings and the game list); the next start will ask for a game folder.", dir.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("Nothing to reset.".into()),
+        Ok(()) => Ok(t!("Removed {dir} (settings and the game list); the next start will ask for a game folder.", dir = dir.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(t!("Nothing to reset.")),
         Err(e) => Err(format!("{}: {}", dir.display(), e)),
     }
 }
@@ -2073,7 +2097,7 @@ fn run_cmd(cmd: &mut std::process::Command) -> Result<(), String> {
     eprintln!("$ {}", shown.replace('"', ""));
     match cmd.status() {
         Ok(s) if s.success() => Ok(()),
-        Ok(s) => Err(format!("{} failed ({})", shown, s)),
+        Ok(s) => Err(t!("{command} failed ({status})", command = shown, status = s)),
         Err(e) => Err(format!("{}: {}", shown, e)),
     }
 }
@@ -2507,7 +2531,7 @@ fn git_clone(
             log += "\n(cancelled)\n";
             (CloneEnd::Cancelled, log)
         }
-        RunEnd::Failed if needs_login(&text) => (CloneEnd::Failed(format!("Clone failed: {}", LOGIN_WANTED)), log),
+        RunEnd::Failed if needs_login(&text) => (CloneEnd::Failed(t!("Clone failed: {why}", why = LOGIN_WANTED)), log),
         RunEnd::Failed => {
             let why = text
                 .lines()
@@ -2516,8 +2540,8 @@ fn git_clone(
                 .find(|l| l.starts_with("fatal:") || l.starts_with("error:"))
                 .and_then(|l| l.split_once(':').map(|x| x.1.trim().to_string()))
                 .filter(|w| !w.is_empty())
-                .unwrap_or_else(|| "git clone didn't work".to_string());
-            (CloneEnd::Failed(format!("Clone failed: {}", why)), log)
+                .unwrap_or_else(|| t!("git clone didn't work"));
+            (CloneEnd::Failed(t!("Clone failed: {why}", why = why)), log)
         }
     }
 }
@@ -2539,15 +2563,21 @@ fn git_head(root: &Path) -> Option<String> {
     let hash = run(&["rev-parse", "--short", "HEAD"])?;
     Some(match run(&["symbolic-ref", "--short", "-q", "HEAD"]) {
         Some(branch) => format!("{} @ {}", branch, hash),
-        None => format!("detached @ {}", hash),
+        None => format!("{} @ {}", t!("detached"), hash),
     })
 }
 
+/// What a `git pull` did: nothing new, or new commits (how many and which
+/// files, "(a -> b)"); either with a note on the pictures (Git LFS).
+enum Pulled {
+    Current { pics: String },
+    Updated { what: String, pics: String },
+}
+
 /// `git pull --ff-only` in `root`, without prompts (no password or editor
-/// can be asked for here). The result is Ok: what changed (with the
-/// "(<previous hash> -> <new hash>)" of an update); Err: why it didn't. The
-/// second part is git's full output, for the launcher's `g`.
-fn git_pull(root: &Path, login: Option<&Login>, progress: &mut dyn FnMut(Step)) -> (Result<String, String>, String) {
+/// can be asked for here). The result is Ok: what changed; Err: why it
+/// didn't. The second part is git's full output, for the launcher's `g`.
+fn git_pull(root: &Path, login: Option<&Login>, progress: &mut dyn FnMut(Step)) -> (Result<Pulled, String>, String) {
     let mut log = String::new();
     let res = git_pull_logged(root, &mut log, login, progress);
     if log.is_empty() {
@@ -2574,7 +2604,7 @@ fn lfs_pull(root: &Path, log: &mut String, login: Option<&Login>, progress: &mut
     c.arg("-C").arg(root).args(["lfs", "pull"]).env("GIT_LFS_FORCE_PROGRESS", "1");
     let (end, out, err) = match run_watched(&mut c, progress, &mut || false) {
         Ok(r) => r,
-        Err(e) => return format!(" Pictures (git lfs pull) failed: {}", e),
+        Err(e) => return format!(" {}", t!("Pictures (git lfs pull) failed: {error}", error = e)),
     };
     let err = settled(&err);
     log.push_str("$ git lfs pull\n");
@@ -2584,13 +2614,13 @@ fn lfs_pull(root: &Path, log: &mut String, login: Option<&Login>, progress: &mut
         return String::new();
     }
     if err.contains("not a git command") {
-        " Its pictures are in Git LFS: install git-lfs and update again.".into()
+        format!(" {}", t!("Its pictures are in Git LFS: install git-lfs and update again."))
     } else {
-        format!(" Pictures (git lfs pull) failed: {}", err.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("?"))
+        format!(" {}", t!("Pictures (git lfs pull) failed: {error}", error = err.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("?")))
     }
 }
 
-fn git_pull_logged(root: &Path, log: &mut String, login: Option<&Login>, progress: &mut dyn FnMut(Step)) -> Result<String, String> {
+fn git_pull_logged(root: &Path, log: &mut String, login: Option<&Login>, progress: &mut dyn FnMut(Step)) -> Result<Pulled, String> {
     use std::process::{Command, Stdio};
     let git = |args: &[&str]| {
         let mut c = Command::new("git");
@@ -2611,7 +2641,7 @@ fn git_pull_logged(root: &Path, log: &mut String, login: Option<&Login>, progres
     log.push_str(&err);
     log.push_str(&out);
     if !matches!(end, RunEnd::Ok) && needs_login(&err) {
-        return Err(format!("Update failed: {}", LOGIN_WANTED));
+        return Err(LOGIN_WANTED.to_string());
     }
     if !matches!(end, RunEnd::Ok) {
         // git's own explanation (its error: / fatal: line and the files
@@ -2628,17 +2658,18 @@ fn git_pull_logged(root: &Path, log: &mut String, login: Option<&Login>, progres
             }
             None => lines.iter().rev().map(|l| l.trim()).find(|l| !l.is_empty() && !l.starts_with("hint:")).unwrap_or("").to_string(),
         };
-        return Err(format!("Update failed: {}", if why.is_empty() { "git pull didn't work".to_string() } else { why }));
+        return Err(if why.is_empty() { t!("git pull didn't work") } else { why });
     }
     let pics = lfs_pull(root, log, login, progress);
     let after = head(git(&["rev-parse", "HEAD"])?);
     if before == after {
-        return Ok(format!("Already up to date.{}", pics));
+        return Ok(Pulled::Current { pics });
     }
     let n = head(git(&["rev-list", "--count", &format!("{}..{}", before, after)])?);
     let files = head(git(&["diff", "--shortstat", &before, &after])?);
     let short = |h: &str| -> Result<String, String> { Ok(head(git(&["rev-parse", "--short", h])?)) };
-    Ok(format!("Updated: {} new commit{} ({}) ({} -> {}).{}", n, if n == "1" { "" } else { "s" }, files, short(&before)?, short(&after)?, pics))
+    let commits = if n == "1" { t!("1 new commit") } else { t!("{n} new commits", n = n) };
+    Ok(Pulled::Updated { what: format!("{} ({}) ({} -> {})", commits, files, short(&before)?, short(&after)?), pics })
 }
 
 /// First `name` on PATH.

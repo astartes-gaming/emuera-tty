@@ -270,6 +270,21 @@ macro_rules! t {
     };
 }
 
+/// Marks a literal as an interface message without translating it, for
+/// tables that must stay constant (setting labels, help lines): the
+/// template picks it up, and the code that shows it calls [`tr`].
+#[macro_export]
+macro_rules! n {
+    ($msg:literal) => {
+        $msg
+    };
+}
+
+/// A message marked with [`n!`], in the selected language.
+pub fn tr(msgid: &str) -> String {
+    lookup("", msgid)
+}
+
 /// [`t!`] with a context, for an English text used in two senses:
 /// `tc!("menu", "Open")`.
 #[macro_export]
@@ -543,7 +558,7 @@ msgstr "未確認"
             // (bytes: `i` may be inside a multi-byte character)
             let (ctx_macro, skip) = if b[i..].starts_with(b"tc!(") {
                 (true, 4)
-            } else if b[i..].starts_with(b"t!(") {
+            } else if b[i..].starts_with(b"t!(") || b[i..].starts_with(b"n!(") {
                 (false, 3)
             } else {
                 i += 1;
@@ -590,6 +605,10 @@ msgstr "未確認"
                     't' => out.push('\t'),
                     'r' => out.push('\r'),
                     '0' => out.push('\0'),
+                    'x' => {
+                        let hex: String = [it.next()?.1, it.next()?.1].iter().collect();
+                        out.push(u8::from_str_radix(&hex, 16).ok()? as char);
+                    }
                     '"' => out.push('"'),
                     '\'' => out.push('\''),
                     '\\' => out.push('\\'),
@@ -694,15 +713,17 @@ msgstr "未確認"
     /// and not inside other macro names
     #[test]
     fn literal_extraction() {
-        let src = "let a = t!(\"Plain\");\nlet b = t!(\"With {n}\", n = 3);\nlet c = tc!(\"menu\", \"Open\");\nprint!(\"not this\");\nlet d = t!(\"Esc\\\"aped\\n\");";
+        let src = "const L: &str = n!(\"Marked\");\nlet a = t!(\"Plain\");\nlet b = t!(\"With {n}\", n = 3);\nlet c = tc!(\"menu\", \"Open\");\nprint!(\"not this\");\nlet d = t!(\"Esc\\\"aped\\n\");\nlet e = t!(\"a\\x20b\\\n     c\");";
         let got = macro_literals(src);
         assert_eq!(
             got,
             vec![
+                (String::new(), "Marked".to_string()),
                 (String::new(), "Plain".to_string()),
                 (String::new(), "With {n}".to_string()),
                 ("menu".to_string(), "Open".to_string()),
                 (String::new(), "Esc\"aped\n".to_string()),
+                (String::new(), "a bc".to_string()),
             ]
         );
     }

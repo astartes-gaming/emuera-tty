@@ -143,11 +143,14 @@ fn wrap_words(s: &str, w: usize, most: usize) -> Vec<String> {
         if !cur.is_empty() {
             cur.push(' ');
         }
+        // a word wider than the line (or text without spaces: Chinese,
+        // Japanese) carries on onto the next line
         for c in word.chars() {
-            if cw(cur) + UnicodeWidthChar::width(c).unwrap_or(0) > w {
-                break;
+            let cur = lines.last_mut().unwrap();
+            if !cur.is_empty() && cw(cur) + UnicodeWidthChar::width(c).unwrap_or(0) > w {
+                lines.push(String::new());
             }
-            cur.push(c);
+            lines.last_mut().unwrap().push(c);
         }
     }
     if lines.len() > most {
@@ -1026,7 +1029,7 @@ impl Tty {
                 Err(e) => {
                     // shown on the input line (and again on exit): the
                     // startup text is gone once the screen is drawn
-                    t.notice = Some(format!("no mouse ({}): install gpm, or add yourself to the input group", e));
+                    t.notice = Some(t!("no mouse ({error}): install gpm, or add yourself to the input group", error = e));
                 }
             }
         }
@@ -1257,14 +1260,14 @@ impl Tty {
                     true
                 }
                 Err(e) => {
-                    let hint = if e.contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
-                    why = format!("; framebuffer unavailable: {}{}", e, hint);
+                    let hint = if e.contains("ermission") { t!(" (/dev/fb0 needs the video group)") } else { String::new() };
+                    why = t!("; framebuffer unavailable: {error}{hint}", error = e, hint = hint);
                     false
                 }
             }
         };
         match pref {
-            "none" => return "graphics backend: none".into(),
+            "none" => return t!("graphics backend: {name}", name = "none"),
             "kitty" if in_tmux() => self.gfx = Box::new(gfx::kitty::Kitty::new_tmux()),
             "kitty" => self.gfx = Box::new(gfx::kitty::Kitty::new()),
             "iterm" => self.gfx = Box::new(gfx::iterm::Iterm::new()),
@@ -1292,10 +1295,10 @@ impl Tty {
                     let tmux = in_tmux();
                     let passthrough = tmux && tmux_passthrough();
                     if std::env::var_os("STY").is_some() && !tmux {
-                        why = "; inside GNU screen there are no pictures (tmux can show them)".into();
+                        why = t!("; inside GNU screen there are no pictures (tmux can show them)");
                     }
                     if tmux && !passthrough {
-                        why = "; inside tmux, kitty-graphics terminals (Ghostty, kitty) need `set -g allow-passthrough all` for pictures".into();
+                        why = t!("; inside tmux, kitty-graphics terminals (Ghostty, kitty) need `set -g allow-passthrough all` for pictures");
                     }
                     let kitty_q: &[u8] = if passthrough {
                         b"\x1bPtmux;\x1b\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\x1b\\\x1b\\\x1b[c"
@@ -1341,7 +1344,7 @@ impl Tty {
                 }
             }
         }
-        format!("graphics backend: {} (cell {}x{} px){}", self.gfx.name(), self.cell.0, self.cell.1, why)
+        t!("graphics backend: {name}", name = self.gfx.name()) + &format!(" ({}x{} px){}", self.cell.0, self.cell.1, why)
     }
 
     /// The game's macros, read from its macro.txt the first time.
@@ -1370,7 +1373,7 @@ impl Tty {
         } else if !self.line.is_empty() {
             let text = self.line.text().to_string();
             self.macros().set(i, &text);
-            self.note_macro(format!("F{} stored", n));
+            self.note_macro(t!("F{n} stored", n = n));
         }
     }
 
@@ -2220,8 +2223,8 @@ impl Tty {
             self.draw_bar(&mut out, hover);
         }
         if self.scroll > 0 {
-            let tag = format!(" [scroll -{}] ", self.scroll);
-            let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(tag.len()), tag);
+            let tag = format!(" [{}] ", t!("scroll -{n}", n = self.scroll));
+            let _ = write!(out, "\x1b[{};{}H\x1b[7m{}\x1b[0m", self.rows, cols.saturating_sub(crate::i18n::width(&tag)), tag);
         }
         // overlapping layers (portraits) go to the terminal as one picture
         let mut placements = self.merger.merge(placements, self.cell, self.gfx.name() == "kitty-tmux");
@@ -2708,7 +2711,7 @@ impl Tty {
     fn anchor_hotkey(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, k: &Key) -> Option<InputResult> {
         match k {
             Key::Title => {
-                if !self.confirm(con, res, req, "Back to the title screen? Unsaved progress is lost.") {
+                if !self.confirm(con, res, req, &t!("Back to the title screen? Unsaved progress is lost.")) {
                     return None;
                 }
                 let cfg = self.clip_config(con);
@@ -2724,11 +2727,11 @@ impl Tty {
     /// settings); `toggle_debug` turns `--debug` on or off for the new run.
     fn restart(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, toggle_debug: bool) -> Option<InputResult> {
         let q = match (toggle_debug, debug_run()) {
-            (false, _) => "Restart the game? Unsaved progress is lost.",
-            (true, false) => "Restart the game in debug mode? Unsaved progress is lost.",
-            (true, true) => "Restart the game without debug mode? Unsaved progress is lost.",
+            (false, _) => t!("Restart the game? Unsaved progress is lost."),
+            (true, false) => t!("Restart the game in debug mode? Unsaved progress is lost."),
+            (true, true) => t!("Restart the game without debug mode? Unsaved progress is lost."),
         };
-        if !self.confirm(con, res, req, q) {
+        if !self.confirm(con, res, req, &q) {
             return None;
         }
         let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
@@ -2922,8 +2925,12 @@ impl Tty {
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ENV_VARS, ITEMS};
         let mut st = Settings::load();
-        let seed_row =
-            format!("{} {}  (read-only)", crate::i18n::pad("Random seed", 18), crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64);
+        let seed_row = format!(
+            "{} {}  {}",
+            crate::i18n::pad(&t!("Random seed"), 18),
+            crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64,
+            t!("(read-only)")
+        );
         // the variables page is only offered when one of its variables is set
         let env_any = ENV_VARS.iter().any(|(name, _)| std::env::var_os(name).is_some());
         let mut sel = 0usize;
@@ -2936,40 +2943,45 @@ impl Tty {
             // the settings shown (the translation ones hide while the
             // Translator is off) and the rows after them: (text, action id)
             let vis: Vec<usize> = ITEMS.iter().enumerate().filter(|(_, it)| st.shown(it)).map(|(i, _)| i).collect();
-            let mut rows: Vec<(&str, usize)> = vec![(seed_row.as_str(), SEED_ROW)];
+            let mut rows: Vec<(String, usize)> = vec![(seed_row.clone(), SEED_ROW)];
             if env_any {
-                rows.push(("Environment variables…  (the EMUERA_* ones emuera-tty reads)", 0));
+                rows.push((t!("Environment variables…  (the EMUERA_* ones emuera-tty reads)"), 0));
             }
-            rows.push(("Game settings…  (Emuera's settings window: emuera.config)", 1));
-            rows.push(("Manage saves…  (copy, export, back up, restore)", 2));
+            rows.push((t!("Game settings…  (Emuera's settings window: emuera.config)"), 1));
+            rows.push((t!("Manage saves…  (copy, export, back up, restore)"), 2));
             if !matches!(st.get("translator"), "off" | "file") {
-                rows.push(("Test the translator…  (translates a sample line)", 3));
+                rows.push((t!("Test the translator…  (translates a sample line)"), 3));
             }
+            let keys = |k: &str| format!("  ({})", k);
             rows.extend([
-                ("Clear the translation cache  (translate the screen again)", 4),
-                ("Export translation cache…  (save translations to a file)", 14),
-                ("Clear the picture cache  (frees decoded sprites; they load again when shown)", 5),
-                ("Recolor…  (draw a colour of the game's as another)", 12),
-                ("Back to the title  (Ctrl-T)", 6),
-                ("Restart the game  (Ctrl-R)", 7),
-                (if debug_run() { "Restart without debug mode" } else { "Restart in debug mode  ([IF_DEBUG] and ;#; lines run)" }, 13),
-                (if self.f_key_free(5) { "Reload ERB files  (F5 / Ctrl-E)" } else { "Reload ERB files  (Ctrl-E)" }, 8),
-                ("Switch game…  (unsaved progress is lost)", 9),
-                ("Quit emuera-tty", 10),
-                ("Close  (Esc)", 11),
+                (t!("Clear the translation cache  (translate the screen again)"), 4),
+                (t!("Export translation cache…  (save translations to a file)"), 14),
+                (t!("Clear the picture cache  (frees decoded sprites; they load again when shown)"), 5),
+                (t!("Recolor…  (draw a colour of the game's as another)"), 12),
+                (t!("Back to the title") + &keys("Ctrl-T"), 6),
+                (t!("Restart the game") + &keys("Ctrl-R"), 7),
+                (if debug_run() { t!("Restart without debug mode") } else { t!("Restart in debug mode  ([IF_DEBUG] and ;#; lines run)") }, 13),
+                (t!("Reload ERB files") + &keys(if self.f_key_free(5) { "F5 / Ctrl-E" } else { "Ctrl-E" }), 8),
+                (t!("Switch game…  (unsaved progress is lost)"), 9),
+                (t!("Quit emuera-tty"), 10),
+                (t!("Close") + &keys("Esc"), 11),
             ]);
-            let extra: Vec<&str> = rows.iter().map(|r| r.0).collect();
+            let extra: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
             let n = vis.len() + extra.len();
             sel = sel.min(n - 1);
             if let Some((rx, began, what)) = &test {
-                let secs = began.elapsed().as_secs_f32();
+                let secs = format!("{:.1}", began.elapsed().as_secs_f32());
+                let mut running = false;
                 note = match rx.try_recv() {
-                    Ok(Ok(t)) => format!("works ({:.1} s, {}): {}", secs, what, t),
-                    Ok(Err(e)) => format!("failed ({:.1} s, {}): {}", secs, what, e),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => format!("testing {}… {:.0} s", what, secs),
-                    Err(_) => format!("{} stopped", what),
+                    Ok(Ok(r)) => t!("works ({secs} s, {what}): {result}", secs = secs, what = what, result = r),
+                    Ok(Err(e)) => t!("failed ({secs} s, {what}): {error}", secs = secs, what = what, error = e),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        running = true;
+                        t!("testing {what}… {secs} s", what = what, secs = format!("{:.0}", began.elapsed().as_secs_f32()))
+                    }
+                    Err(_) => t!("{what} stopped", what = what),
                 };
-                if !note.starts_with("testing") {
+                if !running {
                     test = None;
                 }
             }
@@ -3025,15 +3037,15 @@ impl Tty {
                     }
                     if it.key == "sound" {
                         con.sound_on = crate::sound::wanted(&v);
-                        self.setting_note = if con.sound_on { "sound on".into() } else { "sound off".into() };
+                        self.setting_note = if con.sound_on { t!("sound on") } else { t!("sound off") };
                     }
                     note = std::mem::take(&mut self.setting_note);
                 } else {
-                    note = t!("{setting} takes effect the next time emuera-tty starts", setting = it.label);
+                    note = t!("{setting} takes effect the next time emuera-tty starts", setting = crate::i18n::tr(it.label));
                 }
             } else if rows[sel - vis.len()].1 == SEED_ROW {
                 // the seed row: selectable for its description, never changed
-                note = "the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty".into();
+                note = t!("the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty");
             } else if act == 1 {
                 match rows[sel - vis.len()].1 {
                     0 => {
@@ -3045,7 +3057,7 @@ impl Tty {
                     }
                     1 => {
                         if self.game.is_none() {
-                            note = "no game folder known here".into();
+                            note = t!("no game folder known here");
                         } else {
                             let r = self.game_settings(con, res, req);
                             self.box_closed.set(true);
@@ -3058,7 +3070,7 @@ impl Tty {
                     }
                     2 => {
                         if self.game.is_none() {
-                            note = "no game folder known here".into();
+                            note = t!("no game folder known here");
                         } else {
                             let quit = self.save_manager(con, res, req);
                             self.box_closed.set(true);
@@ -3067,8 +3079,8 @@ impl Tty {
                             }
                         }
                     }
-                    3 if st.get("translator") == "off" => note = "the Translator is off: choose one to test it".into(),
-                    3 if st.get("translator") == "file" => note = "the Translator is file: no translator is used, so there is nothing to test".into(),
+                    3 if st.get("translator") == "off" => note = t!("the Translator is off: choose one to test it"),
+                    3 if st.get("translator") == "file" => note = t!("the Translator is file: no translator is used, so there is nothing to test"),
                     3 => match crate::mt::Engine::choose(st.get("translator")) {
                         Err(e) => note = e,
                         Ok(e) => {
@@ -3094,14 +3106,14 @@ impl Tty {
                             let _ = std::thread::Builder::new().name("translate-test".into()).spawn(move || {
                                 let _ = tx.send(e.test(sample, from, &to));
                             });
-                            note = format!("testing {}…", what);
+                            note = t!("testing {what}…", what = what);
                             test = Some((rx, Instant::now(), what));
                         }
                     },
                     4 => {
                         note = match self.mt.as_mut() {
-                            Some(m) => format!("translation cache cleared ({} lines): what is on screen is translated again", m.clear()),
-                            None => "translation is off: no cache to clear".into(),
+                            Some(m) => t!("translation cache cleared ({lines} lines): what is on screen is translated again", lines = m.clear()),
+                            None => t!("translation is off: no cache to clear"),
                         };
                         self.force_frame = true;
                     }
@@ -3138,25 +3150,29 @@ impl Tty {
                         let held = |r: &Resources| r.mem_stats().1.iter().map(|g| g.2).sum::<usize>();
                         let before = held(res);
                         res.release_images();
-                        note = format!("picture cache cleared ({:.1} MB freed)", before.saturating_sub(held(res)) as f64 / (1 << 20) as f64);
+                        let freed = format!("{:.1}", before.saturating_sub(held(res)) as f64 / (1 << 20) as f64);
+                        note = t!("picture cache cleared ({mb} MB freed)", mb = freed);
                         self.force_frame = true;
                     }
                     12 => {
                         let cur = st.get("recolor").to_string();
-                        let what =
-                            "from:to pairs of hex colours, comma separated (e.g. 01183c:111d3b turns AnonTW's time-stop navy into a softer blue; empty: none)";
-                        if let Some(v) = self.prompt(con, res, req, "Recolor", what, &cur) {
+                        let what = t!(
+                            "from:to pairs of hex colours, comma separated (e.g. 01183c:111d3b turns AnonTW's time-stop navy into a softer blue; empty: none)"
+                        );
+                        if let Some(v) = self.prompt(con, res, req, &t!("Recolor"), &what, &cur) {
                             let v = v.trim().to_string();
                             self.set_recolor(&v);
                             let n = self.recolor.len();
                             st.set("recolor", &v);
                             st.save();
                             note = if v.is_empty() {
-                                "recolouring off".into()
+                                t!("recolouring off")
                             } else if n == 0 {
-                                format!("no colour pairs understood in \"{}\" (write from:to, e.g. 01183c:111d3b)", v)
+                                t!("no colour pairs understood in \"{value}\" (write from:to, e.g. 01183c:111d3b)", value = v)
+                            } else if n == 1 {
+                                t!("1 colour recoloured (the game still sees its own colours)")
                             } else {
-                                format!("{} colour{} recoloured (the game still sees its own colours)", n, if n == 1 { "" } else { "s" })
+                                t!("{n} colours recoloured (the game still sees its own colours)", n = n)
                             };
                             self.force_frame = true;
                         }
@@ -3239,27 +3255,30 @@ impl Tty {
         self.tr_from = st.get("translate_from").to_string();
         self.tr_all = all_text(st);
         if st.get("translator") == "off" {
-            return "the game shows as it prints itself".into();
+            return t!("the game shows as it prints itself");
         }
         // the translator, if one is wanted and there is one; the files of
         // --translate-load work with or without it
         let which = st.get("translator");
-        let engine = if which == "file" { Err("the Translator is file: no translator is used".to_string()) } else { crate::mt::Engine::choose(which) };
+        let engine = if which == "file" { Err(t!("the Translator is file: no translator is used")) } else { crate::mt::Engine::choose(which) };
         let mt = crate::mt::Mt::start(engine.as_ref().ok().cloned(), lang);
-        let what = if self.tr_all { "the game" } else { "dialog" };
+        let what = if self.tr_all { tc!("translating", "the game") } else { tc!("translating", "dialog") };
         // what reading the --translate-load files came to (empty: none given)
         let files = mt.memory_note.clone();
         let loaded = mt.memory_len() > 0;
         let note = match (&engine, loaded) {
-            (Ok(e), true) => format!("translating {} into {} from {}, else with {}", what, lang, files, e.describe()),
-            (Ok(e), false) if files.is_empty() => format!("translating {} into {} with {}", what, lang, e.describe()),
-            (Ok(e), false) => format!("translating {} into {} with {} (--translate-load: {})", what, lang, e.describe(), files),
-            (Err(_), true) => format!("translating {} into {} from {} (no translator)", what, lang, files),
-            (Err(_), false) if which == "file" && files.is_empty() => {
-                "the Translator is file, but no translation file was given: start with --translate-load (or --translate-storage) and a translation log"
-                    .to_string()
+            (Ok(e), true) => {
+                t!("translating {what} into {lang} from {files}, else with {engine}", what = what, lang = lang, files = files, engine = e.describe())
             }
-            (Err(_), false) if which == "file" => format!("the Translator is file, but --translate-load gave nothing: {}", files),
+            (Ok(e), false) if files.is_empty() => t!("translating {what} into {lang} with {engine}", what = what, lang = lang, engine = e.describe()),
+            (Ok(e), false) => {
+                t!("translating {what} into {lang} with {engine} (--translate-load: {files})", what = what, lang = lang, engine = e.describe(), files = files)
+            }
+            (Err(_), true) => t!("translating {what} into {lang} from {files} (no translator)", what = what, lang = lang, files = files),
+            (Err(_), false) if which == "file" && files.is_empty() => {
+                t!("the Translator is file, but no translation file was given: start with --translate-load (or --translate-storage) and a translation log")
+            }
+            (Err(_), false) if which == "file" => t!("the Translator is file, but --translate-load gave nothing: {files}", files = files),
             (Err(e), false) if files.is_empty() => e.clone(),
             (Err(e), false) => format!("{} (--translate-load: {})", e, files),
         };
@@ -3551,15 +3570,15 @@ impl Tty {
             sel < vis.len() && matches!(ITEMS[vis[sel]].key, "translate" | "translator" | "translate_from" | "translate_what"),
             self.mt.as_ref().and_then(|m| m.last_error.as_ref()),
         ) {
-            format!("last translation failed: {}", e)
+            t!("last translation failed: {error}", error = e)
         } else if sel < vis.len() && ITEMS[vis[sel]].key == "gamepad" {
             format!("{}; found: {}", ITEMS[vis[sel]].help, crate::gamepad::describe())
         } else if sel < vis.len() {
-            ITEMS[vis[sel]].help.to_string()
+            crate::i18n::tr(ITEMS[vis[sel]].help)
         } else if sel == vis.len() {
-            "the number the random generator started from (read-only); set EMUERA_SEED=N before starting for repeatable runs; RANDOMIZE / INITRAND in the game change it".to_string()
+            t!("the number the random generator started from (read-only); set EMUERA_SEED=N before starting for repeatable runs; RANDOMIZE / INITRAND in the game change it")
         } else {
-            "↑↓ choose  ←→ / Enter change  Esc close".to_string()
+            t!("↑↓ choose  ←→ / Enter change  Esc close")
         };
         // the help wraps (three lines at most) rather than being cut
         // (always three lines high, so the box doesn't move between rows)
@@ -3612,8 +3631,8 @@ impl Tty {
         }
         for (i, &ix) in vis.iter().enumerate() {
             let it = &ITEMS[ix];
-            let later = if it.live { "" } else { "  (next start)" };
-            let text = format!("  {} ‹ {} ›{}", crate::i18n::pad(it.label, 18), st.shown_value(it.key), later);
+            let later = if it.live { String::new() } else { format!("  {}", t!("(next start)")) };
+            let text = format!("  {} ‹ {} ›{}", crate::i18n::pad(&crate::i18n::tr(it.label), 18), st.shown_value(it.key), later);
             line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
         }
         for (k, e) in extra.iter().enumerate() {
@@ -3662,14 +3681,15 @@ impl Tty {
         // (F3 is a macro key once a macro is stored on it; Redox's console
         // sends nothing for F1…F12, and its TERM says xterm-256color)
         let f3 = self.f_key_free(3) && !cfg!(target_os = "redox");
-        parts.push((if f3 { "F3 settings" } else { "Ctrl-O settings" }.to_string(), "\x1b[0;2m"));
+        let settings_part = format!("{} {}", if f3 { "F3" } else { "Ctrl-O" }, t!("settings"));
+        parts.push((settings_part.clone(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
             let k = parts
                 .iter()
                 .position(|(s, _)| s.starts_with('@'))
                 .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB")))
-                .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" settings")))
+                .or_else(|| parts.iter().position(|(s, _)| *s == settings_part))
                 .unwrap_or(0);
             parts.remove(k);
         }
@@ -4618,7 +4638,7 @@ impl Frontend for Tty {
         if !self.status_info || self.cols < 30 || since.elapsed() < Duration::from_millis(400) {
             return;
         }
-        let mut s = String::from("… working");
+        let mut s = format!("… {}", t!("working"));
         if !con.running.is_empty() {
             s += &format!("  @{}", con.running);
         }
@@ -4698,7 +4718,7 @@ impl Frontend for Tty {
         // stored macros go to macro.txt, as Emuera writes it on closing
         if let (Some(m), Some(p)) = (&self.macros, self.macro_path()) {
             if let Err(e) = m.save(&p) {
-                self.notice = Some(format!("can't write {}: {}", p.display(), e));
+                self.notice = Some(t!("can't write {file}: {error}", file = p.display(), error = e));
             }
         }
         let mut out = Vec::new();
@@ -5063,6 +5083,16 @@ mod tests {
 #[cfg(test)]
 mod mark_tests {
     use super::*;
+
+    /// Help text wraps at spaces, and text without spaces (Japanese) wraps
+    /// anywhere instead of being cut
+    #[test]
+    fn wrapping_without_spaces() {
+        assert_eq!(wrap_words("one two three", 7, 4), ["one two", "three"]);
+        assert_eq!(wrap_words("設定は次回の起動から有効になります", 10, 4), ["設定は次回", "の起動から", "有効になり", "ます"]);
+        let w = |s: &String| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+        assert!(wrap_words("आ\u{901}आ\u{901}आ\u{901}", 2, 4).iter().all(|l| w(l) <= 2));
+    }
 
     /// Combining marks, vowel signs, variation selectors and ZWJ are marks;
     /// controls and spacing characters aren't

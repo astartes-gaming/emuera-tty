@@ -22,9 +22,9 @@
 
 ## 4. Wrapping the strings
 
-- [ ] 4.1 `tty.rs` and `tty/*.rs` (overlay, bottom row, notices, save manager, game settings page, environment variables page). Verify: the template test lists the new messages, and English screens are unchanged (the existing tests pass, and a pty capture of the overlay matches the one from before).
-- [ ] 4.2 `picker.rs` (launcher) and `settings.rs` (setting names, values, help lines). Verify: as 4.1, for the launcher and the overlay's settings.
-- [ ] 4.3 `emuconfig.rs` setting labels and `main.rs` (`--help`, error messages); the template regenerated. Verify: as 4.1, and `--help` output is unchanged in English.
+- [x] 4.1 `tty.rs` and `tty/*.rs` (overlay, bottom row, notices, save manager, game settings page, environment variables page). Verify: the template test lists the new messages, and English screens are unchanged (the existing tests pass, and a pty capture of the overlay matches the one from before).
+- [x] 4.2 `picker.rs` (launcher) and `settings.rs` (setting names, values, help lines). Verify: as 4.1, for the launcher and the overlay's settings.
+- [x] 4.3 `emuconfig.rs` setting labels and `main.rs` (`--help`, error messages); the template regenerated. Verify: as 4.1, and `--help` output is unchanged in English.
 
 ## 5. Tests in five scripts
 

@@ -11,7 +11,7 @@ use crate::resources::Resources;
 use std::io::Write;
 
 /// Columns `s` takes (wide characters count two).
-use crate::i18n::{fit, width};
+use crate::i18n::{fit, tr, width};
 
 /// "R,G,B" as a colour.
 fn rgb(v: &str) -> Option<(u8, u8, u8)> {
@@ -93,7 +93,7 @@ impl Tty {
             let it = items[sel];
             let (v, src) = vals.get(it);
             if src == Source::Fixed {
-                note = format!("{}: the game fixes this one (CSV/_fixed.config)", it.label);
+                note = t!("{setting}: the game fixes this one (CSV/_fixed.config)", setting = tr(it.label));
                 continue;
             }
             let new: Option<String> = match (act, it.kind) {
@@ -103,18 +103,18 @@ impl Tty {
                 (10 | -10, _) => continue,
                 (_, kind) => {
                     let what = match kind {
-                        Kind::Int(lo, hi) => format!("A number from {} to {} (empty: the game's setting):", lo, hi),
-                        Kind::Color => "R,G,B or #RRGGBB (empty: the game's setting):".to_string(),
-                        _ => "Text (empty: the game's setting):".to_string(),
+                        Kind::Int(lo, hi) => t!("A number from {lo} to {hi} (empty: the game's setting):", lo = lo, hi = hi),
+                        Kind::Color => t!("R,G,B or #RRGGBB (empty: the game's setting):"),
+                        _ => t!("Text (empty: the game's setting):"),
                     };
-                    let Some(t) = self.prompt(con, res, req, it.label, &what, &v) else { continue };
+                    let Some(t) = self.prompt(con, res, req, &tr(it.label), &what, &v) else { continue };
                     if t.trim().is_empty() {
                         None
                     } else {
                         match normalize(it, &t) {
                             Ok(n) => Some(n),
                             Err(e) => {
-                                note = format!("{}: {}", it.label, e);
+                                note = format!("{}: {}", tr(it.label), e);
                                 continue;
                             }
                         }
@@ -124,7 +124,7 @@ impl Tty {
             match vals.set(it, new.as_deref()) {
                 Ok(()) => {
                     changed = true;
-                    note = format!("{}: {}", it.label, vals.get(it).0);
+                    note = format!("{}: {}", tr(it.label), vals.get(it).0);
                 }
                 Err(e) => note = e,
             }
@@ -157,13 +157,13 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H{}│{}{}{}│", r, left, frame, st, fit(t, inner), frame);
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
-        row(&mut out, top + 1, " Game settings  (Emuera's settings window)", &title);
+        row(&mut out, top + 1, &format!(" {}", t!("Game settings  (Emuera's settings window)")), &title);
         // the tab bar
         let mut tabs = Vec::new();
         let _ = write!(out, "\x1b[{};{}H{}│{} ", top + 2, left, frame, normal);
         let mut used = 1;
         for (i, t) in TABS.iter().enumerate() {
-            let label = format!(" {} ", t);
+            let label = format!(" {} ", tr(t));
             let lw = width(&label);
             if used + lw + 1 > inner {
                 break;
@@ -193,10 +193,10 @@ impl Tty {
             };
             let row_bg = if is_sel { hl } else { bg };
             let from = match src {
-                Source::Emuera => "",
-                Source::Game => "game",
-                Source::Player => "changed",
-                Source::Fixed => "fixed",
+                Source::Emuera => String::new(),
+                Source::Game => tc!("setting source", "game"),
+                Source::Player => tc!("setting source", "changed"),
+                Source::Fixed => tc!("setting source", "fixed"),
             };
             let _ = write!(out, "\x1b[{};{}H{}│{} ", r, left, frame, base);
             let mut used = 1;
@@ -219,12 +219,13 @@ impl Tty {
             }
             let tag_w = 8;
             let name_w = inner.saturating_sub(used + tag_w + 1);
-            let _ = write!(out, "{}{} {}{}", fit(it.label, name_w), if is_sel { "" } else { &dim }, fit(from, tag_w), frame);
+            let _ = write!(out, "{}{} {}{}", fit(&tr(it.label), name_w), if is_sel { "" } else { &dim }, fit(&from, tag_w), frame);
             let _ = write!(out, "│");
         }
         row(&mut out, top + 4 + vis, "", &normal);
-        row(&mut out, top + 5 + vis, " ←→ tab  ↑↓ choose  Enter change  +/- step  d game's value  Esc back", &helpc);
-        let n = if note.is_empty() { " Saved in the game's emuera.config, which Emuera.exe reads too." } else { note };
+        row(&mut out, top + 5 + vis, &format!(" {}", t!("←→ tab  ↑↓ choose  Enter change  +/- step  d game's value  Esc back")), &helpc);
+        let saved_in = format!(" {}", t!("Saved in the game's emuera.config, which Emuera.exe reads too."));
+        let n = if note.is_empty() { saved_in.as_str() } else { note };
         row(&mut out, top + 6 + vis, &format!(" {}", n.trim_start()), &notec);
         let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 7 + vis, left, frame, "─".repeat(inner));
         write_all(&out);
