@@ -725,9 +725,20 @@ fn write_all(b: &[u8]) {
     let _ = out.flush();
 }
 
-/// Running inside tmux?
+/// Running inside tmux? `TMUX` alone isn't enough: a terminal started from
+/// a shell inside tmux inherits it (Ghostty opened from a tmux pane got
+/// tmux's passthrough wrappers and showed no pictures).
 fn in_tmux() -> bool {
-    std::env::var_os("TMUX").is_some()
+    let var = |k| std::env::var(k).unwrap_or_default();
+    in_tmux_env(std::env::var_os("TMUX").is_some(), &var("TERM"), &var("TERM_PROGRAM"))
+}
+
+/// `in_tmux` from the environment: tmux sets `TERM` to `tmux-*` /
+/// `screen-*` by default and, since 3.2, `TERM_PROGRAM=tmux`; a terminal
+/// that sets `TERM_PROGRAM` to its own name (Ghostty, WezTerm, iTerm2…)
+/// means tmux's variable is only inherited.
+fn in_tmux_env(tmux: bool, term: &str, program: &str) -> bool {
+    tmux && (term.starts_with("tmux") || term.starts_with("screen") || program.is_empty() || program == "tmux")
 }
 
 /// Does tmux let escape sequences through to the terminal it runs in
@@ -4184,6 +4195,20 @@ impl Drop for Tty {
 #[cfg(test)]
 mod tests {
     use super::{char_cells, console_lookalike, Ambi};
+
+    /// tmux is recognised by its own `TERM` / `TERM_PROGRAM`, not by an
+    /// inherited `TMUX` in a terminal opened from a tmux pane
+    #[test]
+    fn tmux_detection() {
+        use super::in_tmux_env as t;
+        assert!(t(true, "tmux-256color", "tmux"));
+        assert!(t(true, "screen-256color", ""));
+        assert!(t(true, "xterm-256color", "tmux"));
+        assert!(t(true, "tmux-256color", "ghostty"));
+        assert!(!t(true, "xterm-ghostty", "ghostty"));
+        assert!(!t(true, "xterm-256color", "WezTerm"));
+        assert!(!t(false, "tmux-256color", "tmux"));
+    }
 
     /// A bar drawn as two rectangles (filled, empty) is as wide whatever
     /// the split, so a column after it lines up (eratohoReverse's gauges:
