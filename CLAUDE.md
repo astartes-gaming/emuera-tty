@@ -182,7 +182,7 @@ with a very large stack.
   code goes through `libc`, Windows through `windows-sys`.
 - **Around the game.** `picker.rs` (game library/launcher), `archive.rs`
   (games played from their download archive), `settings.rs`
-  (F1 settings, `~/.config/emuera-tty/config`), `emuconfig.rs` (Emuera's
+  (F3 / Ctrl-O settings, `~/.config/emuera-tty/config`), `emuconfig.rs` (Emuera's
   `emuera.config` / `_default.config` / `_fixed.config`, Japanese or
   English keys from `config_names.rs`), `mt.rs` (live dialogue
   translation), `translate.rs` (Emuera-Anchor's `*_TR.csv` / `TRCHARA`

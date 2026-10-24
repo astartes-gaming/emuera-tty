@@ -384,7 +384,7 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   the file Emuera.exe uses, so macros made in either work in both. On the
   Linux console Shift+F1 / F2 are F11 / F12, and Shift+F11 / F12 don't
   exist. The game setting *Use keyboard macros* (on by default, as in
-  Emuera) gives the F keys to the macros, but F2 and F5 stay the settings
+  Emuera) gives the F keys to the macros, but F3 and F5 stay the settings
   and reload keys as long as no macro is stored on them (where Emuera
   would only empty the line); with it off they always are. Typed text is
   expanded either way, as in Emuera.
@@ -392,7 +392,7 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   Alt+↑ / ↓) a line at a time, or the mouse wheel. ↑ / ↓ scroll too
   where the game waits (`▼`), and Home / End while nothing is typed. A
   `[scroll -N]` tag shows you're looking at history; End jumps back.
-- **Settings**: F2 or Ctrl-O opens them over the game (see below); F2
+- **Settings**: F3 or Ctrl-O opens them over the game (see below); F3
   not while a keyboard macro is stored on it.
 - **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask
   first; unsaved progress is lost). **Reload the ERB files** after editing
@@ -562,7 +562,7 @@ functions run in, and the order variables are saved in.
 
 ### Settings
 
-F2 or Ctrl-O in a game (F2 unless a keyboard macro is stored on it), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
+F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
 ← / → or Enter change, Esc closes; changes are saved at once in
 `~/.config/emuera-tty/config` and, except where marked, apply to the
 running game:

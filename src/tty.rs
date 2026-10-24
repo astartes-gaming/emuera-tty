@@ -313,18 +313,19 @@ enum Key {
     CtrlL,
     Left,
     Right,
-    /// Ctrl-O (and F2 with the game's keyboard macros off): the settings
+    /// Ctrl-O (and F3 unless a keyboard macro is stored on it): the settings
     /// overlay
     Settings,
     /// Emuera-Anchor's hotkeys: Ctrl-T title, Ctrl-R restart, Ctrl-E (and
-    /// F5 with macros off) reload the ERB files
+    /// F5 unless a macro is stored on it) reload the ERB files
     Title,
     Restart,
     Reload,
     /// Tab: continue and skip messages until a choice (as a right click)
     Skip,
     /// F1…F12, with Shift or not: keyboard macros (`macros.rs`), when the
-    /// game's config has them on; otherwise F2 is Settings and F5 Reload
+    /// game's config has them on; F3 is Settings and F5 Reload where no
+    /// macro is stored on them
     F(u8, bool),
     /// Alt+0…9, or Ctrl+0…9 where the terminal reports it: the macro group
     Group(u8),
@@ -515,7 +516,7 @@ pub struct Tty {
     tr_to: String,
     tr_from: String,
     tr_all: bool,
-    /// the memory in use in the bottom row too (it is always in F2)
+    /// the memory in use in the bottom row too (it is always in F3)
     pub show_memory: bool,
     /// the bottom row's right side as last drawn: (columns the prompt may
     /// use, the function asking, the column it starts at); None: not shown
@@ -1194,21 +1195,21 @@ impl Tty {
 
     /// The next key or mouse event, waiting up to `timeout_ms`. F1…F12
     /// and Alt+digit stay macro keys while the game's macros are on, except
-    /// that F2 and F5 with no macro stored (where Emuera would only empty
+    /// that F3 and F5 with no macro stored (where Emuera would only empty
     /// the input line) are still the settings and the reload key; with
     /// macros off they always are.
     fn next_key(&mut self, timeout_ms: i32) -> Option<Key> {
         let k = self.next_key_raw(timeout_ms)?;
         Some(match k {
-            Key::F(n @ (2 | 5), false) if self.macros_on && self.macros().get(n as usize - 1).is_empty() => {
-                if n == 2 {
+            Key::F(n @ (3 | 5), false) if self.macros_on && self.macros().get(n as usize - 1).is_empty() => {
+                if n == 3 {
                     Key::Settings
                 } else {
                     Key::Reload
                 }
             }
             Key::F(..) | Key::Group(_) if self.macros_on => k,
-            Key::F(2, false) => Key::Settings,
+            Key::F(3, false) => Key::Settings,
             Key::F(5, false) => Key::Reload,
             Key::F(..) => Key::Other,
             Key::Group(d) => {
@@ -2576,7 +2577,7 @@ impl Tty {
         }
     }
 
-    /// The settings overlay (Ctrl-O, or F2 with macros off): a box over the game listing
+    /// The settings overlay (Ctrl-O, or F3 with no macro on it): a box over the game listing
     /// `settings::ITEMS`, changed with ← / → / Enter and saved at once;
     /// most apply to the running game. Images are hidden while it is up
     /// (kitty would draw them over it).
@@ -3178,7 +3179,7 @@ impl Tty {
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
-        let head = if self.f_key_free(2) { " emuera-tty settings  (F2 / Ctrl-O)" } else { " emuera-tty settings  (Ctrl-O)" };
+        let head = if self.f_key_free(3) { " emuera-tty settings  (F3 / Ctrl-O)" } else { " emuera-tty settings  (Ctrl-O)" };
         let reading = crate::sys::memory_in_use();
         let mem = reading.map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
         let head_cols = head.chars().count();
@@ -3241,8 +3242,8 @@ impl Tty {
                 parts.insert(0, (m, "\x1b[0;1m"));
             }
         }
-        // (F2 is a macro key while the game's macros are on)
-        parts.push((if self.f_key_free(2) { "F2 settings" } else { "Ctrl-O settings" }.to_string(), "\x1b[0;2m"));
+        // (F3 is a macro key once a macro is stored on it)
+        parts.push((if self.f_key_free(3) { "F3 settings" } else { "Ctrl-O settings" }.to_string(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
             let k = parts
