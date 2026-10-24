@@ -339,6 +339,39 @@ impl Writer {
 
 // ================================================================ reading
 
+/// Does `data` read through as a save, the way the loaders read it (the
+/// header, then for saveNN.sav and SAVECHARA files the characters, then
+/// the sections)? For checking a save just written; nothing is kept.
+pub fn check(data: &[u8]) -> Result<(), String> {
+    let mut r = Reader::open(data).ok_or("not an Emuera binary save")?;
+    let ft = r.file_type()?;
+    r.raw_i64()?;
+    r.raw_i64()?;
+    r.string()?;
+    let section = |r: &mut Reader| -> Result<(), String> {
+        while !matches!(r.entry()?, Entry::Eof) {}
+        Ok(())
+    };
+    if matches!(ft, FileType::Normal | FileType::CharVar) {
+        let n = r.raw_i64()?;
+        if !(0..=1_000_000).contains(&n) {
+            return Err("bad character count".into());
+        }
+        for _ in 0..n {
+            while !matches!(r.entry()?, Entry::Eoc | Entry::Eof) {}
+        }
+    }
+    // saveNN.sav and global.sav: the variables, then Emuera-EM's section
+    section(&mut r)?;
+    if !r.at_end() {
+        section(&mut r)?;
+    }
+    if !r.at_end() {
+        return Err("data after the end".into());
+    }
+    Ok(())
+}
+
 /// Reads a save file's body.
 pub struct Reader {
     b: Vec<u8>,

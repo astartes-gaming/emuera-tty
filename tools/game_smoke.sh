@@ -24,7 +24,7 @@ for d in "$game"/*; do
 done
 # answers decided as the game asks: a FIFO fed by this script
 mkfifo "$tmp/in"
-( ulimit -v 4000000; EMUERA_SEED=$seed EMUERA_LIST_BUTTONS=1 XDG_CONFIG_HOME="$tmp/cfg" \
+( ulimit -v 4000000; EMUERA_SEED=$seed EMUERA_LIST_BUTTONS=1 XDG_CONFIG_HOME="$tmp/cfg" XDG_DATA_HOME="$tmp/data" \
     "$bin" "$tmp/game" --headless < "$tmp/in" > "$tmp/out" 2>&1 ) &
 pid=$!
 exec 3> "$tmp/in"

@@ -34,6 +34,7 @@ mod regex;
 mod resources;
 mod retro;
 mod savemgr;
+mod savesafe;
 mod settings;
 mod sound;
 mod sys;

@@ -158,6 +158,18 @@ the comment Emuera shows. For one save: copy or move it to another slot,
 export it to a file, delete it. For all of them: back up the save folder,
 restore a backup, import a save file. A deleted or overwritten save is
 always copied to the backups first.
+.PP
+Saves the game writes are kept the same way: the version a save replaces
+goes to the backups as
+.IR DATE -auto- NAME
+(the last 10 of each file, then one a day for 30 days, one a week for 26
+weeks), the first save replaced that emuera-tty didn't write (Emuera.exe's)
+as
+.IR DATE -original- NAME ,
+never thinned. Each save is written to a temporary file, flushed, read
+back and checked before it replaces the old one, and logged in
+.I save-log.tsv
+with the emuera-tty version and commit that wrote it.
 .TP
 .B \-\-saves
 List the saves of
@@ -281,6 +293,10 @@ read
 .I /dev/input/mice
 even outside the Linux console.
 .TP
+.BR EMUERA_SAVE_HISTORY= 0
+Keep no history of replaced saves and no save log (saves are still
+written safely).
+.TP
 .BR EMUERA_SOUND= on|off
 Play the game's sounds (default: yes, except over SSH).
 .TP
@@ -374,7 +390,8 @@ on Windows).
 Games extracted from archives.
 .TP
 .I ~/.local/share/emuera-tty/backups/GAME/
-Save backups, one dated folder each.
+Save backups, one dated folder each, and the save history with its log,
+.IR save-log.tsv .
 .TP
 .IR GAME /sav/save NN .sav ", " GAME /sav/global.sav
 The game's saves (next to the game when its

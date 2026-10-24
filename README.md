@@ -8,7 +8,8 @@
 > breaks. It is not a serious or complete Emuera port, nobody has audited it,
 > and it will mis-render, misbehave or crash on plenty of scripts.
 >
-> - Expect bugs. Keep a copy of save files you care about.
+> - Expect bugs. emuera-tty keeps a history of every save it overwrites
+>   (see *Managing saves*), but keep your own copy of saves you care about.
 > - It is not affiliated with Emuera, Emuera-EM/EE, eratohoTW or AnonTW.
 >   Where behaviour was copied, it was by reading
 >   [EvilMask's emuera.em](https://gitlab.com/EvilMask/emuera.em) source for
@@ -693,6 +694,31 @@ slot. Nothing is lost by mistake: a deleted or overwritten save is copied
 to the backups first. Load a restored or imported save from the game's
 own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
 and `emuera-tty GAME --backup-saves` backs them up.
+
+**Save history.** Saves the game writes (save slots, autosaves,
+`global.sav`, SAVECHARA files) are protected too, with no setting to turn
+on:
+
+- **The version replaced is kept**, in the same backup folder, as
+  `<date>-auto-save01/`, so *restore a backup* can bring back any of them.
+  Copies are thinned: the last 10 of each file, then one a day for 30 days,
+  then one a week for 26 weeks. Saves are small (AnonTW's are under 1 MB),
+  so this stays at a few MB per game.
+- **A save emuera-tty didn't write** (one from Emuera.exe, or from before
+  this history) is kept as `<date>-original-save01/` the first time it is
+  replaced, and never thinned.
+- **Each save is written safely**: to a temporary file, flushed to disk,
+  read back and checked to load, and only then put in place. A crash,
+  power cut or full disk leaves the previous save; a save that wouldn't
+  load is reported at once and the previous one kept.
+- **`save-log.tsv`** in the backup folder records each save written: when,
+  which file, a fingerprint, its size, and the emuera-tty version and
+  commit that wrote it. If a bug turns up in some build, the log tells
+  which saves it wrote and which backup came before.
+
+`EMUERA_SAVE_HISTORY=0` turns the history and the log off (saves are still
+written safely). Nothing is added inside the saves: Emuera reads them as
+before.
 
 **Readable colours:** games are drawn for Emuera's black (or game-set)
 background, and some colours there are hard to read, like pure blue, or

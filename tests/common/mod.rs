@@ -53,6 +53,8 @@ pub fn run(dir: &Path, input: &[u8]) -> String {
         .arg(dir)
         .args(["--headless", "--echo"])
         .env("EMUERA_SEED", "1")
+        // (the save history goes to the game's folder, not the user's)
+        .env("XDG_DATA_HOME", dir.join("data"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

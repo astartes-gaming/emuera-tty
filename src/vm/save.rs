@@ -455,11 +455,14 @@ impl Vm {
         }
     }
 
-    fn write_file(&self, path: &Path, data: Vec<u8>) -> VmResult<()> {
-        if let Some(d) = path.parent() {
-            let _ = fs::create_dir_all(d);
+    /// Write a save safely and keep the one it replaces (`savesafe.rs`).
+    fn write_file(&mut self, path: &Path, data: Vec<u8>) -> VmResult<()> {
+        let root = crate::savemgr::backup_root(&self.game_dir);
+        let warnings = crate::savesafe::write(path, &data, root.as_deref()).map_err(|e| Ctrl::Error(e, false))?;
+        for w in warnings {
+            self.warn(&w);
         }
-        fs::write(path, data).map_err(|e| Ctrl::Error(format!("save failed: {}: {}", path.display(), e), false))
+        Ok(())
     }
 
     /// SAVEDATA / the save menu: slot `n` with comment `text`.
@@ -483,7 +486,8 @@ impl Vm {
         let ve = self.varext.clone();
         self.put_em(&mut w, &ve.save_maps, &ve.save_xmls, &ve.save_dts);
         w.eof();
-        self.write_file(&self.save_path(n), w.finish(self.save_opts.zip))
+        let path = self.save_path(n);
+        self.write_file(&path, w.finish(self.save_opts.zip))
     }
 
     /// SAVEGLOBAL.
@@ -503,7 +507,8 @@ impl Vm {
         let ve = self.varext.clone();
         self.put_em(&mut w, &ve.global_maps, &ve.global_xmls, &ve.global_dts);
         w.eof();
-        self.write_file(&self.save_dir().join("global.sav"), w.finish(self.save_opts.zip))
+        let path = self.save_dir().join("global.sav");
+        self.write_file(&path, w.finish(self.save_opts.zip))
     }
 
     /// SAVECHARA name, comment, characters…
@@ -518,7 +523,8 @@ impl Vm {
             self.put_chara(&mut w, c);
         }
         w.eof();
-        self.write_file(&self.dat_dir().join(format!("chara_{}.dat", name)), w.finish(self.save_opts.zip))
+        let path = self.dat_dir().join(format!("chara_{}.dat", name));
+        self.write_file(&path, w.finish(self.save_opts.zip))
     }
 
     // ------------------------------------------------------------ reading
