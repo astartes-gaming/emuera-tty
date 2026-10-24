@@ -15,9 +15,9 @@ jobs:
   # tests/golden, tests/save: see tests/erb_suite.rs)
   test:
     name: tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
         with:
           key: test
@@ -38,15 +38,17 @@ jobs:
       matrix:
         include:
           # dynamically linked against glibc: for ordinary amd64 desktops and servers
+          # (a pinned Ubuntu, not ubuntu-latest: the glibc it needs, 2.39, only
+          # changes when we choose)
           - name: linux-amd64
-            os: ubuntu-latest
+            os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             rustflags: ""
             ext: ""
           # static musl program: runs on any amd64 Linux, whatever its libc
           # (the recipe from the README's "Other CPUs" section)
           - name: linux-amd64-static
-            os: ubuntu-latest
+            os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             rustflags: "-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"
             ext: ""
@@ -63,7 +65,7 @@ jobs:
             rustflags: ""
             ext: ".exe"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # rust-toolchain.toml selects stable with rustfmt and clippy; adding the
       # target here applies to that same toolchain
@@ -85,7 +87,7 @@ jobs:
           cp target/${{ matrix.target }}/release/emuera-tty${{ matrix.ext }} dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
           file dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }} || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: emuera-tty-${{ matrix.name }}
           path: dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
