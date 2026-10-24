@@ -1173,6 +1173,12 @@ impl Tty {
         }
     }
 
+    /// Is F`n` emuera-tty's own key now (macros off, or no macro stored
+    /// on it in the current group)?
+    fn f_key_free(&self, n: usize) -> bool {
+        !self.macros_on || self.macros.as_ref().is_none_or(|m| m.get(n - 1).is_empty())
+    }
+
     /// Alt+`g` / Ctrl+`g`: F1…F12 use group `g` now; its name shows.
     fn macro_group(&mut self, g: u8) {
         let m = self.macros();
@@ -1187,11 +1193,20 @@ impl Tty {
     }
 
     /// The next key or mouse event, waiting up to `timeout_ms`. F1…F12
-    /// and Alt+digit stay macro keys while the game's macros are on; with
-    /// them off F2 is the settings and F5 the reload key, as before.
+    /// and Alt+digit stay macro keys while the game's macros are on, except
+    /// that F2 and F5 with no macro stored (where Emuera would only empty
+    /// the input line) are still the settings and the reload key; with
+    /// macros off they always are.
     fn next_key(&mut self, timeout_ms: i32) -> Option<Key> {
         let k = self.next_key_raw(timeout_ms)?;
         Some(match k {
+            Key::F(n @ (2 | 5), false) if self.macros_on && self.macros().get(n as usize - 1).is_empty() => {
+                if n == 2 {
+                    Key::Settings
+                } else {
+                    Key::Reload
+                }
+            }
             Key::F(..) | Key::Group(_) if self.macros_on => k,
             Key::F(2, false) => Key::Settings,
             Key::F(5, false) => Key::Reload,
@@ -2508,7 +2523,10 @@ impl Tty {
         if !hit.is_empty() {
             if self.gfx.text_erases() {
                 let mut again = b"\x1b[?25l".to_vec();
-                self.gfx.draw(&mut again, &hit, self.cell);
+                // (tmux's placeholders: every picture, so none counts as
+                // gone from the screen; they are only text)
+                let all = self.gfx.name() == "kitty-tmux";
+                self.gfx.draw(&mut again, if all { &self.frame_imgs } else { &hit }, self.cell);
                 if let Some((r, c)) = self.frame_cursor {
                     let _ = write!(again, "\x1b[{};{}H\x1b[?25h", r, c);
                 }
@@ -2593,7 +2611,7 @@ impl Tty {
                 ("Recolor…  (draw a colour of the game's as another)", 12),
                 ("Back to the title  (Ctrl-T)", 6),
                 ("Restart the game  (Ctrl-R)", 7),
-                (if self.macros_on { "Reload ERB files  (Ctrl-E)" } else { "Reload ERB files  (F5 / Ctrl-E)" }, 8),
+                (if self.f_key_free(5) { "Reload ERB files  (F5 / Ctrl-E)" } else { "Reload ERB files  (Ctrl-E)" }, 8),
                 ("Switch game…  (unsaved progress is lost)", 9),
                 ("Quit emuera-tty", 10),
                 ("Close  (Esc)", 11),
@@ -3160,7 +3178,7 @@ impl Tty {
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         // the memory emuera-tty uses, on the right of the title
-        let head = if self.macros_on { " emuera-tty settings  (Ctrl-O)" } else { " emuera-tty settings  (F2 / Ctrl-O)" };
+        let head = if self.f_key_free(2) { " emuera-tty settings  (F2 / Ctrl-O)" } else { " emuera-tty settings  (Ctrl-O)" };
         let reading = crate::sys::memory_in_use();
         let mem = reading.map(|b| format!("memory {} ", crate::sys::memory_text(b))).unwrap_or_default();
         let head_cols = head.chars().count();
@@ -3224,7 +3242,7 @@ impl Tty {
             }
         }
         // (F2 is a macro key while the game's macros are on)
-        parts.push((if self.macros_on { "Ctrl-O settings" } else { "F2 settings" }.to_string(), "\x1b[0;2m"));
+        parts.push((if self.f_key_free(2) { "F2 settings" } else { "Ctrl-O settings" }.to_string(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
             let k = parts
@@ -3531,6 +3549,10 @@ impl Frontend for Tty {
             self.line.clear();
         }
         self.macros_on = con.key_macro;
+        if self.macros_on {
+            // (loaded now, so the hints know which F keys hold macros)
+            self.macros();
+        }
         self.scroll = 0;
         self.render(con, res, Some(req));
         self.copy_text(con, if req.kind == InputKind::Wait { crate::clipboard::Trigger::Wait } else { crate::clipboard::Trigger::Input });
@@ -3914,6 +3936,10 @@ impl Frontend for Tty {
         self.scroll = 0;
         self.line.clear();
         self.macros_on = con.key_macro;
+        if self.macros_on {
+            // (loaded now, so the hints know which F keys hold macros)
+            self.macros();
+        }
         self.render(con, res, None);
         let deadline = timeout_ms.map(|t| Instant::now() + Duration::from_millis(t));
         let mut moved = false;

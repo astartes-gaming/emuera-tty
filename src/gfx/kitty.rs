@@ -24,12 +24,19 @@ use base64::Engine;
 use std::collections::HashMap;
 use std::io::Write;
 
+/// Bytes of off-screen pictures kept in the terminal (see `Kitty::draw`).
+const PARKED_BUDGET: usize = 24 << 20;
+
 pub struct Kitty {
     /// placement key (sprite + size) → image id already in the terminal
     ids: HashMap<String, u32>,
     next_id: u32,
-    /// ids of pictures of a megabyte or more, freed once off screen
-    big: std::collections::HashSet<u32>,
+    /// image id → its size in the terminal (RGBA bytes)
+    size: HashMap<u32, usize>,
+    /// pictures off screen but kept in the terminal (to be shown again
+    /// without sending them), least recently shown first, and their bytes
+    parked: std::collections::VecDeque<u32>,
+    parked_bytes: usize,
     /// what is on screen: image id → its placement commands
     shown: HashMap<u32, Vec<String>>,
     /// inside tmux: passthrough and Unicode placeholders
@@ -92,7 +99,9 @@ impl Kitty {
         Kitty {
             ids: HashMap::new(),
             next_id: 1,
-            big: Default::default(),
+            size: HashMap::new(),
+            parked: Default::default(),
+            parked_bytes: 0,
             shown: HashMap::new(),
             tmux: false,
             virt: HashMap::new(),
@@ -137,7 +146,9 @@ impl Kitty {
             self.put(out, b"\x1b_Ga=d,d=A,q=2\x1b\\");
             self.ids.clear();
             self.shown.clear();
-            self.big.clear();
+            self.size.clear();
+            self.parked.clear();
+            self.parked_bytes = 0;
             self.virt.clear();
             self.opaque.clear();
             if self.tmux {
@@ -170,9 +181,7 @@ impl Kitty {
             cmd.extend_from_slice(b"\x1b\\");
             self.put(out, &cmd);
         }
-        if raw.len() >= 1 << 20 {
-            self.big.insert(id);
-        }
+        self.size.insert(id, raw.len());
         self.ids.insert(p.key.clone(), id);
         id
     }
@@ -182,6 +191,7 @@ impl Kitty {
     /// which clears old ones).
     fn draw_placeholders(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
         let (cw, ch) = (cell.0.max(1), cell.1.max(1));
+        let mut used = Vec::new();
         for p in ps {
             // a placeholder is the cell's text: nothing can be behind it
             if p.crop_h == 0 || p.below {
@@ -210,6 +220,7 @@ impl Kitty {
                 p
             };
             let id = self.transmit(out, p);
+            used.push(id);
             let cols = p.img.width().div_ceil(cw).max(1);
             let rows = p.img.height().div_ceil(ch).max(1);
             if self.virt.get(&id) != Some(&(cols, rows)) {
@@ -247,6 +258,43 @@ impl Kitty {
                 if at.is_some() {
                     out.extend_from_slice(b"\x1b[39m");
                 }
+            }
+        }
+        // (every call is a whole frame: the screen's pictures are all here,
+        // see `Tty::repaint_hover`)
+        let was: Vec<u32> = self.virt.keys().copied().collect();
+        self.park_others(&used, was);
+        self.evict(out);
+    }
+}
+
+impl Kitty {
+    /// Free the least recently shown off-screen pictures in the terminal
+    /// while those kept take more than [`PARKED_BUDGET`].
+    fn evict(&mut self, out: &mut Vec<u8>) {
+        while self.parked_bytes > PARKED_BUDGET {
+            let Some(id) = self.parked.pop_front() else { break };
+            self.parked_bytes -= self.size.remove(&id).unwrap_or(0);
+            self.put(out, format!("\x1b_Ga=d,d=I,i={},q=2\x1b\\", id).as_bytes());
+            self.ids.retain(|_, v| *v != id);
+            self.virt.remove(&id);
+            self.opaque.remove(&id);
+        }
+    }
+
+    /// The pictures in `used` are on screen; any other one that was
+    /// becomes parked (kept in the terminal within the budget).
+    fn park_others(&mut self, used: &[u32], was: Vec<u32>) {
+        for id in used {
+            if let Some(k) = self.parked.iter().position(|p| p == id) {
+                self.parked.remove(k);
+                self.parked_bytes -= self.size.get(id).copied().unwrap_or(0);
+            }
+        }
+        for id in was {
+            if !used.contains(&id) && !self.parked.contains(&id) {
+                self.parked.push_back(id);
+                self.parked_bytes += self.size.get(&id).copied().unwrap_or(0);
             }
         }
     }
@@ -315,6 +363,12 @@ impl Backend for Kitty {
             ));
         }
         let keep: Vec<u32> = want.iter().map(|w| w.0).collect();
+        for id in &keep {
+            if let Some(k) = self.parked.iter().position(|p| p == id) {
+                self.parked.remove(k);
+                self.parked_bytes -= self.size.get(id).copied().unwrap_or(0);
+            }
+        }
         // images whose placements changed: all of that image's again
         for (id, cmds) in want {
             if self.shown.get(&id) == Some(&cmds) {
@@ -332,17 +386,17 @@ impl Backend for Kitty {
         // so a picture replaced by another (a CBG redrawn every frame) never
         // leaves the screen empty in between
         let gone: Vec<u32> = self.shown.keys().filter(|id| !keep.contains(id)).copied().collect();
-        // (big ones, like a canvas redrawn every frame, are freed in the
-        // terminal too: kept, they would fill its image memory, and it
-        // would drop older pictures that are still to be shown again)
         for id in gone {
-            let big = self.big.remove(&id);
-            let _ = write!(out, "\x1b_Ga=d,d={},i={},q=2\x1b\\", if big { 'I' } else { 'i' }, id);
+            let _ = write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", id);
             self.shown.remove(&id);
-            if big {
-                self.ids.retain(|_, v| *v != id);
-            }
+            self.parked.push_back(id);
+            self.parked_bytes += self.size.get(&id).copied().unwrap_or(0);
         }
+        // off-screen pictures are kept in the terminal only up to a budget,
+        // the least recently shown freed first: a canvas redrawn every frame
+        // (a new picture each time) would otherwise pile up there, hundreds
+        // of megabytes a minute, while sprites shown again stay cached
+        self.evict(out);
     }
 
     /// Forget what is on screen (after a full clear), so everything is
@@ -350,14 +404,18 @@ impl Backend for Kitty {
     fn reset(&mut self, out: &mut Vec<u8>) {
         self.put(out, b"\x1b_Ga=d,d=a,q=2\x1b\\");
         self.shown.clear();
-        self.big.clear();
+        self.size.clear();
+        self.parked.clear();
+        self.parked_bytes = 0;
         self.virt.clear();
         self.opaque.clear();
     }
     fn shutdown(&mut self, out: &mut Vec<u8>) {
         self.put(out, b"\x1b_Ga=d,d=A,q=2\x1b\\");
         self.shown.clear();
-        self.big.clear();
+        self.size.clear();
+        self.parked.clear();
+        self.parked_bytes = 0;
         self.virt.clear();
         self.opaque.clear();
     }
