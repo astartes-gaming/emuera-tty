@@ -139,6 +139,21 @@ fn trailing_comma_in_assignment() {
     assert!(text.contains("V=15 12"), "{}", text);
 }
 
+/// _Replace.csv's "COM_ABLE初期値" is what a command without @COM_ABLEn
+/// gets: 0 hides it (eratohoReverse lists its reactions itself), and the
+/// numbers shown are still the positions in TRAIN.csv, as in Emuera.
+#[test]
+fn com_able_default_from_replace_csv() {
+    let dir = temp_dir("comable");
+    let erb = "@SYSTEM_TITLE\nBEGIN TRAIN\n@SHOW_STATUS\nPRINTL status\n@SHOW_USERCOM\nPRINTL usercom list\n\
+        @COM_ABLE1\nRETURN 1\n@COM1\nPRINTL com1\nRETURN 1\n@USERCOM\nPRINTFORML usercom {RESULT}\nQUIT\n";
+    game(&dir, &[("CSV/Train.csv", "0,Hidden\n1,Shown\n2,AlsoHidden\n"), ("CSV/_Replace.csv", "COM_ABLE初期値 , 0\n"), ("ERB/T.ERB", erb)]);
+    // 0 isn't a command any more: it goes to @USERCOM
+    let text = run(&dir, b"0\n");
+    assert!(text.contains("Shown[  1]") && !text.contains("Hidden"), "{}", text);
+    assert!(text.contains("usercom 0") && !text.contains("com1"), "{}", text);
+}
+
 /// Saves are written safely and their history kept (savesafe.rs): the
 /// first save replaced that emuera-tty didn't write is kept as an
 /// original, later ones as automatic copies, each write logged.

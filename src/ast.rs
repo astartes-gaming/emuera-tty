@@ -126,6 +126,8 @@ pub enum BinOp {
     Nand,
     /// `!|` — not (a || b)
     Nor,
+    /// `^^` — exactly one of a and b
+    Xor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

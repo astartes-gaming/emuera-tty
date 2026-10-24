@@ -177,21 +177,21 @@ impl<'a> ExprParser<'a> {
     }
 
     /// Consume a binary operator of the given precedence level (0 binds
-    /// loosest). Levels follow Emuera: `||` < `&&` < `|` < `^` < `&` <
-    /// equality < comparison < shifts < `+ -` < `* / %`.
+    /// loosest). Levels are Emuera's (OperatorCode.cs priorities): the
+    /// logical operators `|| && ^^ !& !|` share one level and the bitwise
+    /// `| ^ &` another, each read left to right (so `a || b && c` is
+    /// `(a || b) && c`), then equality < comparison < shifts < `+ -` <
+    /// `* / %`.
     fn binop(&mut self, level: usize) -> Option<BinOp> {
         self.skip_ws();
         let ops: &[(&str, BinOp)] = match level {
-            0 => &[("||", BinOp::Or), ("!|", BinOp::Nor)],
-            1 => &[("&&", BinOp::And), ("!&", BinOp::Nand)],
-            2 => &[("|", BinOp::BitOr)],
-            3 => &[("^", BinOp::BitXor)],
-            4 => &[("&", BinOp::BitAnd)],
-            5 => &[("==", BinOp::Eq), ("!=", BinOp::Ne)],
-            6 => &[("<=", BinOp::Le), (">=", BinOp::Ge), ("<", BinOp::Lt), (">", BinOp::Gt)],
-            7 => &[("<<", BinOp::Shl), (">>", BinOp::Shr)],
-            8 => &[("+", BinOp::Add), ("-", BinOp::Sub)],
-            9 => &[("*", BinOp::Mul), ("/", BinOp::Div), ("%", BinOp::Mod)],
+            0 => &[("||", BinOp::Or), ("&&", BinOp::And), ("^^", BinOp::Xor), ("!&", BinOp::Nand), ("!|", BinOp::Nor)],
+            1 => &[("|", BinOp::BitOr), ("^", BinOp::BitXor), ("&", BinOp::BitAnd)],
+            2 => &[("==", BinOp::Eq), ("!=", BinOp::Ne)],
+            3 => &[("<=", BinOp::Le), (">=", BinOp::Ge), ("<", BinOp::Lt), (">", BinOp::Gt)],
+            4 => &[("<<", BinOp::Shl), (">>", BinOp::Shr)],
+            5 => &[("+", BinOp::Add), ("-", BinOp::Sub)],
+            6 => &[("*", BinOp::Mul), ("/", BinOp::Div), ("%", BinOp::Mod)],
             _ => return None,
         };
         for (t, op) in ops {
@@ -201,7 +201,8 @@ impl<'a> ExprParser<'a> {
                 let bad = match *t {
                     "|" => matches!(after, Some('|') | Some('=')),
                     "&" => matches!(after, Some('&') | Some('=')),
-                    "^" | "+" | "-" | "*" | "/" | "%" => after == Some('=') || (*t == "+" && after == Some('+')) || (*t == "-" && after == Some('-')),
+                    "^" => matches!(after, Some('^') | Some('=')),
+                    "+" | "-" | "*" | "/" | "%" => after == Some('=') || (*t == "+" && after == Some('+')) || (*t == "-" && after == Some('-')),
                     "<" => matches!(after, Some('<') | Some('=')),
                     ">" => matches!(after, Some('>') | Some('=')),
                     "<<" | ">>" => after == Some('='),
@@ -219,7 +220,7 @@ impl<'a> ExprParser<'a> {
 
     /// Left-associative chain of operators at `level` and tighter ones.
     fn binary(&mut self, level: usize) -> PResult<Expr> {
-        if level > 9 {
+        if level > 6 {
             return self.unary();
         }
         let mut lhs = self.binary(level + 1)?;
@@ -430,6 +431,16 @@ impl<'a> ExprParser<'a> {
             if !sub.at_end() {
                 return Err(format!("bad #DEFINE body for {}", name));
             }
+            // Emuera replaces the name by the body's tokens, so indices
+            // after it belong to the variable it names (`#DEFINE KFLAG
+            // JUEL`, then `KFLAG:1` is `JUEL:1`)
+            if let (Expr::Var(v), true) = (&e, allow_index) {
+                let more = self.index_chain()?;
+                if !more.is_empty() {
+                    let idx: Vec<Expr> = v.idx.iter().cloned().chain(more).collect();
+                    return Ok(Expr::Var(Rc::new(VarRef::new(v.name.clone(), idx))));
+                }
+            }
             return Ok(e);
         }
         // Emuera accepts a space between a function name and its '('
@@ -449,22 +460,26 @@ impl<'a> ExprParser<'a> {
             };
             return Ok(Expr::Call(Box::new((name, args, Default::default()))));
         }
-        let mut idx = Vec::new();
-        if allow_index {
-            // index chain: NAME:a:b:c (Emuera also accepts `NAME :a`)
-            loop {
-                let save = self.pos;
-                self.skip_ws();
-                if self.peek() != Some(':') {
-                    self.pos = save;
-                    break;
-                }
-                self.pos += 1;
-                self.skip_ws();
-                idx.push(self.primary(false)?);
-            }
-        }
+        let idx = if allow_index { self.index_chain()? } else { Vec::new() };
         Ok(Expr::Var(Rc::new(VarRef::new(name.into(), idx))))
+    }
+
+    /// An index chain after a variable: `:a:b:c` (Emuera also accepts
+    /// `NAME :a`).
+    fn index_chain(&mut self) -> PResult<Vec<Expr>> {
+        let mut idx = Vec::new();
+        loop {
+            let save = self.pos;
+            self.skip_ws();
+            if self.peek() != Some(':') {
+                self.pos = save;
+                break;
+            }
+            self.pos += 1;
+            self.skip_ws();
+            idx.push(self.primary(false)?);
+        }
+        Ok(idx)
     }
 
     /// Parse a variable reference (assignment target).

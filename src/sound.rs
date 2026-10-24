@@ -7,6 +7,10 @@
 //! As Emuera-EE: ten effect channels (a new effect takes a free one, else
 //! the first) and one looping BGM. A volume change applies to the sounds
 //! started after it (players can't be turned down while they play).
+//!
+//! MIDI files go to FluidSynth, with the game's `soundfont.sf2` if it has
+//! one. Games made for Emuera-Anchor with eraMidi (eratohoReverse) get its
+//! music the way eraMidi finds it: see [`eramidi_song`].
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -23,6 +27,8 @@ enum Kind {
     Paplay,
     Aplay,
     PowerShell,
+    /// MIDI files only, through a SoundFont
+    Fluidsynth,
 }
 
 const PLAYERS: &[(Kind, &str)] = &[
@@ -41,6 +47,8 @@ const PLAYERS: &[(Kind, &str)] = &[
 pub struct Player {
     kind: Kind,
     path: PathBuf,
+    /// FluidSynth's SoundFont (none: its own default)
+    soundfont: Option<PathBuf>,
 }
 
 impl Player {
@@ -49,10 +57,25 @@ impl Player {
         let path = std::env::var_os("PATH")?;
         let dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
         let exe = if cfg!(windows) { ".exe" } else { "" };
-        PLAYERS
-            .iter()
-            .filter(|(_, n)| named.is_none_or(|w| w == *n))
-            .find_map(|&(kind, name)| dirs.iter().map(|d| d.join(format!("{}{}", name, exe))).find(|p| p.is_file()).map(|path| Player { kind, path }))
+        PLAYERS.iter().filter(|(_, n)| named.is_none_or(|w| w == *n)).find_map(|&(kind, name)| {
+            dirs.iter().map(|d| d.join(format!("{}{}", name, exe))).find(|p| p.is_file()).map(|path| Player { kind, path, soundfont: None })
+        })
+    }
+
+    /// FluidSynth for MIDI files, with the game's `soundfont.sf2` (as
+    /// eraMidi uses), else a system SoundFont, else FluidSynth's default.
+    pub fn find_midi(game_dir: &Path) -> Option<Player> {
+        let path = std::env::var_os("PATH")?;
+        let exe = if cfg!(windows) { "fluidsynth.exe" } else { "fluidsynth" };
+        let path = std::env::split_paths(&path).map(|d| d.join(exe)).find(|p| p.is_file())?;
+        let system = [
+            "/usr/share/soundfonts/default.sf2",
+            "/usr/share/sounds/sf2/default-GM.sf2",
+            "/usr/share/sounds/sf2/FluidR3_GM.sf2",
+            "/usr/share/soundfonts/FluidR3_GM.sf2",
+        ];
+        let soundfont = crate::loader::find_file_ci(game_dir, "soundfont.sf2").or_else(|| system.iter().map(PathBuf::from).find(|p| p.is_file()));
+        Some(Player { kind: Kind::Fluidsynth, path, soundfont })
     }
 
     /// Can it play this file? (the simple players read WAV and little else)
@@ -62,6 +85,7 @@ impl Player {
             Kind::Mpv | Kind::Ffplay | Kind::Mplayer | Kind::Afplay => true,
             Kind::PwPlay | Kind::Paplay => matches!(ext.as_str(), "wav" | "flac" | "ogg" | "oga"),
             Kind::Aplay | Kind::PowerShell => ext == "wav",
+            Kind::Fluidsynth => matches!(ext.as_str(), "mid" | "midi"),
         }
     }
 
@@ -106,6 +130,14 @@ impl Player {
             }
             Kind::Aplay => {
                 c.arg("-q");
+            }
+            Kind::Fluidsynth => {
+                // no shell, no MIDI input; gain 0.5 at full volume (its
+                // default 0.2 is quiet), eraMidi's 128 voices
+                c.args(["-n", "-i", "-q", "-o", "synth.polyphony=128", "-g"]).arg(format!("{:.2}", v as f32 / 200.0));
+                if let Some(sf) = &self.soundfont {
+                    c.arg(sf);
+                }
             }
             Kind::PowerShell => {
                 let p = f.to_string_lossy().replace('\'', "''");
@@ -199,7 +231,9 @@ impl Voice {
 
 /// The effect channels and the BGM.
 pub struct Sound {
-    player: Player,
+    player: Option<Player>,
+    /// FluidSynth, for MIDI files
+    midi: Option<Player>,
     se: Vec<Option<Voice>>,
     bgm: Option<Voice>,
     /// the BGM asked for (kept while sound is off, to resume it)
@@ -210,8 +244,22 @@ pub struct Sound {
 }
 
 impl Sound {
-    pub fn new(player: Player) -> Sound {
-        Sound { player, se: (0..10).map(|_| None).collect(), bgm: None, bgm_file: None, on: true, se_volume: 100, bgm_volume: 100 }
+    /// None when the system has no player at all.
+    pub fn new(player: Option<Player>, midi: Option<Player>) -> Option<Sound> {
+        if player.is_none() && midi.is_none() {
+            return None;
+        }
+        Some(Sound { player, midi, se: (0..10).map(|_| None).collect(), bgm: None, bgm_file: None, on: true, se_volume: 100, bgm_volume: 100 })
+    }
+
+    /// The player for `f`: FluidSynth for MIDI, else the general one.
+    fn player_for(&self, f: &Path) -> Option<&Player> {
+        self.midi.iter().chain(self.player.iter()).find(|p| p.plays(f))
+    }
+
+    /// The BGM playing or asked for.
+    pub fn bgm_file(&self) -> Option<&Path> {
+        self.bgm_file.as_deref()
     }
 
     /// The Sound setting changed: off stops everything; on brings the BGM
@@ -235,14 +283,12 @@ impl Sound {
 
     /// PLAYSOUND: play `f` `times` times on a free channel.
     pub fn play_se(&mut self, f: &Path, times: u32) {
-        if !self.on || self.se_volume == 0 || !self.player.plays(f) {
-            return;
-        }
+        let Some(player) = self.player_for(f).filter(|_| self.on && self.se_volume > 0).cloned() else { return };
         let k = self.se.iter().position(|v| v.as_ref().is_none_or(|v| !v.playing())).unwrap_or(0);
         if let Some(v) = self.se[k].take() {
             v.stop();
         }
-        self.se[k] = Some(Voice::start(&self.player, f, self.se_volume, Some(times.max(1))));
+        self.se[k] = Some(Voice::start(&player, f, self.se_volume, Some(times.max(1))));
     }
 
     /// STOPSOUND
@@ -256,10 +302,8 @@ impl Sound {
     pub fn play_bgm(&mut self, f: &Path) {
         self.stop_bgm();
         self.bgm_file = Some(f.to_path_buf());
-        if !self.on || self.bgm_volume == 0 || !self.player.plays(f) {
-            return;
-        }
-        self.bgm = Some(Voice::start(&self.player, f, self.bgm_volume, None));
+        let Some(player) = self.player_for(f).filter(|_| self.on && self.bgm_volume > 0).cloned() else { return };
+        self.bgm = Some(Voice::start(&player, f, self.bgm_volume, None));
     }
 
     pub fn stop_bgm(&mut self) {
@@ -283,6 +327,24 @@ pub fn wanted(v: &str) -> bool {
     let v = std::env::var("EMUERA_SOUND").unwrap_or_else(|_| v.to_string());
     let remote = std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some();
     v == "on" || (v == "auto" && !remote)
+}
+
+/// The song a printed line names for eraMidi, the music player that comes
+/// with eratohoReverse: it watches the clipboard (Emuera-Anchor's copy of
+/// printed lines) for a ♪, takes what follows it up to the next ♪, drops
+/// line breaks and the characters a Windows path can't hold, and plays
+/// `media/reverse/<name>.mid` when that file exists (`clipboard_TextBox_
+/// TextChanged` in its IL). The game's BGM_CUTIN prints `♪<song title>`.
+pub fn eramidi_song(line: &str) -> Option<String> {
+    let after = line.split('♪').nth(1)?;
+    let name: String = after.chars().filter(|&c| !matches!(c, '"' | '<' | '>' | '|' | '\r' | '\n') && c as u32 >= 32).collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// Where eraMidi looks for `song` in the game folder.
+pub fn eramidi_file(game_dir: &Path, song: &str) -> Option<PathBuf> {
+    let f = game_dir.join("media").join("reverse").join(format!("{}.mid", song));
+    f.is_file().then_some(f)
 }
 
 /// `name` (`se/ok.wav`, `se\ok.wav`) in the game's `sound/` folder; the
@@ -316,10 +378,28 @@ mod tests {
 
     #[test]
     fn players_take_what_they_can_play() {
-        let p = Player { kind: Kind::Paplay, path: "paplay".into() };
+        let p = Player { kind: Kind::Paplay, path: "paplay".into(), soundfont: None };
         assert!(p.plays(Path::new("a.WAV")) && !p.plays(Path::new("a.m4a")));
-        let m = Player { kind: Kind::Mpv, path: "mpv".into() };
+        let m = Player { kind: Kind::Mpv, path: "mpv".into(), soundfont: None };
         let args: Vec<String> = m.command(Path::new("x.m4a"), 40, true).get_args().map(|a| a.to_string_lossy().into_owned()).collect();
         assert!(args.contains(&"--volume=40".to_string()) && args.contains(&"--loop-file=inf".to_string()) && args.last().unwrap() == "x.m4a");
+        let f = Player { kind: Kind::Fluidsynth, path: "fluidsynth".into(), soundfont: Some("sf.sf2".into()) };
+        assert!(f.plays(Path::new("a.MID")) && !f.plays(Path::new("a.ogg")));
+        let args: Vec<String> = f.command(Path::new("x.mid"), 100, false).get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(args[args.len() - 2..], ["sf.sf2".to_string(), "x.mid".to_string()]);
+        assert!(args.contains(&"0.50".to_string()) && args.contains(&"-q".to_string()));
+    }
+
+    /// The song eraMidi would play for a line, as its parsing does.
+    #[test]
+    fn eramidi_names() {
+        let s = |l: &str| eramidi_song(l);
+        assert_eq!(s("          ♪Native Faith").as_deref(), Some("Native Faith"));
+        assert_eq!(s("♪Two Worlds♪ (again)").as_deref(), Some("Two Worlds"));
+        // dialogue: what follows the ♪ is no song (no such file)
+        assert_eq!(s("「Fufufu♪」").as_deref(), Some("」"));
+        assert_eq!(s("Fufufu♪"), None);
+        assert_eq!(s("no note"), None);
+        assert_eq!(s("♪a<b>|\"c\"").as_deref(), Some("abc"));
     }
 }

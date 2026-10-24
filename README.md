@@ -418,6 +418,29 @@ up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
+**MIDI music** plays through [FluidSynth](https://www.fluidsynth.org),
+found in `PATH` like the other players, with the game's `soundfont.sf2`
+if it has one, else the system's:
+
+- Linux: `sudo apt install fluidsynth fluid-soundfont-gm` (Fedora:
+  `sudo dnf install fluidsynth fluid-soundfont-gm`).
+- Windows: download the Windows zip from
+  [FluidSynth's releases](https://github.com/FluidSynth/fluidsynth/releases),
+  extract it, and add its `bin` folder to your `PATH` (*Edit environment
+  variables for your account* → `Path` → *New*); open a new terminal
+  afterwards.
+- macOS: `brew install fluidsynth` (untested).
+
+Games that don't bring a SoundFont need one on the system; on Windows and
+macOS emuera-tty finds none by itself, so MIDI there plays only with a
+game's own `soundfont.sf2`. Games that come with
+**eraMidi** (`eramidi.exe`, as eratohoReverse does) get their music
+without it: eraMidi watches Emuera-Anchor's clipboard for a line with a ♪
+(the song title the game shows) and plays `media/reverse/<title>.mid`;
+emuera-tty reads its own printed lines the same way, so no clipboard
+setting is needed. The song loops until another one starts; one that is
+already playing isn't restarted.
+
 **Translating the game**: in the settings, *Translate to* picks the language to
 show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
