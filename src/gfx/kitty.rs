@@ -28,6 +28,8 @@ pub struct Kitty {
     /// placement key (sprite + size) → image id already in the terminal
     ids: HashMap<String, u32>,
     next_id: u32,
+    /// ids of pictures of a megabyte or more, freed once off screen
+    big: std::collections::HashSet<u32>,
     /// what is on screen: image id → its placement commands
     shown: HashMap<u32, Vec<String>>,
     /// inside tmux: passthrough and Unicode placeholders
@@ -87,7 +89,16 @@ const DIACRITICS: [char; 297] = [
 
 impl Kitty {
     pub fn new() -> Kitty {
-        Kitty { ids: HashMap::new(), next_id: 1, shown: HashMap::new(), tmux: false, virt: HashMap::new(), padded: HashMap::new(), opaque: HashMap::new() }
+        Kitty {
+            ids: HashMap::new(),
+            next_id: 1,
+            big: Default::default(),
+            shown: HashMap::new(),
+            tmux: false,
+            virt: HashMap::new(),
+            padded: HashMap::new(),
+            opaque: HashMap::new(),
+        }
     }
 
     /// For a kitty-graphics terminal seen through tmux (see the module
@@ -126,6 +137,7 @@ impl Kitty {
             self.put(out, b"\x1b_Ga=d,d=A,q=2\x1b\\");
             self.ids.clear();
             self.shown.clear();
+            self.big.clear();
             self.virt.clear();
             self.opaque.clear();
             if self.tmux {
@@ -134,19 +146,32 @@ impl Kitty {
         }
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
-        let data = base64::engine::general_purpose::STANDARD.encode(p.img.as_raw());
+        // zlib-compressed (o=z): a picture redrawn every frame (a game's
+        // whole-window CBG, mostly one colour) shrinks a hundredfold, which
+        // is what limits the frame rate (and over SSH, everything)
+        let raw = p.img.as_raw();
+        let mut z = flate2::write::ZlibEncoder::new(Vec::with_capacity(raw.len() / 8), flate2::Compression::fast());
+        let packed = z.write_all(raw).and_then(|_| z.finish()).ok().filter(|v| v.len() < raw.len());
+        let (bytes, o) = match &packed {
+            Some(v) => (v.as_slice(), ",o=z"),
+            None => (raw.as_slice(), ""),
+        };
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
         let chunks: Vec<&[u8]> = data.as_bytes().chunks(4096).collect();
         for (k, ch) in chunks.iter().enumerate() {
             let more = if k + 1 < chunks.len() { 1 } else { 0 };
             let mut cmd = Vec::with_capacity(ch.len() + 64);
             if k == 0 {
-                let _ = write!(cmd, "\x1b_Ga=t,f=32,s={},v={},i={},q=2,m={};", p.img.width(), p.img.height(), id, more);
+                let _ = write!(cmd, "\x1b_Ga=t,f=32,s={},v={},i={},q=2{},m={};", p.img.width(), p.img.height(), id, o, more);
             } else {
                 let _ = write!(cmd, "\x1b_Gm={},q=2;", more);
             }
             cmd.extend_from_slice(ch);
             cmd.extend_from_slice(b"\x1b\\");
             self.put(out, &cmd);
+        }
+        if raw.len() >= 1 << 20 {
+            self.big.insert(id);
         }
         self.ids.insert(p.key.clone(), id);
         id
@@ -289,12 +314,7 @@ impl Backend for Kitty {
                 z
             ));
         }
-        // images no longer shown
-        let gone: Vec<u32> = self.shown.keys().filter(|id| !want.iter().any(|w| w.0 == **id)).copied().collect();
-        for id in gone {
-            let _ = write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", id);
-            self.shown.remove(&id);
-        }
+        let keep: Vec<u32> = want.iter().map(|w| w.0).collect();
         // images whose placements changed: all of that image's again
         for (id, cmds) in want {
             if self.shown.get(&id) == Some(&cmds) {
@@ -308,6 +328,21 @@ impl Backend for Kitty {
             }
             self.shown.insert(id, cmds);
         }
+        // images no longer shown: taken off after the new ones are placed,
+        // so a picture replaced by another (a CBG redrawn every frame) never
+        // leaves the screen empty in between
+        let gone: Vec<u32> = self.shown.keys().filter(|id| !keep.contains(id)).copied().collect();
+        // (big ones, like a canvas redrawn every frame, are freed in the
+        // terminal too: kept, they would fill its image memory, and it
+        // would drop older pictures that are still to be shown again)
+        for id in gone {
+            let big = self.big.remove(&id);
+            let _ = write!(out, "\x1b_Ga=d,d={},i={},q=2\x1b\\", if big { 'I' } else { 'i' }, id);
+            self.shown.remove(&id);
+            if big {
+                self.ids.retain(|_, v| *v != id);
+            }
+        }
     }
 
     /// Forget what is on screen (after a full clear), so everything is
@@ -315,12 +350,14 @@ impl Backend for Kitty {
     fn reset(&mut self, out: &mut Vec<u8>) {
         self.put(out, b"\x1b_Ga=d,d=a,q=2\x1b\\");
         self.shown.clear();
+        self.big.clear();
         self.virt.clear();
         self.opaque.clear();
     }
     fn shutdown(&mut self, out: &mut Vec<u8>) {
         self.put(out, b"\x1b_Ga=d,d=A,q=2\x1b\\");
         self.shown.clear();
+        self.big.clear();
         self.virt.clear();
         self.opaque.clear();
     }

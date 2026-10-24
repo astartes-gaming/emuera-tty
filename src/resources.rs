@@ -58,8 +58,10 @@ pub struct Resources {
     /// prepared (cut, scaled) parts of draws, by source, its version, the
     /// rectangle and size: a picture redrawn every frame is scaled once
     parts: HashMap<(String, u64, (i32, i32, i32, i32), i32, i32), Rc<RgbaImage>>,
+    /// bytes the cached parts take
+    parts_bytes: usize,
     /// last fingerprint and copy of each buffer shown as a CBG layer
-    cbg_cache: HashMap<i64, (u64, Rc<RgbaImage>)>,
+    cbg_cache: HashMap<i64, (u64, u64, Rc<RgbaImage>)>,
     /// animated sprites (`name,ANIME,w,h` in a resources CSV, or
     /// SPRITEANIMECREATE): their frames are sprites of their own
     pub anime: HashMap<String, Anime>,
@@ -88,13 +90,26 @@ fn anim_clock() -> u128 {
 
 /// A fast hash of an image's pixels and size.
 fn fingerprint(img: &RgbaImage) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325 ^ ((img.width() as u64) << 32 | img.height() as u64);
-    for c in img.as_raw().chunks(8) {
+    // four lanes, so the multiplies don't wait on each other (a whole
+    // window's canvas is fingerprinted every frame a game redraws it)
+    const K: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+    let seed = 0xcbf29ce484222325 ^ ((img.width() as u64) << 32 | img.height() as u64);
+    let mut h = [seed, seed ^ 1, seed ^ 2, seed ^ 3];
+    let raw = img.as_raw();
+    let mut blocks = raw.chunks_exact(32);
+    for b in &mut blocks {
+        for (k, l) in h.iter_mut().enumerate() {
+            let v = u64::from_le_bytes(b[k * 8..k * 8 + 8].try_into().expect("8 bytes"));
+            *l = (l.rotate_left(5) ^ v).wrapping_mul(K);
+        }
+    }
+    let mut t = h[0] ^ h[1].rotate_left(17) ^ h[2].rotate_left(31) ^ h[3].rotate_left(47);
+    for c in blocks.remainder().chunks(8) {
         let mut b = [0u8; 8];
         b[..c.len()].copy_from_slice(c);
-        h = (h.rotate_left(5) ^ u64::from_le_bytes(b)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        t = (t.rotate_left(5) ^ u64::from_le_bytes(b)).wrapping_mul(K);
     }
-    h
+    t
 }
 
 /// What a client background layer shows.
@@ -223,6 +238,9 @@ pub struct Graphic {
     h: u32,
     /// `GBUF_CLOCK` when the pixels were last used
     used: std::cell::Cell<u64>,
+    /// `GBUF_CLOCK` when the pixels were made or last written: unchanged,
+    /// a buffer shown as a CBG needn't be fingerprinted again
+    pub rev: u64,
     /// GSETBRUSH (fills, text); None: the console's text colour for text
     pub brush: [u8; 4],
     pub brush_set: bool,
@@ -245,6 +263,7 @@ impl Graphic {
             w,
             h,
             used: std::cell::Cell::new(GBUF_CLOCK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+            rev: GBUF_CLOCK.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             brush: [0, 0, 0, 255],
             brush_set: false,
             pen: ([0, 0, 0, 255], 1),
@@ -284,6 +303,7 @@ impl Graphic {
 
     pub fn img_mut(&mut self) -> &mut RgbaImage {
         self.touch();
+        self.rev = GBUF_CLOCK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (w, h) = (self.w, self.h);
         let p = self.px.get_mut();
         if let Pixels::Packed(v) = p {
@@ -298,6 +318,7 @@ impl Graphic {
     /// Replace all the pixels (a clear).
     pub fn set_img(&mut self, img: RgbaImage) {
         self.touch();
+        self.rev = GBUF_CLOCK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         *self.px.get_mut() = Pixels::Plain(img);
     }
 
@@ -594,6 +615,104 @@ fn over(dst: &mut [u8; 4], src: [u8; 4]) {
     dst[3] = (oa * 255.0).round() as u8;
 }
 
+/// `src` scaled to `w × h` with the Triangle filter: the taps and weights
+/// of image's `resize(…, FilterType::Triangle)` (its result within
+/// rounding), in fixed point, rows shared out among the cores for big
+/// pictures, many times faster: a game's whole-window canvas is scaled to
+/// the screen on every frame, and every GDRAWSPRITE scales its sprite.
+pub fn resize(src: &RgbaImage, w: u32, h: u32) -> RgbaImage {
+    let (sw, sh) = src.dimensions();
+    if (w, h) == (sw, sh) || w == 0 || h == 0 || sw == 0 || sh == 0 {
+        return if (w, h) == (sw, sh) { src.clone() } else { RgbaImage::new(w, h) };
+    }
+    let (sw, sh, w, h) = (sw as usize, sh as usize, w as usize, h as usize);
+    let (vt, ht) = (triangle_taps(sh, h), triangle_taps(sw, w));
+    let raw = src.as_raw();
+    // vertical pass: sw × h, values × 256 (weights of 1 << 14, >> 6)
+    let mut mid = vec![0u16; sw * 4 * h];
+    par_rows(&mut mid, sw * 4, |y, row| {
+        let (first, r) = &vt.0[y];
+        for (k, wt) in vt.1[r.clone()].iter().enumerate() {
+            let srow = &raw[(first + k) * sw * 4..][..sw * 4];
+            for (m, &p) in row.iter_mut().zip(srow) {
+                *m = (*m as u32 + ((p as u32 * *wt as u32) >> 6)) as u16;
+            }
+        }
+    });
+    // horizontal pass
+    let mut out = vec![0u8; w * 4 * h];
+    par_rows(&mut out, w * 4, |y, row| {
+        let mrow = &mid[y * sw * 4..][..sw * 4];
+        for (o, (first, r)) in row.chunks_exact_mut(4).zip(&ht.0) {
+            let mut acc = [0u32; 4];
+            for (k, wt) in ht.1[r.clone()].iter().enumerate() {
+                let px = &mrow[(first + k) * 4..][..4];
+                for c in 0..4 {
+                    acc[c] += px[c] as u32 * *wt as u32;
+                }
+            }
+            for c in 0..4 {
+                o[c] = ((acc[c] + (1 << 21)) >> 22).min(255) as u8;
+            }
+        }
+    });
+    RgbaImage::from_raw(w as u32, h as u32, out).expect("size matches")
+}
+
+/// For each of `d` output pixels from `s` source ones: the first source
+/// pixel and the range of its Triangle filter weights (summing to 1 << 14)
+/// in the returned list, as image's `horizontal_sample` /
+/// `vertical_sample` choose them.
+fn triangle_taps(s: usize, d: usize) -> (Vec<(usize, std::ops::Range<usize>)>, Vec<u16>) {
+    let ratio = s as f32 / d as f32;
+    let sratio = ratio.max(1.0);
+    let mut taps = Vec::with_capacity(d);
+    let mut ws: Vec<u16> = Vec::with_capacity(d * (2 * sratio.ceil() as usize + 1));
+    let mut fw: Vec<f32> = Vec::new();
+    for o in 0..d {
+        let centre = (o as f32 + 0.5) * ratio;
+        let left = ((centre - sratio).floor() as i64).clamp(0, s as i64 - 1) as usize;
+        let right = ((centre + sratio).ceil() as i64).clamp(left as i64 + 1, s as i64) as usize;
+        fw.clear();
+        fw.extend((left..right).map(|i| (1.0 - ((i as f32 - (centre - 0.5)) / sratio).abs()).max(0.0)));
+        let sum: f32 = fw.iter().sum::<f32>().max(f32::MIN_POSITIVE);
+        let start = ws.len();
+        ws.extend(fw.iter().map(|x| (x / sum * 16384.0).round() as u16));
+        // exact sum: the rounding left over goes to the heaviest tap
+        let mine = &mut ws[start..];
+        let total: i32 = mine.iter().map(|&x| x as i32).sum();
+        if let Some(k) = (0..mine.len()).max_by_key(|&k| mine[k]) {
+            mine[k] = (mine[k] as i32 + 16384 - total).max(0) as u16;
+        }
+        taps.push((left, start..ws.len()));
+    }
+    (taps, ws)
+}
+
+/// Run `f(row index, row)` over `buf`'s rows of `stride` elements, on up
+/// to four cores when there are many.
+fn par_rows<T: Send>(buf: &mut [T], stride: usize, f: impl Fn(usize, &mut [T]) + Sync) {
+    let rows = buf.len() / stride.max(1);
+    let threads = if std::mem::size_of_val(buf) >= 1 << 20 { std::thread::available_parallelism().map_or(1, |n| n.get()).min(4) } else { 1 };
+    if threads <= 1 || rows < 2 {
+        for (y, row) in buf.chunks_exact_mut(stride).enumerate() {
+            f(y, row);
+        }
+        return;
+    }
+    let per = rows.div_ceil(threads);
+    std::thread::scope(|sc| {
+        for (t, chunk) in buf.chunks_mut(per * stride).enumerate() {
+            let f = &f;
+            sc.spawn(move || {
+                for (k, row) in chunk.chunks_exact_mut(stride).enumerate() {
+                    f(t * per + k, row);
+                }
+            });
+        }
+    });
+}
+
 /// A GDI+ colour matrix applied to one pixel: `[r g b a 1] × M`.
 fn color_matrix(p: [u8; 4], m: &[[f32; 5]; 5]) -> [u8; 4] {
     let v = [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, p[3] as f32 / 255.0, 1.0];
@@ -630,7 +749,7 @@ pub fn prepare_part(src: &RgbaImage, (sx, sy, sw, sh): (i32, i32, i32, i32), dw:
     }
     let (w, h) = (dw.unsigned_abs(), dh.unsigned_abs());
     let view = image::imageops::crop_imm(src, x0, y0, x1 - x0, y1 - y0);
-    let mut scaled = if (w, h) == (x1 - x0, y1 - y0) { view.to_image() } else { image::imageops::resize(&*view, w, h, image::imageops::FilterType::Triangle) };
+    let mut scaled = if (w, h) == (x1 - x0, y1 - y0) { view.to_image() } else { resize(&view.to_image(), w, h) };
     if dw < 0 {
         image::imageops::flip_horizontal_in_place(&mut scaled);
     }
@@ -645,19 +764,33 @@ pub fn blit_part(dst: &mut RgbaImage, part: &RgbaImage, (dx, dy, dw, dh): (i32, 
     let ox = if dw < 0 { dx + dw } else { dx };
     let oy = if dh < 0 { dy + dh } else { dy };
     let (dwid, dhei) = (dst.width() as i32, dst.height() as i32);
-    for (x, y, p) in part.enumerate_pixels() {
-        let (tx, ty) = (ox + x as i32, oy + y as i32);
-        if tx < 0 || ty < 0 || tx >= dwid || ty >= dhei {
-            continue;
+    let (pw, ph) = (part.width() as i32, part.height() as i32);
+    // the part's columns and rows that land inside `dst`
+    let (x0, x1) = ((-ox).max(0), (dwid - ox).min(pw));
+    let (y0, y1) = ((-oy).max(0), (dhei - oy).min(ph));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let (dstride, pstride) = (dwid as usize * 4, pw as usize * 4);
+    let (praw, draw) = (part.as_raw(), &mut **dst);
+    for y in y0..y1 {
+        let prow = &praw[y as usize * pstride..][x0 as usize * 4..x1 as usize * 4];
+        let drow = &mut draw[(oy + y) as usize * dstride..][(ox + x0) as usize * 4..(ox + x1) as usize * 4];
+        for (d, p) in drow.chunks_exact_mut(4).zip(prow.chunks_exact(4)) {
+            let px = match cm {
+                Some(m) => color_matrix([p[0], p[1], p[2], p[3]], m),
+                None => [p[0], p[1], p[2], p[3]],
+            };
+            match px[3] {
+                0 => {}
+                255 => d.copy_from_slice(&px),
+                _ => {
+                    let mut q = [d[0], d[1], d[2], d[3]];
+                    over(&mut q, px);
+                    d.copy_from_slice(&q);
+                }
+            }
         }
-        let px = match cm {
-            Some(m) => color_matrix(p.0, m),
-            None => p.0,
-        };
-        if px[3] == 0 {
-            continue;
-        }
-        over(&mut dst.get_pixel_mut(tx as u32, ty as u32).0, px);
     }
 }
 
@@ -731,15 +864,22 @@ impl Resources {
         match src {
             CbgSrc::G(gid) => {
                 let g = self.graphics.get(gid)?;
+                if let Some((rev, h, img)) = self.cbg_cache.get(gid) {
+                    if *rev == g.rev {
+                        return Some((img.clone(), *h));
+                    }
+                }
                 let img = g.img();
                 let h = fingerprint(&img);
-                if let Some((k, img)) = &self.cbg_cache.get(gid) {
+                let rev = g.rev;
+                if let Some((r, k, old)) = self.cbg_cache.get_mut(gid) {
                     if *k == h {
-                        return Some((img.clone(), h));
+                        *r = rev;
+                        return Some((old.clone(), h));
                     }
                 }
                 let img = Rc::new(img.clone());
-                self.cbg_cache.insert(*gid, (h, img.clone()));
+                self.cbg_cache.insert(*gid, (rev, h, img.clone()));
                 Some((img, h))
             }
             CbgSrc::Sprite(n) => {
@@ -799,6 +939,7 @@ impl Resources {
         self.cropped = HashMap::default();
         self.scaled = HashMap::default();
         self.parts = HashMap::default();
+        self.parts_bytes = 0;
         self.cbg_cache = HashMap::default();
         self.loaded = Vec::new();
         self.gen += 1;
@@ -844,7 +985,7 @@ impl Resources {
             ("cut sprites", self.cropped.len(), self.cropped.values().flatten().map(|i| px(i)).sum()),
             ("scaled sprites", self.scaled.len(), self.scaled.values().map(|i| px(i)).sum()),
             ("prepared draws", self.parts.len(), self.parts.values().map(|i| px(i)).sum()),
-            ("background copies", self.cbg_cache.len(), self.cbg_cache.values().map(|(_, i)| px(i)).sum()),
+            ("background copies", self.cbg_cache.len(), self.cbg_cache.values().map(|(_, _, i)| px(i)).sum()),
         ];
         (game, sprites)
     }
@@ -935,9 +1076,14 @@ impl Resources {
                     PartSrc::G(g) => prepare_part(&g.img(), srect, dest.2, dest.3),
                 };
                 let Some(p) = p else { return };
-                if self.parts.len() > 64 {
+                // bounded by size, not count: a bar chart redrawn every
+                // frame draws one sprite at a hundred sizes
+                let cap = (self.gbuf_budget / 4).clamp(4 << 20, 32 << 20);
+                if self.parts_bytes + p.as_raw().len() > cap || self.parts.len() >= 4096 {
                     self.parts.clear();
+                    self.parts_bytes = 0;
                 }
+                self.parts_bytes += p.as_raw().len();
                 let p = Rc::new(p);
                 self.parts.insert(k, p.clone());
                 p
@@ -1229,12 +1375,7 @@ impl Resources {
             let chunks: Vec<_> = (0..cores)
                 .map(|t| {
                     let srcs = &srcs;
-                    sc.spawn(move || {
-                        (t..srcs.len())
-                            .step_by(cores)
-                            .map(|i| (i, image::imageops::resize(srcs[i].0, srcs[i].1, srcs[i].2, image::imageops::FilterType::Triangle)))
-                            .collect::<Vec<_>>()
-                    })
+                    sc.spawn(move || (t..srcs.len()).step_by(cores).map(|i| (i, resize(srcs[i].0, srcs[i].1, srcs[i].2))).collect::<Vec<_>>())
                 })
                 .collect();
             for c in chunks {
@@ -1272,12 +1413,12 @@ impl Resources {
             Some((px, py, dw, dh)) => {
                 let (w, h) = (key.1 as i64, key.2 as i64);
                 let (pw, ph) = ((w * src.width() as i64 / dw).max(1) as u32, (h * src.height() as i64 / dh).max(1) as u32);
-                let piece = image::imageops::resize(&*src, pw, ph, image::imageops::FilterType::Triangle);
+                let piece = resize(&src, pw, ph);
                 let mut canvas = RgbaImage::new(key.1, key.2);
                 image::imageops::overlay(&mut canvas, &piece, px * w / dw, py * h / dh);
                 Rc::new(canvas)
             }
-            None => Rc::new(image::imageops::resize(&*src, key.1, key.2, image::imageops::FilterType::Triangle)),
+            None => Rc::new(resize(&src, key.1, key.2)),
         };
         if self.scaled.len() > 512 {
             self.scaled.clear();
@@ -1320,6 +1461,25 @@ pub fn is_lfs_pointer(p: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The fixed-point Triangle filter gives what image's gives, within
+    /// rounding, enlarging and shrinking; and blit_part clips.
+    #[test]
+    fn fast_resize_matches_triangle() {
+        let src =
+            RgbaImage::from_fn(37, 23, |x, y| image::Rgba([(x * 7) as u8, (y * 11) as u8, ((x * y) % 256) as u8, if (x + y) % 5 == 0 { 0 } else { 255 }]));
+        for (w, h) in [(80, 50), (34, 21), (37, 40), (25, 16), (11, 90), (5, 3), (37, 23)] {
+            let a = resize(&src, w, h);
+            let b = image::imageops::resize(&src, w, h, image::imageops::FilterType::Triangle);
+            let worst = a.as_raw().iter().zip(b.as_raw()).map(|(x, y)| (*x as i32 - *y as i32).abs()).max().unwrap();
+            assert!(worst <= 2, "{}x{}: off by {}", w, h, worst);
+        }
+        let mut dst = RgbaImage::new(10, 10);
+        blit_part(&mut dst, &RgbaImage::from_pixel(4, 4, image::Rgba([9, 8, 7, 255])), (-2, 8, 4, 4), None);
+        assert_eq!(dst.get_pixel(0, 9).0, [9, 8, 7, 255]);
+        assert_eq!(dst.get_pixel(2, 9).0, [0, 0, 0, 0]);
+        assert_eq!(dst.get_pixel(0, 7).0, [0, 0, 0, 0]);
+    }
 
     #[test]
     fn lfs_pointer() {

@@ -2010,7 +2010,17 @@ impl Tty {
         }
         self.last_frame = fp;
         self.force_frame = false;
+        // as one synchronized update (DEC mode 2026: kitty, WezTerm, foot,
+        // Ghostty, Konsole, Windows Terminal…; others ignore it), so a
+        // picture replaced by another is never shown half done or gone
+        let console = self.term == "linux" || self.term.starts_with("fbterm");
+        if !console {
+            write_all(b"\x1b[?2026h");
+        }
         write_all(&out);
+        if !console {
+            write_all(b"\x1b[?2026l");
+        }
         crate::sys::drain_stdout();
         self.gfx.after_flush(&placements, self.cell);
         self.pointer_over_images(&placements);
@@ -2111,11 +2121,7 @@ impl Tty {
                     if self.cbg_scaled.len() > 8 {
                         self.cbg_scaled.clear();
                     }
-                    let i = if (pw, ph) == img.dimensions() {
-                        img.clone()
-                    } else {
-                        std::rc::Rc::new(image::imageops::resize(&*img, pw, ph, image::imageops::FilterType::Triangle))
-                    };
+                    let i = if (pw, ph) == img.dimensions() { img.clone() } else { std::rc::Rc::new(crate::resources::resize(&img, pw, ph)) };
                     self.cbg_scaled.insert(key, i.clone());
                     i
                 }
