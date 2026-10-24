@@ -39,12 +39,27 @@ struct Current {
     cat: Option<Catalog>,
 }
 
+#[cfg(not(test))]
 static CURRENT: RwLock<Current> = RwLock::new(Current { lang: String::new(), cat: None });
+
+// (tests run in parallel threads: each picks its own language)
+#[cfg(test)]
+thread_local! {
+    static CURRENT_T: &'static RwLock<Current> = Box::leak(Box::new(RwLock::new(Current { lang: String::new(), cat: None })));
+}
+
+/// The selection in force (per thread in tests).
+fn current() -> &'static RwLock<Current> {
+    #[cfg(not(test))]
+    return &CURRENT;
+    #[cfg(test)]
+    return CURRENT_T.with(|c| *c);
+}
 
 /// Use `lang` (a code from [`LANGUAGES`]) from now on; anything else is
 /// English. Its catalogue is parsed at the next lookup.
 pub fn set_language(lang: &str) {
-    let mut c = CURRENT.write().unwrap_or_else(|e| e.into_inner());
+    let mut c = current().write().unwrap_or_else(|e| e.into_inner());
     if c.lang != lang {
         c.lang = lang.to_string();
         c.cat = None;
@@ -54,13 +69,13 @@ pub fn set_language(lang: &str) {
 /// The language in use (a code from [`LANGUAGES`], or "" for English).
 #[allow(dead_code)]
 pub fn language() -> String {
-    CURRENT.read().unwrap_or_else(|e| e.into_inner()).lang.clone()
+    current().read().unwrap_or_else(|e| e.into_inner()).lang.clone()
 }
 
 /// Use `lang` with the catalogue `po` instead of the compiled-in one (tests).
 #[cfg(test)]
 pub fn install(lang: &str, po: &str) {
-    let mut c = CURRENT.write().unwrap_or_else(|e| e.into_inner());
+    let mut c = current().write().unwrap_or_else(|e| e.into_inner());
     c.lang = lang.to_string();
     c.cat = Some(parse_po(po));
 }
@@ -209,7 +224,7 @@ pub fn pseudo(lang: &str, text: &str) -> String {
 /// `msgid` (in context `ctx`, "" for none) in the selected language.
 pub fn lookup(ctx: &str, msgid: &str) -> String {
     {
-        let c = CURRENT.read().unwrap_or_else(|e| e.into_inner());
+        let c = current().read().unwrap_or_else(|e| e.into_inner());
         if PSEUDO.contains(&c.lang.as_str()) {
             return pseudo(&c.lang, msgid);
         }
@@ -220,7 +235,7 @@ pub fn lookup(ctx: &str, msgid: &str) -> String {
             return msgid.to_string();
         }
     }
-    let mut c = CURRENT.write().unwrap_or_else(|e| e.into_inner());
+    let mut c = current().write().unwrap_or_else(|e| e.into_inner());
     if c.cat.is_none() {
         let src = LANGUAGES.iter().find(|l| l.0 == c.lang).map_or("", |l| l.2);
         c.cat = Some(parse_po(src));
@@ -537,7 +552,26 @@ msgstr "未確認"
             if rel == "src/i18n.rs" {
                 continue;
             }
-            let src: String = std::fs::read_to_string(&f).unwrap().lines().filter(|l| !l.trim_start().starts_with("//")).map(|l| format!("{}\n", l)).collect();
+            // (only the program's own code: test modules left out, each
+            // from its `#[cfg(test)]` to the `}` in the first column)
+            let all = std::fs::read_to_string(&f).unwrap();
+            let mut src = String::new();
+            let mut in_test = false;
+            let lines: Vec<&str> = all.lines().collect();
+            for (k, l) in lines.iter().enumerate() {
+                if !in_test && l.trim() == "#[cfg(test)]" {
+                    let next = lines[k + 1..].iter().map(|l| l.trim()).find(|l| !l.starts_with("#["));
+                    in_test = next.is_some_and(|n| n.starts_with("mod ") || n.contains(" mod "));
+                }
+                if in_test {
+                    in_test = *l != "}";
+                    continue;
+                }
+                if !l.trim_start().starts_with("//") {
+                    src.push_str(l);
+                    src.push('\n');
+                }
+            }
             for (ctx, id) in macro_literals(&src) {
                 match msgs.iter_mut().find(|m| m.0 == ctx && m.1 == id) {
                     Some(m) if !m.2.contains(&rel) => m.2.push(rel.clone()),
@@ -625,8 +659,8 @@ msgstr "未確認"
                     }
                     // a line continuation: the newline and the next line's indent go
                     '\n' => {
-                        let mut peek = it.clone();
-                        while let Some((_, w)) = peek.next() {
+                        let peek = it.clone();
+                        for (_, w) in peek {
                             if !w.is_whitespace() {
                                 break;
                             }
@@ -834,5 +868,153 @@ msgstr "未確認"
         set_language("en");
         assert_eq!(language(), "en");
         assert_eq!(t!("{n} saves", n = 3), "3 saves");
+    }
+}
+
+/// A terminal screen for tests: what emuera-tty writes, laid out the way a
+/// terminal would (cursor moves, text by display width, combining marks in
+/// the cell of the character before them); other escape sequences ignored.
+#[cfg(test)]
+pub mod screen {
+    use unicode_width::UnicodeWidthChar;
+
+    pub struct Screen {
+        pub cols: usize,
+        pub rows: usize,
+        /// each cell's text: a character and its marks; "" after a wide one
+        pub cells: Vec<Vec<String>>,
+        /// something was written past the right edge or the last row
+        pub overflow: bool,
+        x: usize,
+        y: usize,
+    }
+
+    impl Screen {
+        pub fn new(cols: usize, rows: usize) -> Screen {
+            Screen { cols, rows, cells: vec![vec![" ".to_string(); cols]; rows], overflow: false, x: 0, y: 0 }
+        }
+
+        pub fn feed(&mut self, bytes: &[u8]) {
+            let text = String::from_utf8_lossy(bytes);
+            let mut it = text.chars().peekable();
+            while let Some(c) = it.next() {
+                match c {
+                    '\x1b' => match it.next() {
+                        Some('[') => {
+                            let mut params = String::new();
+                            for p in it.by_ref() {
+                                if ('@'..='~').contains(&p) {
+                                    self.csi(&params, p);
+                                    break;
+                                }
+                                params.push(p);
+                            }
+                        }
+                        // OSC, DCS, APC: to the string terminator (or BEL)
+                        Some(']' | 'P' | '_') => {
+                            while let Some(p) = it.next() {
+                                if p == '\x07' || (p == '\x1b' && it.peek() == Some(&'\\')) {
+                                    if p == '\x1b' {
+                                        it.next();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
+                    '\r' => self.x = 0,
+                    '\n' => self.y += 1,
+                    c if c.is_control() => {}
+                    c => self.put(c),
+                }
+            }
+        }
+
+        fn csi(&mut self, params: &str, f: char) {
+            let n: Vec<usize> = params.split(';').map(|p| p.trim_start_matches('?').parse().unwrap_or(0)).collect();
+            match f {
+                'H' => {
+                    self.y = n.first().copied().unwrap_or(1).max(1) - 1;
+                    self.x = n.get(1).copied().unwrap_or(1).max(1) - 1;
+                }
+                'K' if self.y < self.rows => {
+                    for x in self.x..self.cols {
+                        self.cells[self.y][x] = " ".to_string();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        fn put(&mut self, c: char) {
+            let w = c.width().unwrap_or(0);
+            if w == 0 {
+                // a mark: with the character before it
+                if self.y < self.rows && self.x > 0 {
+                    let mut k = self.x - 1;
+                    while k > 0 && self.cells[self.y][k].is_empty() {
+                        k -= 1;
+                    }
+                    self.cells[self.y][k].push(c);
+                }
+                return;
+            }
+            if self.y >= self.rows || self.x + w > self.cols {
+                self.overflow = true;
+                self.x += w;
+                return;
+            }
+            self.cells[self.y][self.x] = c.to_string();
+            if w == 2 {
+                self.cells[self.y][self.x + 1] = String::new();
+            }
+            self.x += w;
+        }
+
+        /// Row `y`'s text.
+        pub fn row(&self, y: usize) -> String {
+            self.cells[y].concat()
+        }
+
+        /// Everything on the screen.
+        pub fn text(&self) -> String {
+            (0..self.rows).map(|y| self.row(y) + "\n").collect()
+        }
+
+        /// The box drawn with `┌┐└┘│` whose top-left corner is the first on
+        /// the screen: Err with what is wrong if a row's side is out of line.
+        pub fn check_box(&self) -> Result<(usize, usize), String> {
+            let find = |c: &str| (0..self.rows).find_map(|y| self.cells[y].iter().position(|t| t == c).map(|x| (x, y)));
+            let (left, top) = find("┌").ok_or("no top-left corner")?;
+            let right = self.cells[top].iter().position(|t| t == "┐").ok_or("no top-right corner")?;
+            let bottom = (top + 1..self.rows).find(|&y| self.cells[y][left] == "└").ok_or("no bottom-left corner")?;
+            if self.cells[bottom][right] != "┘" {
+                return Err(format!("bottom-right corner not at column {}: {:?}", right, self.row(bottom)));
+            }
+            for y in top + 1..bottom {
+                // (a divider row: ├──┤)
+                if !matches!(self.cells[y][left].as_str(), "│" | "├") || !matches!(self.cells[y][right].as_str(), "│" | "┤") {
+                    return Err(format!("row {} out of line: {:?}", y, self.row(y)));
+                }
+            }
+            Ok((left, right))
+        }
+
+        /// A Devanagari consonant without the vowel sign or virama the
+        /// pseudo-language puts after every one: a dropped mark.
+        pub fn dropped_mark(&self) -> Option<String> {
+            for y in 0..self.rows {
+                for t in &self.cells[y] {
+                    let mut ch = t.chars();
+                    if let Some(c) = ch.next() {
+                        if ('\u{915}'..='\u{939}').contains(&c) && ch.next().is_none() {
+                            return Some(self.row(y));
+                        }
+                    }
+                }
+            }
+            None
+        }
     }
 }

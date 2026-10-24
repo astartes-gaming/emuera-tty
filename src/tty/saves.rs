@@ -369,3 +369,37 @@ fn expand_home(p: &str) -> String {
         _ => p.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::render_tests::{cases, check};
+    use super::super::{capture, ColorMode, Tty};
+
+    /// The save list and a confirmation box in every pseudo-language
+    #[test]
+    fn save_boxes_in_every_script() {
+        for (lang, cols, rows) in cases() {
+            crate::i18n::set_language(lang);
+            let t = Tty::blank(None, cols, rows, ColorMode::True);
+            let slot = t!("slot {n}", n = "01");
+            let rows_text = vec![
+                format!("{} {} {}", crate::i18n::pad(&slot, 8), crate::i18n::pad("2026/10/24 12:00", 16), "Day 3 - 博麗神社"),
+                t!("Back up all saves now"),
+                t!("Restore a backup…"),
+                t!("Import a save file…"),
+                t!("Back") + "  (Esc)",
+            ];
+            let help = t!("Enter: save actions   saves in {dir}", dir = "/home/player/games/eraTW/sav");
+            let out = capture(|| {
+                t.draw_list(&t!("Saves"), &rows_text, 1, 0, &help);
+            });
+            check("the save list", lang, cols, rows, &out);
+            let q = t!("Replace the saves with {backup}? (the current ones are backed up first)", backup = "backups/2026-10-24");
+            let out = capture(|| {
+                t.draw_list(&q, &[t!("Yes"), t!("No")], 0, 0, "");
+            });
+            check("a confirmation", lang, cols, rows, &out);
+        }
+        crate::i18n::set_language("en");
+    }
+}

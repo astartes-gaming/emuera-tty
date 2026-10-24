@@ -232,3 +232,28 @@ impl Tty {
         Geo { tab_row: top + 2, tabs, items_top: top + 4, first }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::render_tests::{cases, check};
+    use super::super::{capture, ColorMode, Tty};
+    use crate::emuconfig::{Values, ITEMS, TABS};
+
+    /// The game settings page, every tab, in every pseudo-language
+    #[test]
+    fn game_settings_in_every_script() {
+        let vals = Values::read(std::path::Path::new("/nonexistent/emuera-tty-test-game"));
+        for (lang, cols, rows) in cases() {
+            crate::i18n::set_language(lang);
+            let t = Tty::blank(None, cols, rows, ColorMode::True);
+            for (tab, name) in TABS.iter().enumerate() {
+                let items: Vec<_> = ITEMS.iter().filter(|it| it.tab == *name).collect();
+                let out = capture(|| {
+                    t.draw_game_settings(&vals, tab, &items, 0, "");
+                });
+                check(&format!("game settings tab {}", name), lang, cols, rows, &out);
+            }
+        }
+        crate::i18n::set_language("en");
+    }
+}

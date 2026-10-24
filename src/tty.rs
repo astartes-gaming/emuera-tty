@@ -502,7 +502,7 @@ fn debug_run() -> bool {
 }
 
 pub struct Tty {
-    raw_mode: crate::sys::RawMode,
+    raw_mode: Option<crate::sys::RawMode>,
     gfx: Box<dyn Backend>,
     cell: (u32, u32),
     cols: usize,
@@ -842,8 +842,26 @@ fn parse_recolor(v: &str) -> Vec<(Rgb, Rgb)> {
     v.split(',').filter_map(|p| p.split_once(':')).filter_map(|(a, b)| Some((hex(a)?, hex(b)?))).collect()
 }
 
+// what tests draw goes here instead of the terminal (see `capture`)
+#[cfg(test)]
+thread_local! {
+    static CAPTURE: std::cell::RefCell<Option<Vec<u8>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// What `f` writes to the terminal (tests).
+#[cfg(test)]
+pub(crate) fn capture(f: impl FnOnce()) -> Vec<u8> {
+    CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
+    f();
+    CAPTURE.with(|c| c.borrow_mut().take().unwrap_or_default())
+}
+
 /// Write to the terminal and flush.
 fn write_all(b: &[u8]) {
+    #[cfg(test)]
+    if CAPTURE.with(|c| c.borrow_mut().as_mut().map(|v| v.extend_from_slice(b)).is_some()) {
+        return;
+    }
     let mut out = std::io::stdout().lock();
     let _ = out.write_all(b);
     let _ = out.flush();
@@ -877,31 +895,11 @@ fn tmux_passthrough() -> bool {
 impl Tty {
     /// Enter raw mode and the alternate screen, pick colour and graphics
     /// support, open the console mouse if needed, and enable mouse reports.
-    pub fn new(gfx_pref: &str) -> Result<Tty, String> {
-        let raw_mode = crate::sys::RawMode::enter()?;
-        let term = std::env::var("TERM").unwrap_or_default();
-        let colorterm = std::env::var("COLORTERM").unwrap_or_default();
-        let forced = match std::env::var("EMUERA_COLORS").as_deref() {
-            Ok("truecolor") | Ok("24bit") => Some(ColorMode::True),
-            Ok("256") => Some(ColorMode::C256),
-            Ok("16") => Some(ColorMode::C16),
-            _ => None,
-        };
-        let detected = if term == "linux" || term == "hurd" {
-            ColorMode::C16
-        } else if term.starts_with("fbterm") {
-            // with its own escapes (see `sgr`)
-            ColorMode::C256
-        } else if colorterm.contains("truecolor") || colorterm.contains("24bit") || term.contains("kitty") || term.contains("foot") || term.contains("direct") {
-            ColorMode::True
-        } else if term.contains("256") {
-            ColorMode::C256
-        } else {
-            ColorMode::True
-        };
-        let color = forced.unwrap_or(detected);
-        let (cols, rows, xp, yp) = winsize();
-        let mut t = Tty {
+    /// A screen of `cols` × `rows` with nothing detected or set up yet: what
+    /// [`Tty::new`] starts from, and what tests draw into (`raw_mode` None:
+    /// no terminal to restore).
+    fn blank(raw_mode: Option<crate::sys::RawMode>, cols: usize, rows: usize, color: ColorMode) -> Tty {
+        Tty {
             raw_mode,
             gfx: Box::new(gfx::NoGfx),
             cell: (8, 16),
@@ -968,16 +966,16 @@ impl Tty {
             clip: crate::clipboard::Clipboard::default(),
             last_click: None,
             no_images: false,
-            auto_color: detected,
-            gfx_pref: gfx_pref.to_string(),
-            term: term.clone(),
+            auto_color: color,
+            gfx_pref: String::new(),
+            term: String::new(),
             last_frame: 0,
             force_frame: false,
             cbg_scaled: std::collections::HashMap::new(),
             game: None,
             animating: false,
-            fbterm: term.starts_with("fbterm"),
-            bright_codes: term != "hurd",
+            fbterm: false,
+            bright_codes: true,
             row_hash: Vec::new(),
             hash_cols: 0,
             redraw_all: std::cell::Cell::new(true),
@@ -989,7 +987,39 @@ impl Tty {
             row_all: Vec::new(),
             button_wrap: false,
             text_px: 9.0,
+        }
+    }
+
+    pub fn new(gfx_pref: &str) -> Result<Tty, String> {
+        let raw_mode = crate::sys::RawMode::enter()?;
+        let term = std::env::var("TERM").unwrap_or_default();
+        let colorterm = std::env::var("COLORTERM").unwrap_or_default();
+        let forced = match std::env::var("EMUERA_COLORS").as_deref() {
+            Ok("truecolor") | Ok("24bit") => Some(ColorMode::True),
+            Ok("256") => Some(ColorMode::C256),
+            Ok("16") => Some(ColorMode::C16),
+            _ => None,
         };
+        let detected = if term == "linux" || term == "hurd" {
+            ColorMode::C16
+        } else if term.starts_with("fbterm") {
+            // with its own escapes (see `sgr`)
+            ColorMode::C256
+        } else if colorterm.contains("truecolor") || colorterm.contains("24bit") || term.contains("kitty") || term.contains("foot") || term.contains("direct") {
+            ColorMode::True
+        } else if term.contains("256") {
+            ColorMode::C256
+        } else {
+            ColorMode::True
+        };
+        let color = forced.unwrap_or(detected);
+        let (cols, rows, xp, yp) = winsize();
+        let mut t = Tty::blank(Some(raw_mode), cols, rows, color);
+        t.auto_color = detected;
+        t.gfx_pref = gfx_pref.to_string();
+        t.term = term.clone();
+        t.fbterm = term.starts_with("fbterm");
+        t.bright_codes = term != "hurd";
         if xp > 0 && yp > 0 {
             t.cell = (xp / cols as u32, yp / rows as u32);
         }
@@ -4735,7 +4765,9 @@ impl Frontend for Tty {
         if let Some(n) = &self.notice {
             eprintln!("emuera-tty: {}", n);
         }
-        self.raw_mode.restore();
+        if let Some(r) = &self.raw_mode {
+            r.restore();
+        }
     }
 
     /// Show a Yes/No confirmation dialog (for infinite loop warning, etc.).
@@ -4781,13 +4813,17 @@ impl Frontend for Tty {
         write_all(b"\x1b[?1006l\x1b[?1015l\x1b[?1005l\x1b[?1003l\x1b[?1002l\x1b[?1000l");
         let _ = io::stdout().flush();
         // Temporarily restore cooked mode
-        self.raw_mode.restore();
+        if let Some(r) = &self.raw_mode {
+            r.restore();
+        }
         eprint!("{}", prompt);
         let _ = io::stderr().flush();
         // Read line while filtering out mouse escape sequences
         let line = read_line_filtered();
         // Re-enter raw mode using the original termios
-        let _ = self.raw_mode.re_enter();
+        if let Some(r) = &self.raw_mode {
+            let _ = r.re_enter();
+        }
         // Re-enable mouse reporting
         write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1005h\x1b[?1015h\x1b[?1006h");
         line
@@ -5077,6 +5113,82 @@ mod tests {
     fn no_filler_when_terminal_draws_ambiguous_wide() {
         assert_eq!(char_cells('━', Ambi::Wide, None), (2, 0, '━'));
         assert_eq!(char_cells('■', Ambi::Wide, None), (2, 0, '■'));
+    }
+}
+
+/// The interface drawn in every pseudo-language (and English) at two
+/// screen sizes keeps its boxes in line, stays on the screen and keeps
+/// every combining mark.
+#[cfg(test)]
+pub(crate) mod render_tests {
+    use super::*;
+    use crate::i18n::screen::Screen;
+
+    /// The languages and screen sizes the drawing tests run in.
+    pub(crate) fn cases() -> Vec<(&'static str, usize, usize)> {
+        let langs = std::iter::once("en").chain(crate::i18n::PSEUDO.iter().copied());
+        langs.flat_map(|l| [(l, 80, 30), (l, 132, 44)]).collect()
+    }
+
+    /// `bytes` drawn on a `cols` × `rows` screen, checked: the box in line,
+    /// nothing off the screen, no dropped mark.
+    pub(crate) fn check(what: &str, lang: &str, cols: usize, rows: usize, bytes: &[u8]) -> Screen {
+        let mut scr = Screen::new(cols, rows);
+        scr.feed(bytes);
+        let at = format!("{} in {} at {}x{}", what, lang, cols, rows);
+        assert!(!scr.overflow, "{}: text off the screen\n{}", at, scr.text());
+        if let Err(e) = scr.check_box() {
+            panic!("{}: {}\n{}", at, e, scr.text());
+        }
+        assert!(scr.dropped_mark().is_none(), "{}: a mark dropped in {:?}", at, scr.dropped_mark());
+        scr
+    }
+
+    /// Choosing a language in the overlay translates the next frame (a
+    /// one-message catalogue stands in for a real translation)
+    #[test]
+    fn language_setting_applies_at_once() {
+        crate::i18n::install("ja", "msgid \"emuera-tty settings\"\nmsgstr \"emuera-tty の設定\"\n");
+        let mut t = Tty::blank(None, 100, 30, ColorMode::True);
+        let mut st = crate::settings::Settings::default();
+        st.set("language", "ja");
+        if std::env::var_os("EMUERA_LANG").is_none() {
+            t.apply_setting("language", "ja", &st);
+        }
+        let out = capture(|| {
+            t.draw_overlay(&st, &[0], &[], 0, "");
+        });
+        let scr = check("the overlay", "ja", 100, 30, &out);
+        assert!(scr.text().contains("emuera-tty の設定"), "{}", scr.text());
+        crate::i18n::set_language("en");
+    }
+
+    #[test]
+    fn overlay_in_every_script() {
+        use crate::settings::{Settings, ITEMS};
+        for (lang, cols, rows) in cases() {
+            crate::i18n::set_language(lang);
+            let t = Tty::blank(None, cols, rows, ColorMode::True);
+            let st = Settings::default();
+            let vis: Vec<usize> = ITEMS.iter().enumerate().filter(|(_, it)| st.shown(it)).map(|(i, _)| i).collect();
+            let rows_text = [
+                t!("Manage saves…  (copy, export, back up, restore)"),
+                t!("Clear the picture cache  (frees decoded sprites; they load again when shown)"),
+                t!("Back to the title") + "  (Ctrl-T)",
+                t!("Quit emuera-tty"),
+            ];
+            let extra: Vec<&str> = rows_text.iter().map(String::as_str).collect();
+            let note = t!("{setting} takes effect the next time emuera-tty starts", setting = crate::i18n::tr(ITEMS[0].label));
+            let out = capture(|| {
+                t.draw_overlay(&st, &vis, &extra, vis.len() + 1, &note);
+            });
+            let scr = check("the overlay", lang, cols, rows, &out);
+            // the title's text made it (in its script)
+            let title = t!("emuera-tty settings");
+            let head: String = title.chars().take(3).collect();
+            assert!(scr.text().contains(&head), "{}: {:?} not shown", lang, head);
+        }
+        crate::i18n::set_language("en");
     }
 }
 

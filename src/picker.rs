@@ -300,7 +300,16 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> 
     chosen
 }
 
+#[cfg(test)]
+thread_local! {
+    static CAPTURE: std::cell::RefCell<Option<Vec<u8>>> = const { std::cell::RefCell::new(None) };
+}
+
 fn out(b: &[u8]) {
+    #[cfg(test)]
+    if CAPTURE.with(|c| c.borrow_mut().as_mut().map(|v| v.extend_from_slice(b)).is_some()) {
+        return;
+    }
     let mut o = std::io::stdout().lock();
     let _ = o.write_all(b);
     let _ = o.flush();
@@ -2760,5 +2769,62 @@ mod tests {
         assert_eq!(settled("Receiving objects:  50% (1/2)\rReceiving objects: 100% (2/2), done.\nok\r\n"), "Receiving objects: 100% (2/2), done.\nok\n");
         assert_eq!(padded("ab", 4), "ab  ");
         assert_eq!(padded("サンプル", 5), "サン ");
+    }
+}
+
+/// The launcher drawn in every pseudo-language: each row within the
+/// screen's width, no mark dropped.
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    use crate::i18n::screen::Screen;
+
+    fn draw(p: &mut Picker) -> Vec<u8> {
+        CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
+        p.draw();
+        CAPTURE.with(|c| c.borrow_mut().take().unwrap_or_default())
+    }
+
+    #[test]
+    fn launcher_in_every_script() {
+        let (cols, rows) = term_size();
+        for lang in std::iter::once("en").chain(crate::i18n::PSEUDO.iter().copied()) {
+            crate::i18n::set_language(lang);
+            let mut st = crate::settings::Settings::default();
+            st.library = vec![PathBuf::from("/nonexistent/eraTW"), PathBuf::from("/nonexistent/eratohoK")];
+            st.last = Some(st.library[0].clone());
+            let mut p = Picker {
+                dir: PathBuf::from("/"),
+                entries: Vec::new(),
+                entry_line: Vec::new(),
+                sel: 0,
+                top: 0,
+                hidden: false,
+                note: t!("Removed {game} from the list (its files are still there).", game = "/nonexistent/eraMegaten"),
+                mice: None,
+                pending: Vec::new(),
+                mode: Mode::Library,
+                adding: false,
+                git_log: None,
+                st,
+                wiki: Vec::new(),
+                wiki_game: 0,
+                wiki_info: Default::default(),
+                wiki_opts: Vec::new(),
+                logins: Vec::new(),
+            };
+            for mode in [Mode::Library, Mode::Settings] {
+                p.mode = mode;
+                p.load();
+                let mut scr = Screen::new(cols, rows);
+                scr.feed(&draw(&mut p));
+                assert!(!scr.overflow, "the launcher in {}: text off the screen\n{}", lang, scr.text());
+                assert!(scr.dropped_mark().is_none(), "the launcher in {}: a mark dropped in {:?}", lang, scr.dropped_mark());
+                // the first entry is on screen, in its script
+                let first: String = p.entries[0].label.chars().skip(2).take(3).collect();
+                assert!(scr.text().contains(&first), "the launcher in {}: {:?} not shown\n{}", lang, first, scr.text());
+            }
+        }
+        crate::i18n::set_language("en");
     }
 }
