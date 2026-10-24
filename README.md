@@ -80,7 +80,9 @@ Expect rough edges in parts of the games nobody has played through yet
 ## 1. What you need
 
 - **Linux**. It also builds for **macOS**, the **BSDs** (FreeBSD, NetBSD,
-  OpenBSD, DragonFly), **Windows 10/11**, **Termux** on Android, **illumos /
+  OpenBSD, DragonFly), **Windows 10/11** (works in either the base `cmd` or
+  WezTerm), **Termux** on Android (having an OTG mouse + keyboard on hand
+  and using the device in landscape mode is recommended), **illumos /
   Solaris**, **Haiku** and **Redox**, but **only Linux is tested: every
   other system is compile-checked only and untested.** Reports are
   welcome. See [Other systems](#other-systems) for the differences,
