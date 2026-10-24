@@ -60,7 +60,9 @@ pub fn run(dir: &Path, input: &[u8]) -> String {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
+    // (a game that stops on an error may exit before reading its input:
+    // the write then fails, and the output still tells what happened)
+    let _ = child.stdin.take().unwrap().write_all(input);
     let out = child.wait_with_output().unwrap();
     String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
 }
