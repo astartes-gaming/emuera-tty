@@ -569,6 +569,12 @@ pub struct Tty {
     /// per screen row of the last frame: the key of the translatable line
     /// it belongs to, for clicks
     row_lines: Vec<Option<u64>>,
+    /// lines the player middle-clicked to translate whatever the Translate
+    /// setting says (see [`line_key`])
+    forced: std::collections::HashSet<u64>,
+    /// per screen row of the last frame: the key of its line, translated
+    /// or not (while translating), for those clicks
+    row_all: Vec<Option<u64>>,
 }
 
 /// Terminal size: (cols, rows, pixel width, pixel height); pixels are 0
@@ -841,6 +847,8 @@ impl Tty {
             hover_imgs: std::collections::HashSet::new(),
             show_orig: std::collections::HashSet::new(),
             row_lines: Vec::new(),
+            forced: std::collections::HashSet::new(),
+            row_all: Vec::new(),
             button_wrap: false,
             text_px: 9.0,
         };
@@ -1691,12 +1699,15 @@ impl Tty {
         // for each chunk: the key of its line if it is translated (or could
         // be shown so), for clicking between the original and the translation
         let mut chunk_keys: Vec<Option<u64>> = Vec::new();
+        // and the key of every line while translating, to force one
+        let mut chunk_all: Vec<Option<u64>> = Vec::new();
         let mut count = 0;
         if let Some(l) = &cur_line {
             let r = self.layout_line(l, con.valid_gen, scale);
             count += r.len();
             chunks.push(r);
             chunk_keys.push(None);
+            chunk_all.push(None);
         }
         // dialog translated in batches (the lines that may show)
         let blocks = if self.mt.is_some() { self.translate_blocks(con, con.lines.len().saturating_sub(need)) } else { crate::fxhash::HashMap::default() };
@@ -1704,9 +1715,13 @@ impl Tty {
             if count >= need {
                 break;
             }
+            let all_key = self.mt.is_some().then(|| line_key(l));
             let tr = match blocks.get(&i) {
                 Some(t) => Some(t.clone()),
-                None if self.mt.is_some() => self.translated(l, &con.src_files),
+                None if self.mt.is_some() => {
+                    let force = all_key.is_some_and(|k| self.forced.contains(&k));
+                    self.translated(l, &con.src_files, force)
+                }
                 None => None,
             };
             // a translated line the player clicked shows its original again
@@ -1719,10 +1734,13 @@ impl Tty {
             count += r.len();
             chunks.push(r);
             chunk_keys.push(key);
+            chunk_all.push(all_key);
         }
         let mut row_keys: Vec<Option<u64>> = Vec::new();
-        for (c, k) in chunks.into_iter().zip(chunk_keys).rev() {
+        let mut row_all: Vec<Option<u64>> = Vec::new();
+        for ((c, k), a) in chunks.into_iter().zip(chunk_keys).zip(chunk_all).rev() {
             row_keys.extend(std::iter::repeat_n(k, c.len()));
+            row_all.extend(std::iter::repeat_n(a, c.len()));
             all.extend(c);
         }
         // <div> content: painted over the rows it reaches (Emuera draws a
@@ -1762,6 +1780,7 @@ impl Tty {
         let cbg_places = if res.cbg.is_empty() { Vec::new() } else { self.cbg_layers(con, res, &mut all[start..end]) };
         let visible = &all[start..end];
         self.row_lines = (start..end).map(|i| row_keys.get(i).copied().flatten()).collect();
+        self.row_all = (start..end).map(|i| row_all.get(i).copied().flatten()).collect();
 
         let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
         out.extend_from_slice(b"\x1b[?25l");
@@ -2363,11 +2382,19 @@ impl Tty {
     /// A mouse press may trigger a copy (left, middle or double click).
     /// Click on screen row `y` (0-based): if it belongs to a translated
     /// line, show that line's original text instead (or the translation
-    /// again). Whether anything changed.
+    /// again); any other line, while translating, is translated now
+    /// whatever the Translate setting says. Whether anything changed.
     fn toggle_translation(&mut self, y: usize) -> bool {
-        let Some(Some(k)) = self.row_lines.get(y).copied() else { return false };
-        if !self.show_orig.remove(&k) {
-            self.show_orig.insert(k);
+        if let Some(Some(k)) = self.row_lines.get(y).copied() {
+            if !self.show_orig.remove(&k) {
+                self.show_orig.insert(k);
+            }
+            self.force_frame = true;
+            return true;
+        }
+        let Some(Some(k)) = self.row_all.get(y).copied() else { return false };
+        if self.mt.is_none() || !self.forced.insert(k) {
+            return false;
         }
         self.force_frame = true;
         true
@@ -2962,14 +2989,20 @@ impl Tty {
     /// All-text mode: `l` with each piece of text translated on its own (as
     /// far as translations are in), so buttons and colours stay, and only
     /// the words, not the numbers and brackets around them. Dialog lines
-    /// are left to `translate_blocks`.
-    fn translated(&mut self, l: &Line, files: &[String]) -> Option<Line> {
+    /// are left to `translate_blocks`. `force`: the player middle-clicked
+    /// the line, so it is translated whatever the Translate setting says;
+    /// the log then says so where it can't name the file that printed it.
+    fn translated(&mut self, l: &Line, files: &[String], force: bool) -> Option<Line> {
         use crate::mt::{is_drawing, source_of, split_words};
-        if !self.tr_all || self.dialog_of(l).is_some() {
+        if !(self.tr_all || force) || self.dialog_of(l).is_some() {
             return None;
         }
         let (from, to) = (self.tr_from.clone(), self.tr_to.clone());
-        let place = self.mt.as_ref().is_some_and(|m| m.logging()).then(|| place_of(l, files)).flatten();
+        let logging = self.mt.as_ref().is_some_and(|m| m.logging());
+        let mut place = logging.then(|| place_of(l, files)).flatten();
+        if logging && force && place.is_none() {
+            place = Some("(force-translated, cannot trace original file)".to_string());
+        }
         let place = place.as_deref();
         let mt = self.mt.as_mut()?;
         let whole: String = l.segs.iter().filter_map(|s| if let Seg::Text { text, .. } = s { Some(text.as_str()) } else { None }).collect();

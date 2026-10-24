@@ -331,7 +331,9 @@ argos-translate).
 Append every new translation to
 .IR file :
 the script file and line that printed it, the languages, the original
-and the translation, separated by tabs.
+and the translation, separated by tabs. A line translated by a middle
+click that can't be traced to its script file has
+\fB(force-translated, cannot trace original file)\fR instead.
 .TP
 .B DEEPL_AUTH_KEY
 A DeepL API key for the

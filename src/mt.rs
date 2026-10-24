@@ -521,6 +521,8 @@ impl Mt {
             any = true;
             match r {
                 Ok(t) => {
+                    // with the quote marks the original used, not the translator's "
+                    let t = restore_quotes(&text, &t);
                     if let (Some(f), Some((places, from))) = (self.log.as_mut(), self.asked.remove(&text)) {
                         // one line each: tabs and line breaks in the text as spaces
                         let flat = |s: &str| s.replace(['\t', '\r', '\n'], " ");
@@ -598,6 +600,60 @@ pub fn is_dialog(text: &str, kojo: bool, src: &str) -> bool {
     kojo || if src == "ja" { text.contains('「') || text.contains('『') } else { text.contains('"') || text.contains('“') }
 }
 
+/// The quote marks of dialog in `s`: byte position, the mark, and whether
+/// it opens a quote. 「 『 “ open, 」 』 ” close; a plain `"` opens or
+/// closes by turns.
+fn quote_marks(s: &str) -> Vec<(usize, char, bool)> {
+    let mut inside = false;
+    let mut out = Vec::new();
+    for (i, c) in s.char_indices() {
+        let opens = match c {
+            '「' | '『' | '“' => true,
+            '」' | '』' | '”' => false,
+            '"' | '＂' => !inside,
+            _ => continue,
+        };
+        inside = opens;
+        out.push((i, c, opens));
+    }
+    out
+}
+
+/// `tr`, the translation of `orig`, with the quote marks `orig` used: a
+/// translator writes plain `"` where the original had 「」, 『』 or “”. As
+/// many marks of the same kinds go one for one; otherwise the first opening
+/// and the last closing mark are the ones put back.
+pub fn restore_quotes(orig: &str, tr: &str) -> String {
+    let (o, t) = (quote_marks(orig), quote_marks(tr));
+    if o.is_empty() || t.is_empty() {
+        return tr.to_string();
+    }
+    let mut want: Vec<Option<char>> = vec![None; t.len()];
+    if o.len() == t.len() && o.iter().zip(&t).all(|(a, b)| a.2 == b.2) {
+        for (w, m) in want.iter_mut().zip(&o) {
+            *w = Some(m.1);
+        }
+    } else {
+        if let (Some(a), Some(b)) = (o.iter().find(|m| m.2), t.iter().position(|m| m.2)) {
+            want[b] = Some(a.1);
+        }
+        if let (Some(a), Some(b)) = (o.iter().rev().find(|m| !m.2), t.iter().rposition(|m| !m.2)) {
+            want[b] = Some(a.1);
+        }
+    }
+    let mut out = String::with_capacity(tr.len());
+    let mut last = 0;
+    for (m, w) in t.iter().zip(want) {
+        if let Some(w) = w {
+            out.push_str(&tr[last..m.0]);
+            out.push(w);
+            last = m.0 + m.1.len_utf8();
+        }
+    }
+    out.push_str(&tr[last..]);
+    out
+}
+
 /// The part of `s` worth translating: (what goes before, the words, what
 /// goes after). Numbers, brackets and symbols around the words (`[100] - `,
 /// `[641]`, `(1600/1600)`) stay as they are.
@@ -627,6 +683,22 @@ mod tests {
         let doc = format!("{{\"model\":\"x\",\"response\":{},\"done\":true}}", json_str(s));
         assert_eq!(json_field(&doc, "response").as_deref(), Some(s));
         assert_eq!(json_field(r#"{"translatedText": "Hi é 😀"}"#, "translatedText").as_deref(), Some("Hi é 😀"));
+    }
+
+    #[test]
+    fn quotes_of_the_original_come_back() {
+        assert_eq!(restore_quotes("「おはよう、ご主人様」", "\"Good morning, Master.\""), "「Good morning, Master.」");
+        assert_eq!(restore_quotes("『やあ』", "\"Hi.\""), "『Hi.』");
+        assert_eq!(restore_quotes("“Hello”", "\"Bonjour\""), "“Bonjour”");
+        // two quotes, one for one
+        assert_eq!(restore_quotes("「A」と「B」", "\"A\" and \"B\""), "「A」 and 「B」");
+        // a different count: the first opening and the last closing mark
+        assert_eq!(restore_quotes("「A」と「B」", "\"A and B\""), "「A and B」");
+        // a speech over lines: the opening on the first, the closing on the last
+        assert_eq!(restore_quotes("「一\n二」", "\"One\nTwo\""), "「One\nTwo」");
+        // nothing to restore
+        assert_eq!(restore_quotes("おはよう", "\"Hi\""), "\"Hi\"");
+        assert_eq!(restore_quotes("「おはよう」", "Hi"), "Hi");
     }
 
     #[test]
