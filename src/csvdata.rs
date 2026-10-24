@@ -242,7 +242,9 @@ impl GameCsv {
                 for line in text.lines() {
                     let f = csv_fields(line);
                     if f.len() >= 2 {
-                        g.replace.insert(f[0].clone(), f[1..].join(","));
+                        // keys in Japanese or English, spaces around them
+                        // ignored (`COM_ABLE初期値 , 0`), as Emuera reads them
+                        g.replace.insert(crate::config_names::canonical(&f[0]).to_string(), f[1..].join(","));
                     }
                 }
             }

@@ -60,6 +60,10 @@ CALL CHECK, "enumfunc", ENUMFUNCBEGINSWITH("SET_FLAG") == 3 && ENUMFUNCENDSWITH(
 CALL CHECK, "enumvar", ENUMVARBEGINSWITH("SUITE_CHE") == 1 && ENUMVARENDSWITH("TE_CHECKS") == 1 && ENUMVARWITH("UITE_CHEC") == 1
 CALL CHECK, "enummacro", ENUMMACROBEGINSWITH("SUITE_MACRO") == 2 && ENUMMACROENDSWITH("_TWO") == 1 && ENUMMACROWITH("_MACRO_") == 2
 CALL CHECK, "macro value", SUITE_MACRO_ONE + SUITE_MACRO_TWO == 3
+; a macro that names a variable takes its indices (eratohoReverse's
+; `#DEFINE KFLAG JUEL`, then `KFLAG:1 = 2`)
+SUITEFLAG:5 = 9
+CALL CHECK, "macro naming a variable takes indices", FLAG:5 == 9 && SUITEFLAG:5 + 1 == 10
 
 @SET_FLAG_F(X)
 #FUNCTION

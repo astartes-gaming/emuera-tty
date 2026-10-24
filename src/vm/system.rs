@@ -47,6 +47,20 @@ impl Vm {
                         self.con.print_ex(l, false);
                         self.con.newline();
                     }
+                    // a git copy of the game without its pictures (Git LFS)
+                    // breaks scripts that measure them: say why
+                    if let Some(f) = self.res.lfs_pointers.first() {
+                        let f = f.strip_prefix(&self.game_dir).unwrap_or(f).display().to_string();
+                        self.con.style.fg = Rgb(255, 200, 80);
+                        for l in [
+                            format!("Note: some pictures, like {}, are Git LFS pointers, not pictures:", f),
+                            "this copy of the game was made without git-lfs. Install git-lfs, then run".to_string(),
+                            "`git lfs pull` in the game folder (or update the game from the launcher).".to_string(),
+                        ] {
+                            self.con.print_ex(&l, false);
+                            self.con.newline();
+                        }
+                    }
                     self.con.style = st;
                     self.con.print_ex("(press Enter to quit)", false);
                     self.con.newline();
@@ -285,7 +299,10 @@ impl Vm {
         }
     }
 
-    /// Is training command `n` available? (@COM_ABLEn, default yes.)
+    /// Is training command `n` available? @COM_ABLEn says; without one,
+    /// _Replace.csv's "COM_ABLE初期値" (default 1: yes), as Emuera's
+    /// endCallComAbleXX. eratohoReverse sets it to 0 and lists its
+    /// reactions itself.
     fn com_able(&mut self, n: i64) -> VmResult<bool> {
         let name = format!("COM_ABLE{}", n);
         if self.has_func(&name) {
@@ -293,7 +310,7 @@ impl Vm {
             self.call_name(&name, vec![])?;
             Ok(self.get_global_i("RESULT", 0) != 0)
         } else {
-            Ok(true)
+            Ok(self.csv.replace.get("COM_ABLE初期値").and_then(|v| v.trim().parse::<i64>().ok()).unwrap_or(1) != 0)
         }
     }
 

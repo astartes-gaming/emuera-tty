@@ -804,7 +804,12 @@ impl Picker {
         out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", line, fit(&format!("Cloning {}…", url), cols)).as_bytes());
         out(format!("\x1b[{};1H\x1b[2K\x1b[2m{}\x1b[0m", rows, fit("Esc / Ctrl-C: cancel the clone", cols)).as_bytes());
         let mut show = |p: &str| out(format!("\x1b[{};1H\x1b[2K{}", line, fit(&format!("Cloning {}… {}", name, p), cols)).as_bytes());
-        let (end, log) = git_clone(&url, branch.trim(), depth, &target, &mut show, &mut || self.cancel_pressed());
+        let (end, mut log) = git_clone(&url, branch.trim(), depth, &target, &mut show, &mut || self.cancel_pressed());
+        let mut pics = String::new();
+        if matches!(end, CloneEnd::Done) {
+            show("fetching its pictures (git lfs pull)…");
+            pics = lfs_pull(&target, &mut log);
+        }
         self.git_log = Some(log);
         match end {
             CloneEnd::Done => {}
@@ -852,7 +857,7 @@ impl Picker {
             (None, Some(d)) => format!(" (depth {})", d),
             (None, None) => String::new(),
         };
-        self.note = format!("Cloned {}{}: NEW, Enter to play (g: git output).", game_title(&g).unwrap_or_else(|| g.display().to_string()), at);
+        self.note = format!("Cloned {}{}: NEW, Enter to play (g: git output).{}", game_title(&g).unwrap_or_else(|| g.display().to_string()), at, pics);
     }
 
     /// Has Esc or Ctrl-C been pressed? Reads what was typed meanwhile and
@@ -1326,7 +1331,7 @@ fn git_root(game: &Path) -> Option<PathBuf> {
 /// The folder `git clone` makes for `url`: its last path part without ".git".
 fn repo_name(url: &str) -> Option<String> {
     let u = url.trim().trim_end_matches('/');
-    let start = u.rfind(|c: char| matches!(c, '/' | ':' | '\\')).map_or(0, |i| i + 1);
+    let start = u.rfind(['/', ':', '\\']).map_or(0, |i| i + 1);
     let last = &u[start..];
     let name = last.strip_suffix(".git").unwrap_or(last);
     (!name.is_empty() && name != "." && name != "..").then(|| name.to_string())
@@ -1448,7 +1453,7 @@ fn git_clone(
             raw.extend_from_slice(&chunk);
             let from = raw.len().saturating_sub(300);
             let tail = String::from_utf8_lossy(&raw[from..]);
-            if let Some(l) = tail.split(|c: char| c == '\r' || c == '\n').map(str::trim).rev().find(|l| !l.is_empty()) {
+            if let Some(l) = tail.split(['\r', '\n']).map(str::trim).rev().find(|l| !l.is_empty()) {
                 progress(l);
             }
         };
@@ -1484,7 +1489,7 @@ fn git_clone(
     if ok {
         return (CloneEnd::Done, log);
     }
-    let lines: Vec<&str> = text.split(|c: char| c == '\r' || c == '\n').map(str::trim).collect();
+    let lines: Vec<&str> = text.split(['\r', '\n']).map(str::trim).collect();
     let why = lines
         .iter()
         .rev()
@@ -1531,6 +1536,35 @@ fn git_pull(root: &Path) -> (Result<String, String>, String) {
     (res, log)
 }
 
+/// Games that keep their pictures in Git LFS (pops-tw): without `git lfs
+/// pull` the pictures are pointer files, and scripts that measure them fail
+/// (SPRITEWIDTH 0, a division by zero). Fetches them in the checkout at
+/// `root` when its .gitattributes uses LFS; returns "" or a sentence on what
+/// went wrong (to append to the launcher's note).
+fn lfs_pull(root: &Path, log: &mut String) -> String {
+    use std::process::{Command, Stdio};
+    let lfs = std::fs::read_to_string(root.join(".gitattributes")).is_ok_and(|a| a.contains("filter=lfs"));
+    if !lfs {
+        return String::new();
+    }
+    let o = match Command::new("git").arg("-C").arg(root).args(["lfs", "pull"]).stdin(Stdio::null()).env("GIT_TERMINAL_PROMPT", "0").output() {
+        Ok(o) => o,
+        Err(e) => return format!(" Pictures (git lfs pull) failed: {}", e),
+    };
+    log.push_str("$ git lfs pull\n");
+    log.push_str(&String::from_utf8_lossy(&o.stderr));
+    log.push_str(&String::from_utf8_lossy(&o.stdout));
+    if o.status.success() {
+        return String::new();
+    }
+    let err = String::from_utf8_lossy(&o.stderr);
+    if err.contains("not a git command") {
+        " Its pictures are in Git LFS: install git-lfs and update again.".into()
+    } else {
+        format!(" Pictures (git lfs pull) failed: {}", err.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("?"))
+    }
+}
+
 fn git_pull_logged(root: &Path, log: &mut String) -> Result<String, String> {
     use std::process::{Command, Stdio};
     let git = |args: &[&str]| {
@@ -1567,14 +1601,15 @@ fn git_pull_logged(root: &Path, log: &mut String) -> Result<String, String> {
         };
         return Err(format!("Update failed: {}", if why.is_empty() { "git pull didn't work".to_string() } else { why }));
     }
+    let pics = lfs_pull(root, log);
     let after = head(git(&["rev-parse", "HEAD"])?);
     if before == after {
-        return Ok("Already up to date.".into());
+        return Ok(format!("Already up to date.{}", pics));
     }
     let n = head(git(&["rev-list", "--count", &format!("{}..{}", before, after)])?);
     let files = head(git(&["diff", "--shortstat", &before, &after])?);
     let short = |h: &str| -> Result<String, String> { Ok(head(git(&["rev-parse", "--short", h])?)) };
-    Ok(format!("Updated: {} new commit{} ({}) ({} -> {}).", n, if n == "1" { "" } else { "s" }, files, short(&before)?, short(&after)?))
+    Ok(format!("Updated: {} new commit{} ({}) ({} -> {}).{}", n, if n == "1" { "" } else { "s" }, files, short(&before)?, short(&after)?, pics))
 }
 
 /// First `name` on PATH.

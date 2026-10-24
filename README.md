@@ -8,7 +8,8 @@
 > breaks. It is not a serious or complete Emuera port, nobody has audited it,
 > and it will mis-render, misbehave or crash on plenty of scripts.
 >
-> - Expect bugs. Keep a copy of save files you care about.
+> - Expect bugs. emuera-tty keeps a history of every save it overwrites
+>   (see *Managing saves*), but keep your own copy of saves you care about.
 > - It is not affiliated with Emuera, Emuera-EM/EE, eratohoTW or AnonTW.
 >   Where behaviour was copied, it was by reading
 >   [EvilMask's emuera.em](https://gitlab.com/EvilMask/emuera.em) source for
@@ -325,6 +326,12 @@ just done. It only fast-forwards and never asks for a password, so a game
 you have edited, or a repository that needs a login, reports why it
 couldn't update instead (commit or stash your edits, or run `git pull` yourself).
 Saves in the game folder that the repository ignores are left alone.
+Games that keep their pictures in Git LFS (pops-tw) also get `git lfs
+pull`. Without [git-lfs](https://git-lfs.com) a clone holds small pointer
+files instead of the pictures, and scripts that measure a picture fail
+(pops-tw's title: a division by zero in `@TITLE_NAS`). Install git-lfs and
+run `git lfs pull` in the game folder (or `u` again); the script error
+screen says so when it finds such pointers.
 
 Inside a game, **Ctrl-O** → *Switch game…* goes back to the
 launcher. Other ways to start:
@@ -412,6 +419,29 @@ them. *Sound* in the settings turns it off and on while you play (the BGM picks
 up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
+
+**MIDI music** plays through [FluidSynth](https://www.fluidsynth.org),
+found in `PATH` like the other players, with the game's `soundfont.sf2`
+if it has one, else the system's:
+
+- Linux: `sudo apt install fluidsynth fluid-soundfont-gm` (Fedora:
+  `sudo dnf install fluidsynth fluid-soundfont-gm`).
+- Windows: download the Windows zip from
+  [FluidSynth's releases](https://github.com/FluidSynth/fluidsynth/releases),
+  extract it, and add its `bin` folder to your `PATH` (*Edit environment
+  variables for your account* → `Path` → *New*); open a new terminal
+  afterwards.
+- macOS: `brew install fluidsynth` (untested).
+
+Games that don't bring a SoundFont need one on the system; on Windows and
+macOS emuera-tty finds none by itself, so MIDI there plays only with a
+game's own `soundfont.sf2`. Games that come with
+**eraMidi** (`eramidi.exe`, as eratohoReverse does) get their music
+without it: eraMidi watches Emuera-Anchor's clipboard for a line with a ♪
+(the song title the game shows) and plays `media/reverse/<title>.mid`;
+emuera-tty reads its own printed lines the same way, so no clipboard
+setting is needed. The song loops until another one starts; one that is
+already playing isn't restarted.
 
 **Translating the game**: in the settings, *Translate to* picks the language to
 show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
@@ -689,6 +719,31 @@ slot. Nothing is lost by mistake: a deleted or overwritten save is copied
 to the backups first. Load a restored or imported save from the game's
 own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
 and `emuera-tty GAME --backup-saves` backs them up.
+
+**Save history.** Saves the game writes (save slots, autosaves,
+`global.sav`, SAVECHARA files) are protected too, with no setting to turn
+on:
+
+- **The version replaced is kept**, in the same backup folder, as
+  `<date>-auto-save01/`, so *restore a backup* can bring back any of them.
+  Copies are thinned: the last 10 of each file, then one a day for 30 days,
+  then one a week for 26 weeks. Saves are small (AnonTW's are under 1 MB),
+  so this stays at a few MB per game.
+- **A save emuera-tty didn't write** (one from Emuera.exe, or from before
+  this history) is kept as `<date>-original-save01/` the first time it is
+  replaced, and never thinned.
+- **Each save is written safely**: to a temporary file, flushed to disk,
+  read back and checked to load, and only then put in place. A crash,
+  power cut or full disk leaves the previous save; a save that wouldn't
+  load is reported at once and the previous one kept.
+- **`save-log.tsv`** in the backup folder records each save written: when,
+  which file, a fingerprint, its size, and the emuera-tty version and
+  commit that wrote it. If a bug turns up in some build, the log tells
+  which saves it wrote and which backup came before.
+
+`EMUERA_SAVE_HISTORY=0` turns the history and the log off (saves are still
+written safely). Nothing is added inside the saves: Emuera reads them as
+before.
 
 **Readable colours:** games are drawn for Emuera's black (or game-set)
 background, and some colours there are hard to read, like pure blue, or

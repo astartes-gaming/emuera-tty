@@ -34,6 +34,7 @@ mod regex;
 mod resources;
 mod retro;
 mod savemgr;
+mod savesafe;
 mod settings;
 mod sound;
 mod sys;
@@ -490,10 +491,13 @@ fn run(o: Opts) -> i32 {
     if !o.headless {
         vm.con.sound_on = sound::wanted(st.get("sound"));
         let named = std::env::var("EMUERA_SOUND_PLAYER").ok();
-        vm.sound = sound::Player::find(named.as_deref()).map(sound::Sound::new);
+        vm.sound = sound::Sound::new(sound::Player::find(named.as_deref()), sound::Player::find_midi(&game));
         if let Some(s) = vm.sound.as_mut() {
             s.set_on(vm.con.sound_on);
         }
+        // a game that comes with eraMidi (eratohoReverse): its music, found
+        // in the printed lines as eraMidi finds it (sound::eramidi_song)
+        vm.con.note_watch = vm.sound.is_some() && crate::loader::find_file_ci(&game, "eramidi.exe").is_some();
     }
     let sd = vm.save_dir();
     vm.fe.set_game(&game, &sd);
