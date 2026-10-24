@@ -198,8 +198,9 @@ impl Kitty {
 
     /// tmux: write each placement's cells as Unicode placeholders, every
     /// frame (the renderer redraws the rows under pictures that changed,
-    /// which clears old ones).
-    fn draw_placeholders(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
+    /// which clears old ones). Without `cells`, only send the images and
+    /// their virtual placements (`prepare`).
+    fn draw_placeholders(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32), cells: bool) {
         let (cw, ch) = (cell.0.max(1), cell.1.max(1));
         let mut used = Vec::new();
         for p in ps {
@@ -238,6 +239,9 @@ impl Kitty {
                 self.put(out, format!("\x1b_Ga=p,U=1,i={},p=1,c={},r={},q=2\x1b\\", id, cols, rows).as_bytes());
                 self.virt.insert(id, (cols, rows));
                 self.opaque.remove(&id);
+            }
+            if !cells {
+                continue;
             }
             // the image rows (whole cells) the crop leaves visible
             let opaque = self.opaque.entry(id).or_insert_with(|| opaque_cells(&p.img, cols, rows, cw, ch));
@@ -322,9 +326,14 @@ impl Backend for Kitty {
     fn text_erases(&self) -> bool {
         self.tmux
     }
+    fn prepare(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
+        if self.tmux {
+            self.draw_placeholders(out, ps, cell, false);
+        }
+    }
     fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
         if self.tmux {
-            return self.draw_placeholders(out, ps, cell);
+            return self.draw_placeholders(out, ps, cell, true);
         }
         let (cw, ch) = (cell.0.max(1), cell.1.max(1));
         // this frame's placements, per image, in the order given (back to
@@ -554,6 +563,27 @@ mod tests {
         k.draw(&mut out, &[Placement { row: 5, ..b }], (10, 16));
         let s = String::from_utf8(out).unwrap();
         assert!(s.contains("a=p,i=2,p=1,") && !s.contains("a=d"), "{:?}", s);
+    }
+
+    /// tmux: `prepare` sends the picture (compressed) and its virtual
+    /// placement, so the frame after the text is only placeholders.
+    #[test]
+    fn tmux_prepare_sends_first() {
+        use std::io::Read;
+        let mut k = Kitty::new_tmux();
+        let (mut pre, mut out) = (Vec::new(), Vec::new());
+        let a = placement(20, 32, 0, 32);
+        k.prepare(&mut pre, &[a.clone()], (10, 16));
+        k.draw(&mut out, &[a.clone()], (10, 16));
+        let (p, s) = (String::from_utf8(pre).unwrap(), String::from_utf8(out).unwrap());
+        assert!(p.contains("a=t,f=32,") && p.contains(",o=z,") && p.contains("a=p,U=1,i=1,"), "{:?}", p);
+        assert!(!s.contains("_G") && s.contains('\u{10EEEE}'), "{:?}", s);
+        // the data is the picture, zlib-compressed
+        let b64: String = p.split(";").nth(2).unwrap().split('\x1b').next().unwrap().into();
+        let z = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let mut raw = Vec::new();
+        flate2::read::ZlibDecoder::new(&z[..]).read_to_end(&mut raw).unwrap();
+        assert_eq!(raw, a.img.as_raw().to_vec());
     }
 
     /// Outside tmux nothing changes: plain commands, no placeholders.

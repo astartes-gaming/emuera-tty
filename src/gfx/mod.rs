@@ -40,6 +40,10 @@ pub trait Backend {
     fn name(&self) -> &'static str;
     /// Called before text is written for a frame (e.g. delete old placements).
     fn begin(&mut self, _out: &mut Vec<u8>) {}
+    /// Send the pictures `draw` will need, written before the frame's text
+    /// (kitty-tmux: a picture sent between the text and its placeholders
+    /// left the rows blank for as long as it took to arrive).
+    fn prepare(&mut self, _out: &mut Vec<u8>, _p: &[Placement], _cell: (u32, u32)) {}
     /// Emit escape sequences for placements (written after text).
     fn draw(&mut self, _out: &mut Vec<u8>, _p: &[Placement], _cell: (u32, u32)) {}
     /// Called after the frame has been written and drained to the tty.

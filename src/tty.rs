@@ -1095,7 +1095,7 @@ impl Tty {
                         why = "; inside GNU screen there are no pictures (tmux can show them)".into();
                     }
                     if tmux && !passthrough {
-                        why = "; inside tmux, kitty-graphics terminals (Ghostty, kitty) need `set -g allow-passthrough on` for pictures".into();
+                        why = "; inside tmux, kitty-graphics terminals (Ghostty, kitty) need `set -g allow-passthrough all` for pictures".into();
                     }
                     let kitty_q: &[u8] = if passthrough {
                         b"\x1bPtmux;\x1b\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\x1b\\\x1b\\\x1b[c"
@@ -1983,6 +1983,9 @@ impl Tty {
         if self.force_frame {
             self.gfx.reset(&mut out);
         }
+        // pictures not yet in the terminal go before the text (see `prepare`)
+        let mut pre = Vec::new();
+        self.gfx.prepare(&mut pre, &placements, self.cell);
         self.gfx.draw(&mut out, &placements, self.cell);
         let mut tip_rows = 0..0;
         if let Some(t) = &tip {
@@ -2016,6 +2019,9 @@ impl Tty {
         // (unless a box drawn over it has closed: what it covered must
         // come back)
         if fp == self.last_frame && !self.force_frame && !self.box_closed.get() {
+            if !pre.is_empty() {
+                write_all(&pre);
+            }
             self.frame_imgs = placements;
             con.dirty = false;
             return;
@@ -2032,6 +2038,9 @@ impl Tty {
         let console = self.term == "linux" || self.term.starts_with("fbterm");
         if !console {
             write_all(b"\x1b[?2026h");
+        }
+        if !pre.is_empty() {
+            write_all(&pre);
         }
         write_all(&out);
         if !console {
