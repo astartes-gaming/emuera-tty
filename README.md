@@ -20,34 +20,6 @@
 > If it works for you anyway: nice. If it doesn't: that's the expected
 > outcome of a proof of concept.
 
-## Contents
-
-- [Guide](#guide)
-  - [1. What you need](#1-what-you-need)
-  - [2. Install](#2-install)
-    - [Build status](#build-status)
-    - [Other systems](#other-systems)
-    - [Other CPUs](#other-cpus)
-    - [Small machines (Raspberry Pi Zero and the like)](#small-machines-raspberry-pi-zero-and-the-like)
-  - [3. First run: choose your game](#3-first-run-choose-your-game)
-  - [4. Playing](#4-playing)
-    - [Settings](#settings)
-    - [Game settings (Emuera's settings window)](#game-settings-emueras-settings-window)
-    - [Copying text to the clipboard](#copying-text-to-the-clipboard)
-    - [Translated games (Emuera-Anchor)](#translated-games-emuera-anchor)
-    - [Managing saves](#managing-saves)
-  - [5. Picking a terminal](#5-picking-a-terminal)
-  - [6. Updating and removing](#6-updating-and-removing)
-  - [7. When something goes wrong](#7-when-something-goes-wrong)
-- [Reference](#reference)
-  - [Command-line options](#command-line-options)
-    - [Memory](#memory)
-    - [Mouse](#mouse)
-  - [Graphics backends](#graphics-backends)
-  - [Layout](#layout)
-  - [Implemented](#implemented)
-  - [Roadmap](#roadmap)
-
 A from-scratch reimplementation of the **Emuera** ERB engine in Rust that
 plays era games in a terminal: graphics-capable terminals (kitty, Konsole,
 WezTerm, Ghostty, foot, iTerm2, xterm with sixel…), plain ones (pictures are
@@ -75,6 +47,78 @@ thousands of random choices through them without errors. What it has
 
 Expect rough edges in parts of the games nobody has played through yet
 (see *Roadmap*).
+
+## Contents
+
+- [Guide](#guide)
+  - [1. What you need](#1-what-you-need)
+  - [2. Install](#2-install)
+    - [Build and install](#build-and-install)
+    - [Build status](#build-status)
+    - [Other systems](#other-systems)
+    - [Other CPUs](#other-cpus)
+    - [Small machines (Raspberry Pi Zero and the like)](#small-machines-raspberry-pi-zero-and-the-like)
+  - [3. First run: choose your game](#3-first-run-choose-your-game)
+    - [The folder picker](#the-folder-picker)
+    - [The launcher (several games)](#the-launcher-several-games)
+    - [Cloning a game from the launcher](#cloning-a-game-from-the-launcher)
+    - [Updating games kept in git](#updating-games-kept-in-git)
+      - [Games with pictures in Git LFS](#games-with-pictures-in-git-lfs)
+    - [Other ways to start](#other-ways-to-start)
+    - [Archives](#archives)
+  - [4. Playing](#4-playing)
+    - [Controls](#controls)
+    - [Macros](#macros)
+    - [Sound](#sound)
+      - [MIDI music](#midi-music)
+    - [Settings](#settings)
+      - [Readable colours](#readable-colours)
+    - [Game settings (Emuera's settings window)](#game-settings-emueras-settings-window)
+    - [Saving and loading](#saving-and-loading)
+    - [Managing saves](#managing-saves)
+      - [Save history](#save-history)
+    - [Translating the game](#translating-the-game)
+      - [Choosing a translator](#choosing-a-translator)
+      - [What gets translated](#what-gets-translated)
+      - [Original, forced translation and quotes](#original-forced-translation-and-quotes)
+      - [Testing and the cache](#testing-and-the-cache)
+      - [A log for translators](#a-log-for-translators)
+    - [Copying text to the clipboard](#copying-text-to-the-clipboard)
+    - [Translated games (Emuera-Anchor)](#translated-games-emuera-anchor)
+  - [5. Picking a terminal](#5-picking-a-terminal)
+    - [Terminal support](#terminal-support)
+    - [Tips for any terminal](#tips-for-any-terminal)
+    - [On the Linux console](#on-the-linux-console)
+    - [On a retro or dumb terminal](#on-a-retro-or-dumb-terminal)
+    - [On a serial line](#on-a-serial-line)
+  - [6. Updating and removing](#6-updating-and-removing)
+  - [7. When something goes wrong](#7-when-something-goes-wrong)
+- [Reference](#reference)
+  - [Command-line options](#command-line-options)
+    - [Environment variables](#environment-variables)
+    - [Speed](#speed)
+  - [Memory](#memory)
+  - [Mouse](#mouse)
+    - [No mouse?](#no-mouse)
+  - [Script load order](#script-load-order)
+  - [Graphics backends](#graphics-backends)
+    - [Canvas games and speed](#canvas-games-and-speed)
+    - [Picture size and layers](#picture-size-and-layers)
+    - [Text over pictures](#text-over-pictures)
+    - [Linux console caveat](#linux-console-caveat)
+  - [Layout](#layout)
+    - [Design notes](#design-notes)
+  - [Implemented](#implemented)
+    - [Scripts and control flow](#scripts-and-control-flow)
+    - [Output, input and sound](#output-input-and-sound)
+    - [Pictures and HTML_PRINT](#pictures-and-html_print)
+    - [Game flow, characters and saves](#game-flow-characters-and-saves)
+    - [Game data and config files](#game-data-and-config-files)
+    - [Emuera-EM, EE and Anchor](#emuera-em-ee-and-anchor)
+    - [Debugging](#debugging)
+  - [Tests](#tests)
+    - [Development builds](#development-builds)
+  - [Roadmap](#roadmap)
 
 # Guide
 
@@ -106,6 +150,8 @@ Expect rough edges in parts of the games nobody has played through yet
 
 ## 2. Install
 
+### Build and install
+
 ```sh
 git clone https://github.com/astartes-gaming/emuera-tty.git
 cd emuera-tty
@@ -127,6 +173,9 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ### Build status
+
+<details>
+<summary>Build status of every target (click to expand)</summary>
 
 | OS/Architecture | Status | Notes |
 |---|---|---|
@@ -169,6 +218,8 @@ export PATH="$HOME/.local/bin:$PATH"
 | Linux ARM, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux AArch64, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux x32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+
+</details>
 
 ### Other systems
 
@@ -266,6 +317,8 @@ load on a Zero (it reads every script once).
 emuera-tty
 ```
 
+### The folder picker
+
 The first time, a **folder picker** opens in your home folder. Game folders
 are marked with **★** and their title, archives with **▣** and their size.
 
@@ -284,6 +337,8 @@ or play it, scroll with the wheel.
 emuera-tty remembers the game. From then on `emuera-tty` starts it
 straight away.
 
+### The launcher (several games)
+
 **Several games** (eraTW, eraMegaten, eraPoPs, any Emuera game): every game
 you play or add goes into your **library**. Once there are two or more,
 `emuera-tty` opens the launcher instead:
@@ -300,7 +355,9 @@ you play or add goes into your **library**. Once there are two or more,
 | `s` / **⚙ Settings** | the settings page (see [Settings](#settings)) |
 | `q` / Esc | quit |
 
-**Cloning from the launcher.** **↓ Clone a game…** (below *Add a game…*)
+### Cloning a game from the launcher
+
+**↓ Clone a game…** (below *Add a game…*)
 asks for the repository (URL or path), the folder to store it in (the
 repository gets its own subfolder there, named like `git clone` would;
 Enter takes the folder next to your last game) and, if you want them, the
@@ -317,7 +374,9 @@ marked **(NEW)** in gold until you first play it (games added with *Add a game�
 of the clone, also when it failed. A game kept in a subfolder of the
 repository (up to two levels down) is found too.
 
-**Games cloned with git** (`git clone` of a game's repository) update with
+### Updating games kept in git
+
+Games cloned with git (`git clone` of a game's repository) update with
 `u` in the launcher: it pulls the new commits and says how many came in,
 with the commit it moved from and to (`abc1234 -> def5678`). Each such game
 is listed with the branch and short commit hash it is on
@@ -326,12 +385,17 @@ just done. It only fast-forwards and never asks for a password, so a game
 you have edited, or a repository that needs a login, reports why it
 couldn't update instead (commit or stash your edits, or run `git pull` yourself).
 Saves in the game folder that the repository ignores are left alone.
+
+#### Games with pictures in Git LFS
+
 Games that keep their pictures in Git LFS (pops-tw) also get `git lfs
 pull`. Without [git-lfs](https://git-lfs.com) a clone holds small pointer
 files instead of the pictures, and scripts that measure a picture fail
 (pops-tw's title: a division by zero in `@TITLE_NAS`). Install git-lfs and
 run `git lfs pull` in the game folder (or `u` again); the script error
 screen says so when it finds such pointers.
+
+### Other ways to start
 
 Inside a game, **Ctrl-O** → *Switch game…* goes back to the
 launcher. Other ways to start:
@@ -343,7 +407,9 @@ cd ~/games/eratohoTW && emuera-tty  # a game in the current folder wins
 emuera-tty ~/Downloads/eratohoTW.zip # play straight from the archive
 ```
 
-**Archives** are extracted once into `~/.local/share/emuera-tty/games/`
+### Archives
+
+Archives are extracted once into `~/.local/share/emuera-tty/games/`
 (named after the archive) and reused after that. Download a newer version
 under the same file name and it is re-extracted automatically, **keeping
 your saves**. Zip, tar and tar.gz work out of the box; tar.xz / tar.bz2 /
@@ -355,6 +421,8 @@ it.
 ## 4. Playing
 
 Emuera games are menus of numbered choices like `[100] Wake Up`.
+
+### Controls
 
 - **Choose**: type the number and press Enter, or **click** it. Buttons
   under the mouse are highlighted; a picture that is a button can be
@@ -372,27 +440,13 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   ↑ / ↓ go through your last 100 inputs, as in Emuera: typed ones and
   buttons clicked alike. One brought back is shown selected, so typing
   replaces it and ← / → edit it.
-- **Macros** (Emuera's keyboard macros): one typed line can answer
-  several questions. `\n` separates the answers, `\e` after one skips the
-  text that follows it (as a right click), and `(…)*n` repeats:
-  `(0\e\n)*3` answers `0` three times, skipping after each. Esc stops a
-  macro that is running. Shift+F1…F12 store the line being typed under
-  that key, and F1…F12 put it back (at a `▼` wait, the key gives it at
-  once). Alt+0…9 (also Ctrl+0…9 in terminals that report it, such as
-  kitty) switches between ten groups of twelve keys, and the group's name
-  shows for a moment. They are kept in the game folder's `macro.txt`,
-  the file Emuera.exe uses, so macros made in either work in both. On the
-  Linux console Shift+F1 / F2 are F11 / F12, and Shift+F11 / F12 don't
-  exist. The game setting *Use keyboard macros* (on by default, as in
-  Emuera) gives the F keys to the macros, but F3 and F5 stay the settings
-  and reload keys as long as no macro is stored on them (where Emuera
-  would only empty the line); with it off they always are. Typed text is
-  expanded either way, as in Emuera.
+- **Macros**: one typed line can answer several questions, and F1…F12 keep lines for
+  later; see [Macros](#macros) below.
 - **Scroll back** through earlier text: PgUp / PgDn, Ctrl+↑ / ↓ (or
   Alt+↑ / ↓) a line at a time, or the mouse wheel. ↑ / ↓ scroll too
   where the game waits (`▼`), and Home / End while nothing is typed. A
   `[scroll -N]` tag shows you're looking at history; End jumps back.
-- **Settings**: F3 or Ctrl-O opens them over the game (see below); F3
+- **Settings**: F3 or Ctrl-O opens them over the game (see [Settings](#settings)); F3
   not while a keyboard macro is stored on it.
 - **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask
   first; unsaved progress is lost). **Reload the ERB files** after editing
@@ -411,7 +465,32 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   (Linux, Android and Windows); both also show the highest use seen this
   session once it is above the current one (`123 MB (peak 150 MB)`).
 
-**Sound**: PLAYSOUND / PLAYBGM play the game's `sound/` files through a
+### Macros
+
+Emuera's keyboard macros: one typed line can answer several questions.
+
+- **Syntax**: `\n` separates the answers, `\e` after one skips the
+  text that follows it (as a right click), and `(…)*n` repeats:
+  `(0\e\n)*3` answers `0` three times, skipping after each. Esc stops a
+  macro that is running.
+- **Keys**: Shift+F1…F12 store the line being typed under
+  that key, and F1…F12 put it back (at a `▼` wait, the key gives it at
+  once). Alt+0…9 (also Ctrl+0…9 in terminals that report it, such as
+  kitty) switches between ten groups of twelve keys, and the group's name
+  shows for a moment. On the
+  Linux console Shift+F1 / F2 are F11 / F12, and Shift+F11 / F12 don't
+  exist.
+- **Where they are kept**: the game folder's `macro.txt`,
+  the file Emuera.exe uses, so macros made in either work in both.
+- **The setting**: *Use keyboard macros* (on by default, as in
+  Emuera) gives the F keys to the macros, but F3 and F5 stay the settings
+  and reload keys as long as no macro is stored on them (where Emuera
+  would only empty the line); with it off they always are. Typed text is
+  expanded either way, as in Emuera.
+
+### Sound
+
+PLAYSOUND / PLAYBGM play the game's `sound/` files through a
 player program the system has: `mpv` or `ffplay` (any format, including
 the `.m4a` many games use), `mplayer`, `afplay` on macOS, or for WAV
 only `pw-play`, `paplay`, `aplay` and PowerShell on Windows. Install mpv
@@ -422,7 +501,9 @@ up again); it is off over SSH unless set to `on` (the sound would play on
 the remote machine). `EMUERA_SOUND=on|off` and `EMUERA_SOUND_PLAYER=mpv`
 override.
 
-**MIDI music** plays through [FluidSynth](https://www.fluidsynth.org),
+#### MIDI music
+
+MIDI music plays through [FluidSynth](https://www.fluidsynth.org),
 found in `PATH` like the other players, with the game's `soundfont.sf2`
 if it has one, else the system's:
 
@@ -445,14 +526,168 @@ emuera-tty reads its own printed lines the same way, so no clipboard
 setting is needed. The song loops until another one starts; one that is
 already playing isn't restarted.
 
-**Translating the game**: in the settings, *Translate to* picks the language to
+### Settings
+
+F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
+← / → or Enter change, Esc closes; changes are saved at once in
+`~/.config/emuera-tty/config` and, except where marked, apply to the
+running game:
+
+| Setting | Values | |
+|---|---|---|
+| Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn; `none`: pictures are never decoded or scaled (and those already held are freed) until another choice is made |
+| Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
+| Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
+| Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
+| Copy to clipboard | game, on, off | printed text to the clipboard (see [Copying text to the clipboard](#copying-text-to-the-clipboard)); `game`: as emuera.config says |
+| Bottom bar details | on, off | hovered button's value, running function |
+| Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
+| Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
+| Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
+| Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see [Translating the game](#translating-the-game)) |
+| Translate from | auto, ja, en | the game's language; auto: per line |
+| Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
+| Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
+| Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
+| Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
+| Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
+
+The overlay shows the *Random seed* in use: selectable for its description,
+but read-only (start with `EMUERA_SEED=N` to choose it; the game's
+`RANDOMIZE` / `INITRAND` change it). *Environment variables…* (shown only when one is
+set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
+set; Enter says what one does; read-only, as they are read at start). It also
+has *Game settings…* and *Manage saves…* (see [Game settings](#game-settings-emueras-settings-window) and [Managing saves](#managing-saves)),
+*Clear the picture cache* (frees the decoded sprites whatever *Images* says;
+they load again when shown), *Recolor…* (draws a colour of the game's as another,
+written `from:to` in hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop
+navy into a softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
+*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
+override saved settings.
+
+#### Readable colours
+
+Games are drawn for Emuera's black (or game-set)
+background, and some colours there are hard to read, like pure blue, or
+AnonTW's blue text on the dark navy background of time stop. emuera-tty
+lightens coloured text until it reaches a minimum contrast (WCAG 3:1, or
+4.5:1 on *high*), keeping its hue; greys are left alone, since games use
+them for shading. The window background set by `SETBGCOLOR` covers the
+whole screen, as in Emuera.
+
+### Game settings (Emuera's settings window)
+
+*Game settings…* in the settings overlay is a copy of Emuera's own settings
+window, with the settings that do something in a terminal and can't
+break a game, on Emuera's tabs:
+
+| Tab | Settings |
+|---|---|
+| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`) |
+| Display | PRINTC items per line and width, don't break lines inside a button |
+| Font | text colour, selected button colour, the font for text drawn into pictures |
+| System2 | compress save data (Emuera reads compressed saves too) |
+| Clipboard | all of the clipboard options (see [Copying text to the clipboard](#copying-text-to-the-clipboard)) |
+
+Left out: what only a window has (size, position, FPS, menu bar,
+keyboard macros), what changes how the scripts are read (the System,
+Compatibility and Debug tabs), the font size and line height (games work
+out where pictures go from them), the save folder (existing saves would
+seem to vanish), the background and history colours (the terminal's own
+are used) and Rikai.
+
+← / → (or Tab, or a click) switch tabs, ↑ / ↓ choose, Enter or a click
+toggles a check box or asks for a number, a colour (`R,G,B` or `#RRGGBB`)
+or text, `+` / `-` step a number, `d` puts back the game's value. Each
+setting shows where its value comes from: nothing for Emuera's default,
+*game* for the game's (`CSV/_default.config`), *changed* for yours,
+*fixed* when `CSV/_fixed.config` doesn't let it change. Changes go into
+the game's `emuera.config` as Emuera's settings window writes them
+(UTF-8, Japanese or English keys as the game's files use, other lines
+kept), so Emuera.exe sees them too; the running game takes them when the
+page closes.
+
+### Saving and loading
+
+Saving uses the game's own save menu, and the files are Emuera's own
+(binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
+`dat/chara_*.dat` for SAVECHARA.
+
+- **Both ways**: saves move between emuera-tty
+  and Emuera on Windows: loading an Emuera save and saving it again gives
+  the same bytes Emuera writes (the variables in Emuera's order, character
+  names never set left out as Emuera does), checked on AnonTW saves of
+  day 43 and day 1336.
+- **Location**: where Emuera puts them: in `sav/` when
+  the game's config says so (`セーブデータをsavフォルダ内に作成する`, as
+  AnonTW's does), else next to the game; compressed when it asks for that
+  (`セーブデータを圧縮して保存する`).
+- **Also saved**: Emuera-EM maps, XML documents and data
+  tables named in `VarExt.csv`; the autosave runs on
+  entering the shop, like Emuera's.
+- **Older and text saves**: older emuera-tty saves (`sav/*.rsav`)
+  still load, and the next save of that slot writes a `.sav`. Saves in
+  Emuera's text format (games whose config turns the binary option off)
+  load too; saving always writes the binary format, which Emuera reads
+  whatever its config says.
+- **After a load**: `@SYSTEM_LOADEND` runs and then
+  `@EVENTLOAD`, as in Emuera.
+
+### Managing saves
+
+Ctrl-O → *Manage saves…* lists the game's saves with their date and the
+comment Emuera's save menu shows. Pick one to **copy** or **move** it to
+another slot, **export** it to a file (by default
+`~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
+folder: **back up all saves** (into
+`~/.local/share/emuera-tty/backups/<game>/<date>/`), **restore a backup**
+(the current saves are backed up first) and **import a save file** into a
+slot. Nothing is lost by mistake: a deleted or overwritten save is copied
+to the backups first. Load a restored or imported save from the game's
+own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
+and `emuera-tty GAME --backup-saves` backs them up.
+
+#### Save history
+
+Saves the game writes (save slots, autosaves,
+`global.sav`, SAVECHARA files) are protected too, with no setting to turn
+on:
+
+- **The version replaced is kept**, in the same backup folder, as
+  `<date>-auto-save01/`, so *restore a backup* can bring back any of them.
+  Copies are thinned: the last 10 of each file, then one a day for 30 days,
+  then one a week for 26 weeks. Saves are small (AnonTW's are under 1 MB),
+  so this stays at a few MB per game.
+- **A save emuera-tty didn't write** (one from Emuera.exe, or from before
+  this history) is kept as `<date>-original-save01/` the first time it is
+  replaced, and never thinned.
+- **Each save is written safely**: to a temporary file, flushed to disk,
+  read back and checked to load, and only then put in place. A crash,
+  power cut or full disk leaves the previous save; a save that wouldn't
+  load is reported at once and the previous one kept.
+- **`save-log.tsv`** in the backup folder records each save written: when,
+  which file, a fingerprint, its size, and the emuera-tty version and
+  commit that wrote it. If a bug turns up in some build, the log tells
+  which saves it wrote and which backup came before.
+
+`EMUERA_SAVE_HISTORY=0` turns the history and the log off (saves are still
+written safely). Nothing is added inside the saves: Emuera reads them as
+before.
+
+### Translating the game
+
+In the settings, *Translate to* picks the language to
 show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
 from* the game's own (auto: Japanese lines from Japanese, English ones from
 English, so an English translation like AnonTW can be read in Spanish), and
 *Translate what* either the characters' **dialog** or **all** text (menus,
 buttons, labels too); *auto* (the default) is dialog when the game is shown
 in English and all text in any other language. Text is translated as it
-appears. Translation is off while *Translator* is *off* (the default). While it is off, *Translate to / from / what* and *Test the translator…* are hidden from the settings. With *Translator* on *auto* it uses whatever translator is there,
+appears. Translation is off while *Translator* is *off* (the default). While it is off, *Translate to / from / what* and *Test the translator…* are hidden from the settings.
+
+#### Choosing a translator
+
+With *Translator* on *auto* it uses whatever translator is there,
 the ones **on this computer** first (nothing is sent online then): the
 first it finds of
 
@@ -483,6 +718,8 @@ the internet):
   settings say so when it refuses. (Without curl, DeepL's own `deepl` tool and the
   key do.)
 
+#### What gets translated
+
 *Dialog* is the lines printed by a character's dialogue code (the `口上`
 files, `KOJO` functions) and lines in quotes (「」 『』, or "" in English);
 menus, buttons and the rest stay as they are. *All* translates every piece
@@ -502,6 +739,14 @@ translator keeps the lines, and is spread over them by length when it
 doesn't (Argos). The log has one entry per batch, its lines joined by
 spaces.
 
+Maps and box drawings are never translated, nor text already in the
+target language, and the game itself still sees the text it printed. Text
+shows untranslated until its translation comes in, which happens in the
+background; text seen again is instant. If the translator fails, the settings say
+why on that row's help line.
+
+#### Original, forced translation and quotes
+
 **Original or translation**: middle-click a translated line (anywhere,
 also at a wait) to see the original text; middle-click again for the
 translation. It is remembered per line for the session.
@@ -514,11 +759,7 @@ needs a translator to be on.
 **Quote marks**: the translation keeps the quote marks of the original
 (「」, 『』, “” or "") instead of the plain `"` translators write.
 
-Maps and box drawings are never translated, nor text already in the
-target language, and the game itself still sees the text it printed. Text
-shows untranslated until its translation comes in, which happens in the
-background; text seen again is instant. If the translator fails, the settings say
-why on that row's help line.
+#### Testing and the cache
 
 **Test the translator…** in the settings translates a sample line with the chosen
 translator and shows the result and how long it took, or why it failed.
@@ -526,7 +767,9 @@ translator and shows the result and how long it took, or why it failed.
 session (they are kept in memory only), so what is on screen is
 translated again: after changing translator or fixing one that failed.
 
-**A log for translators**: `EMUERA_TRANSLATE_LOG=translations.tsv
+#### A log for translators
+
+`EMUERA_TRANSLATE_LOG=translations.tsv
 emuera-tty` appends every new translation to that file, one per line:
 the ERB file and line that printed the text, the languages, the original
 and the translation, separated by tabs, ready to find and fix in the
@@ -544,104 +787,6 @@ Dialog sent to the translator several lines at a time (a speech over
 several lines) is logged one row per line, each with its own file and line,
 when the translation comes back with as many lines; if it merged or split
 them, the batch is one row.
-
-**Saving** uses the game's own save menu, and the files are Emuera's own
-(binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
-`dat/chara_*.dat` for SAVECHARA. Saves move both ways between emuera-tty
-and Emuera on Windows: loading an Emuera save and saving it again gives
-the same bytes Emuera writes (the variables in Emuera's order, character
-names never set left out as Emuera does), checked on AnonTW saves of
-day 43 and day 1336. They go where Emuera puts them: in `sav/` when
-the game's config says so (`セーブデータをsavフォルダ内に作成する`, as
-AnonTW's does), else next to the game; compressed when it asks for that
-(`セーブデータを圧縮して保存する`). Emuera-EM maps, XML documents and data
-tables named in `VarExt.csv` are saved too, and the autosave runs on
-entering the shop, like Emuera's. Older emuera-tty saves (`sav/*.rsav`)
-still load, and the next save of that slot writes a `.sav`. Saves in
-Emuera's text format (games whose config turns the binary option off)
-load too; saving always writes the binary format, which Emuera reads
-whatever its config says. After a load, `@SYSTEM_LOADEND` runs and then
-`@EVENTLOAD`, as in Emuera.
-
-ERB and ERH files load in Emuera's order: each folder's files before its
-subfolders, sorted the way Emuera sorts them when the config's
-`読み込み順をファイル名順にソートする` is on (else the order Windows lists
-them in), and folders whose name has a `#` first (Emuera-EE). Subfolders
-are read only when `サブディレクトリを検索する` is on, as in Emuera; a
-note at startup says how many files that leaves out. The order decides
-which of two functions with the same name wins, the order event
-functions run in, and the order variables are saved in.
-
-### Settings
-
-F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
-← / → or Enter change, Esc closes; changes are saved at once in
-`~/.config/emuera-tty/config` and, except where marked, apply to the
-running game:
-
-| Setting | Values | |
-|---|---|---|
-| Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn; `none`: pictures are never decoded or scaled (and those already held are freed) until another choice is made |
-| Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
-| Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
-| Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
-| Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
-| Bottom bar details | on, off | hovered button's value, running function |
-| Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
-| Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
-| Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
-| Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
-| Translate from | auto, ja, en | the game's language; auto: per line |
-| Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
-| Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
-| Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
-| Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
-| Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
-
-The overlay shows the *Random seed* in use: selectable for its description,
-but read-only (start with `EMUERA_SEED=N` to choose it; the game's
-`RANDOMIZE` / `INITRAND` change it). *Environment variables…* (shown only when one is
-set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
-set; Enter says what one does; read-only, as they are read at start). It also
-has *Game settings…* and *Manage saves…* (below),
-*Clear the picture cache* (frees the decoded sprites whatever *Images* says;
-they load again when shown), *Recolor…* (draws a colour of the game's as another,
-written `from:to` in hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop
-navy into a softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
-*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
-override saved settings.
-
-### Game settings (Emuera's settings window)
-
-*Game settings…* in the settings overlay is a copy of Emuera's own settings
-window, with the settings that do something in a terminal and can't
-break a game, on Emuera's tabs:
-
-| Tab | Settings |
-|---|---|
-| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`) |
-| Display | PRINTC items per line and width, don't break lines inside a button |
-| Font | text colour, selected button colour, the font for text drawn into pictures |
-| System2 | compress save data (Emuera reads compressed saves too) |
-| Clipboard | all of the clipboard options (see below) |
-
-Left out: what only a window has (size, position, FPS, menu bar,
-keyboard macros), what changes how the scripts are read (the System,
-Compatibility and Debug tabs), the font size and line height (games work
-out where pictures go from them), the save folder (existing saves would
-seem to vanish), the background and history colours (the terminal's own
-are used) and Rikai.
-
-← / → (or Tab, or a click) switch tabs, ↑ / ↓ choose, Enter or a click
-toggles a check box or asks for a number, a colour (`R,G,B` or `#RRGGBB`)
-or text, `+` / `-` step a number, `d` puts back the game's value. Each
-setting shows where its value comes from: nothing for Emuera's default,
-*game* for the game's (`CSV/_default.config`), *changed* for yours,
-*fixed* when `CSV/_fixed.config` doesn't let it change. Changes go into
-the game's `emuera.config` as Emuera's settings window writes them
-(UTF-8, Japanese or English keys as the game's files use, other lines
-kept), so Emuera.exe sees them too; the running game takes them when the
-page closes.
 
 ### Copying text to the clipboard
 
@@ -720,54 +865,9 @@ Games translated with Emuera-Anchor's system play translated here too:
   an index that has a name or a name in that CSV; anything else is a
   script error ("Invalid first argument" / "Invalid second argument").
 
-### Managing saves
-
-Ctrl-O → *Manage saves…* lists the game's saves with their date and the
-comment Emuera's save menu shows. Pick one to **copy** or **move** it to
-another slot, **export** it to a file (by default
-`~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
-folder: **back up all saves** (into
-`~/.local/share/emuera-tty/backups/<game>/<date>/`), **restore a backup**
-(the current saves are backed up first) and **import a save file** into a
-slot. Nothing is lost by mistake: a deleted or overwritten save is copied
-to the backups first. Load a restored or imported save from the game's
-own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
-and `emuera-tty GAME --backup-saves` backs them up.
-
-**Save history.** Saves the game writes (save slots, autosaves,
-`global.sav`, SAVECHARA files) are protected too, with no setting to turn
-on:
-
-- **The version replaced is kept**, in the same backup folder, as
-  `<date>-auto-save01/`, so *restore a backup* can bring back any of them.
-  Copies are thinned: the last 10 of each file, then one a day for 30 days,
-  then one a week for 26 weeks. Saves are small (AnonTW's are under 1 MB),
-  so this stays at a few MB per game.
-- **A save emuera-tty didn't write** (one from Emuera.exe, or from before
-  this history) is kept as `<date>-original-save01/` the first time it is
-  replaced, and never thinned.
-- **Each save is written safely**: to a temporary file, flushed to disk,
-  read back and checked to load, and only then put in place. A crash,
-  power cut or full disk leaves the previous save; a save that wouldn't
-  load is reported at once and the previous one kept.
-- **`save-log.tsv`** in the backup folder records each save written: when,
-  which file, a fingerprint, its size, and the emuera-tty version and
-  commit that wrote it. If a bug turns up in some build, the log tells
-  which saves it wrote and which backup came before.
-
-`EMUERA_SAVE_HISTORY=0` turns the history and the log off (saves are still
-written safely). Nothing is added inside the saves: Emuera reads them as
-before.
-
-**Readable colours:** games are drawn for Emuera's black (or game-set)
-background, and some colours there are hard to read, like pure blue, or
-AnonTW's blue text on the dark navy background of time stop. emuera-tty
-lightens coloured text until it reaches a minimum contrast (WCAG 3:1, or
-4.5:1 on *high*), keeping its hue; greys are left alone, since games use
-them for shading. The window background set by `SETBGCOLOR` covers the
-whole screen, as in Emuera.
-
 ## 5. Picking a terminal
+
+### Terminal support
 
 Text works everywhere. Images and Japanese/Chinese text depend on the
 terminal:
@@ -787,6 +887,8 @@ terminal:
 | Android to other device (ADB) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles, has an issue that floods the input bar when moving the mouse around |
 | Android to other device (SSH) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles |
 | Android recovery shell (builtins in TWRP, OrangeFox, etc...) | no | images never supported, JP/CN text untested, very finicky in general (and why are you even running it there of all places?) |
+
+### Tips for any terminal
 
 - Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
   names and symbols show up.
@@ -809,7 +911,9 @@ terminal:
   says so). byobu runs on tmux by default, so the same applies; GNU
   screen can't pass pictures through, so there are none there.
 
-**On the Linux console** (Ctrl-Alt-F3 etc.):
+### On the Linux console
+
+For a text console (Ctrl-Alt-F3 etc.):
 
 - Run inside fbterm for CJK text: `fbterm -- emuera-tty`.
 - Images draw straight to `/dev/fb0`, which needs the `video` group:
@@ -832,8 +936,9 @@ terminal:
   walls stay cyan, brown floors brown) and greys step through black, dark
   grey, light grey and white, so coloured maps stay readable.
 
-**On a retro or dumb terminal** (real hardware, or an emulator like
-cool-retro-term or `xterm -ti vt52`):
+### On a retro or dumb terminal
+
+Real hardware, or an emulator like cool-retro-term or `xterm -ti vt52`:
 
 - emuera-tty drives the terminal from its **terminfo** entry (cursor
   addressing, clearing, bold / underline, colours if any, the line-drawing
@@ -856,7 +961,9 @@ cool-retro-term or `xterm -ti vt52`):
   keys or Ctrl-P / Ctrl-N scroll a line, Page Up / Down or Ctrl-B / Ctrl-F a
   page, Ctrl-L repaints the screen (after line noise), Ctrl-C quits.
 
-**On a serial line**, from the computer the terminal is wired to:
+### On a serial line
+
+From the computer the terminal is wired to:
 
 ```sh
 emuera-tty /path/to/game --serial /dev/ttyUSB0 --term vt220 --baud 9600
@@ -932,29 +1039,39 @@ emuera-tty [GAME_DIR] [options]
 | `--install` / `--upgrade` / `--uninstall` / `--reset-data` | see the guide |
 | `--manual` | the full manual page |
 
-Environment: `FRAMEBUFFER=/dev/fbN` picks another framebuffer,
-`EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice,
-`EMUERA_AMBIGUOUS=wide|narrow|osc66` overrides how box-drawing and symbol
-characters are fitted to Emuera's two columns (detected at startup:
-terminals that draw them wide need nothing, others are padded; `osc66`
-tries kitty's text-sizing protocol instead, which some may prefer).
-At startup emuera-tty also measures how wide the terminal really draws
-those characters (terminals' width tables differ), which keeps maps
-aligned in Konsole, kitty and others; `EMUERA_MEASURE=0` skips that,
-`EMUERA_TRACE` as above. Game scripts are read on every CPU core (AnonTW
-loads in 0.3 s); `EMUERA_THREADS=N` caps the thread count, and
-`EMUERA_TIMING=1` prints how long each loading phase took and the memory
-in use after it. Running the script itself is one
+### Environment variables
+
+- `FRAMEBUFFER=/dev/fbN` picks another framebuffer.
+- `EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice (see [Mouse](#mouse)).
+- `EMUERA_AMBIGUOUS=wide|narrow|osc66` overrides how box-drawing and symbol
+  characters are fitted to Emuera's two columns (detected at startup:
+  terminals that draw them wide need nothing, others are padded; `osc66`
+  tries kitty's text-sizing protocol instead, which some may prefer).
+- `EMUERA_MEASURE=0` skips what emuera-tty does at startup: measuring how wide the terminal
+  really draws those characters (terminals' width tables differ), which keeps maps
+  aligned in Konsole, kitty and others.
+- `EMUERA_TRACE` logs calls (see [When something goes wrong](#7-when-something-goes-wrong)).
+- `EMUERA_THREADS=N` caps the thread count game scripts are read on.
+- `EMUERA_TIMING=1` prints how long each loading phase took and the memory
+  in use after it.
+- `EMUERA_SEED=N` fixes the random
+  number seed, so a run can be repeated exactly (tests, bug reports).
+
+The variables for debugging are under [Debugging](#debugging).
+
+### Speed
+
+Game scripts are read on every CPU core (AnonTW
+loads in 0.3 s). Running the script itself is one
 thread by nature (every line may read what the previous one wrote), but
 pictures a screen needs are decoded and scaled on all cores. The
 interpreter resolves each variable once (a reference remembers its global
 or per-function slot), jumps straight to the matching CASE of a
 SELECTCASE made of constants, and avoids copying strings when comparing,
 calling functions or querying DataTables: on AnonTW's shop screens it runs
-about three times faster than the first versions. `EMUERA_SEED=N` fixes the random
-number seed, so a run can be repeated exactly (tests, bug reports).
+about three times faster than the first versions.
 
-### Memory
+## Memory
 
 A big game's scripts are tens of thousands of functions (AnonTW 90000,
 pops-tw 100000), and a session runs a few percent of them. So at load
@@ -987,19 +1104,7 @@ board copes and a PC with memory to spare does exactly what it did:
 compiled, the biggest variables, characters, picture buffers…) to
 `<file>` at every input.
 
-`EMUERA_LINT=1` with `--check` lists compiled statements that look like
-the parser split their line in the wrong place (a function name holding
-`(`, `,` or spaces; FORM text still holding `%`, `{` or `}`), for hunting
-parser bugs across a whole game.
-
-For development: `cargo test` runs the unit tests and the `sample/` game's
-self-test; `cargo build --profile fastbuild --features profile` makes a
-quick-to-build optimised binary whose `EMUERA_PPROF=<file>` writes a
-sampling profile of the engine itself (time per Rust function and caller
-→ callee pairs); `emuera-tty sample --headless --echo` plays the sample in plain
-text.
-
-### Mouse
+## Mouse
 
 | Where | How |
 |---|---|
@@ -1020,7 +1125,9 @@ would be wiped out by every redraw). If the mouse misbehaves there,
 events come from, each event, where the pointer was drawn) for a bug
 report.
 
-**No mouse?** *Keyboard pointer* in the settings (`auto` turns it on by itself on the
+### No mouse?
+
+*Keyboard pointer* in the settings (`auto` turns it on by itself on the
 Linux console when no mouse can be found) puts a pointer on the screen
 that the **cursor keys** move a cell at a time; **Insert** clicks under it,
 and so does **Shift+Enter** where the terminal sends it apart from Enter
@@ -1029,6 +1136,17 @@ PgUp / PgDn still scroll. Hovering shows tooltips and the button's number
 as with a mouse, and picture menus (pops-tw's title) take the clicks too.
 (A key held alone, such as right Shift, can't be used: terminals send
 nothing for it.)
+
+## Script load order
+
+ERB and ERH files load in Emuera's order: each folder's files before its
+subfolders, sorted the way Emuera sorts them when the config's
+`読み込み順をファイル名順にソートする` is on (else the order Windows lists
+them in), and folders whose name has a `#` first (Emuera-EE). Subfolders
+are read only when `サブディレクトリを検索する` is on, as in Emuera; a
+note at startup says how many files that leaves out. The order decides
+which of two functions with the same name wins, the order event
+functions run in, and the order variables are saved in.
 
 ## Graphics backends
 
@@ -1043,6 +1161,8 @@ nothing for it.)
 | DA1 reply contains `4` | **sixel** | median-cut 255-colour quantiser, transparent background, cached per sprite. |
 | otherwise | none | images shown as `░` placeholders of the right size. |
 
+### Canvas games and speed
+
 Games that draw everything into a window-sized canvas every frame
 (eraFlappyTengu, eraSort) are limited by how fast that canvas reaches the
 terminal. Each frame is sent as one synchronized update (DEC mode 2026);
@@ -1055,6 +1175,8 @@ when told to, only when another picture comes with the same id, so
 fresh ids for every frame would fill its memory within a minute. At a
 1440×900 window, eraFlappyTengu runs at about 85 frames per second, using
 about 4 ms of CPU per frame.
+
+### Picture size and layers
 
 Images are sized in Emuera's coordinate space (font-size–relative, as in
 `HTML_PRINT <img height=…>`) and scaled by `terminal cell height / Emuera
@@ -1070,6 +1192,8 @@ which was placed last), so a re-sent layer could land on top of the
 others; one picture can't. It also helps sixel and iTerm2, which can't
 stack transparent pictures at all.
 
+### Text over pictures
+
 In WezTerm, Windows Terminal and other terminals where sixel and iTerm2
 pictures belong to the cells under them, and inside tmux, where kitty
 pictures are placeholder text, writing text there erases the picture:
@@ -1078,7 +1202,9 @@ picture again. Inside tmux a tooltip simply covers the placeholders,
 rather than being cut out of the picture (which would mean sending a new
 picture through tmux).
 
-**fbcon caveat:** the in-kernel console can't draw CJK glyphs. For
+### Linux console caveat
+
+The in-kernel console can't draw CJK glyphs. For
 eratohoTW's Japanese/Chinese text on a bare VT, run under **fbterm** (still
 uses the fb backend) or **yaft** (sixel).
 
@@ -1108,13 +1234,17 @@ src/
 sample/          small test game; ERB/TEST.ERB is a language self-test
 ```
 
-Design notes: function bodies compile to flat instruction vectors (so
+### Design notes
+
+Function bodies compile to flat instruction vectors (so
 GOTO/labels/loops need no recursion); `CALL` recurses on a 512 MB-stack
 thread; `BEGIN`/`QUIT`/errors unwind as `Ctrl` values. Identifiers are
 case-insensitive (Emuera default). 1-D arrays auto-grow; multi-D are bounds
 checked.
 
 ## Implemented
+
+### Scripts and control flow
 
 - ERB: functions with params/defaults, `#FUNCTION(S)`, event functions with
   `#PRI/#LATER/#SINGLE/#ONLY`, `#DIM(S)` incl. CONST/STATIC/SAVEDATA/GLOBAL/
@@ -1124,20 +1254,33 @@ checked.
   REPEAT/REND, WHILE/WEND, DO/LOOP, BREAK/CONTINUE, GOTO/TRYGOTO,
   CALL/JUMP/TRY*/TRYC*…CATCH, *FORM variants, TRY*LIST, RETURN/RETURNF,
   BEGIN, RESTART, THROW, QUIT.
-- PRINT family (V/S/FORM/FORMS × K/D × L/W/C/LC, SINGLE, PLAIN), PRINTDATA,
-  STRDATA, PRINTBUTTON, PRINT_IMG, HTML_PRINT, DRAWLINE, colours/styles,
-  ALIGNMENT, REUSELASTLINE, CLEARLINE.
-- INPUT/INPUTS/TINPUT/ONEINPUT/WAIT/TWAIT/INPUTMOUSEKEY (approx.); INPUTS'
-  default answer is FORM text, as in Emuera.
-- Sound: PLAYSOUND / PLAYBGM / STOPSOUND / STOPBGM / SETSOUNDVOLUME /
-  SETBGMVOLUME / EXISTSOUND (see *Sound* above); GETMEMORYUSAGE.
-- Characters: ADD/DEL/SWAP/COPY/SORT/PICKUP, CSV* lookups, FINDCHARA.
 - Strings, math, arrays (VARSET, ARRAYSHIFT/REMOVE/SORT/COPY, SPLIT, …).
   `TOSTR` takes .NET format strings exactly as Emuera does: standard
   (`D2`, `X6`, `N0`, `F2`, `E3`, `P0`, `C`) and custom (`#,0`, `0.0`,
   `00;-00`, `0,.###`, `0%`, quoted text, `E+0`). `TOINT` / `ISNUMERIC`
   read `0x` hex, `0b` binary and exponents; FORM strings and literals
   know `\n \t \s \S`.
+- `#LOCALSIZE` / `#LOCALSSIZE`; `LOCAL@FUNC` (and `LOCALS@`, `ARG@`,
+  `ARGS@`) for another function's own.
+- `REPLACE` / `REGEXPMATCH` / `FINDELEMENT` use .NET-style regular
+  expressions as in Emuera (groups, `$1`, lookaround).
+- Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
+  per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
+
+### Output, input and sound
+
+- PRINT family (V/S/FORM/FORMS × K/D × L/W/C/LC, SINGLE, PLAIN), PRINTDATA,
+  STRDATA, PRINTBUTTON, PRINT_IMG, HTML_PRINT, DRAWLINE, colours/styles,
+  ALIGNMENT, REUSELASTLINE, CLEARLINE.
+- INPUT/INPUTS/TINPUT/ONEINPUT/WAIT/TWAIT/INPUTMOUSEKEY (approx.); INPUTS'
+  default answer is FORM text, as in Emuera.
+- Sound: PLAYSOUND / PLAYBGM / STOPSOUND / STOPBGM / SETSOUNDVOLUME /
+  SETBGMVOLUME / EXISTSOUND (see [Sound](#sound)); GETMEMORYUSAGE.
+- Keyboard macros: the `\n` / `\e` / `(…)*n` input syntax, F1…F12 in ten
+  groups, the game's `macro.txt` read and written as Emuera does.
+
+### Pictures and HTML_PRINT
+
 - HTML_PRINT as in Emuera-EM: `px` sizes, `<div>` boxes laid out at their
   offset (`xpos`/`ypos`/`width`/`height`, `rect=`, `size=`) with their
   background colour, border (`border` / `bcolor`, drawn as coloured
@@ -1152,8 +1295,17 @@ checked.
 - Animated sprites: `ANIME` blocks in resources CSVs and
   `SPRITEANIMECREATE` / `SPRITEANIMEADDFRAME`, redrawn on the
   `SETANIMETIMER` interval (at most ten times a second).
-- `#LOCALSIZE` / `#LOCALSSIZE`; `LOCAL@FUNC` (and `LOCALS@`, `ARG@`,
-  `ARGS@`) for another function's own.
+- Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
+  `SPRITECREATE`, `SPRITE*`), shown through the image backends.
+- Client background layers (`CBGSETG`, `CBGSETSPRITE`, `CBGSETBUTTONSPRITE`,
+  button maps) and the mouse in pixels (`MOUSEX` / `MOUSEY`,
+  `INPUTMOUSEKEY` clicks, wheel, keys, timeouts), so menus drawn as
+  pictures work, like pops-tw's title. Terminals without images get the
+  text that was drawn into the picture, at its place on the screen.
+
+### Game flow, characters and saves
+
+- Characters: ADD/DEL/SWAP/COPY/SORT/PICKUP, CSV* lookups, FINDCHARA.
 - TRAIN as in Emuera: commands numbered by their position in TRAIN.csv
   (other numbers go to `@USERCOM`), NEXTCOM, the WAIT after a command,
   and the per-step resets (UP / DOWN / LOSEBASE, SOURCE, NOWEX, STAIN to
@@ -1163,30 +1315,23 @@ checked.
   commands with it). `DOTRAIN` as in Emuera: the event it is in (only
   @EVENTTRAIN, @SHOW_STATUS, @SHOW_USERCOM, @EVENTCOMEND, @USERCOM) runs to
   its end, then the command runs.
-- Graphics buffers and sprites (`GCREATE`, `GDRAW*`, `GSETFONT`/text,
-  `SPRITECREATE`, `SPRITE*`), shown through the image backends.
-- Client background layers (`CBGSETG`, `CBGSETSPRITE`, `CBGSETBUTTONSPRITE`,
-  button maps) and the mouse in pixels (`MOUSEX` / `MOUSEY`,
-  `INPUTMOUSEKEY` clicks, wheel, keys, timeouts), so menus drawn as
-  pictures work, like pops-tw's title. Terminals without images get the
-  text that was drawn into the picture, at its place on the screen.
-- `REPLACE` / `REGEXPMATCH` / `FINDELEMENT` use .NET-style regular
-  expressions as in Emuera (groups, `$1`, lookaround).
+- SAVEGAME/LOADGAME menus, SAVEDATA/LOADDATA, SAVEGLOBAL/LOADGLOBAL, @SAVEINFO.
+
+### Game data and config files
+
 - EMEE `.als` name aliases.
 - `DAY.csv` / `TIME.csv` / `MONEY.csv` names (`DAYNAME`, `TIMENAME`).
 - Config files with Emuera's Japanese or English keys (`ウィンドウ幅` or
   `WINDOW WIDTH`), including PRINTC items per line and width, the font,
   and button wrapping (a button that doesn't fit moves to the next line
   whole, as in Emuera).
-- SAVEGAME/LOADGAME menus, SAVEDATA/LOADDATA, SAVEGLOBAL/LOADGLOBAL, @SAVEINFO.
-- Emuera variable lifetimes: private `#DIM` static unless `DYNAMIC`,
-  per-function `LOCAL`/`ARG`, `#DIM REF` parameters.
+
+### Emuera-EM, EE and Anchor
+
 - Emuera-Anchor: the `*_TR.csv` / `ALL_TR.csv` / `TRCHARA` translation
   files and `TR_NAME`, `PARAM.CSV` (read in place of `PALAM.CSV`, with
   `PARAM` usable for `PALAM` in scripts), the Ctrl-T / Ctrl-R / Ctrl-E
   hotkeys, the clipboard.
-- Keyboard macros: the `\n` / `\e` / `(…)*n` input syntax, F1…F12 in ten
-  groups, the game's `macro.txt` read and written as Emuera does.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,
@@ -1195,17 +1340,24 @@ checked.
   under the pointer is `MOUSEB()`, and clicks and keys reach
   `GETKEY`/`GETKEYTRIGGERED` (AnonTW's dish search by name).
 
-Debugging: `EMUERA_TRACE=<part of a function name>` logs matching calls and
-their return values to stderr, with timestamps. `EMUERA_PROFILE=<file>`
-samples which ERB function is running every millisecond (time spent waiting
-for the player not counted) and keeps `<file>` updated with the top 60,
-under a first line telling which input the script is waiting for and the
-call stack that asked for it (handy when a game seems stuck).
-`EMUERA_INJECT="STATEMENT||STATEMENT"` with `EMUERA_INJECT_AT=<n>` runs those
-statements as a function `@__INJECT` just before the n-th input.
-`EMUERA_LIST_BUTTONS=1` makes `--headless` print the values of the buttons
-on screen before each input (`[buttons: 1001, 1002]`), hidden ones included,
-for scripted play.
+### Debugging
+
+- `EMUERA_TRACE=<part of a function name>` logs matching calls and
+  their return values to stderr, with timestamps.
+- `EMUERA_PROFILE=<file>`
+  samples which ERB function is running every millisecond (time spent waiting
+  for the player not counted) and keeps `<file>` updated with the top 60,
+  under a first line telling which input the script is waiting for and the
+  call stack that asked for it (handy when a game seems stuck).
+- `EMUERA_INJECT="STATEMENT||STATEMENT"` with `EMUERA_INJECT_AT=<n>` runs those
+  statements as a function `@__INJECT` just before the n-th input.
+- `EMUERA_LIST_BUTTONS=1` makes `--headless` print the values of the buttons
+  on screen before each input (`[buttons: 1001, 1002]`), hidden ones included,
+  for scripted play.
+- `EMUERA_LINT=1` with `--check` lists compiled statements that look like
+  the parser split their line in the wrong place (a function name holding
+  `(`, `,` or spaces; FORM text still holding `%`, `{` or `}`), for hunting
+  parser bugs across a whole game.
 
 ## Tests
 
@@ -1235,6 +1387,14 @@ statements no test uses yet (about 90% are used).
 `tools/game_smoke.sh GAME_DIR [STEPS] [SEED]` plays a real game with random
 menu choices in a throwaway copy and reports script errors.
 
+### Development builds
+
+For development: `cargo test` runs the unit tests and the `sample/` game's
+self-test; `cargo build --profile fastbuild --features profile` makes a
+quick-to-build optimised binary whose `EMUERA_PPROF=<file>` writes a
+sampling profile of the engine itself (time per Rust function and caller
+→ callee pairs); `emuera-tty sample --headless --echo` plays the sample in plain
+text.
 
 ## Roadmap
 
