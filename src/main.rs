@@ -408,7 +408,18 @@ fn run(o: Opts) -> i32 {
     // the parse threads leave most of their scratch memory (source text,
     // line copies) cached in glibc's per-thread arenas: give it back
     sys::trim_memory();
-    let res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
+    let mut res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
+    // decode the pictures the game used last time while it starts (not in
+    // headless runs: scripts and tests stay as they were; EMUERA_WARMUP=1 /
+    // 0 forces it on or off)
+    let warm = match std::env::var("EMUERA_WARMUP").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => !o.headless && !o.check,
+    };
+    if warm {
+        res.start_warmup(&game);
+    }
     // saved settings (options and EMUERA_* variables win)
     let st = settings::Settings::load();
     st.export_env();

@@ -134,6 +134,8 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_COLORS", "truecolor, 256 or 16: the colour depth, when detection guesses wrong"),
     ("EMUERA_DEBUG_FRAMES", "any value: print each frame drawn (size and picture keys) to stderr (debugging)"),
     ("EMUERA_GBUF_MB", "MB graphics buffers may take unpacked (default: 1/8 of the memory)"),
+    ("EMUERA_PICTURES_MB", "MB decoded picture files may take (default: 1/8 of the memory)"),
+    ("EMUERA_WARMUP", "1 / 0: decode last session's pictures in the background at start (default: on, off headless)"),
     ("EMUERA_GFX", "default for --gfx: kitty, iterm, sixel, fb or none"),
     ("EMUERA_GPMCTL", "path of the gpm socket (default /dev/gpmctl), for testing the Linux-console mouse"),
     ("EMUERA_GPM_VC", "the virtual console number the gpm mouse is read for (testing)"),

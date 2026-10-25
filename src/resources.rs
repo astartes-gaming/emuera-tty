@@ -4,6 +4,15 @@
 //! `NAME,file.png[,x,y,w,h]` (the rectangle cuts the sprite out of a sheet).
 //! Images are decoded on first use and cached three ways: whole files,
 //! cropped sprites, and sprites scaled to the size they are shown at.
+//!
+//! Whole files are kept within a budget (`EMUERA_PICTURES_MB`, 1/8 of the
+//! memory), the least recently used dropped first: a portrait sheet can be
+//! many MB while the parts cut from it (kept) are a fraction of that. And
+//! the files a game decoded in its last sessions are decoded again in the
+//! background when it starts (`start_warmup`), on the spare cores, so its
+//! first screen full of portraits doesn't wait for them: decoding them one
+//! by one as the script asked was most of a slow first screen (AnonTW's
+//! whereabouts listing: 1.6 s cold, 12 ms once decoded).
 
 use crate::loader::{csv_fields, read_text, walk};
 use image::RgbaImage;
@@ -73,7 +82,81 @@ pub struct Resources {
     anim_used: bool,
     /// the last files GCREATEFROMFILE decoded (path, size and time, pixels)
     loaded: Vec<(PathBuf, Option<(u64, std::time::SystemTime)>, Rc<RgbaImage>)>,
+    /// when each whole file in `files` was last used (`file_tick`), for
+    /// dropping the least recently used beyond `file_budget`
+    file_used: HashMap<PathBuf, u64>,
+    file_tick: u64,
+    /// the bytes whole decoded files may take
+    file_budget: usize,
+    /// files being decoded in the background (see `start_warmup`)
+    warm: Option<Warmup>,
+    /// the files this session decoded, for the next warm-up
+    record: Record,
 }
+
+/// The files a session decodes, oldest first, written to `path` (none: not
+/// recorded) whenever the game waits for input after new ones (the game can
+/// end without this being dropped).
+#[derive(Default)]
+struct Record {
+    files: Vec<PathBuf>,
+    path: Option<PathBuf>,
+    dirty: bool,
+}
+
+impl Record {
+    fn note(&mut self, p: &Path) {
+        if self.path.is_none() {
+            return;
+        }
+        if let Some(k) = self.files.iter().position(|q| q == p) {
+            self.files.remove(k);
+        }
+        self.files.push(p.to_path_buf());
+        self.dirty = true;
+    }
+
+    /// Write the list if it changed: this session's files, most recent
+    /// first, then the earlier ones.
+    fn save(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        let Some(path) = self.path.clone() else { return };
+        let old = std::fs::read_to_string(&path).unwrap_or_default();
+        // (absolute, but as the game names them: resolving symlinks would
+        // give paths the game never asks for)
+        let mut out: Vec<String> =
+            self.files.iter().rev().map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone()).to_string_lossy().into_owned()).collect();
+        for l in old.lines() {
+            if !l.is_empty() && !out.iter().any(|o| o == l) {
+                out.push(l.to_string());
+            }
+        }
+        out.truncate(RECORD_MAX);
+        if let Some(d) = path.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(&path, out.join("\n") + "\n");
+        self.dirty = false;
+    }
+}
+
+impl Drop for Record {
+    fn drop(&mut self) {
+        self.save();
+    }
+}
+
+/// Files decoded in the background: results arrive on `rx`; `pending`
+/// is what is still to come.
+struct Warmup {
+    rx: std::sync::mpsc::Receiver<(PathBuf, RgbaImage)>,
+    pending: std::collections::HashSet<PathBuf>,
+}
+
+/// How many files the warm-up list keeps.
+const RECORD_MAX: usize = 400;
 
 /// An animated sprite: its size and frames (frame sprite name, ms shown).
 #[derive(Default, Clone)]
@@ -215,6 +298,29 @@ fn rle_unpack(packed: &[u32], w: u32, h: u32) -> RgbaImage {
     }
     out.resize(n, 0);
     RgbaImage::from_raw(w, h, out).expect("buffer size")
+}
+
+/// The key a decoded file is kept under: its absolute path as the game
+/// names it (symlinks not resolved), so a relative path from a game
+/// started in its own folder and the warm-up list's absolute one meet.
+fn file_key(p: &Path) -> PathBuf {
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+    }
+}
+
+/// Where the files a game decoded are listed for its next warm-up:
+/// `<data>/emuera-tty/pictures/<game folder>-<hash of its path>.txt`.
+fn record_file(game: &Path) -> Option<PathBuf> {
+    let full = game.canonicalize().ok()?;
+    let name = full.file_name()?.to_string_lossy().into_owned();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in full.to_string_lossy().bytes() {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    Some(crate::sys::data_base()?.join("emuera-tty").join("pictures").join(format!("{}-{:08x}.txt", name, h as u32)))
 }
 
 /// How many bytes graphics buffers may take unpacked: `EMUERA_GBUF_MB`, else
@@ -797,7 +903,7 @@ pub fn blit_part(dst: &mut RgbaImage, part: &RgbaImage, (dx, dy, dw, dh): (i32, 
 impl Resources {
     /// Read every sprite CSV under `dir` (images are not decoded yet).
     pub fn load(dir: Option<&Path>) -> Resources {
-        let mut r = Resources { gbuf_budget: gbuf_budget(), ..Resources::default() };
+        let mut r = Resources { gbuf_budget: gbuf_budget(), file_budget: crate::sys::memory_budget("EMUERA_PICTURES_MB", 8), ..Resources::default() };
         let Some(dir) = dir else { return r };
         for csv in walk(dir, &["csv"]) {
             let base = csv.parent().unwrap_or(dir).to_path_buf();
@@ -936,6 +1042,7 @@ impl Resources {
     /// Graphics buffers made by the game (GCREATE…) are its state and stay.
     pub fn release_images(&mut self) {
         self.files = HashMap::default();
+        self.file_used = HashMap::default();
         self.cropped = HashMap::default();
         self.scaled = HashMap::default();
         self.parts = HashMap::default();
@@ -949,6 +1056,8 @@ impl Resources {
     /// Keep the unpacked graphics buffers within [`Resources::gbuf_budget`]:
     /// pack the least recently used ones (they unpack when used again).
     pub fn trim_graphics(&mut self) {
+        self.take_warm(None);
+        self.record.save();
         let plain: usize = self.graphics.values().map(|g| g.bytes()).filter(|b| b.1).map(|b| b.0).sum();
         if plain <= self.gbuf_budget {
             return;
@@ -1192,8 +1301,14 @@ impl Resources {
 
     /// Decode an image file once; failures are remembered as None.
     fn file(&mut self, p: &Path) -> Option<Rc<RgbaImage>> {
-        if let Some(v) = self.files.get(p) {
-            return v.clone();
+        let p = &file_key(p);
+        if !self.files.contains_key(p) {
+            // (being decoded in the background: wait for it, not twice)
+            self.take_warm(Some(p));
+        }
+        if let Some(v) = self.files.get(p).cloned() {
+            self.touch(p);
+            return v;
         }
         let img = match image::open(p) {
             Ok(i) => Some(Rc::new(i.to_rgba8())),
@@ -1202,8 +1317,114 @@ impl Resources {
                 None
             }
         };
-        self.files.insert(p.to_path_buf(), img.clone());
+        self.insert_file(p.to_path_buf(), img.clone());
         img
+    }
+
+    /// Mark a whole file as just used.
+    fn touch(&mut self, p: &Path) {
+        self.file_tick += 1;
+        self.file_used.insert(p.to_path_buf(), self.file_tick);
+    }
+
+    /// Keep a decoded file, note it for the next warm-up, and drop the
+    /// least recently used files beyond the budget (the parts cut from
+    /// them stay cached; a file needed again is decoded again).
+    fn insert_file(&mut self, p: PathBuf, img: Option<Rc<RgbaImage>>) {
+        let p = file_key(&p);
+        if img.is_some() {
+            self.record.note(&p);
+        }
+        self.touch(&p);
+        self.files.insert(p.clone(), img);
+        let size = |i: &Option<Rc<RgbaImage>>| i.as_ref().map_or(0, |i| i.as_raw().len());
+        let mut total: usize = self.files.values().map(size).sum();
+        if total <= self.file_budget {
+            return;
+        }
+        let mut lru: Vec<(u64, PathBuf)> = self.file_used.iter().filter(|(q, _)| **q != p).map(|(q, t)| (*t, q.clone())).collect();
+        lru.sort_unstable();
+        for (_, q) in lru {
+            if total <= self.file_budget {
+                break;
+            }
+            total -= self.files.remove(&q).as_ref().map_or(0, size);
+            self.file_used.remove(&q);
+        }
+    }
+
+    /// Take the files the background warm-up has decoded; with `want`,
+    /// wait until that one has come if it is still on its way.
+    fn take_warm(&mut self, want: Option<&Path>) {
+        let Some(w) = self.warm.as_mut() else { return };
+        let mut got = Vec::new();
+        let wait = want.is_some_and(|p| w.pending.contains(p));
+        loop {
+            let r = if wait && want.is_some_and(|p| w.pending.contains(p)) { w.rx.recv().ok() } else { w.rx.try_recv().ok() };
+            let Some((p, img)) = r else { break };
+            w.pending.remove(&p);
+            got.push((p, img));
+        }
+        // (a closed channel: the warm-up is over, whatever it didn't decode)
+        if wait && want.is_some_and(|p| w.pending.contains(p)) {
+            w.pending.clear();
+        }
+        if w.pending.is_empty() && got.is_empty() && matches!(w.rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) {
+            self.warm = None;
+        }
+        for (p, img) in got {
+            if !self.files.contains_key(&p) {
+                self.insert_file(p, Some(Rc::new(img)));
+            }
+        }
+    }
+
+    /// Start decoding, in the background, the files `game` decoded in its
+    /// last sessions (most recent first), within three quarters of the
+    /// file budget, on the cores but one (up to 8); and record this
+    /// session's for the next start.
+    pub fn start_warmup(&mut self, game: &Path) {
+        let Some(path) = record_file(game) else { return };
+        let list: Vec<PathBuf> = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(PathBuf::from)
+            .filter(|p| p.is_file() && !self.files.contains_key(p))
+            .collect();
+        self.record.path = Some(path);
+        if list.is_empty() {
+            return;
+        }
+        let budget = self.file_budget / 4 * 3;
+        let workers = std::thread::available_parallelism().map_or(1, |n| n.get()).saturating_sub(1).clamp(1, 8);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.warm = Some(Warmup { rx, pending: list.iter().cloned().collect() });
+        let spawned = std::thread::Builder::new().name("warmup".into()).spawn(move || {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            let (next, bytes) = (AtomicUsize::new(0), AtomicUsize::new(0));
+            std::thread::scope(|sc| {
+                for _ in 0..workers {
+                    let (tx, list, next, bytes) = (tx.clone(), &list, &next, &bytes);
+                    sc.spawn(move || loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        if i >= list.len() || bytes.load(Ordering::Relaxed) >= budget {
+                            return;
+                        }
+                        if let Ok(img) = image::open(&list[i]) {
+                            let img = img.to_rgba8();
+                            bytes.fetch_add(img.as_raw().len(), Ordering::Relaxed);
+                            if tx.send((list[i].clone(), img)).is_err() {
+                                return;
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        if spawned.is_err() {
+            self.warm = None;
+        }
     }
 
     /// GCREATEFROMFILE's pixels. The last few files decoded are kept (at
@@ -1287,7 +1508,7 @@ impl Resources {
         // a whole image file: its header has the size, so the (slow) decode
         // can wait for the screen, which decodes on all cores
         if let Some(sp) = self.sprites.get(&key) {
-            if !self.files.contains_key(&sp.file) {
+            if !self.files.contains_key(&file_key(&sp.file)) {
                 if let Some(d) = self.dims.get(&sp.file) {
                     return Some(*d);
                 }
@@ -1315,7 +1536,7 @@ impl Resources {
                 continue;
             }
             if let Some(sp) = self.sprites.get(&key.0) {
-                if !self.files.contains_key(&sp.file) && !files.contains(&sp.file) {
+                if !self.files.contains_key(&file_key(&sp.file)) && !files.contains(&sp.file) {
                     files.push(sp.file.clone());
                 }
             }
@@ -1347,7 +1568,7 @@ impl Resources {
                         None
                     }
                 };
-                self.files.insert(p, img);
+                self.insert_file(p, img);
             }
         }
         let mut jobs: Vec<((String, u32, u32), Rc<RgbaImage>)> = Vec::new();
@@ -1430,7 +1651,7 @@ impl Resources {
 
 /// `base/rel` matching each path component case-insensitively and
 /// accepting `\` separators, since games are made on Windows.
-fn find_ci(base: &Path, rel: &str) -> PathBuf {
+pub(crate) fn find_ci(base: &Path, rel: &str) -> PathBuf {
     let direct = base.join(rel);
     if direct.exists() {
         return direct;
@@ -1558,5 +1779,25 @@ mod tests {
         r.graphics.get_mut(&1).unwrap().img_mut().put_pixel(0, 0, image::Rgba([5, 5, 5, 5]));
         img.put_pixel(0, 0, image::Rgba([5, 5, 5, 5]));
         assert_eq!(*r.graphics[&1].img(), img);
+    }
+
+    /// Whole decoded files are kept within their budget, the least
+    /// recently used dropped first; using one keeps it.
+    #[test]
+    fn file_cache_budget() {
+        let mut r = Resources::default();
+        let img = || Some(Rc::new(RgbaImage::new(10, 10))); // 400 bytes each
+        r.file_budget = 800;
+        let (a, b, c) = (PathBuf::from("/x/a.png"), PathBuf::from("/x/b.png"), PathBuf::from("/x/c.png"));
+        r.insert_file(a.clone(), img());
+        r.insert_file(b.clone(), img());
+        r.touch(&a); // a used after b
+        r.insert_file(c.clone(), img());
+        assert!(r.files.contains_key(&a) && r.files.contains_key(&c), "{:?}", r.files.keys().collect::<Vec<_>>());
+        assert!(!r.files.contains_key(&b), "b was the least recently used");
+        // a relative path and its absolute form are the same entry
+        let rel = PathBuf::from("rel-test.png");
+        r.insert_file(rel.clone(), img());
+        assert!(r.files.contains_key(&file_key(&rel)) && file_key(&rel).is_absolute());
     }
 }

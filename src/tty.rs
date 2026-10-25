@@ -434,6 +434,22 @@ fn backslash_is_yen(font: &str) -> bool {
     ms || f.contains("meiryo") || f.contains("メイリオ")
 }
 
+/// The colour in an OSC 11 reply (`ESC ] 11 ; rgb:RRRR/GGGG/BBBB`, one to
+/// four hex digits per channel).
+fn parse_osc11(s: &str) -> Option<Rgb> {
+    let rest = &s[s.find("]11;rgb:")? + 8..];
+    let end = rest.find(['\x07', '\x1b']).unwrap_or(rest.len());
+    let ch: Vec<u8> = rest[..end]
+        .split('/')
+        .map(|h| {
+            let v = u32::from_str_radix(h, 16).ok()?;
+            let max = (1u32 << (4 * h.len().clamp(1, 4))) - 1;
+            Some((v * 255 / max) as u8)
+        })
+        .collect::<Option<_>>()?;
+    (ch.len() == 3).then(|| Rgb(ch[0], ch[1], ch[2]))
+}
+
 /// What the settings overlay asks the input loop to do next.
 enum OverlayExit {
     Close,
@@ -441,9 +457,16 @@ enum OverlayExit {
     Config,
     Title,
     Restart,
+    /// restart with `--debug` turned on (or off, if it was on)
+    RestartDebug,
     Reload,
     SwitchGame,
     Quit,
+}
+
+/// Is this run in debug mode (`--debug`: [IF_DEBUG] blocks and ;#; lines)?
+fn debug_run() -> bool {
+    std::env::args_os().skip(1).any(|a| a == "--debug")
 }
 
 pub struct Tty {
@@ -512,6 +535,11 @@ pub struct Tty {
     frame_cursor: Option<(usize, usize)>,
     /// the window background for this frame (None: the terminal's own)
     screen_bg: Option<Rgb>,
+    /// the background the game assumes where it sets none (its default,
+    /// black unless the config says otherwise)
+    game_bg: Rgb,
+    /// the terminal's own background (OSC 11), shown where the game sets none
+    term_bg: Option<Rgb>,
     /// minimum contrast for coloured text (1: off), see `console::readable`
     pub contrast: f32,
     /// colours drawn as others (`recolor` setting: AnonTW's time-stop navy
@@ -759,9 +787,20 @@ fn write_all(b: &[u8]) {
     let _ = out.flush();
 }
 
-/// Running inside tmux?
+/// Running inside tmux? `TMUX` alone isn't enough: a terminal started from
+/// a shell inside tmux inherits it (Ghostty opened from a tmux pane got
+/// tmux's passthrough wrappers and showed no pictures).
 fn in_tmux() -> bool {
-    std::env::var_os("TMUX").is_some()
+    let var = |k| std::env::var(k).unwrap_or_default();
+    in_tmux_env(std::env::var_os("TMUX").is_some(), &var("TERM"), &var("TERM_PROGRAM"))
+}
+
+/// `in_tmux` from the environment: tmux sets `TERM` to `tmux-*` /
+/// `screen-*` by default and, since 3.2, `TERM_PROGRAM=tmux`; a terminal
+/// that sets `TERM_PROGRAM` to its own name (Ghostty, WezTerm, iTerm2…)
+/// means tmux's variable is only inherited.
+fn in_tmux_env(tmux: bool, term: &str, program: &str) -> bool {
+    tmux && (term.starts_with("tmux") || term.starts_with("screen") || program.is_empty() || program == "tmux")
 }
 
 /// Does tmux let escape sequences through to the terminal it runs in
@@ -837,6 +876,8 @@ impl Tty {
             drawn_pointer: None,
             frame_cursor: None,
             screen_bg: None,
+            game_bg: Rgb(0, 0, 0),
+            term_bg: None,
             contrast: 3.0,
             recolor: Vec::new(),
             wheel: 3,
@@ -893,6 +934,11 @@ impl Tty {
             t.widths = t.measure_widths();
         }
         let is_vt = term == "linux" || term.starts_with("fbterm");
+        // the terminal's own background, for readable colours (the Linux
+        // console's is black and it doesn't answer)
+        if !is_vt {
+            t.term_bg = t.query_background();
+        }
         // (fbterm draws with fontconfig's fonts)
         if term == "linux" {
             t.font_chars = crate::sys::console_font_chars();
@@ -981,6 +1027,14 @@ impl Tty {
     /// Is unread input waiting on stdin right now?
     fn input_waiting(&self) -> bool {
         crate::sys::poll(0, -1).input
+    }
+
+    /// The terminal's background colour (OSC 11), if it says: the device
+    /// attributes query after it answers anyway, so a terminal that ignores
+    /// OSC 11 costs no wait.
+    fn query_background(&mut self) -> Option<Rgb> {
+        let r = self.query(b"\x1b]11;?\x1b\\\x1b[c", |b| b.windows(3).any(|w| w == b"\x1b[?") && b.ends_with(b"c"), 300);
+        parse_osc11(&String::from_utf8_lossy(&r))
     }
 
     /// Send a query and collect the reply until `done` or timeout.
@@ -1133,7 +1187,7 @@ impl Tty {
                         why = "; inside GNU screen there are no pictures (tmux can show them)".into();
                     }
                     if tmux && !passthrough {
-                        why = "; inside tmux, kitty-graphics terminals (Ghostty, kitty) need `set -g allow-passthrough on` for pictures".into();
+                        why = "; inside tmux, kitty-graphics terminals (Ghostty, kitty) need `set -g allow-passthrough all` for pictures".into();
                     }
                     let kitty_q: &[u8] = if passthrough {
                         b"\x1bPtmux;\x1b\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\x1b\\\x1b\\\x1b[c"
@@ -1623,7 +1677,13 @@ impl Tty {
     /// the foreground is made readable against it (see `contrast`).
     fn sgr(&self, out: &mut Vec<u8>, st: &Style, fg_override: Option<Rgb>) {
         let bg = st.bg.map(|c| self.recolored(c)).or(self.screen_bg);
-        let fg = crate::console::readable(self.recolored(fg_override.unwrap_or(st.fg)), bg.unwrap_or(Rgb(0, 0, 0)), self.contrast);
+        // where the game sets no background, the terminal's shows: the game
+        // meant its colours for its own default (Emuera's black)
+        let (shown, meant) = match bg {
+            Some(b) => (b, b),
+            None => (self.term_bg.unwrap_or(Rgb(0, 0, 0)), self.game_bg),
+        };
+        let fg = crate::console::readable_on(self.recolored(fg_override.unwrap_or(st.fg)), shown, meant, self.contrast);
         out.extend_from_slice(b"\x1b[0");
         if st.bold {
             out.extend_from_slice(b";1");
@@ -1695,6 +1755,7 @@ impl Tty {
         // the window background, unless it is the game's default (then the
         // terminal's own background shows)
         self.screen_bg = (con.screen_bg != con.default_bg).then_some(self.recolored(con.screen_bg));
+        self.game_bg = self.recolored(con.default_bg);
         let (cols, rows, xp, yp) = winsize();
         self.cols = cols;
         self.rows = rows.max(2);
@@ -2038,6 +2099,9 @@ impl Tty {
         if self.force_frame {
             self.gfx.reset(&mut out);
         }
+        // pictures not yet in the terminal go before the text (see `prepare`)
+        let mut pre = Vec::new();
+        self.gfx.prepare(&mut pre, &placements, self.cell);
         self.gfx.draw(&mut out, &placements, self.cell);
         let mut tip_rows = 0..0;
         if let Some(t) = &tip {
@@ -2071,6 +2135,9 @@ impl Tty {
         // (unless a box drawn over it has closed: what it covered must
         // come back)
         if fp == self.last_frame && !self.force_frame && !self.box_closed.get() {
+            if !pre.is_empty() {
+                write_all(&pre);
+            }
             self.frame_imgs = placements;
             con.dirty = false;
             return;
@@ -2087,6 +2154,9 @@ impl Tty {
         let console = self.term == "linux" || self.term.starts_with("fbterm");
         if !console {
             write_all(b"\x1b[?2026h");
+        }
+        if !pre.is_empty() {
+            write_all(&pre);
         }
         write_all(&out);
         if !console {
@@ -2462,17 +2532,34 @@ impl Tty {
                 self.clip.reset(con, &cfg);
                 Some(InputResult::Hotkey(crate::frontend::Hotkey::Title))
             }
-            Key::Restart => {
-                if !self.confirm(con, res, req, "Restart the game? Unsaved progress is lost.") {
-                    return None;
-                }
-                self.shutdown();
-                let e = crate::sys::exec_self(&std::env::args_os().skip(1).collect::<Vec<_>>());
-                eprintln!("emuera-tty: can't restart: {}", e);
-                Some(InputResult::Quit)
-            }
+            Key::Restart => self.restart(con, res, req, false),
             _ => Some(InputResult::Hotkey(crate::frontend::Hotkey::Reload)),
         }
+    }
+
+    /// Restart emuera-tty on the same game, after asking (Ctrl-R, the
+    /// settings); `toggle_debug` turns `--debug` on or off for the new run.
+    fn restart(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, toggle_debug: bool) -> Option<InputResult> {
+        let q = match (toggle_debug, debug_run()) {
+            (false, _) => "Restart the game? Unsaved progress is lost.",
+            (true, false) => "Restart the game in debug mode? Unsaved progress is lost.",
+            (true, true) => "Restart the game without debug mode? Unsaved progress is lost.",
+        };
+        if !self.confirm(con, res, req, q) {
+            return None;
+        }
+        let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+        if toggle_debug {
+            if debug_run() {
+                args.retain(|a| a != "--debug");
+            } else {
+                args.push("--debug".into());
+            }
+        }
+        self.shutdown();
+        let e = crate::sys::exec_self(&args);
+        eprintln!("emuera-tty: can't restart: {}", e);
+        Some(InputResult::Quit)
     }
 
     /// Does the pointer's move change which hover picture (`srcb`) shows?
@@ -2676,6 +2763,7 @@ impl Tty {
                 ("Recolor…  (draw a colour of the game's as another)", 12),
                 ("Back to the title  (Ctrl-T)", 6),
                 ("Restart the game  (Ctrl-R)", 7),
+                (if debug_run() { "Restart without debug mode" } else { "Restart in debug mode  ([IF_DEBUG] and ;#; lines run)" }, 13),
                 (if self.f_key_free(5) { "Reload ERB files  (F5 / Ctrl-E)" } else { "Reload ERB files  (Ctrl-E)" }, 8),
                 ("Switch game…  (unsaved progress is lost)", 9),
                 ("Quit emuera-tty", 10),
@@ -2859,6 +2947,7 @@ impl Tty {
                     }
                     6 => break OverlayExit::Title,
                     7 => break OverlayExit::Restart,
+                    13 => break OverlayExit::RestartDebug,
                     8 => break OverlayExit::Reload,
                     9 => break OverlayExit::SwitchGame,
                     10 => break OverlayExit::Quit,
@@ -3722,6 +3811,12 @@ impl Frontend for Tty {
                         }
                         redraw = true;
                     }
+                    OverlayExit::RestartDebug => {
+                        if let Some(r) = self.restart(con, res, req, true) {
+                            return r;
+                        }
+                        redraw = true;
+                    }
                     OverlayExit::Reload => return InputResult::Hotkey(crate::frontend::Hotkey::Reload),
                     OverlayExit::Config => return InputResult::Hotkey(crate::frontend::Hotkey::Config),
                     OverlayExit::Quit => return InputResult::Quit,
@@ -4061,6 +4156,15 @@ impl Frontend for Tty {
                 Key::Settings => match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false }) {
                     OverlayExit::Quit => return RawInput::Quit,
                     OverlayExit::Config => return RawInput::Hotkey(crate::frontend::Hotkey::Config),
+                    // (INPUTMOUSEKEY menus, pops-tw's title: restarts too)
+                    e @ (OverlayExit::Restart | OverlayExit::RestartDebug) => {
+                        let req = InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false };
+                        if self.restart(con, res, &req, matches!(e, OverlayExit::RestartDebug)).is_some() {
+                            return RawInput::Quit;
+                        }
+                        self.force_frame = true;
+                        self.render(con, res, None);
+                    }
                     _ => {
                         self.force_frame = true;
                         self.render(con, res, None);
@@ -4250,6 +4354,20 @@ impl Drop for Tty {
 mod tests {
     use super::{char_cells, console_lookalike, Ambi};
 
+    /// tmux is recognised by its own `TERM` / `TERM_PROGRAM`, not by an
+    /// inherited `TMUX` in a terminal opened from a tmux pane
+    #[test]
+    fn tmux_detection() {
+        use super::in_tmux_env as t;
+        assert!(t(true, "tmux-256color", "tmux"));
+        assert!(t(true, "screen-256color", ""));
+        assert!(t(true, "xterm-256color", "tmux"));
+        assert!(t(true, "tmux-256color", "ghostty"));
+        assert!(!t(true, "xterm-ghostty", "ghostty"));
+        assert!(!t(true, "xterm-256color", "WezTerm"));
+        assert!(!t(false, "tmux-256color", "tmux"));
+    }
+
     /// A bar drawn as two rectangles (filled, empty) is as wide whatever
     /// the split, so a column after it lines up (eratohoReverse's gauges:
     /// 800% of the font in all, 50% a cell)
@@ -4277,6 +4395,15 @@ mod tests {
         for f in ["游ゴシック", "Yu Gothic", "Consolas", "DFKai-SB", "Courier New", "ＤＦ平成ゴシック体"] {
             assert!(!super::backslash_is_yen(f), "{:?}", f);
         }
+    }
+  
+    /// The terminal's background from its OSC 11 reply
+    #[test]
+    fn osc11_replies() {
+        let r = crate::console::Rgb;
+        assert_eq!(super::parse_osc11("\x1b]11;rgb:2828/2c2c/3434\x1b\\\x1b[?62;4c"), Some(r(0x28, 0x2c, 0x34)));
+        assert_eq!(super::parse_osc11("\x1b]11;rgb:ff/80/00\x07"), Some(r(255, 128, 0)));
+        assert_eq!(super::parse_osc11("\x1b[?62;4c"), None);
     }
 
     /// Ctrl / Alt + arrow scroll; plain and Shift+arrow don't

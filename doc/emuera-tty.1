@@ -192,8 +192,8 @@ graphics (kitty, Ghostty, Konsole), iTerm2 inline images (iTerm2, WezTerm), sixe
 (foot, xterm \-ti vt340, mlterm, Windows Terminal), or the Linux
 framebuffer on the console. \fBnone\fR shows placeholders.
 Inside tmux, kitty graphics go through tmux's passthrough as Unicode
-placeholders, which needs \fBset \-g allow\-passthrough on\fR in the
-tmux configuration; GNU screen shows no pictures.
+placeholders, which needs \fBset \-g allow\-passthrough all\fR in the
+tmux configuration (\fBon\fR loses pictures sent while the pane is hidden); GNU screen shows no pictures.
 .TP
 .B \-\-headless
 Plain line-by-line stdin/stdout, for scripts and tests; waits continue at
@@ -216,7 +216,9 @@ Run
 .B [IF_DEBUG]
 blocks and
 .B ;#;
-lines, like Emuera's debug mode.
+lines, like Emuera's debug mode. \fBRestart in debug mode\fR in the
+options overlay restarts the game with it (and \fBRestart without debug
+mode\fR without it).
 .SS Retro and serial terminals
 .TP
 .BR \-\-retro [ =line ]
@@ -388,6 +390,16 @@ Graphics buffers may take
 .I n
 MB unpacked (default: an eighth of the memory); the least recently used
 are packed until used again.
+.TP
+.BI EMUERA_PICTURES_MB= n
+Decoded picture files may take
+.I n
+MB (default: an eighth of the memory); the least recently used are
+dropped (the parts cut from them stay).
+.TP
+.BR EMUERA_WARMUP= 1|0
+Decode the pictures the game used last time in the background while it
+starts (default: on, off in headless runs).
 .TP
 .BI EMUERA_MEMSTATS= file
 Write what the memory holds to

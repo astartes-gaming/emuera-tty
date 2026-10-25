@@ -452,7 +452,9 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   first; unsaved progress is lost). **Reload the ERB files** after editing
   them: Ctrl-E or F5 (unless a macro is stored on F5): the game carries on where it was
   with the new code (Emuera-Anchor's hotkeys, as in Emuera-EE; also in
-  the settings).
+  the settings). *Restart in debug mode* in the settings restarts with
+  `--debug` (Emuera's debug mode: `[IF_DEBUG]` blocks and `;#;` lines run),
+  and *Restart without debug mode* turns it off again.
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.
@@ -964,6 +966,56 @@ Games translated with Emuera-Anchor's system play translated here too:
   an index that has a name or a name in that CSV; anything else is a
   script error ("Invalid first argument" / "Invalid second argument").
 
+### Managing saves
+
+Ctrl-O → *Manage saves…* lists the game's saves with their date and the
+comment Emuera's save menu shows. Pick one to **copy** or **move** it to
+another slot, **export** it to a file (by default
+`~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
+folder: **back up all saves** (into
+`~/.local/share/emuera-tty/backups/<game>/<date>/`), **restore a backup**
+(the current saves are backed up first) and **import a save file** into a
+slot. Nothing is lost by mistake: a deleted or overwritten save is copied
+to the backups first. Load a restored or imported save from the game's
+own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
+and `emuera-tty GAME --backup-saves` backs them up.
+
+**Save history.** Saves the game writes (save slots, autosaves,
+`global.sav`, SAVECHARA files) are protected too, with no setting to turn
+on:
+
+- **The version replaced is kept**, in the same backup folder, as
+  `<date>-auto-save01/`, so *restore a backup* can bring back any of them.
+  Copies are thinned: the last 10 of each file, then one a day for 30 days,
+  then one a week for 26 weeks. Saves are small (AnonTW's are under 1 MB),
+  so this stays at a few MB per game.
+- **A save emuera-tty didn't write** (one from Emuera.exe, or from before
+  this history) is kept as `<date>-original-save01/` the first time it is
+  replaced, and never thinned.
+- **Each save is written safely**: to a temporary file, flushed to disk,
+  read back and checked to load, and only then put in place. A crash,
+  power cut or full disk leaves the previous save; a save that wouldn't
+  load is reported at once and the previous one kept.
+- **`save-log.tsv`** in the backup folder records each save written: when,
+  which file, a fingerprint, its size, and the emuera-tty version and
+  commit that wrote it. If a bug turns up in some build, the log tells
+  which saves it wrote and which backup came before.
+
+`EMUERA_SAVE_HISTORY=0` turns the history and the log off (saves are still
+written safely). Nothing is added inside the saves: Emuera reads them as
+before.
+
+**Readable colours:** games are drawn for Emuera's black (or game-set)
+background, and some colours there are hard to read, like pure blue, or
+AnonTW's blue text on the dark navy background of time stop. emuera-tty
+lightens coloured text until it reaches a minimum contrast (WCAG 3:1, or
+4.5:1 on *high*), keeping its hue. Greys are left as dim as the game made
+them, since games use them for shading, but no dimmer: where the game sets
+no background, your terminal's own shows (emuera-tty asks the terminal for
+it), and a grey gets at least the contrast it had on Emuera's black, so
+AnonTW's dark `C_GRAY` stays readable on a dark grey theme. The window
+background set by `SETBGCOLOR` covers the whole screen, as in Emuera.
+
 ## 5. Picking a terminal
 
 ### Terminal support
@@ -980,7 +1032,7 @@ terminal:
 | Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
 | bare Linux console (no fbterm) | yes (framebuffer) | can't show Japanese/Chinese text |
 | real VT100 / VT220 / VT52 / ADM-3A / Wyse…, local or on a **serial line** | no | ASCII, see below |
-| **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough on` |
+| **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough all` |
 | **tmux** inside a sixel terminal | yes (tmux draws the sixel) | tmux built with sixel |
 | Termux (Android) | no | `iterm`/`sixel` floods the terminal with data, `kitty` renders nothing, Termux in general doesn't support in-terminal image rendering |
 | Android to other device (ADB) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles, has an issue that floods the input bar when moving the mouse around |
@@ -1002,7 +1054,10 @@ terminal:
 - `--gfx none` turns images off; `--gfx kitty|iterm|sixel|fb` forces a backend
   if auto-detection guesses wrong.
 - **tmux**: with kitty or Ghostty outside it, put `set -g allow-passthrough
-  on` in `~/.tmux.conf` (then `tmux source ~/.tmux.conf`). Pictures are
+  all` in `~/.tmux.conf` (then `tmux source ~/.tmux.conf`). (`on` works
+  too, but tmux then drops a picture sent while the pane isn't showing,
+  say during a loading screen while you are in another window, and it
+  stays blank until the game draws a new one.) Pictures are
   then written as kitty's Unicode placeholders: text tmux keeps in its
   pane, so they follow splits, window switches and redraws. A picture
   meant to sit behind text isn't shown there, and crops are to whole
@@ -1183,7 +1238,7 @@ them all (`EMUERA_PARSE=all` compiles everything at load for a normal
 run too). A script file edited while the game runs is read as it is
 then, for functions not run yet; the reload key (Ctrl-E) reloads everything.
 
-Two things are kept within a share of the machine's memory, so a 512 MB
+Three things are kept within a share of the machine's memory, so a 512 MB
 board copes and a PC with memory to spare does exactly what it did:
 
 - **Compiled functions** beyond 1/16 of the memory (`EMUERA_CODE_MB=n`
@@ -1193,6 +1248,18 @@ board copes and a PC with memory to spare does exactly what it did:
   least recently used are kept packed (run-length coded, exactly) until
   drawn or shown again. pops-tw keeps three portraits per character in
   buffers, 270 MB unpacked, 40 MB packed.
+- **Decoded picture files** beyond 1/8 (`EMUERA_PICTURES_MB=n`): the
+  least recently used whole files are dropped; the parts cut from them
+  stay. AnonTW's whereabouts listing decodes 32 portrait sheets, 242 MB,
+  to cut 33 MB of portraits from them.
+
+**Pictures warm up while the game starts.** emuera-tty notes which picture
+files a game decoded (in `~/.local/share/emuera-tty/pictures/`) and, the
+next time it starts, decodes them again in the background on the spare
+cores, within three quarters of that budget. The first screen full of
+portraits then doesn't wait for them: AnonTW's whereabouts listing (166
+characters) went from 1.5 s to 0.4 s on its first showing. Headless runs
+don't do this; `EMUERA_WARMUP=1` (or `0`) turns it on (or off).
 
 | | before | now (PC) | with a 512 MB machine's budgets |
 |---|---|---|---|
