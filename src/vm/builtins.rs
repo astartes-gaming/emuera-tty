@@ -3587,14 +3587,18 @@ impl Vm {
             }
             "ENUMFILES" => {
                 // ENUMFILES dir[, pattern = "*"[, subfolders[, ARRAY]]]:
-                // paths relative to the game folder
-                let dir = self.as_(a, 0, "")?.replace('\\', "/");
+                // paths relative to the game folder as Emuera gives them
+                // (Path.GetRelativePath): the folder as the script wrote
+                // it, `\`, the file's path below it. The folder is found
+                // whatever its letter case (pops-tw asks for RESOURCES/)
+                let dir = self.as_(a, 0, "")?;
                 let pat: Vec<char> = self.as_(a, 1, "*")?.to_lowercase().chars().collect();
                 let deep = self.ai(a, 2, 0)? != 0;
-                let root = self.game_dir.join(&dir);
+                let root = crate::resources::find_ci(&self.game_dir, &dir);
                 if !root.is_dir() {
                     return i(-1);
                 }
+                let prefix: Vec<&str> = dir.split(['/', '\\']).filter(|c| !c.is_empty() && *c != ".").collect();
                 fn walk(d: &std::path::Path, deep: bool, out: &mut Vec<std::path::PathBuf>) {
                     let Ok(rd) = std::fs::read_dir(d) else { return };
                     let mut es: Vec<_> = rd.flatten().map(|e| e.path()).collect();
@@ -3623,7 +3627,10 @@ impl Vm {
                 let found: Vec<Value> = files
                     .into_iter()
                     .filter(|p| p.file_name().is_some_and(|n| wild(&pat, &n.to_string_lossy().to_lowercase().chars().collect::<Vec<_>>())))
-                    .filter_map(|p| p.strip_prefix(&self.game_dir).ok().map(|r| Value::Str(r.to_string_lossy().into_owned())))
+                    .filter_map(|p| {
+                        let below = p.strip_prefix(&root).ok()?.components().map(|c| c.as_os_str().to_string_lossy().into_owned());
+                        Some(Value::Str(prefix.iter().map(|s| s.to_string()).chain(below).collect::<Vec<_>>().join("\\")))
+                    })
                     .collect();
                 let target = match a.get(3) {
                     Some(Expr::Var(v)) => VarRef::new(v.name.clone(), vec![]),

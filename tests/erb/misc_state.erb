@@ -44,6 +44,10 @@ ENDDATA
 ;--- files under the game folder
 CALL CHECK, "existfile", EXISTFILE("CSV/Base.csv") == 1 && EXISTFILE("CSV/none.csv") == 0
 CALL CHECK, "enumfiles", ENUMFILES("CSV", "Chara*.csv") == 3
+; the folder found whatever its case, and given back as written with `\`
+; (Path.GetRelativePath; pops-tw asks for RESOURCES/ and cuts 10 characters)
+LOCAL = ENUMFILES("csv/", "chara0.CSV")
+CALL CHECKS, "enumfiles path as Emuera gives it", @"{LOCAL} %RESULTS:0%", "1 csv" + UNICODE(92) + "Chara0.csv"
 ;--- sound without sound files
 CALL CHECK, "existsound", EXISTSOUND("none.wav") == 0
 STOPSOUND

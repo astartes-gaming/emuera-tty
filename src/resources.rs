@@ -1430,7 +1430,7 @@ impl Resources {
 
 /// `base/rel` matching each path component case-insensitively and
 /// accepting `\` separators, since games are made on Windows.
-fn find_ci(base: &Path, rel: &str) -> PathBuf {
+pub(crate) fn find_ci(base: &Path, rel: &str) -> PathBuf {
     let direct = base.join(rel);
     if direct.exists() {
         return direct;

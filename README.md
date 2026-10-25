@@ -881,7 +881,7 @@ terminal:
 | Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
 | bare Linux console (no fbterm) | yes (framebuffer) | can't show Japanese/Chinese text |
 | real VT100 / VT220 / VT52 / ADM-3A / Wyse…, local or on a **serial line** | no | ASCII, see below |
-| **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough on` |
+| **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough all` |
 | **tmux** inside a sixel terminal | yes (tmux draws the sixel) | tmux built with sixel |
 | Termux (Android) | no | `iterm`/`sixel` floods the terminal with data, `kitty` renders nothing, Termux in general doesn't support in-terminal image rendering |
 | Android to other device (ADB) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles, has an issue that floods the input bar when moving the mouse around |
@@ -903,7 +903,10 @@ terminal:
 - `--gfx none` turns images off; `--gfx kitty|iterm|sixel|fb` forces a backend
   if auto-detection guesses wrong.
 - **tmux**: with kitty or Ghostty outside it, put `set -g allow-passthrough
-  on` in `~/.tmux.conf` (then `tmux source ~/.tmux.conf`). Pictures are
+  all` in `~/.tmux.conf` (then `tmux source ~/.tmux.conf`). (`on` works
+  too, but tmux then drops a picture sent while the pane isn't showing,
+  say during a loading screen while you are in another window, and it
+  stays blank until the game draws a new one.) Pictures are
   then written as kitty's Unicode placeholders: text tmux keeps in its
   pane, so they follow splits, window switches and redraws. A picture
   meant to sit behind text isn't shown there, and crops are to whole

@@ -198,8 +198,9 @@ impl Kitty {
 
     /// tmux: write each placement's cells as Unicode placeholders, every
     /// frame (the renderer redraws the rows under pictures that changed,
-    /// which clears old ones).
-    fn draw_placeholders(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
+    /// which clears old ones). Without `cells`, only send the images and
+    /// their virtual placements (`prepare`).
+    fn draw_placeholders(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32), cells: bool) {
         let (cw, ch) = (cell.0.max(1), cell.1.max(1));
         let mut used = Vec::new();
         for p in ps {
@@ -234,12 +235,13 @@ impl Kitty {
             let cols = p.img.width().div_ceil(cw).max(1);
             let rows = p.img.height().div_ceil(ch).max(1);
             if self.virt.get(&id) != Some(&(cols, rows)) {
-                if self.virt.contains_key(&id) {
-                    self.put(out, format!("\x1b_Ga=d,d=i,i={},q=2\x1b\\", id).as_bytes());
-                }
-                self.put(out, format!("\x1b_Ga=p,U=1,i={},c={},r={},q=2\x1b\\", id, cols, rows).as_bytes());
+                // (`p=1`: a new size replaces the old placement in place)
+                self.put(out, format!("\x1b_Ga=p,U=1,i={},p=1,c={},r={},q=2\x1b\\", id, cols, rows).as_bytes());
                 self.virt.insert(id, (cols, rows));
                 self.opaque.remove(&id);
+            }
+            if !cells {
+                continue;
             }
             // the image rows (whole cells) the crop leaves visible
             let opaque = self.opaque.entry(id).or_insert_with(|| opaque_cells(&p.img, cols, rows, cw, ch));
@@ -324,9 +326,14 @@ impl Backend for Kitty {
     fn text_erases(&self) -> bool {
         self.tmux
     }
+    fn prepare(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
+        if self.tmux {
+            self.draw_placeholders(out, ps, cell, false);
+        }
+    }
     fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
         if self.tmux {
-            return self.draw_placeholders(out, ps, cell);
+            return self.draw_placeholders(out, ps, cell, true);
         }
         let (cw, ch) = (cell.0.max(1), cell.1.max(1));
         // this frame's placements, per image, in the order given (back to
@@ -359,11 +366,15 @@ impl Backend for Kitty {
             // terminals that report no pixel size)
             let cols = p.img.width().div_ceil(cw).max(1);
             let rows = p.crop_h.div_ceil(ch).max(1);
+            // `p`: the placement's own id, so placing it again replaces it
+            // where it is, with no frame in between where it is gone
+            let pid = want[at].1.len() + 1;
             want[at].1.push(format!(
-                "\x1b[{};{}H\x1b_Ga=p,i={},q=2,C=1,y={},h={},c={},r={},Y={}{}\x1b\\",
+                "\x1b[{};{}H\x1b_Ga=p,i={},p={},q=2,C=1,y={},h={},c={},r={},Y={}{}\x1b\\",
                 p.row + 1,
                 p.col + 1,
                 id,
+                pid,
                 p.crop_top,
                 p.crop_h,
                 cols,
@@ -380,16 +391,19 @@ impl Backend for Kitty {
                 self.parked_bytes -= self.size.get(id).copied().unwrap_or(0);
             }
         }
-        // images whose placements changed: all of that image's again
+        // images whose placements changed: placed again over the old ones
+        // (same `p`), so a moved picture is never off the screen
         for (id, cmds) in want {
+            let old = self.shown.get(&id).map_or(0, |o| o.len());
             if self.shown.get(&id) == Some(&cmds) {
                 continue;
             }
-            if self.shown.contains_key(&id) {
-                let _ = write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", id);
-            }
             for c in &cmds {
                 out.extend_from_slice(c.as_bytes());
+            }
+            // placements it had beyond this frame's
+            for pid in cmds.len() + 1..=old {
+                let _ = write!(out, "\x1b_Ga=d,d=i,i={},p={},q=2\x1b\\", id, pid);
             }
             self.shown.insert(id, cmds);
         }
@@ -480,7 +494,7 @@ mod tests {
         k.draw(&mut out, &[placement(20, 32, 0, 32)], (10, 16));
         let s = String::from_utf8(out).unwrap();
         assert!(s.starts_with("\x1bPtmux;\x1b\x1b_Ga=t,f=32,s=20,v=32,i=1,"), "{:?}", &s[..40]);
-        assert!(s.contains("\x1bPtmux;\x1b\x1b_Ga=p,U=1,i=1,c=2,r=2,q=2\x1b\x1b\\\x1b\\"), "{:?}", s);
+        assert!(s.contains("\x1bPtmux;\x1b\x1b_Ga=p,U=1,i=1,p=1,c=2,r=2,q=2\x1b\x1b\\\x1b\\"), "{:?}", s);
         let (p, d) = ('\u{10EEEE}', DIACRITICS);
         let row = |r: usize, y: usize| format!("\x1b[{};5H\x1b[38;5;1m{p}{}{}{p}{}{}\x1b[39m", y, d[r], d[0], d[r], d[1]);
         assert!(s.ends_with(&(row(0, 3) + &row(1, 4))), "{:?}", s);
@@ -507,7 +521,7 @@ mod tests {
         let s = String::from_utf8(out).unwrap();
         // 26 px from 6 px down: 32 px, two rows
         assert!(s.contains("s=20,v=32,"), "{:?}", &s[..60]);
-        assert!(s.contains("a=p,U=1,i=1,c=2,r=2,"), "{:?}", s);
+        assert!(s.contains("a=p,U=1,i=1,p=1,c=2,r=2,"), "{:?}", s);
     }
 
     /// A fully transparent cell gets no placeholder: the text there stays
@@ -526,6 +540,52 @@ mod tests {
         assert!(s.ends_with(&format!("\x1b[3;5H\x1b[38;5;1m\u{10EEEE}{}{}\x1b[39m", DIACRITICS[0], DIACRITICS[0])), "{:?}", s);
     }
 
+    /// A picture replaced by another is placed before the old one goes, and
+    /// one that moves is placed again over itself: no frame without either
+    /// (pops-tw's title flickered).
+    #[test]
+    fn replacing_leaves_no_gap() {
+        let mut k = Kitty::new();
+        let mut out = Vec::new();
+        let a = placement(20, 32, 0, 32);
+        k.draw(&mut out, &[a.clone()], (10, 16));
+        // a new picture in its place
+        let mut img = image::RgbaImage::new(20, 32);
+        img.put_pixel(0, 0, image::Rgba([1, 2, 3, 255]));
+        let b = Placement { img: Rc::new(img), key: "b".into(), ..a.clone() };
+        out.clear();
+        k.draw(&mut out, &[b.clone()], (10, 16));
+        let s = String::from_utf8(out.clone()).unwrap();
+        let (place, del) = (s.find("a=p,i=2,").unwrap(), s.find("a=d,d=i,i=1,").unwrap());
+        assert!(place < del, "{:?}", s);
+        // the same picture moved: placed again, nothing deleted
+        out.clear();
+        k.draw(&mut out, &[Placement { row: 5, ..b }], (10, 16));
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("a=p,i=2,p=1,") && !s.contains("a=d"), "{:?}", s);
+    }
+
+    /// tmux: `prepare` sends the picture (compressed) and its virtual
+    /// placement, so the frame after the text is only placeholders.
+    #[test]
+    fn tmux_prepare_sends_first() {
+        use std::io::Read;
+        let mut k = Kitty::new_tmux();
+        let (mut pre, mut out) = (Vec::new(), Vec::new());
+        let a = placement(20, 32, 0, 32);
+        k.prepare(&mut pre, &[a.clone()], (10, 16));
+        k.draw(&mut out, &[a.clone()], (10, 16));
+        let (p, s) = (String::from_utf8(pre).unwrap(), String::from_utf8(out).unwrap());
+        assert!(p.contains("a=t,f=32,") && p.contains(",o=z,") && p.contains("a=p,U=1,i=1,"), "{:?}", p);
+        assert!(!s.contains("_G") && s.contains('\u{10EEEE}'), "{:?}", s);
+        // the data is the picture, zlib-compressed
+        let b64: String = p.split(";").nth(2).unwrap().split('\x1b').next().unwrap().into();
+        let z = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let mut raw = Vec::new();
+        flate2::read::ZlibDecoder::new(&z[..]).read_to_end(&mut raw).unwrap();
+        assert_eq!(raw, a.img.as_raw().to_vec());
+    }
+
     /// Outside tmux nothing changes: plain commands, no placeholders.
     #[test]
     fn plain_kitty() {
@@ -534,6 +594,6 @@ mod tests {
         k.draw(&mut out, &[placement(20, 32, 0, 32)], (10, 16));
         let s = String::from_utf8(out).unwrap();
         assert!(s.starts_with("\x1b_Ga=t,") && !s.contains("tmux;") && !s.contains('\u{10EEEE}'), "{:?}", s);
-        assert!(s.contains("\x1b[3;5H\x1b_Ga=p,i=1,q=2,C=1,y=0,h=32,c=2,r=2,Y=0\x1b\\"), "{:?}", s);
+        assert!(s.contains("\x1b[3;5H\x1b_Ga=p,i=1,p=1,q=2,C=1,y=0,h=32,c=2,r=2,Y=0\x1b\\"), "{:?}", s);
     }
 }
