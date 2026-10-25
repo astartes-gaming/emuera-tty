@@ -336,6 +336,8 @@ the script file and line that printed it, the languages, the original
 and the translation, separated by tabs. A line translated by a middle
 click that can't be traced to its script file has
 \fB(force-translated, cannot trace original file)\fR instead.
+The file is never reset, and a row it already has (same languages,
+original and translation) is not written again.
 .TP
 .BI EMUERA_TRANSLATE_LOAD= file
 Read translations from

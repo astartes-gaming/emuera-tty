@@ -798,6 +798,13 @@ several lines) is logged one row per line, each with its own file and line,
 when the translation comes back with as many lines; if it merged or split
 them, the batch is one row.
 
+The log is appended to, never reset, and **a row it already has isn't
+written again**: the same languages, original and translation, wherever
+the text was printed from. The same original with a different translation
+is added as a new row (the later one wins when the log is
+[read back](#reusing-a-log-as-translations)), and the header line each
+session writes is only added when the file doesn't have it yet.
+
 #### Reusing a log as translations
 
 `EMUERA_TRANSLATE_LOAD=translations.tsv emuera-tty` reads a translation log
