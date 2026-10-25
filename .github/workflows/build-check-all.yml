@@ -54,7 +54,7 @@ jobs:
   # to the jobs below.)
   plan:
     name: choose what to run
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       builds: ${{ steps.pick.outputs.builds }}
       has_builds: ${{ steps.pick.outputs.has_builds }}
@@ -70,21 +70,21 @@ jobs:
 
           cat > builds.json <<'EOF'
           [
-            { "name": "linux-x86_64", "group": "pc", "os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu", "musl": false, "ext": "" },
-            { "name": "linux-x86_64-static", "group": "pc", "os": "ubuntu-latest", "target": "x86_64-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-x86_64", "group": "pc", "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "musl": false, "ext": "" },
+            { "name": "linux-x86_64-static", "group": "pc", "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-musl", "musl": true, "ext": "" },
             { "name": "windows-x86_64", "group": "pc", "os": "windows-latest", "target": "x86_64-pc-windows-msvc", "musl": false, "ext": ".exe" },
             { "name": "windows-aarch64", "group": "pc", "os": "windows-latest", "target": "aarch64-pc-windows-msvc", "musl": false, "ext": ".exe" },
             { "name": "macos-aarch64", "group": "pc", "os": "macos-latest", "target": "aarch64-apple-darwin", "musl": false, "ext": "" },
             { "name": "macos-x86_64", "group": "pc", "os": "macos-latest", "target": "x86_64-apple-darwin", "musl": false, "ext": "" },
-            { "name": "linux-i586-static", "group": "cpus", "os": "ubuntu-latest", "target": "i586-unknown-linux-musl", "musl": true, "ext": "" },
-            { "name": "linux-armv5-static", "group": "cpus", "os": "ubuntu-latest", "target": "armv5te-unknown-linux-musleabi", "musl": true, "ext": "" },
-            { "name": "linux-armv6-static", "group": "cpus", "os": "ubuntu-latest", "target": "arm-unknown-linux-musleabihf", "musl": true, "ext": "" },
-            { "name": "linux-armv7-static", "group": "cpus", "os": "ubuntu-latest", "target": "armv7-unknown-linux-musleabihf", "musl": true, "ext": "" },
-            { "name": "linux-aarch64-static", "group": "cpus", "os": "ubuntu-latest", "target": "aarch64-unknown-linux-musl", "musl": true, "ext": "" },
-            { "name": "linux-riscv64-static", "group": "cpus", "os": "ubuntu-latest", "target": "riscv64gc-unknown-linux-musl", "musl": true, "ext": "" },
-            { "name": "linux-ppc64-static", "group": "cpus", "os": "ubuntu-latest", "target": "powerpc64-unknown-linux-musl", "musl": true, "ext": "" },
-            { "name": "linux-ppc64le-static", "group": "cpus", "os": "ubuntu-latest", "target": "powerpc64le-unknown-linux-musl", "musl": true, "ext": "" },
-            { "name": "linux-loongarch64-static", "group": "cpus", "os": "ubuntu-latest", "target": "loongarch64-unknown-linux-musl", "musl": true, "ext": "" }
+            { "name": "linux-i586-static", "group": "cpus", "os": "ubuntu-24.04", "target": "i586-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-armv5-static", "group": "cpus", "os": "ubuntu-24.04", "target": "armv5te-unknown-linux-musleabi", "musl": true, "ext": "" },
+            { "name": "linux-armv6-static", "group": "cpus", "os": "ubuntu-24.04", "target": "arm-unknown-linux-musleabihf", "musl": true, "ext": "" },
+            { "name": "linux-armv7-static", "group": "cpus", "os": "ubuntu-24.04", "target": "armv7-unknown-linux-musleabihf", "musl": true, "ext": "" },
+            { "name": "linux-aarch64-static", "group": "cpus", "os": "ubuntu-24.04", "target": "aarch64-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-riscv64-static", "group": "cpus", "os": "ubuntu-24.04", "target": "riscv64gc-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-ppc64-static", "group": "cpus", "os": "ubuntu-24.04", "target": "powerpc64-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-ppc64le-static", "group": "cpus", "os": "ubuntu-24.04", "target": "powerpc64le-unknown-linux-musl", "musl": true, "ext": "" },
+            { "name": "linux-loongarch64-static", "group": "cpus", "os": "ubuntu-24.04", "target": "loongarch64-unknown-linux-musl", "musl": true, "ext": "" }
           ]
           EOF
 
@@ -162,7 +162,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.builds) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # rust-toolchain.toml selects stable with rustfmt and clippy; adding the
       # target here applies to that same toolchain
@@ -184,7 +184,7 @@ jobs:
           cp target/${{ matrix.target }}/release/emuera-tty${{ matrix.ext }} dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
           file dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }} || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: emuera-tty-${{ matrix.name }}
           path: dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
@@ -197,12 +197,12 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.has_checks == 'true' }}
     name: check ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.checks) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install nightly with the standard library's source
         run: rustup toolchain install nightly --profile minimal --component rust-src

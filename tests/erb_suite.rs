@@ -62,7 +62,9 @@ fn run(dir: &Path, erb: &Path) -> String {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    // (a game that stops on an error may exit before reading its input:
+    // the write then fails, and the output still tells what happened)
+    let _ = child.stdin.take().unwrap().write_all(input.as_bytes());
     let start = Instant::now();
     while child.try_wait().unwrap().is_none() {
         if start.elapsed() > Duration::from_secs(30) {
