@@ -410,6 +410,22 @@ fn digit_group(p: &[u8], fin: u8) -> Option<u8> {
     ((48..=57).contains(&c) && mods & 6 != 0 && mods & 1 == 0).then(|| (c - 48) as u8)
 }
 
+/// The colour in an OSC 11 reply (`ESC ] 11 ; rgb:RRRR/GGGG/BBBB`, one to
+/// four hex digits per channel).
+fn parse_osc11(s: &str) -> Option<Rgb> {
+    let rest = &s[s.find("]11;rgb:")? + 8..];
+    let end = rest.find(['\x07', '\x1b']).unwrap_or(rest.len());
+    let ch: Vec<u8> = rest[..end]
+        .split('/')
+        .map(|h| {
+            let v = u32::from_str_radix(h, 16).ok()?;
+            let max = (1u32 << (4 * h.len().clamp(1, 4))) - 1;
+            Some((v * 255 / max) as u8)
+        })
+        .collect::<Option<_>>()?;
+    (ch.len() == 3).then(|| Rgb(ch[0], ch[1], ch[2]))
+}
+
 /// What the settings overlay asks the input loop to do next.
 enum OverlayExit {
     Close,
@@ -495,6 +511,11 @@ pub struct Tty {
     frame_cursor: Option<(usize, usize)>,
     /// the window background for this frame (None: the terminal's own)
     screen_bg: Option<Rgb>,
+    /// the background the game assumes where it sets none (its default,
+    /// black unless the config says otherwise)
+    game_bg: Rgb,
+    /// the terminal's own background (OSC 11), shown where the game sets none
+    term_bg: Option<Rgb>,
     /// minimum contrast for coloured text (1: off), see `console::readable`
     pub contrast: f32,
     /// colours drawn as others (`recolor` setting: AnonTW's time-stop navy
@@ -827,6 +848,8 @@ impl Tty {
             drawn_pointer: None,
             frame_cursor: None,
             screen_bg: None,
+            game_bg: Rgb(0, 0, 0),
+            term_bg: None,
             contrast: 3.0,
             recolor: Vec::new(),
             wheel: 3,
@@ -881,6 +904,11 @@ impl Tty {
             t.widths = t.measure_widths();
         }
         let is_vt = term == "linux" || term.starts_with("fbterm");
+        // the terminal's own background, for readable colours (the Linux
+        // console's is black and it doesn't answer)
+        if !is_vt {
+            t.term_bg = t.query_background();
+        }
         // (fbterm draws with fontconfig's fonts)
         if term == "linux" {
             t.font_chars = crate::sys::console_font_chars();
@@ -969,6 +997,14 @@ impl Tty {
     /// Is unread input waiting on stdin right now?
     fn input_waiting(&self) -> bool {
         crate::sys::poll(0, -1).input
+    }
+
+    /// The terminal's background colour (OSC 11), if it says: the device
+    /// attributes query after it answers anyway, so a terminal that ignores
+    /// OSC 11 costs no wait.
+    fn query_background(&mut self) -> Option<Rgb> {
+        let r = self.query(b"\x1b]11;?\x1b\\\x1b[c", |b| b.windows(3).any(|w| w == b"\x1b[?") && b.ends_with(b"c"), 300);
+        parse_osc11(&String::from_utf8_lossy(&r))
     }
 
     /// Send a query and collect the reply until `done` or timeout.
@@ -1610,7 +1646,13 @@ impl Tty {
     /// the foreground is made readable against it (see `contrast`).
     fn sgr(&self, out: &mut Vec<u8>, st: &Style, fg_override: Option<Rgb>) {
         let bg = st.bg.map(|c| self.recolored(c)).or(self.screen_bg);
-        let fg = crate::console::readable(self.recolored(fg_override.unwrap_or(st.fg)), bg.unwrap_or(Rgb(0, 0, 0)), self.contrast);
+        // where the game sets no background, the terminal's shows: the game
+        // meant its colours for its own default (Emuera's black)
+        let (shown, meant) = match bg {
+            Some(b) => (b, b),
+            None => (self.term_bg.unwrap_or(Rgb(0, 0, 0)), self.game_bg),
+        };
+        let fg = crate::console::readable_on(self.recolored(fg_override.unwrap_or(st.fg)), shown, meant, self.contrast);
         out.extend_from_slice(b"\x1b[0");
         if st.bold {
             out.extend_from_slice(b";1");
@@ -1682,6 +1724,7 @@ impl Tty {
         // the window background, unless it is the game's default (then the
         // terminal's own background shows)
         self.screen_bg = (con.screen_bg != con.default_bg).then_some(self.recolored(con.screen_bg));
+        self.game_bg = self.recolored(con.default_bg);
         let (cols, rows, xp, yp) = winsize();
         self.cols = cols;
         self.rows = rows.max(2);
@@ -4299,6 +4342,15 @@ mod tests {
             }
             assert_eq!(col, 3 + 16, "split {} + {}", filled, 800 - filled);
         }
+    }
+
+    /// The terminal's background from its OSC 11 reply
+    #[test]
+    fn osc11_replies() {
+        let r = crate::console::Rgb;
+        assert_eq!(super::parse_osc11("\x1b]11;rgb:2828/2c2c/3434\x1b\\\x1b[?62;4c"), Some(r(0x28, 0x2c, 0x34)));
+        assert_eq!(super::parse_osc11("\x1b]11;rgb:ff/80/00\x07"), Some(r(255, 128, 0)));
+        assert_eq!(super::parse_osc11("\x1b[?62;4c"), None);
     }
 
     /// Ctrl / Alt + arrow scroll; plain and Shift+arrow don't

@@ -867,6 +867,56 @@ Games translated with Emuera-Anchor's system play translated here too:
   an index that has a name or a name in that CSV; anything else is a
   script error ("Invalid first argument" / "Invalid second argument").
 
+### Managing saves
+
+Ctrl-O → *Manage saves…* lists the game's saves with their date and the
+comment Emuera's save menu shows. Pick one to **copy** or **move** it to
+another slot, **export** it to a file (by default
+`~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
+folder: **back up all saves** (into
+`~/.local/share/emuera-tty/backups/<game>/<date>/`), **restore a backup**
+(the current saves are backed up first) and **import a save file** into a
+slot. Nothing is lost by mistake: a deleted or overwritten save is copied
+to the backups first. Load a restored or imported save from the game's
+own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
+and `emuera-tty GAME --backup-saves` backs them up.
+
+**Save history.** Saves the game writes (save slots, autosaves,
+`global.sav`, SAVECHARA files) are protected too, with no setting to turn
+on:
+
+- **The version replaced is kept**, in the same backup folder, as
+  `<date>-auto-save01/`, so *restore a backup* can bring back any of them.
+  Copies are thinned: the last 10 of each file, then one a day for 30 days,
+  then one a week for 26 weeks. Saves are small (AnonTW's are under 1 MB),
+  so this stays at a few MB per game.
+- **A save emuera-tty didn't write** (one from Emuera.exe, or from before
+  this history) is kept as `<date>-original-save01/` the first time it is
+  replaced, and never thinned.
+- **Each save is written safely**: to a temporary file, flushed to disk,
+  read back and checked to load, and only then put in place. A crash,
+  power cut or full disk leaves the previous save; a save that wouldn't
+  load is reported at once and the previous one kept.
+- **`save-log.tsv`** in the backup folder records each save written: when,
+  which file, a fingerprint, its size, and the emuera-tty version and
+  commit that wrote it. If a bug turns up in some build, the log tells
+  which saves it wrote and which backup came before.
+
+`EMUERA_SAVE_HISTORY=0` turns the history and the log off (saves are still
+written safely). Nothing is added inside the saves: Emuera reads them as
+before.
+
+**Readable colours:** games are drawn for Emuera's black (or game-set)
+background, and some colours there are hard to read, like pure blue, or
+AnonTW's blue text on the dark navy background of time stop. emuera-tty
+lightens coloured text until it reaches a minimum contrast (WCAG 3:1, or
+4.5:1 on *high*), keeping its hue. Greys are left as dim as the game made
+them, since games use them for shading, but no dimmer: where the game sets
+no background, your terminal's own shows (emuera-tty asks the terminal for
+it), and a grey gets at least the contrast it had on Emuera's black, so
+AnonTW's dark `C_GRAY` stays readable on a dark grey theme. The window
+background set by `SETBGCOLOR` covers the whole screen, as in Emuera.
+
 ## 5. Picking a terminal
 
 ### Terminal support
