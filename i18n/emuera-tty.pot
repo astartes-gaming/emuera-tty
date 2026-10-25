@@ -985,6 +985,10 @@ msgid "the input number EMUERA_INJECT runs before"
 msgstr ""
 
 #: src/settings.rs
+msgid "ja, zh-Hans, zh-Hant, ko or en: the interface language; x-cjk, x-arab, x-cyrl, x-deva, x-avst: every message in that script, to check the layout"
+msgstr ""
+
+#: src/settings.rs
 msgid "host:port of the LibreTranslate server (default 127.0.0.1:5000)"
 msgstr ""
 

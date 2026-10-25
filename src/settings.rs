@@ -164,6 +164,10 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_GAMEPAD", n!("off: don't read gamepads; /dev/input/eventN: read just that device as a pad")),
     ("EMUERA_INJECT", n!("STMT||STMT: statements run just before the EMUERA_INJECT_AT-th input (debugging)")),
     ("EMUERA_INJECT_AT", n!("the input number EMUERA_INJECT runs before")),
+    (
+        "EMUERA_LANG",
+        n!("ja, zh-Hans, zh-Hant, ko or en: the interface language; x-cjk, x-arab, x-cyrl, x-deva, x-avst: every message in that script, to check the layout"),
+    ),
     ("EMUERA_LIBRETRANSLATE", n!("host:port of the LibreTranslate server (default 127.0.0.1:5000)")),
     ("EMUERA_LINT", n!("any value, with --check: point at statements the parser may have split wrongly, and string >= / <= (Emuera evaluates them as <)")),
     ("EMUERA_LIST_BUTTONS", n!("1, with --headless: print the values of the buttons on screen before each input")),
