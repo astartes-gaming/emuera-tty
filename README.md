@@ -83,6 +83,7 @@ Expect rough edges in parts of the games nobody has played through yet
       - [Original, forced translation and quotes](#original-forced-translation-and-quotes)
       - [Testing and the cache](#testing-and-the-cache)
       - [A log for translators](#a-log-for-translators)
+      - [Reusing a log as translations](#reusing-a-log-as-translations)
     - [Copying text to the clipboard](#copying-text-to-the-clipboard)
     - [Translated games (Emuera-Anchor)](#translated-games-emuera-anchor)
   - [5. Picking a terminal](#5-picking-a-terminal)
@@ -541,11 +542,12 @@ running game:
 | Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
+| Backslash as ¥ | auto, on, off | draw `\` in game text as ¥, as Japanese fonts do; `auto`: when the game's font is one (MS Gothic, Emuera's default, MS Mincho, Meiryo), so eraTW's `\0` money shows `¥0` |
 | Copy to clipboard | game, on, off | printed text to the clipboard (see [Copying text to the clipboard](#copying-text-to-the-clipboard)); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
 | Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
-| Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
+| Translator | off, auto, local, argos, translate-shell, deepl, file | off: no translation; auto: whichever is installed, this computer's first; file: no translator, only the translations in `EMUERA_TRANSLATE_LOAD` (see [Reusing a log as translations](#reusing-a-log-as-translations)) |
 | Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see [Translating the game](#translating-the-game)) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
 | Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
@@ -573,9 +575,12 @@ Games are drawn for Emuera's black (or game-set)
 background, and some colours there are hard to read, like pure blue, or
 AnonTW's blue text on the dark navy background of time stop. emuera-tty
 lightens coloured text until it reaches a minimum contrast (WCAG 3:1, or
-4.5:1 on *high*), keeping its hue; greys are left alone, since games use
-them for shading. The window background set by `SETBGCOLOR` covers the
-whole screen, as in Emuera.
+4.5:1 on *high*), keeping its hue. Greys are left as dim as the game made
+them, since games use them for shading, but no dimmer: where the game sets
+no background, your terminal's own shows (emuera-tty asks the terminal for
+it), and a grey gets at least the contrast it had on Emuera's black, so
+AnonTW's dark `C_GRAY` stays readable on a dark grey theme. The window
+background set by `SETBGCOLOR` covers the whole screen, as in Emuera.
 
 ### Game settings (Emuera's settings window)
 
@@ -793,104 +798,35 @@ several lines) is logged one row per line, each with its own file and line,
 when the translation comes back with as many lines; if it merged or split
 them, the batch is one row.
 
-**Saving** uses the game's own save menu, and the files are Emuera's own
-(binary) format: `save00.sav`, `save01.sav`, … and `global.sav`, plus
-`dat/chara_*.dat` for SAVECHARA. Saves move both ways between emuera-tty
-and Emuera on Windows: loading an Emuera save and saving it again gives
-the same bytes Emuera writes (the variables in Emuera's order, character
-names never set left out as Emuera does), checked on AnonTW saves of
-day 43 and day 1336. They go where Emuera puts them: in `sav/` when
-the game's config says so (`セーブデータをsavフォルダ内に作成する`, as
-AnonTW's does), else next to the game; compressed when it asks for that
-(`セーブデータを圧縮して保存する`). Emuera-EM maps, XML documents and data
-tables named in `VarExt.csv` are saved too, and the autosave runs on
-entering the shop, like Emuera's. Older emuera-tty saves (`sav/*.rsav`)
-still load, and the next save of that slot writes a `.sav`. Saves in
-Emuera's text format (games whose config turns the binary option off)
-load too; saving always writes the binary format, which Emuera reads
-whatever its config says. After a load, `@SYSTEM_LOADEND` runs and then
-`@EVENTLOAD`, as in Emuera.
+#### Reusing a log as translations
 
-ERB and ERH files load in Emuera's order: each folder's files before its
-subfolders, sorted the way Emuera sorts them when the config's
-`読み込み順をファイル名順にソートする` is on (else the order Windows lists
-them in), and folders whose name has a `#` first (Emuera-EE). Subfolders
-are read only when `サブディレクトリを検索する` is on, as in Emuera; a
-note at startup says how many files that leaves out. The order decides
-which of two functions with the same name wins, the order event
-functions run in, and the order variables are saved in.
+`EMUERA_TRANSLATE_LOAD=translations.tsv emuera-tty` reads a translation log
+(the file `EMUERA_TRANSLATE_LOG` writes, or one of the same shape) and
+shows its translations at once, before any translator is asked. Set
+*Translator* to `file` to read a game again from its log with no translator
+at all; with one chosen, it only gets the lines the file doesn't have, and
+with *auto* and no translator found, the file alone is used.
 
-### Settings
-
-F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
-← / → or Enter change, Esc closes; changes are saved at once in
-`~/.config/emuera-tty/config` and, except where marked, apply to the
-running game:
-
-| Setting | Values | |
-|---|---|---|
-| Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn; `none`: pictures are never decoded or scaled (and those already held are freed) until another choice is made |
-| Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
-| Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
-| Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
-| Backslash as ¥ | auto, on, off | draw `\` in game text as ¥, as Japanese fonts do; `auto`: when the game's font is one (MS Gothic, Emuera's default, MS Mincho, Meiryo), so eraTW's `\0` money shows `¥0` |
-| Copy to clipboard | game, on, off | printed text to the clipboard (below); `game`: as emuera.config says |
-| Bottom bar details | on, off | hovered button's value, running function |
-| Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
-| Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
-| Translator | off, auto, local, argos, translate-shell, deepl | off: no translation; auto: whichever is installed, this computer's first |
-| Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see above) |
-| Translate from | auto, ja, en | the game's language; auto: per line |
-| Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
-| Sound | auto, on, off | PLAYSOUND / PLAYBGM; `auto`: not over SSH |
-| Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
-| Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
-| Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
-
-The overlay shows the *Random seed* in use: selectable for its description,
-but read-only (start with `EMUERA_SEED=N` to choose it; the game's
-`RANDOMIZE` / `INITRAND` change it). *Environment variables…* (shown only when one is
-set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
-set; Enter says what one does; read-only, as they are read at start). It also
-has *Game settings…* and *Manage saves…* (below),
-*Clear the picture cache* (frees the decoded sprites whatever *Images* says;
-they load again when shown), *Recolor…* (draws a colour of the game's as another,
-written `from:to` in hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop
-navy into a softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
-*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
-override saved settings.
-
-### Game settings (Emuera's settings window)
-
-*Game settings…* in the settings overlay is a copy of Emuera's own settings
-window, with the settings that do something in a terminal and can't
-break a game, on Emuera's tabs:
-
-| Tab | Settings |
-|---|---|
-| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`) |
-| Display | PRINTC items per line and width, don't break lines inside a button |
-| Font | text colour, selected button colour, the font for text drawn into pictures |
-| System2 | compress save data (Emuera reads compressed saves too) |
-| Clipboard | all of the clipboard options (see below) |
-
-Left out: what only a window has (size, position, FPS, menu bar,
-keyboard macros), what changes how the scripts are read (the System,
-Compatibility and Debug tabs), the font size and line height (games work
-out where pictures go from them), the save folder (existing saves would
-seem to vanish), the background and history colours (the terminal's own
-are used) and Rikai.
-
-← / → (or Tab, or a click) switch tabs, ↑ / ↓ choose, Enter or a click
-toggles a check box or asks for a number, a colour (`R,G,B` or `#RRGGBB`)
-or text, `+` / `-` step a number, `d` puts back the game's value. Each
-setting shows where its value comes from: nothing for Emuera's default,
-*game* for the game's (`CSV/_default.config`), *changed* for yours,
-*fixed* when `CSV/_fixed.config` doesn't let it change. Changes go into
-the game's `emuera.config` as Emuera's settings window writes them
-(UTF-8, Japanese or English keys as the game's files use, other lines
-kept), so Emuera.exe sees them too; the running game takes them when the
-page closes.
+- **What is read**: the last two columns of each row, the original and its
+  translation. The file and line in the first column are not used: it can
+  name an intermediary file rather than the script that held the text. The
+  column before them, the languages (`ja>en`), picks the rows translated
+  into the language set in *Translate to*; rows into another one are
+  skipped. A file of plain `original`, tab, `translation` rows works too,
+  and `#` lines are comments.
+- **Several files**: separate them as `PATH` is (`:`, or `;` on Windows). A
+  later file wins over an earlier one, and a later row over an earlier row
+  of the same file, so a line corrected at the end of a log replaces the
+  old translation. Translations are shown as written, quote marks too.
+- **How lines are matched**: by the whole original line (a speech over
+  several lines is found line by line, or as the one row the log has when
+  the translator merged its lines).
+- **The same file for both** (`EMUERA_TRANSLATE_LOG` and
+  `EMUERA_TRANSLATE_LOAD`): what was loaded isn't written again, only new
+  translations are added.
+- **When it was read**: at startup, and when the translation settings
+  change. Edit the file and change a setting (or restart) to use the new
+  version.
 
 ### Copying text to the clipboard
 
@@ -968,56 +904,6 @@ Games translated with Emuera-Anchor's system play translated here too:
   bare variable or its name in capitals (`ABL`, `"ABLNAME"`…), and the key
   an index that has a name or a name in that CSV; anything else is a
   script error ("Invalid first argument" / "Invalid second argument").
-
-### Managing saves
-
-Ctrl-O → *Manage saves…* lists the game's saves with their date and the
-comment Emuera's save menu shows. Pick one to **copy** or **move** it to
-another slot, **export** it to a file (by default
-`~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
-folder: **back up all saves** (into
-`~/.local/share/emuera-tty/backups/<game>/<date>/`), **restore a backup**
-(the current saves are backed up first) and **import a save file** into a
-slot. Nothing is lost by mistake: a deleted or overwritten save is copied
-to the backups first. Load a restored or imported save from the game's
-own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
-and `emuera-tty GAME --backup-saves` backs them up.
-
-**Save history.** Saves the game writes (save slots, autosaves,
-`global.sav`, SAVECHARA files) are protected too, with no setting to turn
-on:
-
-- **The version replaced is kept**, in the same backup folder, as
-  `<date>-auto-save01/`, so *restore a backup* can bring back any of them.
-  Copies are thinned: the last 10 of each file, then one a day for 30 days,
-  then one a week for 26 weeks. Saves are small (AnonTW's are under 1 MB),
-  so this stays at a few MB per game.
-- **A save emuera-tty didn't write** (one from Emuera.exe, or from before
-  this history) is kept as `<date>-original-save01/` the first time it is
-  replaced, and never thinned.
-- **Each save is written safely**: to a temporary file, flushed to disk,
-  read back and checked to load, and only then put in place. A crash,
-  power cut or full disk leaves the previous save; a save that wouldn't
-  load is reported at once and the previous one kept.
-- **`save-log.tsv`** in the backup folder records each save written: when,
-  which file, a fingerprint, its size, and the emuera-tty version and
-  commit that wrote it. If a bug turns up in some build, the log tells
-  which saves it wrote and which backup came before.
-
-`EMUERA_SAVE_HISTORY=0` turns the history and the log off (saves are still
-written safely). Nothing is added inside the saves: Emuera reads them as
-before.
-
-**Readable colours:** games are drawn for Emuera's black (or game-set)
-background, and some colours there are hard to read, like pure blue, or
-AnonTW's blue text on the dark navy background of time stop. emuera-tty
-lightens coloured text until it reaches a minimum contrast (WCAG 3:1, or
-4.5:1 on *high*), keeping its hue. Greys are left as dim as the game made
-them, since games use them for shading, but no dimmer: where the game sets
-no background, your terminal's own shows (emuera-tty asks the terminal for
-it), and a grey gets at least the contrast it had on Emuera's black, so
-AnonTW's dark `C_GRAY` stays readable on a dark grey theme. The window
-background set by `SETBGCOLOR` covers the whole screen, as in Emuera.
 
 ## 5. Picking a terminal
 
