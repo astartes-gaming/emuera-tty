@@ -8,6 +8,11 @@
 //! Lines are translated one at a time on a thread of their own, so the
 //! game never waits: a line shows as printed until its translation is in.
 //! Results are kept, so a line seen again is translated at once.
+//!
+//! Translations can also be read from files (`EMUERA_TRANSLATE_LOAD`): the
+//! translation log written by `EMUERA_TRANSLATE_LOG`, or lines edited by
+//! hand. A line found there is shown at once, with no translator asked, so
+//! a game can be read again from its log without any translator at all.
 
 use crate::fxhash::HashMap;
 use std::io::{Read, Write};
@@ -444,38 +449,83 @@ enum State {
 
 /// The translator thread and what it has translated.
 pub struct Mt {
-    to: Sender<(String, &'static str)>,
+    /// the translator thread's queue (None: translations from files only)
+    to: Option<Sender<(String, &'static str)>>,
     from: Receiver<(String, Result<String, String>)>,
     seen: HashMap<String, State>,
+    /// translations read from the `EMUERA_TRANSLATE_LOAD` files, by
+    /// original (see [`flat`]); asked before the translator is
+    memory: HashMap<String, String>,
+    /// what loading them came to, in words (empty when none were given)
+    pub memory_note: String,
     /// the last failure, for the settings page
     pub last_error: Option<String>,
     /// EMUERA_TRANSLATE_LOG: the log, the language translated into, and
     /// for each text asked for, where each of its lines was printed (one
     /// place for a single line) and its language
     log: Option<std::fs::File>,
+    /// the rows already in the log (this session's and earlier ones), as
+    /// [`row_key`] says, so none is written twice
+    logged: crate::fxhash::HashSet<String>,
     lang: String,
     asked: HashMap<String, (Vec<String>, &'static str)>,
 }
 
 impl Mt {
-    pub fn start(engine: Engine, lang: &str) -> Mt {
-        let (to, rx) = channel::<(String, &'static str)>();
+    /// Start translating into `lang`: with `engine` on a thread of its own
+    /// (None: only what the `EMUERA_TRANSLATE_LOAD` files have is shown).
+    pub fn start(engine: Option<Engine>, lang: &str) -> Mt {
+        let files: Vec<std::path::PathBuf> = std::env::var_os("EMUERA_TRANSLATE_LOAD").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+        Mt::start_with(engine, lang, &files, std::env::var_os("EMUERA_TRANSLATE_LOG").map(Into::into))
+    }
+
+    /// [`Mt::start`] with the files to read translations from and the log
+    /// to append to given.
+    pub fn start_with(engine: Option<Engine>, lang: &str, files: &[std::path::PathBuf], log_file: Option<std::path::PathBuf>) -> Mt {
         let (tx, from) = channel();
-        let (e, target) = (engine, lang.to_string());
-        let _ = std::thread::Builder::new().name("translate".into()).spawn(move || {
-            let mut argos = None;
-            for (text, from) in rx {
-                let r = e.translate(&text, from, &target, &mut argos);
-                if tx.send((text, r)).is_err() {
-                    break;
+        let target = lang.to_string();
+        let to = engine.map(|e| {
+            let (to, rx) = channel::<(String, &'static str)>();
+            let _ = std::thread::Builder::new().name("translate".into()).spawn(move || {
+                let mut argos = None;
+                for (text, from) in rx {
+                    let r = e.translate(&text, from, &target, &mut argos);
+                    if tx.send((text, r)).is_err() {
+                        break;
+                    }
                 }
-            }
+            });
+            to
         });
-        // the log: appended to, a header line each session
-        let log = std::env::var_os("EMUERA_TRANSLATE_LOG").and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
-        let mut mt = Mt { to, from, seen: HashMap::default(), last_error: None, log, lang: lang.to_string(), asked: HashMap::default() };
-        if let Some(f) = mt.log.as_mut() {
-            let _ = writeln!(f, "# emuera-tty translations into {}: where printed\tlanguages\toriginal\ttranslation", lang);
+        // the files to reuse (before the log is opened: it may be the same
+        // file, and is only appended to)
+        let (mut memory, mut notes) = (HashMap::default(), Vec::new());
+        for p in files.iter().filter(|p| !p.as_os_str().is_empty()) {
+            let name = p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned());
+            match std::fs::read(p) {
+                Ok(b) => {
+                    let (n, skipped) = load_memory(&String::from_utf8_lossy(&b), lang, &mut memory);
+                    notes.push(format!("{}: {} lines{}", name, n, if skipped > 0 { format!(" ({} for other languages)", skipped) } else { String::new() }));
+                }
+                Err(e) => notes.push(format!("{}: {}", name, e)),
+            }
+        }
+        let memory_note = notes.join(", ");
+        // the log: appended to. What it has already is read first, so a
+        // row it has isn't written again (a row with another translation
+        // for the same original is), and so is its header line
+        let (mut logged, mut had_header) = (crate::fxhash::HashSet::default(), false);
+        let header = log_header(lang);
+        if let Some(Ok(b)) = log_file.as_ref().map(std::fs::read) {
+            let text = String::from_utf8_lossy(&b);
+            had_header = text.lines().any(|l| l.trim_end_matches('\r') == header);
+            log_keys(&text, &mut logged);
+        }
+        let log = log_file.and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
+        let mut mt =
+            Mt { to, from, seen: HashMap::default(), memory, memory_note, last_error: None, log, logged, lang: lang.to_string(), asked: HashMap::default() };
+        if let Some(f) = mt.log.as_mut().filter(|_| !had_header) {
+            let _ = writeln!(f, "{}", header);
         }
         mt
     }
@@ -483,6 +533,28 @@ impl Mt {
     /// Is the translation log on? (then [`Mt::get`] wants the place)
     pub fn logging(&self) -> bool {
         self.log.is_some()
+    }
+
+    /// How many translations the loaded files gave.
+    pub fn memory_len(&self) -> usize {
+        self.memory.len()
+    }
+
+    /// The loaded translation of `text` (several lines joined by `\n`): of
+    /// each of its lines, else of all of it as one line (how the log has a
+    /// batch the translator merged or split).
+    fn remembered(&self, text: &str) -> Option<String> {
+        if self.memory.is_empty() {
+            return None;
+        }
+        if text.contains('\n') {
+            let lines: Option<Vec<&str>> =
+                text.split('\n').map(|l| if l.trim().is_empty() { Some("") } else { self.memory.get(flat(l).as_str()).map(String::as_str) }).collect();
+            if let Some(l) = lines {
+                return Some(l.join("\n"));
+            }
+        }
+        self.memory.get(flat(text).as_str()).cloned()
     }
 
     /// The translation of `text` (in language `from`) if it is in; asks
@@ -497,16 +569,25 @@ impl Mt {
     /// gets one row per line when the translation has as many lines.
     pub fn get_lines(&mut self, text: &str, from: &'static str, places: &[String]) -> Option<&str> {
         if !self.seen.contains_key(text) {
-            if self.log.is_some() {
-                self.asked.insert(text.to_string(), (places.to_vec(), from));
-            }
             // (bounded: a long session forgets the oldest… all of them)
             if self.seen.len() > 20_000 {
                 self.seen.clear();
             }
-            self.seen.insert(text.to_string(), State::Waiting);
-            let _ = self.to.send((text.to_string(), from));
-            return None;
+            // a loaded translation first: no translator, and not logged again
+            if let Some(t) = self.remembered(text) {
+                self.seen.insert(text.to_string(), State::Done(t));
+            } else if let Some(to) = &self.to {
+                if self.log.is_some() {
+                    self.asked.insert(text.to_string(), (places.to_vec(), from));
+                }
+                self.seen.insert(text.to_string(), State::Waiting);
+                let _ = to.send((text.to_string(), from));
+                return None;
+            } else {
+                // nothing loaded for it and no translator: it shows as printed
+                self.seen.insert(text.to_string(), State::Failed);
+                return None;
+            }
         }
         match self.seen.get(text) {
             Some(State::Done(t)) => Some(t),
@@ -525,17 +606,22 @@ impl Mt {
                     let t = restore_quotes(&text, &t);
                     if let (Some(f), Some((places, from))) = (self.log.as_mut(), self.asked.remove(&text)) {
                         // one line each: tabs and line breaks in the text as spaces
-                        let flat = |s: &str| s.replace(['\t', '\r', '\n'], " ");
+                        let pair = format!("{}>{}", from, self.lang);
                         let place = |k: usize| places.get(k).or(places.first()).map_or("-", String::as_str).to_string();
                         let (src, dst): (Vec<&str>, Vec<&str>) = (text.split('\n').collect(), t.split('\n').collect());
                         if src.len() > 1 && src.len() == dst.len() {
                             // a batch whose lines came back as lines: a row for each, with its own place
                             for (k, (s, d)) in src.iter().zip(&dst).enumerate().filter(|(_, (s, _))| !s.trim().is_empty()) {
-                                let _ = writeln!(f, "{}\t{}>{}\t{}\t{}", place(k), from, self.lang, flat(s), flat(d));
+                                // (a row the log has already isn't written again)
+                                if self.logged.insert(row_key(&pair, s, d)) {
+                                    let _ = writeln!(f, "{}\t{}\t{}\t{}", place(k), pair, flat(s), flat(d));
+                                }
                             }
                         } else {
                             // one line, or a translation that merged or split the lines: one row
-                            let _ = writeln!(f, "{}\t{}>{}\t{}\t{}", place(0), from, self.lang, flat(&text), flat(&t));
+                            if self.logged.insert(row_key(&pair, &text, &t)) {
+                                let _ = writeln!(f, "{}\t{}\t{}\t{}", place(0), pair, flat(&text), flat(&t));
+                            }
                         }
                     }
                     self.seen.insert(text, State::Done(t));
@@ -563,6 +649,78 @@ impl Mt {
     pub fn busy(&self) -> bool {
         self.seen.values().any(|s| matches!(s, State::Waiting))
     }
+}
+
+/// A text on one line, as the log has it: tabs and line breaks as spaces.
+fn flat(s: &str) -> String {
+    s.replace(['\t', '\r', '\n'], " ").trim().to_string()
+}
+
+/// The header line the log starts each session with.
+fn log_header(lang: &str) -> String {
+    format!("# emuera-tty translations into {}: where printed\tlanguages\toriginal\ttranslation", lang)
+}
+
+/// What makes a log row the same as another: the languages (`ja>en`, or
+/// empty when a row has none), the original and the translation, not where
+/// it was printed.
+fn row_key(pair: &str, orig: &str, tr: &str) -> String {
+    format!("{}\t{}\t{}", pair, flat(orig), flat(tr))
+}
+
+/// The [`row_key`]s of the rows in the text of a log.
+fn log_keys(text: &str, keys: &mut crate::fxhash::HashSet<String>) {
+    for row in text.lines() {
+        let row = row.trim_end_matches('\r');
+        if row.trim().is_empty() || row.starts_with('#') {
+            continue;
+        }
+        let f: Vec<&str> = row.split('\t').collect();
+        if f.len() < 2 {
+            continue;
+        }
+        let pair = if f.len() >= 3 && is_pair(f[f.len() - 3].trim()) { f[f.len() - 3].trim() } else { "" };
+        keys.insert(row_key(pair, f[f.len() - 2], f[f.len() - 1]));
+    }
+}
+
+/// Is `s` a language pair as the log writes it (`ja>en`)?
+fn is_pair(s: &str) -> bool {
+    s.split_once('>').is_some_and(|(a, b)| [a, b].iter().all(|l| (2..=8).contains(&l.len()) && l.chars().all(|c| c.is_ascii_alphabetic() || c == '-')))
+}
+
+/// Read translations from the text of a translation log (or a file of the
+/// same shape) into `memory`, for text translated into `lang`: lines of
+/// fields separated by tabs, the last two being the original and its
+/// translation (the field before them, the languages `ja>en`, tells the
+/// target language; any before that, where it was printed, are not used:
+/// they can name a file other than the script that held the text). Empty
+/// lines, `#` comments and rows into another language are skipped; a later
+/// row for the same original replaces an earlier one. Returns how many rows
+/// were used and how many were for other languages.
+fn load_memory(text: &str, lang: &str, memory: &mut HashMap<String, String>) -> (usize, usize) {
+    let (mut used, mut other) = (0, 0);
+    for row in text.lines() {
+        let row = row.trim_end_matches('\r');
+        if row.trim().is_empty() || row.starts_with('#') {
+            continue;
+        }
+        let f: Vec<&str> = row.split('\t').collect();
+        if f.len() < 2 {
+            continue;
+        }
+        let (orig, tr) = (flat(f[f.len() - 2]), f[f.len() - 1].trim());
+        if orig.is_empty() || tr.is_empty() {
+            continue;
+        }
+        if f.len() >= 3 && is_pair(f[f.len() - 3].trim()) && f[f.len() - 3].trim().rsplit('>').next() != Some(lang) {
+            other += 1;
+            continue;
+        }
+        memory.insert(orig, tr.to_string());
+        used += 1;
+    }
+    (used, other)
 }
 
 /// A map or a box drawing (lines, blocks, Braille dots): never translated.
@@ -846,13 +1004,98 @@ mod tests {
     }
 
     #[test]
+    fn translation_log_as_input() {
+        let log = "# emuera-tty translations into en: where printed\tlanguages\toriginal\ttranslation\n\
+            ERB/口上/K9.ERB:3\tja>en\t「おはようございます、お嬢様」\t「Good morning, my lady.」\n\
+            ERB/other/X.ERB:9\tja>fr\t「やあ」\t«Salut»\n\
+            \tja>en\t「やあ」\t「Hi.」\n\
+            ERB/a.ERB:1\tja>en\t「一」\t「One」\r\n\
+            no place here\t「二」\t「Two」\n\
+            「三」\t「Three」\n\
+            ja>en\t「空」\t\n\
+            one field only\n\n";
+        let mut m = HashMap::default();
+        assert_eq!(load_memory(log, "en", &mut m), (5, 1));
+        assert_eq!(m.get("「おはようございます、お嬢様」").map(String::as_str), Some("「Good morning, my lady.」"));
+        // the row for another language is left out; a later row replaces an earlier one
+        assert_eq!(m.get("「やあ」").map(String::as_str), Some("「Hi.」"));
+        // however the place column looks, or is missing
+        assert_eq!(m.get("「一」").map(String::as_str), Some("「One」"));
+        assert_eq!(m.get("「二」").map(String::as_str), Some("「Two」"));
+        assert_eq!(m.get("「三」").map(String::as_str), Some("「Three」"));
+        assert!(!m.contains_key("「空」"));
+        let mut fr = HashMap::default();
+        assert_eq!(load_memory(log, "fr", &mut fr), (3, 3));
+        assert_eq!(fr.get("「やあ」").map(String::as_str), Some("«Salut»"));
+    }
+
+    #[test]
+    fn loaded_translations_need_no_translator() {
+        let dir = std::env::temp_dir().join(format!("emuera-tty-mt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("translations.tsv");
+        std::fs::write(&file, "ERB/x.ERB:1\tja>en\t「おはよう」\t「Good morning.」\nERB/x.ERB:2\tja>en\t「元気?」\t「How are you?」\nERB/x.ERB:3\tja>en\t「一 二」\t「One Two」\n").unwrap();
+        let mut mt = Mt::start_with(None, "en", &[file.clone(), dir.join("missing.tsv")], None);
+        assert_eq!(mt.memory_len(), 3);
+        assert!(mt.memory_note.contains("translations.tsv: 3 lines") && mt.memory_note.contains("missing.tsv"), "{}", mt.memory_note);
+        // one line, a batch of lines found one by one, a batch found as the
+        // merged row the log has, and a line nobody translated
+        assert_eq!(mt.get("「おはよう」", "ja", None), Some("「Good morning.」"));
+        assert_eq!(mt.get_lines("「おはよう」\n「元気?」", "ja", &[]), Some("「Good morning.」\n「How are you?」"));
+        assert_eq!(mt.get_lines("「一\n二」", "ja", &[]), Some("「One Two」"));
+        assert_eq!(mt.get("「さようなら」", "ja", None), None);
+        assert!(!mt.busy());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_row_the_log_has_isnt_written_again() {
+        if cfg!(windows) {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("emuera-tty-mtlog-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("log.tsv");
+        // an earlier session: the header, "abc" done, "def" with another translation
+        std::fs::write(&log, format!("{}\nERB/a.ERB:1\tja>en\tabc\tABC\nERB/a.ERB:2\tja>en\tdef\tOTHER\n", log_header("en"))).unwrap();
+        let mut mt = Mt::start_with(Some(Engine::Command("tr a-z A-Z".into())), "en", &[], Some(log.clone()));
+        let wait = |mt: &mut Mt| {
+            for _ in 0..200 {
+                mt.poll();
+                if !mt.busy() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        for t in ["abc", "def", "ghi"] {
+            assert_eq!(mt.get(t, "ja", Some("ERB/b.ERB:7")), None);
+        }
+        wait(&mut mt);
+        // translated again after the cache is cleared: still not written twice
+        assert_eq!(mt.clear(), 3);
+        assert_eq!(mt.get("ghi", "ja", Some("ERB/b.ERB:7")), None);
+        wait(&mut mt);
+        let text = std::fs::read_to_string(&log).unwrap();
+        let rows: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).collect();
+        assert_eq!(text.lines().filter(|l| l.starts_with('#')).count(), 1, "{}", text);
+        assert_eq!(rows.iter().filter(|r| r.ends_with("\tabc\tABC")).count(), 1, "{}", text);
+        // the same original with a different translation is added
+        assert_eq!(rows.iter().filter(|r| r.ends_with("\tdef\tOTHER")).count(), 1, "{}", text);
+        assert_eq!(rows.iter().filter(|r| r.ends_with("\tdef\tDEF")).count(), 1, "{}", text);
+        assert_eq!(rows.iter().filter(|r| r.ends_with("\tghi\tGHI")).count(), 1, "{}", text);
+        assert_eq!(rows.len(), 4, "{}", text);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn command_engine() {
         if cfg!(windows) {
             return;
         }
         let e = Engine::Command("tr a-z A-Z".into());
         assert_eq!(e.translate("hello there\n", "ja", "en", &mut None).unwrap(), "HELLO THERE");
-        let mut mt = Mt::start(e, "en");
+        let mut mt = Mt::start(Some(e), "en");
         assert_eq!(mt.get("abc", "ja", None), None);
         for _ in 0..100 {
             if mt.poll() {

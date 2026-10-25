@@ -2754,7 +2754,7 @@ impl Tty {
             }
             rows.push(("Game settings…  (Emuera's settings window: emuera.config)", 1));
             rows.push(("Manage saves…  (copy, export, back up, restore)", 2));
-            if st.get("translator") != "off" {
+            if !matches!(st.get("translator"), "off" | "file") {
                 rows.push(("Test the translator…  (translates a sample line)", 3));
             }
             rows.extend([
@@ -2879,6 +2879,7 @@ impl Tty {
                         }
                     }
                     3 if st.get("translator") == "off" => note = "the Translator is off: choose one to test it".into(),
+                    3 if st.get("translator") == "file" => note = "the Translator is file: no translator is used, so there is nothing to test".into(),
                     3 => match crate::mt::Engine::choose(st.get("translator")) {
                         Err(e) => note = e,
                         Ok(e) => {
@@ -3020,14 +3021,31 @@ impl Tty {
         if st.get("translator") == "off" {
             return "the game shows as it prints itself".into();
         }
-        match crate::mt::Engine::choose(st.get("translator")) {
-            Ok(e) => {
-                let d = format!("translating {} into {} with {}", if self.tr_all { "the game" } else { "dialog" }, lang, e.describe());
-                self.mt = Some(crate::mt::Mt::start(e, lang));
-                d
+        // the translator, if one is wanted and there is one; the files of
+        // EMUERA_TRANSLATE_LOAD work with or without it
+        let which = st.get("translator");
+        let engine = if which == "file" { Err("the Translator is file: no translator is used".to_string()) } else { crate::mt::Engine::choose(which) };
+        let mt = crate::mt::Mt::start(engine.as_ref().ok().cloned(), lang);
+        let what = if self.tr_all { "the game" } else { "dialog" };
+        // what reading EMUERA_TRANSLATE_LOAD's files came to (empty: none given)
+        let files = mt.memory_note.clone();
+        let loaded = mt.memory_len() > 0;
+        let note = match (&engine, loaded) {
+            (Ok(e), true) => format!("translating {} into {} from {}, else with {}", what, lang, files, e.describe()),
+            (Ok(e), false) if files.is_empty() => format!("translating {} into {} with {}", what, lang, e.describe()),
+            (Ok(e), false) => format!("translating {} into {} with {} (EMUERA_TRANSLATE_LOAD: {})", what, lang, e.describe(), files),
+            (Err(_), true) => format!("translating {} into {} from {} (no translator)", what, lang, files),
+            (Err(_), false) if which == "file" && files.is_empty() => {
+                "the Translator is file, but EMUERA_TRANSLATE_LOAD names no file: set it to a translation log".to_string()
             }
-            Err(e) => e,
+            (Err(_), false) if which == "file" => format!("the Translator is file, but EMUERA_TRANSLATE_LOAD gave nothing: {}", files),
+            (Err(e), false) if files.is_empty() => e.clone(),
+            (Err(e), false) => format!("{} (EMUERA_TRANSLATE_LOAD: {})", e, files),
+        };
+        if engine.is_ok() || mt.memory_len() > 0 {
+            self.mt = Some(mt);
         }
+        note
     }
 
     /// The line's text, language and first colour if it is dialog to
@@ -4396,7 +4414,7 @@ mod tests {
             assert!(!super::backslash_is_yen(f), "{:?}", f);
         }
     }
-  
+
     /// The terminal's background from its OSC 11 reply
     #[test]
     fn osc11_replies() {
