@@ -129,9 +129,11 @@ Expect rough edges in parts of the games nobody has played through yet
   OpenBSD, DragonFly), **Windows 10/11** (works in either the base `cmd` or
   WezTerm), **Termux** on Android (having an OTG mouse + keyboard on hand
   and using the device in landscape mode is recommended), **illumos /
-  Solaris**, **Haiku** and **Redox**, but **only Linux is tested: every
-  other system is compile-checked only and untested.** Reports are
-  welcome. See [Other systems](#other-systems) for the differences,
+  Solaris**, **Haiku** and **Redox**, but **Linux is the main tested system.
+  Windows and Android have had some testing too (Android on Termux, and
+  even under a custom Android recovery environment), but both still need
+  further feedback; every other system is compile-checked only and
+  untested.** Reports are welcome. See [Other systems](#other-systems) for the differences,
   [Other CPUs](#other-cpus) for ARM, RISC-V, PowerPC, MIPS and the rest,
   and [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for
   the Raspberry Pi Zero and other 512 MB boards.
@@ -224,9 +226,13 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ### Other systems
 
-> **Untested.** emuera-tty is developed and played on Linux. Everything
-> below is checked only by compiling for that system (`cargo check
-> --target …`); none of it has been run there yet.
+> **Mostly untested.** emuera-tty is developed and played on Linux.
+> **Windows** and **Android** have gone through some testing, but still
+> need further feedback. Android has been tried on Termux and even runs
+> under a custom Android recovery environment (as unusual of an
+> environment that is; calling it "playable" is also a bit of a
+> stretch). Everything else below is checked only by compiling for that
+> system (`cargo check --target …`); none of it has been run there yet.
 
 - **macOS / BSD**: the same steps. On macOS, `~/.local/bin` is usually not on
   PATH, so `--install` picks a writable PATH folder (Homebrew's
@@ -1474,13 +1480,14 @@ text.
 
 ## Roadmap
 
-1. Run it on the other systems (macOS, Windows, the BSDs, Termux, Haiku,
-   Redox) and on a real Raspberry Pi Zero: they compile (the Pi build
-   also runs under emulation), nobody has played on them yet.
+1. Run it on the other systems (macOS, the BSDs, Haiku, Redox) and on a
+   real Raspberry Pi Zero: they compile (the Pi build also runs under
+   emulation), nobody has played on them yet. Windows and Android have
+   had some testing, and need more feedback.
 2. A good way to play on Android phones, through Termux: players keep
    asking for an up-to-date eraBASIC player there, and saves would move
-   between phone and PC. Nothing is known to be missing, but nobody has
-   tried it on a phone. What needs checking: a phone's narrow screen
+   between phone and PC. Nothing is known to be missing, and it has had
+   some testing on Termux, but it needs more feedback. What needs checking: a phone's narrow screen
    (games are laid out for a wide window), taps arriving as clicks for
    buttons and picture menus, function keys and Ctrl keys from Termux's extra-keys
    row, Japanese text widths in Termux's font, whether its terminal draws
