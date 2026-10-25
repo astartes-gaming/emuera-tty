@@ -2,13 +2,17 @@
 
 Every environment variable emuera-tty uses. The `EMUERA_*` ones are its own;
 the rest are standard ones it reads (or, where noted, sets). Command-line
-options and `EMUERA_*` variables override the saved settings.
+options and `EMUERA_*` variables override the saved settings. Where a
+variable has an option of the same purpose, it is named in the table, and
+the option wins over the variable. The translation log is set with options,
+not variables: `--translate-log`, `--translate-load` and
+`--translate-storage`.
 
 | Variable | Values | What it does |
 |---|---|---|
-| `EMUERA_AMBIGUOUS` | `wide`, `narrow`, `single`, `osc66` | How box-drawing and symbol characters get Emuera's two columns. The *Wide symbols* setting sets it unless it is already set. |
+| `EMUERA_AMBIGUOUS` | `wide`, `narrow`, `single`, `osc66` | How box-drawing and symbol characters get Emuera's two columns (option: `--ambiguous`). The *Wide symbols* setting sets it unless it is already set. |
 | `EMUERA_CODE_MB` | number | MB that compiled functions may take (default: 1/16 of the memory). The least recently called are dropped. |
-| `EMUERA_COLORS` | `truecolor`, `256`, `16` | The colour depth, when detection guesses wrong. The *Colours* setting sets it unless it is already set. |
+| `EMUERA_COLORS` | `truecolor`, `256`, `16` | The colour depth, when detection guesses wrong (option: `--colors`). The *Colours* setting sets it unless it is already set. |
 | `EMUERA_COMMIT` | | Not read at run time: `build.rs` sets it to the git commit of the build, which goes in the save history log. |
 | `EMUERA_DEBUG_FRAMES` | any value | Print each frame drawn (size and picture keys) to stderr. |
 | `EMUERA_GBUF_MB` | number | MB that graphics buffers may take unpacked (default: 1/8 of the memory). |
@@ -17,7 +21,7 @@ options and `EMUERA_*` variables override the saved settings.
 | `EMUERA_GPM_VC` | number | The virtual console the gpm mouse is read for (testing). |
 | `EMUERA_INJECT` | `STMT\|\|STMT` | Statements run just before the `EMUERA_INJECT_AT`-th input. |
 | `EMUERA_INJECT_AT` | number | The input number `EMUERA_INJECT` runs before. |
-| `EMUERA_LIBRETRANSLATE` | `host:port` | The LibreTranslate server (default `127.0.0.1:5000`). |
+| `EMUERA_LIBRETRANSLATE` | `host:port` | The LibreTranslate server (default `127.0.0.1:5000`; option: `--libretranslate`). |
 | `EMUERA_LINT` | any value | With `--check`: list statements the parser may have split wrongly. |
 | `EMUERA_LIST_BUTTONS` | `1` | With `--headless`: print the values of the buttons on screen before each input. |
 | `EMUERA_LOG_STYLE` | `emuera` | Headless output with only the lines the game printed, as Emuera's log has them (used by the tests). |
@@ -39,8 +43,6 @@ options and `EMUERA_*` variables override the saved settings.
 | `EMUERA_TRACE` | text | Log calls to functions whose name contains this, with their results, to stderr. |
 | `EMUERA_TRANSLATE_CMD` | command | A command that reads a line on stdin and prints its translation, used instead of the built-in translators. |
 | `EMUERA_TRANSLATE_FROM` | | Set by emuera-tty for `EMUERA_TRANSLATE_CMD`: the language of the text. |
-| `EMUERA_TRANSLATE_LOAD` | file(s) | Translation log file(s) to read translations from, used before any translator is asked. Several files are separated as `PATH` is. |
-| `EMUERA_TRANSLATE_LOG` | file | Every new translation is appended to this file (script line, languages, original, translation). A row the file already has is not written again. |
 | `EMUERA_TRANSLATE_MODEL` | name | The Ollama or translateLocally model used for translating. |
 | `EMUERA_TRANSLATE_TO` | | Set by emuera-tty for `EMUERA_TRANSLATE_CMD`: the language to translate into. |
 | `EMUERA_TRANS_ENGINE` | engine name | The engine translate-shell (`trans`) uses (default: Google). |

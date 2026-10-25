@@ -72,7 +72,7 @@ fn all_text(st: &crate::settings::Settings) -> bool {
     }
 }
 
-/// Where a line was printed ("ERB/x.ERB:12"), for EMUERA_TRANSLATE_LOG.
+/// Where a line was printed ("ERB/x.ERB:12"), for the translation log.
 fn place_of(l: &Line, files: &[String]) -> Option<String> {
     (l.src != 0).then(|| format!("{}:{}", files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()), l.src & 0xFFFF_FFFF))
 }
@@ -3022,25 +3022,26 @@ impl Tty {
             return "the game shows as it prints itself".into();
         }
         // the translator, if one is wanted and there is one; the files of
-        // EMUERA_TRANSLATE_LOAD work with or without it
+        // --translate-load work with or without it
         let which = st.get("translator");
         let engine = if which == "file" { Err("the Translator is file: no translator is used".to_string()) } else { crate::mt::Engine::choose(which) };
         let mt = crate::mt::Mt::start(engine.as_ref().ok().cloned(), lang);
         let what = if self.tr_all { "the game" } else { "dialog" };
-        // what reading EMUERA_TRANSLATE_LOAD's files came to (empty: none given)
+        // what reading the --translate-load files came to (empty: none given)
         let files = mt.memory_note.clone();
         let loaded = mt.memory_len() > 0;
         let note = match (&engine, loaded) {
             (Ok(e), true) => format!("translating {} into {} from {}, else with {}", what, lang, files, e.describe()),
             (Ok(e), false) if files.is_empty() => format!("translating {} into {} with {}", what, lang, e.describe()),
-            (Ok(e), false) => format!("translating {} into {} with {} (EMUERA_TRANSLATE_LOAD: {})", what, lang, e.describe(), files),
+            (Ok(e), false) => format!("translating {} into {} with {} (--translate-load: {})", what, lang, e.describe(), files),
             (Err(_), true) => format!("translating {} into {} from {} (no translator)", what, lang, files),
             (Err(_), false) if which == "file" && files.is_empty() => {
-                "the Translator is file, but EMUERA_TRANSLATE_LOAD names no file: set it to a translation log".to_string()
+                "the Translator is file, but no translation file was given: start with --translate-load (or --translate-storage) and a translation log"
+                    .to_string()
             }
-            (Err(_), false) if which == "file" => format!("the Translator is file, but EMUERA_TRANSLATE_LOAD gave nothing: {}", files),
+            (Err(_), false) if which == "file" => format!("the Translator is file, but --translate-load gave nothing: {}", files),
             (Err(e), false) if files.is_empty() => e.clone(),
-            (Err(e), false) => format!("{} (EMUERA_TRANSLATE_LOAD: {})", e, files),
+            (Err(e), false) => format!("{} (--translate-load: {})", e, files),
         };
         if engine.is_ok() || mt.memory_len() > 0 {
             self.mt = Some(mt);

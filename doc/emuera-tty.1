@@ -253,6 +253,52 @@ Flow control (default xon).
 .TP
 .BI \-\-size " COLSxROWS"
 The screen size when the terminal can't report it.
+.SS Display
+.TP
+.BR \-\-colors " truecolor|256|16"
+The colour depth, when detection guesses wrong. Overrides
+.B EMUERA_COLORS
+and the saved setting.
+.TP
+.BR \-\-ambiguous " wide|narrow|single|osc66"
+How box drawing and symbols get Emuera's two columns. Overrides
+.B EMUERA_AMBIGUOUS
+and the saved setting.
+.SS Translation
+.TP
+.BI \-\-translate\-log " FILE"
+Append every new translation to
+.IR FILE :
+the script file and line that printed it, the languages, the original
+and the translation, separated by tabs. A line translated by a middle
+click that can't be traced to its script file has
+\fB(force-translated, cannot trace original file)\fR instead.
+The file is never reset, and a row it already has (same languages,
+original and translation) is not written again.
+.TP
+.BI \-\-translate\-load " FILE"
+Read translations from
+.IR FILE ,
+such as a log written by
+.BR \-\-translate\-log .
+Repeat for several files; a later file wins over an earlier one.
+Each row's last two columns, the original and its translation, are used,
+not the script file and line before them; the languages column before those
+(\fBja>en\fR) picks the rows into the \fITranslate to\fR language. The
+translations are shown before any translator is asked; with \fITranslator\fR
+set to \fBfile\fR, or none found, they are all that is used.
+.TP
+.BI \-\-translate\-storage " FILE"
+Both of the above with the one file: it is read, and new translations are
+appended to it. With
+.B \-\-translate\-log
+too, new translations go there instead; with
+.BR \-\-translate\-load ,
+those files are read after it.
+.TP
+.BI \-\-libretranslate " HOST:PORT"
+The LibreTranslate server (default 127.0.0.1:5000). Overrides
+.BR EMUERA_LIBRETRANSLATE .
 .SS Setup
 .TP
 .B \-\-install
@@ -279,11 +325,18 @@ Default for
 .TP
 .B EMUERA_COLORS
 .BR truecolor ", " 256 " or " 16 :
-the colour depth, when detection guesses wrong.
+the colour depth, when detection guesses wrong
+.RB ( \-\-colors ).
 .TP
 .B EMUERA_AMBIGUOUS
 .BR wide ", " narrow ", " single " or " osc66 :
-how box drawing and symbols get Emuera's two columns.
+how box drawing and symbols get Emuera's two columns
+.RB ( \-\-ambiguous ).
+.TP
+.B EMUERA_LIBRETRANSLATE
+.IR host : port
+of the LibreTranslate server, default 127.0.0.1:5000
+.RB ( \-\-libretranslate ).
 .TP
 .B EMUERA_MEASURE=0
 Skip measuring how wide the terminal draws ambiguous characters.
@@ -328,27 +381,6 @@ For
 a command that reads a line of dialog on stdin and prints its
 translation (instead of Ollama, LibreTranslate, translateLocally or
 argos-translate).
-.TP
-.BI EMUERA_TRANSLATE_LOG= file
-Append every new translation to
-.IR file :
-the script file and line that printed it, the languages, the original
-and the translation, separated by tabs. A line translated by a middle
-click that can't be traced to its script file has
-\fB(force-translated, cannot trace original file)\fR instead.
-The file is never reset, and a row it already has (same languages,
-original and translation) is not written again.
-.TP
-.BI EMUERA_TRANSLATE_LOAD= file
-Read translations from
-.I file
-(several: separated as PATH is), such as a log written by
-.BR EMUERA_TRANSLATE_LOG .
-Each row's last two columns, the original and its translation, are used,
-not the script file and line before them; the languages column before those
-(\fBja>en\fR) picks the rows into the \fITranslate to\fR language. The
-translations are shown before any translator is asked; with \fITranslator\fR
-set to \fBfile\fR, or none found, they are all that is used.
 .TP
 .B DEEPL_AUTH_KEY
 A DeepL API key for the

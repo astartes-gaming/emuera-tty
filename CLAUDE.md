@@ -107,9 +107,11 @@ buttons' values before each input, for scripted play),
 `EMUERA_INJECT="STMT||STMT"` with `EMUERA_INJECT_AT=n` (run statements
 before the n-th input), `EMUERA_LINT=1` with `--check` (statements the
 parser probably split wrongly), `EMUERA_MOUSE_LOG=<file>`,
-`EMUERA_TRANSLATE_LOG=<file>`, `EMUERA_AMBIGUOUS=wide|narrow|osc66|single`,
+`EMUERA_AMBIGUOUS=wide|narrow|osc66|single` (also `--ambiguous`),
 `EMUERA_MOUSE=mice|off|term`. `--strict` makes unimplemented commands
-errors instead of warnings. The full list is in the README's *Reference*
+errors instead of warnings. The translation log is set with
+`--translate-log FILE` (append), `--translate-load FILE` (read) and
+`--translate-storage FILE` (both), not with variables. The full list is in the README's *Reference*
 section.
 
 For trustworthy native profiles use a release-equivalent build:

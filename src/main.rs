@@ -72,6 +72,12 @@ struct Opts {
     size: Option<(usize, usize)>,
     /// --saves / --backup-saves
     saves: Option<&'static str>,
+    /// --translate-load FILE (any number), and --translate-storage's file:
+    /// translation logs to read translations from
+    translate_load: Vec<PathBuf>,
+    /// --translate-log FILE, or --translate-storage's: where new
+    /// translations are appended
+    translate_log: Option<PathBuf>,
 }
 
 /// Print help; exit 0 when asked for (--help), 2 on bad options.
@@ -92,6 +98,18 @@ fn usage_exit(code: i32) -> ! {
          \x20 --check                          parse the game and report errors only\n\
          \x20 --strict                         unknown commands are errors\n\
          \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
+         \n\
+         display (each also has an environment variable, which the option overrides):\n\
+         \x20 --colors truecolor|256|16        colour depth, when detection guesses wrong (EMUERA_COLORS)\n\
+         \x20 --ambiguous wide|narrow|single|osc66\n\
+         \x20                                  how box drawing and symbols get Emuera's two columns (EMUERA_AMBIGUOUS)\n\
+         \n\
+         translation (the languages and the translator are in the F3 settings):\n\
+         \x20 --translate-log FILE             append every new translation to FILE (never reset; no row twice)\n\
+         \x20 --translate-load FILE            read translations from a translation log, asked before any\n\
+         \x20                                  translator (repeat for several; a later file wins)\n\
+         \x20 --translate-storage FILE         both of the above, with the one file\n\
+         \x20 --libretranslate HOST:PORT       the LibreTranslate server (default 127.0.0.1:5000; EMUERA_LIBRETRANSLATE)\n\
          \n\
          saves (also in the F3 overlay: Manage saves):\n\
          \x20 --saves                          list the game's saves with their comments\n\
@@ -141,9 +159,32 @@ fn parse_args() -> Opts {
         flow: "xon".into(),
         size: None,
         saves: None,
+        translate_load: Vec::new(),
+        translate_log: None,
     };
+    let mut storage: Option<PathBuf> = None;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
+        // the options with a value, as `--name VALUE` or `--name=VALUE`
+        let (name, inline) = match a.split_once('=') {
+            Some((n, v)) => (n, Some(v.to_string())),
+            None => (a.as_str(), None),
+        };
+        if matches!(name, "--translate-log" | "--translate-load" | "--translate-storage" | "--colors" | "--ambiguous" | "--libretranslate") {
+            let v = inline.or_else(|| it.next()).filter(|v| !v.is_empty()).unwrap_or_else(|| usage());
+            match name {
+                "--translate-log" => o.translate_log = Some(PathBuf::from(v)),
+                "--translate-load" => o.translate_load.push(PathBuf::from(v)),
+                "--translate-storage" => storage = Some(PathBuf::from(v)),
+                // these three are the environment variables' options: set
+                // for this run, they win over the variable and the saved setting
+                "--colors" if matches!(v.as_str(), "truecolor" | "24bit" | "256" | "16") => std::env::set_var("EMUERA_COLORS", v),
+                "--ambiguous" if matches!(v.as_str(), "wide" | "narrow" | "single" | "osc66") => std::env::set_var("EMUERA_AMBIGUOUS", v),
+                "--libretranslate" => std::env::set_var("EMUERA_LIBRETRANSLATE", v),
+                _ => usage(),
+            }
+            continue;
+        }
         match a.as_str() {
             "--headless" => o.headless = true,
             "--strict" => o.strict = true,
@@ -199,6 +240,14 @@ fn parse_args() -> Opts {
     if let Ok(g) = std::env::var("EMUERA_GFX") {
         if o.gfx == "auto" {
             o.gfx = g;
+        }
+    }
+    // --translate-storage: its file is read first (so --translate-load files
+    // win over it) and is the log unless --translate-log says another
+    if let Some(s) = storage {
+        o.translate_load.insert(0, s.clone());
+        if o.translate_log.is_none() {
+            o.translate_log = Some(s);
         }
     }
     o
@@ -420,6 +469,8 @@ fn run(o: Opts) -> i32 {
     if warm {
         res.start_warmup(&game);
     }
+    // the translation files (see mt.rs) are known before any translation starts
+    mt::set_files(o.translate_load.clone(), o.translate_log.clone());
     // saved settings (options and EMUERA_* variables win)
     let st = settings::Settings::load();
     st.export_env();
@@ -492,8 +543,8 @@ fn run(o: Opts) -> i32 {
         }
     }
     vm.strict = o.strict;
-    // EMUERA_TRANSLATE_LOG: lines remember where they were printed from
-    if std::env::var_os("EMUERA_TRANSLATE_LOG").is_some() {
+    // --translate-log: lines remember where they were printed from
+    if o.translate_log.is_some() {
         vm.con.track_src = true;
         vm.con.src_files = vm.prog.files.clone();
     }

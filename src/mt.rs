@@ -9,8 +9,8 @@
 //! game never waits: a line shows as printed until its translation is in.
 //! Results are kept, so a line seen again is translated at once.
 //!
-//! Translations can also be read from files (`EMUERA_TRANSLATE_LOAD`): the
-//! translation log written by `EMUERA_TRANSLATE_LOG`, or lines edited by
+//! Translations can also be read from files (`--translate-load`): the
+//! translation log written with `--translate-log`, or lines edited by
 //! hand. A line found there is shown at once, with no translator asked, so
 //! a game can be read again from its log without any translator at all.
 
@@ -440,6 +440,16 @@ impl Drop for Argos {
     }
 }
 
+/// The translation files of this run: the ones to read translations from
+/// (`--translate-load`, `--translate-storage`) and the log to append to
+/// (`--translate-log`, `--translate-storage`).
+static FILES: std::sync::OnceLock<(Vec<std::path::PathBuf>, Option<std::path::PathBuf>)> = std::sync::OnceLock::new();
+
+/// Set the translation files of this run, once, before translation starts.
+pub fn set_files(load: Vec<std::path::PathBuf>, log: Option<std::path::PathBuf>) {
+    let _ = FILES.set((load, log));
+}
+
 /// What became of a line.
 enum State {
     Waiting,
@@ -453,14 +463,14 @@ pub struct Mt {
     to: Option<Sender<(String, &'static str)>>,
     from: Receiver<(String, Result<String, String>)>,
     seen: HashMap<String, State>,
-    /// translations read from the `EMUERA_TRANSLATE_LOAD` files, by
+    /// translations read from the `--translate-load` files, by
     /// original (see [`flat`]); asked before the translator is
     memory: HashMap<String, String>,
     /// what loading them came to, in words (empty when none were given)
     pub memory_note: String,
     /// the last failure, for the settings page
     pub last_error: Option<String>,
-    /// EMUERA_TRANSLATE_LOG: the log, the language translated into, and
+    /// --translate-log: the log, the language translated into, and
     /// for each text asked for, where each of its lines was printed (one
     /// place for a single line) and its language
     log: Option<std::fs::File>,
@@ -473,10 +483,12 @@ pub struct Mt {
 
 impl Mt {
     /// Start translating into `lang`: with `engine` on a thread of its own
-    /// (None: only what the `EMUERA_TRANSLATE_LOAD` files have is shown).
+    /// (None: only what the `--translate-load` files have is shown). The
+    /// files to read and the log to write are the ones given to
+    /// [`set_files`].
     pub fn start(engine: Option<Engine>, lang: &str) -> Mt {
-        let files: Vec<std::path::PathBuf> = std::env::var_os("EMUERA_TRANSLATE_LOAD").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
-        Mt::start_with(engine, lang, &files, std::env::var_os("EMUERA_TRANSLATE_LOG").map(Into::into))
+        let (load, log) = FILES.get().cloned().unwrap_or_default();
+        Mt::start_with(engine, lang, &load, log)
     }
 
     /// [`Mt::start`] with the files to read translations from and the log
