@@ -65,6 +65,13 @@ pub const ITEMS: &[Item] = &[
         help: "draw \\ as ¥ as Japanese fonts do (auto: when the game's font is one, as Emuera's default MS Gothic)",
     },
     Item {
+        key: "letters",
+        label: "Greek and Cyrillic",
+        choices: &["auto", "wide", "narrow"],
+        live: true,
+        help: "two columns each, as Emuera's MS Gothic draws them, or one (auto: as the game's font)",
+    },
+    Item {
         key: "clipboard",
         label: "Copy to clipboard",
         choices: &["game", "on", "off"],
