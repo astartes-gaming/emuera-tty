@@ -169,9 +169,12 @@ impl Kitty {
         });
         // zlib-compressed (o=z): a picture redrawn every frame (a game's
         // whole-window CBG, mostly one colour) shrinks a hundredfold, which
-        // is what limits the frame rate (and over SSH, everything)
+        // is what limits the frame rate (and over SSH, everything). Level 2,
+        // not 1: flate2's zlib-rs backend writes level 1 as fixed-Huffman
+        // blocks, and Ghostty 1.3's inflater crashes on a large stream of
+        // those; level 2 has its own tables, is a third smaller, as fast
         let raw = p.img.as_raw();
-        let mut z = flate2::write::ZlibEncoder::new(Vec::with_capacity(raw.len() / 8), flate2::Compression::fast());
+        let mut z = flate2::write::ZlibEncoder::new(Vec::with_capacity(raw.len() / 8), flate2::Compression::new(2));
         let packed = z.write_all(raw).and_then(|_| z.finish()).ok().filter(|v| v.len() < raw.len());
         let (bytes, o) = match &packed {
             Some(v) => (v.as_slice(), ",o=z"),
