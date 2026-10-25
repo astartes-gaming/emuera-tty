@@ -547,7 +547,7 @@ running game:
 | Bottom bar details | on, off | hovered button's value, running function |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
 | Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
-| Translator | off, auto, local, argos, translate-shell, deepl, file | off: no translation; auto: whichever is installed, this computer's first; file: no translator, only the translations in `EMUERA_TRANSLATE_LOAD` (see [Reusing a log as translations](#reusing-a-log-as-translations)) |
+| Translator | off, auto, local, argos, translate-shell, deepl, file | off: no translation; auto: whichever is installed, this computer's first; file: no translator, only the translations read with `--translate-load` (see [Reusing a log as translations](#reusing-a-log-as-translations)) |
 | Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see [Translating the game](#translating-the-game)) |
 | Translate from | auto, ja, en | the game's language; auto: per line |
 | Translate what | auto, dialog, all | characters' dialog, or all text; auto: all unless into English |
@@ -701,7 +701,7 @@ first it finds of
 - [Ollama](https://ollama.com) running a model (`ollama pull qwen2.5:7b`
   translates Japanese well; `EMUERA_TRANSLATE_MODEL` picks the model),
 - a [LibreTranslate](https://libretranslate.com) server on port 5000
-  (`EMUERA_LIBRETRANSLATE=host:port` for another),
+  (`--libretranslate host:port`, or `EMUERA_LIBRETRANSLATE=host:port`, for another),
 - `translateLocally` (Bergamot, `EMUERA_TRANSLATE_MODEL`, default
   `ja-en-tiny`), or Argos Translate (`pipx install argostranslate`, then
   `argospm install translate-ja_en`; one Argos process is kept running,
@@ -779,8 +779,8 @@ translated again: after changing translator or fixing one that failed.
 
 #### A log for translators
 
-`EMUERA_TRANSLATE_LOG=translations.tsv
-emuera-tty` appends every new translation to that file, one per line:
+`emuera-tty --translate-log translations.tsv` appends every new translation
+to that file, one per line:
 the ERB file and line that printed the text, the languages, the original
 and the translation, separated by tabs, ready to find and fix in the
 game's scripts:
@@ -807,8 +807,8 @@ session writes is only added when the file doesn't have it yet.
 
 #### Reusing a log as translations
 
-`EMUERA_TRANSLATE_LOAD=translations.tsv emuera-tty` reads a translation log
-(the file `EMUERA_TRANSLATE_LOG` writes, or one of the same shape) and
+`emuera-tty --translate-load translations.tsv` reads a translation log
+(the file `--translate-log` writes, or one of the same shape) and
 shows its translations at once, before any translator is asked. Set
 *Translator* to `file` to read a game again from its log with no translator
 at all; with one chosen, it only gets the lines the file doesn't have, and
@@ -821,16 +821,20 @@ with *auto* and no translator found, the file alone is used.
   into the language set in *Translate to*; rows into another one are
   skipped. A file of plain `original`, tab, `translation` rows works too,
   and `#` lines are comments.
-- **Several files**: separate them as `PATH` is (`:`, or `;` on Windows). A
-  later file wins over an earlier one, and a later row over an earlier row
+- **Several files**: repeat the option (`--translate-load a.tsv
+  --translate-load b.tsv`). A later file wins over an earlier one, and a
+  later row over an earlier row
   of the same file, so a line corrected at the end of a log replaces the
   old translation. Translations are shown as written, quote marks too.
 - **How lines are matched**: by the whole original line (a speech over
   several lines is found line by line, or as the one row the log has when
   the translator merged its lines).
-- **The same file for both** (`EMUERA_TRANSLATE_LOG` and
-  `EMUERA_TRANSLATE_LOAD`): what was loaded isn't written again, only new
-  translations are added.
+- **The same file for both**: `--translate-storage translations.tsv` is
+  `--translate-load` and `--translate-log` with the one file. What was
+  loaded isn't written again, only new translations are added. With
+  `--translate-log` too, new translations go there instead, and the
+  storage file is only read; `--translate-load` files are read after it,
+  so they win.
 - **When it was read**: at startup, and when the translation settings
   change. Edit the file and change a setting (or restart) to use the new
   version.
@@ -976,7 +980,7 @@ For a text console (Ctrl-Alt-F3 etc.):
   the cells it crosses, so images don't flicker.
 - The console has no double-width characters, so emuera-tty notices that
   at startup and pads kanji, kana and full-width symbols itself, which
-  keeps menus and maps lined up (`EMUERA_AMBIGUOUS=single` forces this).
+  keeps menus and maps lined up (`--ambiguous single`, or `EMUERA_AMBIGUOUS=single`, forces this).
 - Its font has a few hundred glyphs, and the rest show as a diamond.
   emuera-tty reads which characters the font has and draws the missing
   ones as the nearest it has: `【】「」` as `[ ]`, full-width `（Ａ１）` as
@@ -1081,6 +1085,12 @@ emuera-tty [GAME_DIR] [options]
 | `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input |
 | `--strict` | unimplemented commands are errors instead of warnings |
 | `--debug` | enable `[IF_DEBUG]` blocks and `;#;` lines |
+| `--colors truecolor\|256\|16` | colour depth, when detection guesses wrong (also `EMUERA_COLORS`) |
+| `--ambiguous wide\|narrow\|single\|osc66` | how box-drawing and symbol characters get Emuera's two columns (also `EMUERA_AMBIGUOUS`) |
+| `--translate-log FILE` | append every new translation to `FILE`, skipping rows it already has (see [A log for translators](#a-log-for-translators)) |
+| `--translate-load FILE` | read translations from a translation log, before any translator is asked; repeat for several (see [Reusing a log as translations](#reusing-a-log-as-translations)) |
+| `--translate-storage FILE` | both of the above, with the one file |
+| `--libretranslate HOST:PORT` | the LibreTranslate server (default `127.0.0.1:5000`; also `EMUERA_LIBRETRANSLATE`) |
 | `--retro[=line]` | terminfo-driven ASCII frontend for retro terminals (auto for non-ANSI `$TERM`) |
 | `--term NAME` | terminfo name of the terminal (default `$TERM`, `vt100` with `--serial`) |
 | `--serial DEV` | play on a serial terminal; `--baud N`, `--serial-format 8N1`, `--flow xon\|rts\|none` |
@@ -1089,11 +1099,15 @@ emuera-tty [GAME_DIR] [options]
 | `--install` / `--upgrade` / `--uninstall` / `--reset-data` | see the guide |
 | `--manual` | the full manual page |
 
+`--colors`, `--ambiguous` and `--libretranslate` set the matching
+environment variable for the run, so they win over the variable and over
+the saved setting. A value can also be written `--colors=256`.
+
 ### Environment variables
 
 - `FRAMEBUFFER=/dev/fbN` picks another framebuffer.
 - `EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice (see [Mouse](#mouse)).
-- `EMUERA_AMBIGUOUS=wide|narrow|osc66` overrides how box-drawing and symbol
+- `EMUERA_AMBIGUOUS=wide|narrow|osc66` (or `--ambiguous`) overrides how box-drawing and symbol
   characters are fitted to Emuera's two columns (detected at startup:
   terminals that draw them wide need nothing, others are padded; `osc66`
   tries kitty's text-sizing protocol instead, which some may prefer).

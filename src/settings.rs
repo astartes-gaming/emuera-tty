@@ -84,7 +84,7 @@ pub const ITEMS: &[Item] = &[
         label: "Translator",
         choices: &["off", "auto", "local", "argos", "translate-shell", "deepl", "file"],
         live: true,
-        help: "off: the game shows as it prints itself; auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online; file: only the translations in EMUERA_TRANSLATE_LOAD",
+        help: "off: the game shows as it prints itself; auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online; file: only the translations read with --translate-load",
     },
     Item {
         key: "translate",
@@ -158,8 +158,6 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_TIMING", "1: print how long each loading phase takes and the memory in use"),
     ("EMUERA_TRACE", "log calls to functions whose name contains this, with timestamps, to stderr"),
     ("EMUERA_TRANSLATE_CMD", "a command that reads a line on stdin and prints its translation (instead of the built-in translators)"),
-    ("EMUERA_TRANSLATE_LOAD", "translation log file(s) to read translations from, asked before any translator (several: separated as PATH is)"),
-    ("EMUERA_TRANSLATE_LOG", "file every new translation is appended to (script line, languages, original, translation)"),
     ("EMUERA_TRANSLATE_MODEL", "the Ollama or translateLocally model used for translating"),
     ("EMUERA_TRANS_ENGINE", "the engine translate-shell (trans) uses (default: Google)"),
 ];

@@ -135,7 +135,7 @@ pub struct Line {
     /// printed by a character's dialogue (kojo) code (see `mt::is_dialog`)
     pub kojo: bool,
     /// the script line that printed it, (file index + 1) << 32 | line; 0
-    /// when not known (kept only for EMUERA_TRANSLATE_LOG)
+    /// when not known (kept only for --translate-log)
     pub src: u64,
     /// how many waits and inputs came before it: the lines one click shows
     /// share it (translation batches)
@@ -198,7 +198,7 @@ pub struct Console {
     /// with a ♪ in `note_line`
     pub note_watch: bool,
     pub note_line: Option<String>,
-    /// EMUERA_TRANSLATE_LOG: the VM keeps `src` (file index, line) at the
+    /// --translate-log: the VM keeps `src` (file index, line) at the
     /// statement running, so lines know where they were printed from;
     /// `src_files` names the files
     pub track_src: bool,
