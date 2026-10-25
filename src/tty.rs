@@ -417,9 +417,16 @@ enum OverlayExit {
     Config,
     Title,
     Restart,
+    /// restart with `--debug` turned on (or off, if it was on)
+    RestartDebug,
     Reload,
     SwitchGame,
     Quit,
+}
+
+/// Is this run in debug mode (`--debug`: [IF_DEBUG] blocks and ;#; lines)?
+fn debug_run() -> bool {
+    std::env::args_os().skip(1).any(|a| a == "--debug")
 }
 
 pub struct Tty {
@@ -2445,17 +2452,34 @@ impl Tty {
                 self.clip.reset(con, &cfg);
                 Some(InputResult::Hotkey(crate::frontend::Hotkey::Title))
             }
-            Key::Restart => {
-                if !self.confirm(con, res, req, "Restart the game? Unsaved progress is lost.") {
-                    return None;
-                }
-                self.shutdown();
-                let e = crate::sys::exec_self(&std::env::args_os().skip(1).collect::<Vec<_>>());
-                eprintln!("emuera-tty: can't restart: {}", e);
-                Some(InputResult::Quit)
-            }
+            Key::Restart => self.restart(con, res, req, false),
             _ => Some(InputResult::Hotkey(crate::frontend::Hotkey::Reload)),
         }
+    }
+
+    /// Restart emuera-tty on the same game, after asking (Ctrl-R, the
+    /// settings); `toggle_debug` turns `--debug` on or off for the new run.
+    fn restart(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq, toggle_debug: bool) -> Option<InputResult> {
+        let q = match (toggle_debug, debug_run()) {
+            (false, _) => "Restart the game? Unsaved progress is lost.",
+            (true, false) => "Restart the game in debug mode? Unsaved progress is lost.",
+            (true, true) => "Restart the game without debug mode? Unsaved progress is lost.",
+        };
+        if !self.confirm(con, res, req, q) {
+            return None;
+        }
+        let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+        if toggle_debug {
+            if debug_run() {
+                args.retain(|a| a != "--debug");
+            } else {
+                args.push("--debug".into());
+            }
+        }
+        self.shutdown();
+        let e = crate::sys::exec_self(&args);
+        eprintln!("emuera-tty: can't restart: {}", e);
+        Some(InputResult::Quit)
     }
 
     /// Does the pointer's move change which hover picture (`srcb`) shows?
@@ -2659,6 +2683,7 @@ impl Tty {
                 ("Recolor…  (draw a colour of the game's as another)", 12),
                 ("Back to the title  (Ctrl-T)", 6),
                 ("Restart the game  (Ctrl-R)", 7),
+                (if debug_run() { "Restart without debug mode" } else { "Restart in debug mode  ([IF_DEBUG] and ;#; lines run)" }, 13),
                 (if self.f_key_free(5) { "Reload ERB files  (F5 / Ctrl-E)" } else { "Reload ERB files  (Ctrl-E)" }, 8),
                 ("Switch game…  (unsaved progress is lost)", 9),
                 ("Quit emuera-tty", 10),
@@ -2842,6 +2867,7 @@ impl Tty {
                     }
                     6 => break OverlayExit::Title,
                     7 => break OverlayExit::Restart,
+                    13 => break OverlayExit::RestartDebug,
                     8 => break OverlayExit::Reload,
                     9 => break OverlayExit::SwitchGame,
                     10 => break OverlayExit::Quit,
@@ -3701,6 +3727,12 @@ impl Frontend for Tty {
                         }
                         redraw = true;
                     }
+                    OverlayExit::RestartDebug => {
+                        if let Some(r) = self.restart(con, res, req, true) {
+                            return r;
+                        }
+                        redraw = true;
+                    }
                     OverlayExit::Reload => return InputResult::Hotkey(crate::frontend::Hotkey::Reload),
                     OverlayExit::Config => return InputResult::Hotkey(crate::frontend::Hotkey::Config),
                     OverlayExit::Quit => return InputResult::Quit,
@@ -4040,6 +4072,15 @@ impl Frontend for Tty {
                 Key::Settings => match self.settings_overlay(con, res, &InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false }) {
                     OverlayExit::Quit => return RawInput::Quit,
                     OverlayExit::Config => return RawInput::Hotkey(crate::frontend::Hotkey::Config),
+                    // (INPUTMOUSEKEY menus, pops-tw's title: restarts too)
+                    e @ (OverlayExit::Restart | OverlayExit::RestartDebug) => {
+                        let req = InputReq { kind: InputKind::Wait, one: false, timeout_ms: None, stop_skip: false };
+                        if self.restart(con, res, &req, matches!(e, OverlayExit::RestartDebug)).is_some() {
+                            return RawInput::Quit;
+                        }
+                        self.force_frame = true;
+                        self.render(con, res, None);
+                    }
                     _ => {
                         self.force_frame = true;
                         self.render(con, res, None);
