@@ -4205,27 +4205,16 @@ impl Frontend for Tty {
                         // between the original and the translation (also at
                         // a WAIT)
                         1 if press => redraw |= self.toggle_translation(y),
-                        // a right click: as Emuera, continue and skip the
-                        // following waits up to the next choice; on a
-                        // button, choose it and skip after it
-                        2 if press => {
-                            if req.kind == InputKind::Wait {
-                                self.scroll = 0;
-                                con.reset_style();
-                                con.print_ex("[skip]", false);
-                                con.newline();
-                                return InputResult::Skip(String::new());
-                            }
-                            if let Some(b) = self.click_at(x, y) {
-                                let v = self.buttons[b].to_string();
-                                self.line.remember(&v);
-                                if !v.is_empty() {
-                                    con.reset_style();
-                                    con.print_ex(&v, false);
-                                    con.newline();
-                                }
-                                return InputResult::Skip(v);
-                            }
+                        // a right click: as Emuera, at a WAIT continue and
+                        // skip the following waits up to the next choice;
+                        // it never chooses a button (Emuera's MainWindow
+                        // selects on a left or middle click only)
+                        2 if press && req.kind == InputKind::Wait => {
+                            self.scroll = 0;
+                            con.reset_style();
+                            con.print_ex("[skip]", false);
+                            con.newline();
+                            return InputResult::Skip(String::new());
                         }
                         _ => {}
                     }
