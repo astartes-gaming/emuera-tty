@@ -450,6 +450,77 @@ pub fn set_files(load: Vec<std::path::PathBuf>, log: Option<std::path::PathBuf>)
     let _ = FILES.set((load, log));
 }
 
+/// `--translation-filter`: what is never translated. Script files (an
+/// entry ending in .ERB or .ERH, as the game's folder names them) and
+/// single lines of text (compared without the spaces around them).
+#[derive(Default)]
+struct Filter {
+    files: Vec<String>,
+    texts: std::collections::HashSet<String>,
+}
+
+static FILTER: std::sync::OnceLock<Filter> = std::sync::OnceLock::new();
+
+/// A path as the filter compares it: lower case, `/` for `\`, no `./`.
+fn filter_path(p: &str) -> String {
+    let p = p.trim().replace('\\', "/").to_lowercase();
+    p.trim_start_matches("./").to_string()
+}
+
+/// Read the filter text: one entry per line (a TSV row gives one per
+/// cell); empty lines and lines starting with `#` are skipped.
+fn parse_filter(text: &str) -> Filter {
+    let mut f = Filter::default();
+    for row in text.trim_start_matches('\u{feff}').lines() {
+        let row = row.trim_end_matches('\r');
+        if row.trim().is_empty() || row.starts_with('#') {
+            continue;
+        }
+        for cell in row.split('\t').map(str::trim).filter(|c| !c.is_empty()) {
+            let low = cell.to_lowercase();
+            if low.ends_with(".erb") || low.ends_with(".erh") {
+                f.files.push(filter_path(cell));
+            } else {
+                f.texts.insert(cell.to_string());
+            }
+        }
+    }
+    f
+}
+
+/// Read the `--translation-filter` files, once, before translation starts.
+pub fn set_filter(paths: &[std::path::PathBuf]) -> Result<(), String> {
+    let mut f = Filter::default();
+    for p in paths {
+        let text = std::fs::read(p).map_err(|e| format!("--translation-filter {}: {}", p.display(), e))?;
+        let one = parse_filter(&String::from_utf8_lossy(&text));
+        f.files.extend(one.files);
+        f.texts.extend(one.texts);
+    }
+    let _ = FILTER.set(f);
+    Ok(())
+}
+
+/// Is there a translation filter with files in it (lines must then know
+/// where they were printed from)?
+pub fn filter_has_files() -> bool {
+    FILTER.get().is_some_and(|f| !f.files.is_empty())
+}
+
+/// Does the filter keep this line untranslated: it was printed by a
+/// listed file (`file`, as the game's folder names it) or its text is a
+/// listed one?
+pub fn filtered(file: Option<&str>, text: &str) -> bool {
+    let Some(f) = FILTER.get() else { return false };
+    if let Some(file) = file {
+        let file = filter_path(file);
+        if f.files.iter().any(|e| *e == file || file.ends_with(&format!("/{}", e))) {
+            return true;
+        }
+    }
+    !f.texts.is_empty() && f.texts.contains(text.trim())
+}
+
 /// What became of a line.
 enum State {
     Waiting,
@@ -906,6 +977,14 @@ mod tests {
         let doc = format!("{{\"model\":\"x\",\"response\":{},\"done\":true}}", json_str(s));
         assert_eq!(json_field(&doc, "response").as_deref(), Some(s));
         assert_eq!(json_field(r#"{"translatedText": "Hi é 😀"}"#, "translatedText").as_deref(), Some("Hi é 😀"));
+    }
+
+    #[test]
+    fn filter_entries_are_files_or_text() {
+        let f = parse_filter("\u{feff}# comment\nERB\\Kojo\\A.ERB\n\n「やあ」 \n\tb.erh\t「ね」\n");
+        assert_eq!(f.files, vec!["erb/kojo/a.erb", "b.erh"]);
+        assert!(f.texts.contains("「やあ」") && f.texts.contains("「ね」") && f.texts.len() == 2);
+        assert_eq!(filter_path(" ./ERB/x.ERB "), "erb/x.erb");
     }
 
     #[test]

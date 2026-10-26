@@ -296,6 +296,14 @@ too, new translations go there instead; with
 .BR \-\-translate\-load ,
 those files are read after it.
 .TP
+.BI \-\-translation\-filter " FILE"
+A list of what is never translated, one entry per line (a TSV row gives one
+per cell; lines starting with # are comments): script files (entries ending
+in .ERB or .ERH, as the game's folder names them) and single lines of
+text. What a listed file prints, and any line with a listed text, stays as
+the game printed it. Middle-clicking such a line still translates it. May be
+repeated.
+.TP
 .BI \-\-libretranslate " HOST:PORT"
 The LibreTranslate server (default 127.0.0.1:5000). Overrides
 .BR EMUERA_LIBRETRANSLATE .

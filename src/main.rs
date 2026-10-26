@@ -78,6 +78,8 @@ struct Opts {
     /// --translate-log FILE, or --translate-storage's: where new
     /// translations are appended
     translate_log: Option<PathBuf>,
+    /// --translation-filter FILE (any number): what is never translated
+    translation_filter: Vec<PathBuf>,
 }
 
 /// Print help; exit 0 when asked for (--help), 2 on bad options.
@@ -109,6 +111,8 @@ fn usage_exit(code: i32) -> ! {
          \x20 --translate-load FILE            read translations from a translation log, asked before any\n\
          \x20                                  translator (repeat for several; a later file wins)\n\
          \x20 --translate-storage FILE         both of the above, with the one file\n\
+         \x20 --translation-filter FILE        script files and lines of text that are never translated\n\
+         \x20                                  (repeat for several; # comments; middle-click still translates)\n\
          \x20 --libretranslate HOST:PORT       the LibreTranslate server (default 127.0.0.1:5000; EMUERA_LIBRETRANSLATE)\n\
          \n\
          saves (also in the F3 overlay: Manage saves):\n\
@@ -161,6 +165,7 @@ fn parse_args() -> Opts {
         saves: None,
         translate_load: Vec::new(),
         translate_log: None,
+        translation_filter: Vec::new(),
     };
     let mut storage: Option<PathBuf> = None;
     let mut it = std::env::args().skip(1);
@@ -170,12 +175,16 @@ fn parse_args() -> Opts {
             Some((n, v)) => (n, Some(v.to_string())),
             None => (a.as_str(), None),
         };
-        if matches!(name, "--translate-log" | "--translate-load" | "--translate-storage" | "--colors" | "--ambiguous" | "--libretranslate") {
+        if matches!(
+            name,
+            "--translate-log" | "--translate-load" | "--translate-storage" | "--translation-filter" | "--colors" | "--ambiguous" | "--libretranslate"
+        ) {
             let v = inline.or_else(|| it.next()).filter(|v| !v.is_empty()).unwrap_or_else(|| usage());
             match name {
                 "--translate-log" => o.translate_log = Some(PathBuf::from(v)),
                 "--translate-load" => o.translate_load.push(PathBuf::from(v)),
                 "--translate-storage" => storage = Some(PathBuf::from(v)),
+                "--translation-filter" => o.translation_filter.push(PathBuf::from(v)),
                 // these three are the environment variables' options: set
                 // for this run, they win over the variable and the saved setting
                 "--colors" if matches!(v.as_str(), "truecolor" | "24bit" | "256" | "16") => std::env::set_var("EMUERA_COLORS", v),
@@ -471,6 +480,10 @@ fn run(o: Opts) -> i32 {
     }
     // the translation files (see mt.rs) are known before any translation starts
     mt::set_files(o.translate_load.clone(), o.translate_log.clone());
+    if let Err(e) = mt::set_filter(&o.translation_filter) {
+        eprintln!("{}", e);
+        std::process::exit(2);
+    }
     // saved settings (options and EMUERA_* variables win)
     let st = settings::Settings::load();
     st.export_env();
@@ -543,8 +556,8 @@ fn run(o: Opts) -> i32 {
         }
     }
     vm.strict = o.strict;
-    // --translate-log: lines remember where they were printed from
-    if o.translate_log.is_some() {
+    // --translate-log, --translation-filter files: lines remember where they were printed from
+    if o.translate_log.is_some() || mt::filter_has_files() {
         vm.con.track_src = true;
         vm.con.src_files = vm.prog.files.clone();
     }

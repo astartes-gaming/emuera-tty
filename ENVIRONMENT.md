@@ -6,7 +6,7 @@ options and `EMUERA_*` variables override the saved settings. Where a
 variable has an option of the same purpose, it is named in the table, and
 the option wins over the variable. The translation log is set with options,
 not variables: `--translate-log`, `--translate-load` and
-`--translate-storage`.
+`--translate-storage` (and `--translation-filter` for what is never translated).
 
 | Variable | Values | What it does |
 |---|---|---|
