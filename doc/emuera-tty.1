@@ -296,6 +296,14 @@ too, new translations go there instead; with
 .BR \-\-translate\-load ,
 those files are read after it.
 .TP
+.BI \-\-translation\-filter " FILE"
+A list of what is never translated, one entry per line (a TSV row gives one
+per cell; lines starting with # are comments): script files (entries ending
+in .ERB or .ERH, as the game's folder names them) and single lines of
+text. What a listed file prints, and any line with a listed text, stays as
+the game printed it. Middle-clicking such a line still translates it. May be
+repeated.
+.TP
 .BI \-\-libretranslate " HOST:PORT"
 The LibreTranslate server (default 127.0.0.1:5000). Overrides
 .BR EMUERA_LIBRETRANSLATE .
@@ -487,8 +495,11 @@ setting changes this).
 The keyboard macros, in Emuera's format (written on quitting when one was
 stored).
 .SH NOTES
-Developed and tested on Linux. macOS, the BSDs, Windows, Termux (Android)
-and the other systems are compile-checked only and untested. Small boards
+Developed and tested on Linux. Windows and Android (Termux, and even a
+custom Android recovery environment, as unusual of an environment that is;
+calling it "playable" is also a bit of a stretch) have had some testing,
+but still need further feedback. macOS, the BSDs and the other systems
+are compile-checked only and untested. Small boards
 such as the Raspberry Pi Zero (512 MB) have enough memory for big games;
 the ARM builds are tried under emulation only, as are those for RISC-V,
 PowerPC (both byte orders) and LoongArch; MIPS, SPARC, s390x, m68k and

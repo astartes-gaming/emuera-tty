@@ -77,6 +77,14 @@ fn place_of(l: &Line, files: &[String]) -> Option<String> {
     (l.src != 0).then(|| format!("{}:{}", files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()), l.src & 0xFFFF_FFFF))
 }
 
+/// Does `--translation-filter` keep this line untranslated: a listed file
+/// printed it, or its text is a listed line?
+fn line_filtered(l: &Line, files: &[String]) -> bool {
+    let file = (l.src != 0).then(|| files.get((l.src >> 32) as usize - 1).map_or("?", |f| f.as_str()));
+    let text: String = l.segs.iter().filter_map(|s| if let Seg::Text { text, .. } = s { Some(text.as_str()) } else { None }).collect();
+    crate::mt::filtered(file, &text)
+}
+
 /// What identifies a line across frames (indices move when the scrollback
 /// is trimmed): where it was printed, in which wait, and its text.
 fn line_key(l: &Line) -> u64 {
@@ -3091,7 +3099,10 @@ impl Tty {
     fn translate_blocks(&mut self, con: &Console, start: usize) -> crate::fxhash::HashMap<usize, Line> {
         let mut out = crate::fxhash::HashMap::default();
         let lines = &con.lines;
-        let dialog: Vec<Option<(&'static str, String, Style)>> = (start..lines.len()).map(|i| self.dialog_of(&lines[i])).collect();
+        // a filtered line stays as it is (a middle-click translates it)
+        let dialog: Vec<Option<(&'static str, String, Style)>> = (start..lines.len())
+            .map(|i| self.dialog_of(&lines[i]).filter(|_| self.forced.contains(&line_key(&lines[i])) || !line_filtered(&lines[i], &con.src_files)))
+            .collect();
         // a speech that began above `start` starts there (unchecked: rare)
         let mut i = 0;
         while i < dialog.len() {
@@ -3144,6 +3155,9 @@ impl Tty {
     fn translated(&mut self, l: &Line, files: &[String], force: bool) -> Option<Line> {
         use crate::mt::{is_drawing, source_of, split_words};
         if !(self.tr_all || force) || self.dialog_of(l).is_some() {
+            return None;
+        }
+        if !force && line_filtered(l, files) {
             return None;
         }
         let (from, to) = (self.tr_from.clone(), self.tr_to.clone());

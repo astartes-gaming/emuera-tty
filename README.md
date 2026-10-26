@@ -84,6 +84,7 @@ Expect rough edges in parts of the games nobody has played through yet
       - [Testing and the cache](#testing-and-the-cache)
       - [A log for translators](#a-log-for-translators)
       - [Reusing a log as translations](#reusing-a-log-as-translations)
+      - [Keeping files and lines untranslated](#keeping-files-and-lines-untranslated)
     - [Copying text to the clipboard](#copying-text-to-the-clipboard)
     - [Translated games (Emuera-Anchor)](#translated-games-emuera-anchor)
   - [5. Picking a terminal](#5-picking-a-terminal)
@@ -129,9 +130,11 @@ Expect rough edges in parts of the games nobody has played through yet
   OpenBSD, DragonFly), **Windows 10/11** (works in either the base `cmd` or
   WezTerm), **Termux** on Android (having an OTG mouse + keyboard on hand
   and using the device in landscape mode is recommended), **illumos /
-  Solaris**, **Haiku** and **Redox**, but **only Linux is tested: every
-  other system is compile-checked only and untested.** Reports are
-  welcome. See [Other systems](#other-systems) for the differences,
+  Solaris**, **Haiku** and **Redox**, but **Linux is the main tested system.
+  Windows and Android have had some testing too (Android on Termux, and
+  even under a custom Android recovery environment), but both still need
+  further feedback; every other system is compile-checked only and
+  untested.** Reports are welcome. See [Other systems](#other-systems) for the differences,
   [Other CPUs](#other-cpus) for ARM, RISC-V, PowerPC, MIPS and the rest,
   and [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for
   the Raspberry Pi Zero and other 512 MB boards.
@@ -224,9 +227,13 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ### Other systems
 
-> **Untested.** emuera-tty is developed and played on Linux. Everything
-> below is checked only by compiling for that system (`cargo check
-> --target …`); none of it has been run there yet.
+> **Mostly untested.** emuera-tty is developed and played on Linux.
+> **Windows** and **Android** have gone through some testing, but still
+> need further feedback. Android has been tried on Termux and even runs
+> under a custom Android recovery environment (as unusual of an
+> environment that is; calling it "playable" is also a bit of a
+> stretch). Everything else below is checked only by compiling for that
+> system (`cargo check --target …`); none of it has been run there yet.
 
 - **macOS / BSD**: the same steps. On macOS, `~/.local/bin` is usually not on
   PATH, so `--install` picks a writable PATH folder (Homebrew's
@@ -839,6 +846,35 @@ with *auto* and no translator found, the file alone is used.
   change. Edit the file and change a setting (or restart) to use the new
   version.
 
+#### Keeping files and lines untranslated
+
+`emuera-tty --translation-filter filter.txt` reads a list of what is never
+translated: script files, and single lines of dialogue. Both are shown as the
+game printed them. An example `filter.txt`:
+
+```
+# comments and empty lines are skipped
+ERB/口上・メッセージ関連/個人口上/049 Satori [さとり]/さとり/FONT_AA(通用字符画).erb
+「意外と早起きさんだねー」
+```
+
+- **Files**: an entry ending in `.erb` or `.erh` is a script file, written
+  as the game's folder names it (`ERB/…`; `/` or `\`, upper or lower case).
+  Everything that file prints stays untranslated and untouched. The file is
+  the one that held the `PRINT` statement, so text a file prints from
+  another file's function counts as the first one's.
+- **Lines**: any other entry is the text of one line (spaces around it
+  don't matter). A line of that text stays untranslated wherever it was
+  printed from. For a speech over several lines, list each line.
+- **The file's format**: plain text, one entry per line, or a `.tsv`
+  (each cell of a row is an entry). `#` lines are comments.
+- **Several files**: repeat the option.
+- **Middle-click** on a filtered line still translates it (click it again
+  for the original).
+- **With a log**: filtered lines are not translated, so they are not
+  written to `--translate-log` either, and `--translate-load` rows for
+  them are not shown.
+
 ### Copying text to the clipboard
 
 For translation tools and text hookers, as Emuera-EE's clipboard feature
@@ -1090,6 +1126,7 @@ emuera-tty [GAME_DIR] [options]
 | `--translate-log FILE` | append every new translation to `FILE`, skipping rows it already has (see [A log for translators](#a-log-for-translators)) |
 | `--translate-load FILE` | read translations from a translation log, before any translator is asked; repeat for several (see [Reusing a log as translations](#reusing-a-log-as-translations)) |
 | `--translate-storage FILE` | both of the above, with the one file |
+| `--translation-filter FILE` | script files and lines of text that are never translated; repeat for several (see [Keeping files and lines untranslated](#keeping-files-and-lines-untranslated)) |
 | `--libretranslate HOST:PORT` | the LibreTranslate server (default `127.0.0.1:5000`; also `EMUERA_LIBRETRANSLATE`) |
 | `--retro[=line]` | terminfo-driven ASCII frontend for retro terminals (auto for non-ANSI `$TERM`) |
 | `--term NAME` | terminfo name of the terminal (default `$TERM`, `vt100` with `--serial`) |
@@ -1474,13 +1511,14 @@ text.
 
 ## Roadmap
 
-1. Run it on the other systems (macOS, Windows, the BSDs, Termux, Haiku,
-   Redox) and on a real Raspberry Pi Zero: they compile (the Pi build
-   also runs under emulation), nobody has played on them yet.
+1. Run it on the other systems (macOS, the BSDs, Haiku, Redox) and on a
+   real Raspberry Pi Zero: they compile (the Pi build also runs under
+   emulation), nobody has played on them yet. Windows and Android have
+   had some testing, and need more feedback.
 2. A good way to play on Android phones, through Termux: players keep
    asking for an up-to-date eraBASIC player there, and saves would move
-   between phone and PC. Nothing is known to be missing, but nobody has
-   tried it on a phone. What needs checking: a phone's narrow screen
+   between phone and PC. Nothing is known to be missing, and it has had
+   some testing on Termux, but it needs more feedback. What needs checking: a phone's narrow screen
    (games are laid out for a wide window), taps arriving as clicks for
    buttons and picture menus, function keys and Ctrl keys from Termux's extra-keys
    row, Japanese text widths in Termux's font, whether its terminal draws
