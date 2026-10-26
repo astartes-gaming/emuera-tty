@@ -46,7 +46,7 @@ not variables: `--translate-log`, `--translate-load` and
 | `EMUERA_TRANSLATE_MODEL` | name | The Ollama or translateLocally model used for translating. |
 | `EMUERA_TRANSLATE_TO` | | Set by emuera-tty for `EMUERA_TRANSLATE_CMD`: the language to translate into. |
 | `EMUERA_TRANS_ENGINE` | engine name | The engine translate-shell (`trans`) uses (default: Google). |
-| `EMUERA_WARMUP` | `1`, `0` | Decode last session's pictures in the background at start (default: on, off when headless). |
+| `EMUERA_WARMUP` | `1`, `0` | Decode last session's pictures in the background at start (default: on, off when headless). The *Decode last used pictures* setting sets it unless it is already set. Disabling it can greatly reduce peak memory use at launch on small machines. |
 | `APPDATA` | path | Windows: where settings go (`%APPDATA%\emuera-tty`), when `XDG_CONFIG_HOME` isn't set. |
 | `COLORTERM` | `truecolor`, `24bit` | Tells emuera-tty the terminal does 24-bit colour. |
 | `DEEPL_AUTH_KEY` | key | Your DeepL API key (a free key works). Without one, DeepL's keyless endpoint is used. |

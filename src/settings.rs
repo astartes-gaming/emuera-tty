@@ -116,6 +116,13 @@ pub const ITEMS: &[Item] = &[
         help: "cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on the Linux console without a mouse",
     },
     Item { key: "wheel", label: "Wheel scrolls", choices: &["3", "1", "5", "10"], live: true, help: "lines per mouse-wheel step" },
+    Item {
+        key: "warmup",
+        label: "Decode last used pictures",
+        choices: &["auto", "on", "off"],
+        live: false,
+        help: "decode pictures the game used last time in the background at start (auto: on unless headless)",
+    },
     Item { key: "mouse", label: "Console mouse", choices: &["auto", "off"], live: false, help: "gpm / /dev/input/mice on the Linux console" },
     Item {
         key: "frontend",
@@ -332,6 +339,7 @@ impl Settings {
         };
         set("EMUERA_AMBIGUOUS", self.get("wide"));
         set("EMUERA_COLORS", self.get("colors"));
+        set("EMUERA_WARMUP", self.get("warmup"));
         if self.get("mouse") == "off" {
             set("EMUERA_MOUSE", "off");
         }

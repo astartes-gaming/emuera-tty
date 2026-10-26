@@ -788,12 +788,12 @@ translated again: after changing translator or fixing one that failed.
 
 `emuera-tty --translate-log translations.tsv` appends every new translation
 to that file, one per line:
-the ERB file and line that printed the text, the languages, the original
-and the translation, separated by tabs, ready to find and fix in the
-game's scripts:
+the ERB file and line that printed the text, the languages, the translator
+used, the original and the translation, separated by tabs, ready to find
+and fix in the game's scripts:
 
 ```text
-ERB/口上/K9.ERB:3	ja>en	「おはようございます、お嬢様」	「Good morning, my lady.」
+ERB/口上/K9.ERB:3	ja>en	Ollama (llama3)	「おはようございます、お嬢様」	「Good morning, my lady.」
 ```
 
 A line translated by a middle click that can't be traced to the file that
@@ -806,11 +806,12 @@ when the translation comes back with as many lines; if it merged or split
 them, the batch is one row.
 
 The log is appended to, never reset, and **a row it already has isn't
-written again**: the same languages, original and translation, wherever
-the text was printed from. The same original with a different translation
-is added as a new row (the later one wins when the log is
-[read back](#reusing-a-log-as-translations)), and the header line each
-session writes is only added when the file doesn't have it yet.
+written again**: the same languages, translator, original and translation,
+wherever the text was printed from. The same original with a different
+translation (or different translator) is added as a new row (the later one
+wins when the log is [read back](#reusing-a-log-as-translations)), and the
+header line each session writes is only added when the file doesn't have it
+yet.
 
 #### Reusing a log as translations
 
@@ -1205,8 +1206,10 @@ files a game decoded (in `~/.local/share/emuera-tty/pictures/`) and, the
 next time it starts, decodes them again in the background on the spare
 cores, within three quarters of that budget. The first screen full of
 portraits then doesn't wait for them: AnonTW's whereabouts listing (166
-characters) went from 1.5 s to 0.4 s on its first showing. Headless runs
-don't do this; `EMUERA_WARMUP=1` (or `0`) turns it on (or off).
+characters) went from 1.5 s to 0.4 s on its first showing. The *Decode last
+used pictures* setting controls this (default: *auto* — on unless headless);
+`EMUERA_WARMUP=1` (or `0`) forces it on (or off). Disabling it can greatly
+reduce peak memory use at launch on small machines.
 
 | | before | now (PC) | with a 512 MB machine's budgets |
 |---|---|---|---|

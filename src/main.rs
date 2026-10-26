@@ -466,14 +466,16 @@ fn run(o: Opts) -> i32 {
     // the parse threads leave most of their scratch memory (source text,
     // line copies) cached in glibc's per-thread arenas: give it back
     sys::trim_memory();
+    // saved settings (options and EMUERA_* variables win) - load early for warmup
+    let st = settings::Settings::load();
+    st.export_env();
     let mut res = resources::Resources::load(loader::find_dir_ci(&game, "resources").as_deref());
-    // decode the pictures the game used last time while it starts (not in
-    // headless runs: scripts and tests stay as they were; EMUERA_WARMUP=1 /
-    // 0 forces it on or off)
-    let warm = match std::env::var("EMUERA_WARMUP").as_deref() {
-        Ok("1") => true,
-        Ok("0") => false,
-        _ => !o.headless && !o.check,
+    // decode the pictures the game used last time while it starts
+    // (off in headless runs; "Decode last used pictures" setting controls it)
+    let warm = match st.get("warmup") {
+        "on" => true,
+        "off" => false,
+        _ => !o.headless && !o.check, // "auto" or unknown: default behavior
     };
     if warm {
         res.start_warmup(&game);
@@ -484,9 +486,6 @@ fn run(o: Opts) -> i32 {
         eprintln!("{}", e);
         std::process::exit(2);
     }
-    // saved settings (options and EMUERA_* variables win)
-    let st = settings::Settings::load();
-    st.export_env();
     let mut o = o;
     if o.gfx == "auto" && std::env::var_os("EMUERA_GFX").is_none() {
         o.gfx = st.get("images").to_string();

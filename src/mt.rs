@@ -550,6 +550,8 @@ pub struct Mt {
     logged: crate::fxhash::HashSet<String>,
     lang: String,
     asked: HashMap<String, (Vec<String>, &'static str)>,
+    /// description of the translator engine being used
+    engine_desc: String,
 }
 
 impl Mt {
@@ -567,6 +569,7 @@ impl Mt {
     pub fn start_with(engine: Option<Engine>, lang: &str, files: &[std::path::PathBuf], log_file: Option<std::path::PathBuf>) -> Mt {
         let (tx, from) = channel();
         let target = lang.to_string();
+        let engine_desc = engine.as_ref().map(|e| e.describe()).unwrap_or_else(|| "none (from files only)".to_string());
         let to = engine.map(|e| {
             let (to, rx) = channel::<(String, &'static str)>();
             let _ = std::thread::Builder::new().name("translate".into()).spawn(move || {
@@ -598,15 +601,26 @@ impl Mt {
         // row it has isn't written again (a row with another translation
         // for the same original is), and so is its header line
         let (mut logged, mut had_header) = (crate::fxhash::HashSet::default(), false);
-        let header = log_header(lang);
+        let header = log_header(lang, &engine_desc);
         if let Some(Ok(b)) = log_file.as_ref().map(std::fs::read) {
             let text = String::from_utf8_lossy(&b);
             had_header = text.lines().any(|l| l.trim_end_matches('\r') == header);
             log_keys(&text, &mut logged);
         }
         let log = log_file.and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
-        let mut mt =
-            Mt { to, from, seen: HashMap::default(), memory, memory_note, last_error: None, log, logged, lang: lang.to_string(), asked: HashMap::default() };
+        let mut mt = Mt {
+            to,
+            from,
+            seen: HashMap::default(),
+            memory,
+            memory_note,
+            last_error: None,
+            log,
+            logged,
+            lang: lang.to_string(),
+            asked: HashMap::default(),
+            engine_desc,
+        };
         if let Some(f) = mt.log.as_mut().filter(|_| !had_header) {
             let _ = writeln!(f, "{}", header);
         }
@@ -697,13 +711,13 @@ impl Mt {
                             for (k, (s, d)) in src.iter().zip(&dst).enumerate().filter(|(_, (s, _))| !s.trim().is_empty()) {
                                 // (a row the log has already isn't written again)
                                 if self.logged.insert(row_key(&pair, s, d)) {
-                                    let _ = writeln!(f, "{}\t{}\t{}\t{}", place(k), pair, flat(s), flat(d));
+                                    let _ = writeln!(f, "{}\t{}\t{}\t{}\t{}", place(k), pair, self.engine_desc, flat(s), flat(d));
                                 }
                             }
                         } else {
                             // one line, or a translation that merged or split the lines: one row
                             if self.logged.insert(row_key(&pair, &text, &t)) {
-                                let _ = writeln!(f, "{}\t{}\t{}\t{}", place(0), pair, flat(&text), flat(&t));
+                                let _ = writeln!(f, "{}\t{}\t{}\t{}\t{}", place(0), pair, self.engine_desc, flat(&text), flat(&t));
                             }
                         }
                     }
@@ -740,8 +754,8 @@ fn flat(s: &str) -> String {
 }
 
 /// The header line the log starts each session with.
-fn log_header(lang: &str) -> String {
-    format!("# emuera-tty translations into {}: where printed\tlanguages\toriginal\ttranslation", lang)
+fn log_header(lang: &str, engine_desc: &str) -> String {
+    format!("# emuera-tty translations into {} (translator: {}): where printed\tlanguages\ttranslator\toriginal\ttranslation", lang, engine_desc)
 }
 
 /// What makes a log row the same as another: the languages (`ja>en`, or
@@ -762,7 +776,20 @@ fn log_keys(text: &str, keys: &mut crate::fxhash::HashSet<String>) {
         if f.len() < 2 {
             continue;
         }
-        let pair = if f.len() >= 3 && is_pair(f[f.len() - 3].trim()) { f[f.len() - 3].trim() } else { "" };
+        // Detect language pair column:
+        // - New format (5+ fields): f[1] is languages
+        // - Old format with place (4 fields): f[1] is languages
+        // - Old format without place (3 fields): f[0] is languages
+        // - Old format with place, checked at f[len-3] (4 fields): f[1] is languages
+        let pair = if f.len() >= 2 && is_pair(f[1].trim()) {
+            f[1].trim()
+        } else if f.len() >= 3 && is_pair(f[0].trim()) {
+            f[0].trim()
+        } else if f.len() >= 3 && is_pair(f[f.len() - 3].trim()) {
+            f[f.len() - 3].trim()
+        } else {
+            ""
+        };
         keys.insert(row_key(pair, f[f.len() - 2], f[f.len() - 1]));
     }
 }
@@ -775,12 +802,12 @@ fn is_pair(s: &str) -> bool {
 /// Read translations from the text of a translation log (or a file of the
 /// same shape) into `memory`, for text translated into `lang`: lines of
 /// fields separated by tabs, the last two being the original and its
-/// translation (the field before them, the languages `ja>en`, tells the
-/// target language; any before that, where it was printed, are not used:
-/// they can name a file other than the script that held the text). Empty
-/// lines, `#` comments and rows into another language are skipped; a later
-/// row for the same original replaces an earlier one. Returns how many rows
-/// were used and how many were for other languages.
+/// translation (the languages field tells the target language; any before
+/// that, where it was printed, are not used: they can name a file other
+/// than the script that held the text). Empty lines, `#` comments and rows
+/// into another language are skipped; a later row for the same original
+/// replaces an earlier one. Returns how many rows were used and how many
+/// were for other languages.
 fn load_memory(text: &str, lang: &str, memory: &mut HashMap<String, String>) -> (usize, usize) {
     let (mut used, mut other) = (0, 0);
     for row in text.lines() {
@@ -796,7 +823,18 @@ fn load_memory(text: &str, lang: &str, memory: &mut HashMap<String, String>) -> 
         if orig.is_empty() || tr.is_empty() {
             continue;
         }
-        if f.len() >= 3 && is_pair(f[f.len() - 3].trim()) && f[f.len() - 3].trim().rsplit('>').next() != Some(lang) {
+        // Detect language pair: new format uses f[1], old format uses f[1]
+        // (with place) or f[0] (without place) or f[len-3] (with place).
+        let pair = if f.len() >= 2 && is_pair(f[1].trim()) {
+            f[1].trim()
+        } else if f.len() >= 3 && is_pair(f[0].trim()) {
+            f[0].trim()
+        } else if f.len() >= 3 && is_pair(f[f.len() - 3].trim()) {
+            f[f.len() - 3].trim()
+        } else {
+            ""
+        };
+        if !pair.is_empty() && pair.rsplit('>').next() != Some(lang) {
             other += 1;
             continue;
         }
@@ -1147,8 +1185,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("emuera-tty-mtlog-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("log.tsv");
-        // an earlier session: the header, "abc" done, "def" with another translation
-        std::fs::write(&log, format!("{}\nERB/a.ERB:1\tja>en\tabc\tABC\nERB/a.ERB:2\tja>en\tdef\tOTHER\n", log_header("en"))).unwrap();
+        // an earlier session: the header (new format with translator), "abc" done, "def" with another translation
+        // Engine::Command("tr a-z A-Z").describe() returns "your command (tr)"
+        let header = log_header("en", "your command (tr)");
+        std::fs::write(&log, format!("{}\nERB/a.ERB:1\tja>en\ttr\tabc\tABC\nERB/a.ERB:2\tja>en\ttr\tdef\tOTHER\n", header)).unwrap();
         let mut mt = Mt::start_with(Some(Engine::Command("tr a-z A-Z".into())), "en", &[], Some(log.clone()));
         let wait = |mt: &mut Mt| {
             for _ in 0..200 {

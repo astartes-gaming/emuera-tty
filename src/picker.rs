@@ -20,6 +20,89 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthChar;
 
+/// Wraps a string into multiple lines at `width` display columns.
+/// Handles ANSI escape codes (preserves them, doesn't count them in width).
+/// Wraps at word boundaries where possible, falls back to character boundaries.
+fn wrap_text(s: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![String::new()];
+    }
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let mut current_width = 0;
+
+    // We need to track ANSI escape sequences to preserve them across wraps
+    let mut pending_ansi = String::new();
+    let mut in_ansi = false;
+    let mut ansi_buffer = String::new();
+
+    for c in s.chars() {
+        if c == '\x1b' {
+            // Start of ANSI escape sequence
+            if in_ansi && !ansi_buffer.is_empty() {
+                // Nested escape? Treat previous as literal
+                current_line.push_str(&ansi_buffer);
+                ansi_buffer.clear();
+            }
+            in_ansi = true;
+            ansi_buffer.push(c);
+            continue;
+        }
+
+        if in_ansi {
+            ansi_buffer.push(c);
+            if c.is_ascii_alphabetic() {
+                // End of ANSI escape sequence
+                in_ansi = false;
+                // Preserve the ANSI code in the current line
+                current_line.push_str(&ansi_buffer);
+                // Also track it for potential re-emission on next line
+                if ansi_buffer.starts_with("\x1b[") && ansi_buffer.ends_with('m') {
+                    // This is an SGR code - track it for continuation
+                    pending_ansi = ansi_buffer.clone();
+                }
+                ansi_buffer.clear();
+            }
+            continue;
+        }
+
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        if current_width + cw > width && !current_line.is_empty() {
+            // Wrap: finish current line, start new one with pending ANSI
+            lines.push(current_line);
+            current_line = pending_ansi.clone();
+            current_width = 0;
+            // Recalculate width of pending ANSI (should be 0 since stripped)
+            // But we need to account for any printable chars in pending_ansi (there shouldn't be any)
+        }
+
+        current_line.push(c);
+        current_width += cw;
+    }
+
+    // Handle any remaining ANSI buffer
+    if in_ansi && !ansi_buffer.is_empty() {
+        current_line.push_str(&ansi_buffer);
+    }
+
+    if !current_line.is_empty() || lines.is_empty() {
+        lines.push(current_line);
+    }
+
+    lines
+}
+
+/// `s` cut to `w` display cells (kept for backward compatibility where truncation is needed).
+fn fit(s: &str, w: usize) -> String {
+    let mut used = 0;
+    s.chars()
+        .take_while(|c| {
+            used += UnicodeWidthChar::width(*c).unwrap_or(0);
+            used <= w
+        })
+        .collect()
+}
+
 /// Is `dir` an Emuera game (has CSV/ and ERB/, any letter case)?
 pub fn is_game_dir(dir: &Path) -> bool {
     find_dir_ci(dir, "CSV").is_some() && find_dir_ci(dir, "ERB").is_some()
@@ -35,7 +118,18 @@ fn game_title(dir: &Path) -> Option<String> {
 /// One row of the listing.
 struct Entry {
     label: String,
+    /// Pre-computed wrapped lines for this entry (empty if not yet computed)
+    wrapped: Vec<String>,
     kind: Kind,
+}
+
+impl Entry {
+    /// Compute wrapped lines for this entry given the terminal width.
+    fn wrap(&mut self, width: usize) {
+        if self.wrapped.is_empty() || width == 0 {
+            self.wrapped = wrap_text(&self.label, width.max(1));
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -94,8 +188,10 @@ enum Act {
 struct Picker {
     dir: PathBuf,
     entries: Vec<Entry>,
-    sel: usize,
-    top: usize,
+    /// Maps entry index -> wrapped line index (for selection/navigation)
+    entry_line: Vec<usize>,
+    sel: usize, // wrapped line index (visual selection)
+    top: usize, // wrapped line index (scroll position)
     hidden: bool,
     note: String,
     mice: Option<crate::mice::Mice>,
@@ -131,6 +227,7 @@ fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
     let mut p = Picker {
         dir: start.to_path_buf(),
         entries: Vec::new(),
+        entry_line: Vec::new(),
         sel: 0,
         top: 0,
         hidden: false,
@@ -159,21 +256,11 @@ fn term_size() -> (usize, usize) {
     crate::sys::winsize().map_or((80, 24), |(c, r, _, _)| (c, r))
 }
 
-/// `s` cut to `w` display cells.
-fn fit(s: &str, w: usize) -> String {
-    let mut used = 0;
-    s.chars()
-        .take_while(|c| {
-            used += UnicodeWidthChar::width(*c).unwrap_or(0);
-            used <= w
-        })
-        .collect()
-}
-
 impl Picker {
     /// List the current page.
     fn load(&mut self) {
         self.entries.clear();
+        self.entry_line.clear();
         match self.mode {
             Mode::Library => {
                 for g in self.st.library.clone() {
@@ -190,12 +277,19 @@ impl Picker {
                     };
                     // a game added from here (cloned or picked) and not played yet: "★ (NEW) Title" (gold in `draw`)
                     let new = if self.st.fresh.contains(&g) { "(NEW) " } else { "" };
-                    self.entries.push(Entry { label: format!("★ {}{}   {}{}{}", new, title, g.display(), last, git), kind: Kind::Game { path: g, ok } });
+                    self.entries.push(Entry {
+                        label: format!("★ {}{}   {}{}{}", new, title, g.display(), last, git),
+                        wrapped: Vec::new(),
+                        kind: Kind::Game { path: g, ok },
+                    });
                 }
-                self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), kind: Kind::AddGame });
-                self.entries.push(Entry { label: "↓ Clone a game from a git repository…".into(), kind: Kind::CloneGame });
-                self.entries.push(Entry { label: "⚙ Settings".into(), kind: Kind::OpenSettings });
-                self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if self.st.last.as_ref() == Some(path))).unwrap_or(0);
+                self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), wrapped: Vec::new(), kind: Kind::AddGame });
+                self.entries.push(Entry { label: "↓ Clone a game from a git repository…".into(), wrapped: Vec::new(), kind: Kind::CloneGame });
+                self.entries.push(Entry { label: "⚙ Settings".into(), wrapped: Vec::new(), kind: Kind::OpenSettings });
+                self.rebuild_entry_line();
+                let entry_sel =
+                    self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if self.st.last.as_ref() == Some(path))).unwrap_or(0);
+                self.sel = self.entry_line[entry_sel];
                 self.top = 0;
                 return;
             }
@@ -203,20 +297,21 @@ impl Picker {
                 for (i, it) in crate::settings::ITEMS.iter().enumerate().filter(|(_, it)| self.st.shown(it)) {
                     let v = self.st.get(it.key);
                     let restart = if it.live { "" } else { "  (next start)" };
-                    self.entries.push(Entry { label: format!("{:<18} ‹ {} ›{}", it.label, v, restart), kind: Kind::Setting(i) });
+                    self.entries.push(Entry { label: format!("{:<18} ‹ {} ›{}", it.label, v, restart), wrapped: Vec::new(), kind: Kind::Setting(i) });
                 }
-                self.entries.push(Entry { label: "← Back".into(), kind: Kind::Back });
-                self.sel = self.sel.min(self.entries.len() - 1);
+                self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
+                self.rebuild_entry_line();
+                self.sel = self.sel.min(self.entry_line.len().saturating_sub(1));
                 return;
             }
             Mode::Browse => {}
         }
         if is_game_dir(&self.dir) {
             let t = game_title(&self.dir).unwrap_or_else(|| "this game".into());
-            self.entries.push(Entry { label: format!("▶ Play {}", t), kind: Kind::PlayHere });
+            self.entries.push(Entry { label: format!("▶ Play {}", t), wrapped: Vec::new(), kind: Kind::PlayHere });
         }
         if self.dir.parent().is_some() {
-            self.entries.push(Entry { label: "../".into(), kind: Kind::Up });
+            self.entries.push(Entry { label: "../".into(), wrapped: Vec::new(), kind: Kind::Up });
         }
         let mut dirs: Vec<PathBuf> = std::fs::read_dir(&self.dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
         dirs.retain(|d| self.hidden || !d.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')));
@@ -225,7 +320,7 @@ impl Picker {
             let name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let game = is_game_dir(&d);
             let label = if game { format!("★ {}/   ({})", name, game_title(&d).unwrap_or_else(|| "Emuera game".into())) } else { format!("  {}/", name) };
-            self.entries.push(Entry { label, kind: Kind::Dir { path: d, game } });
+            self.entries.push(Entry { label, wrapped: Vec::new(), kind: Kind::Dir { path: d, game } });
         }
         let mut archives: Vec<PathBuf> =
             std::fs::read_dir(&self.dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| crate::archive::is_archive(p)).collect()).unwrap_or_default();
@@ -235,11 +330,27 @@ impl Picker {
             let name = a.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let bytes = std::fs::metadata(&a).map(|m| m.len()).unwrap_or(0);
             let size = if bytes >= 1 << 20 { format!("{:.0} MB", bytes as f64 / 1048576.0) } else { format!("{} KB", bytes.div_ceil(1024)) };
-            self.entries.push(Entry { label: format!("▣ {}   [archive, {}]", name, size), kind: Kind::Archive { path: a } });
+            self.entries.push(Entry { label: format!("▣ {}   [archive, {}]", name, size), wrapped: Vec::new(), kind: Kind::Archive { path: a } });
         }
         // start on "Play" or the first folder rather than on ../
-        self.sel = self.entries.iter().position(|e| e.kind != Kind::Up).unwrap_or(0);
+        let entry_sel = self.entries.iter().position(|e| e.kind != Kind::Up).unwrap_or(0);
+        self.rebuild_entry_line();
+        self.sel = self.entry_line[entry_sel];
         self.top = 0;
+    }
+
+    /// Rebuild the entry_line mapping after entries change.
+    fn rebuild_entry_line(&mut self) {
+        self.entry_line.clear();
+        let (cols, _) = term_size();
+        let width = cols.saturating_sub(1);
+        for e in &mut self.entries {
+            let start = self.entry_line.len();
+            e.wrap(width);
+            for _ in 0..e.wrapped.len() {
+                self.entry_line.push(start);
+            }
+        }
     }
 
     fn cd(&mut self, to: PathBuf) {
@@ -286,45 +397,57 @@ impl Picker {
                 )
             }
         }
-        for (i, e) in self.entries.iter().enumerate().skip(self.top).take(rows) {
-            let line = fit(&e.label, cols.saturating_sub(1));
-            let pad = cols.saturating_sub(line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 1);
-            let color = match e.kind {
-                Kind::Game { ok: false, .. } => "\x1b[2m",
-                Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
-                Kind::AddGame | Kind::CloneGame | Kind::OpenSettings => "\x1b[36m",
-                Kind::Archive { .. } => "\x1b[36m",
-                _ => "",
-            };
-            // the "· last played" (green) and "· git <branch> @ <hash>" (sky blue)
-            // tags of a game are coloured on their own; the rest of the row keeps
-            // its colour
-            let back = format!("\x1b[0m{}{}", color, if i == self.sel { "\x1b[7m" } else { "" });
-            let line = if matches!(e.kind, Kind::Game { .. }) {
-                let tint = |l: String, tag: &str, code: &str| match l.rfind(tag) {
-                    Some(at) => format!("{}{}{}{}{}", &l[..at], code, tag, back, &l[at + tag.len()..]),
-                    None => l,
+
+        // Render wrapped lines
+        let mut line_idx = 0;
+        for e in &self.entries {
+            for wrapped_line in &e.wrapped {
+                if line_idx < self.top {
+                    line_idx += 1;
+                    continue;
+                }
+                if line_idx >= self.top + rows {
+                    break;
+                }
+
+                let pad = cols.saturating_sub(wrapped_line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 1);
+                let color = match e.kind {
+                    Kind::Game { ok: false, .. } => "\x1b[2m",
+                    Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
+                    Kind::AddGame | Kind::CloneGame | Kind::OpenSettings => "\x1b[36m",
+                    Kind::Archive { .. } => "\x1b[36m",
+                    _ => "",
                 };
-                // the git tag is the last thing on the row and runs to its end
-                // (it carries the branch and commit)
-                let git_tail = |l: String| match l.rfind("· git") {
-                    Some(at) => format!("{}\x1b[38;5;117m{}{}", &l[..at], &l[at..], back),
-                    None => l,
+
+                // Apply special coloring for game entries
+                let line = if matches!(e.kind, Kind::Game { .. }) {
+                    let back = format!("\x1b[0m{}{}", color, if line_idx == self.sel { "\x1b[7m" } else { "" });
+                    let tint = |l: String, tag: &str, code: &str| match l.rfind(tag) {
+                        Some(at) => format!("{}{}{}{}{}", &l[..at], code, tag, back, &l[at + tag.len()..]),
+                        None => l,
+                    };
+                    let git_tail = |l: String| match l.rfind("· git") {
+                        Some(at) => format!("{}\x1b[38;5;117m{}{}", &l[..at], &l[at..], back),
+                        None => l,
+                    };
+                    let line = match wrapped_line.strip_prefix("★ (NEW)") {
+                        Some(rest) => format!("★ \x1b[1;38;5;220m(NEW){}{}", back, rest),
+                        None => wrapped_line.clone(),
+                    };
+                    git_tail(tint(line, "· last played", "\x1b[32m"))
+                } else {
+                    wrapped_line.clone()
                 };
-                // "(NEW)" (bold gold) comes first, right after the star
-                let line = match line.strip_prefix("★ (NEW)") {
-                    Some(rest) => format!("★ \x1b[1;38;5;220m(NEW){}{}", back, rest),
-                    None => line,
-                };
-                // the tags come after the path, so the last match is theirs
-                git_tail(tint(line, "· last played", "\x1b[32m"))
-            } else {
-                line
-            };
-            if i == self.sel {
-                s += &format!("{}\x1b[7m {}{}\x1b[0m\r\n", color, line, " ".repeat(pad));
-            } else {
-                s += &format!("{} {}\x1b[0m\r\n", color, line);
+
+                if line_idx == self.sel {
+                    s += &format!("{}\x1b[7m {}{}\x1b[0m\r\n", color, line, " ".repeat(pad));
+                } else {
+                    s += &format!("{} {}\x1b[0m\r\n", color, line);
+                }
+                line_idx += 1;
+            }
+            if line_idx >= self.top + rows {
+                break;
             }
         }
         if self.entries.is_empty() {
@@ -338,10 +461,13 @@ impl Picker {
             Mode::Browse if self.adding => "↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back",
             Mode::Browse => "↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit",
         };
-        // the selected setting's explanation
-        if let (Mode::Settings, Some(Entry { kind: Kind::Setting(i), .. })) = (self.mode, self.entries.get(self.sel)) {
-            if self.note.is_empty() {
-                self.note = crate::settings::ITEMS[*i].help.to_string();
+        // the selected setting's explanation - find which entry the selected line belongs to
+        if self.mode == Mode::Settings && !self.entry_line.is_empty() && self.sel < self.entry_line.len() {
+            let entry_idx = self.entry_line[self.sel];
+            if let Some(Entry { kind: Kind::Setting(i), .. }) = self.entries.get(entry_idx) {
+                if self.note.is_empty() {
+                    self.note = crate::settings::ITEMS[*i].help.to_string();
+                }
             }
         }
         let (_, trows) = term_size();
@@ -361,7 +487,6 @@ impl Picker {
                 self.note.clear();
                 self.git_log = None;
             }
-            let n = self.entries.len();
             let act = match self.mode_act(act) {
                 Ok(a) => a,
                 Err(r) => {
@@ -371,15 +496,16 @@ impl Picker {
                     continue;
                 }
             };
+            let total_lines = self.entry_line.len();
             match act {
-                Act::Move(d) => self.sel = (self.sel as isize + d).clamp(0, n.saturating_sub(1) as isize) as usize,
+                Act::Move(d) => self.sel = (self.sel as isize + d).clamp(0, total_lines.saturating_sub(1) as isize) as usize,
                 Act::Page(d) => {
                     let r = self.list_rows() as isize;
-                    self.sel = (self.sel as isize + d * r).clamp(0, n.saturating_sub(1) as isize) as usize;
+                    self.sel = (self.sel as isize + d * r).clamp(0, total_lines.saturating_sub(1) as isize) as usize;
                 }
                 Act::Top => self.sel = 0,
-                Act::Bottom => self.sel = n.saturating_sub(1),
-                Act::Click(i) if i < n => {
+                Act::Bottom => self.sel = total_lines.saturating_sub(1),
+                Act::Click(i) if i < total_lines => {
                     if i == self.sel {
                         if let Some(p) = self.activate() {
                             return Some(p);
@@ -393,17 +519,19 @@ impl Picker {
                         return Some(p);
                     }
                 }
-                Act::Open if matches!(self.entries.get(self.sel), Some(Entry { kind: Kind::Archive { .. }, .. })) => {
-                    if let Some(p) = self.activate() {
-                        return Some(p);
-                    }
-                }
                 Act::Open => {
-                    if let Some(Entry { kind: Kind::Dir { path, .. }, .. }) = self.entries.get(self.sel) {
-                        let p = path.clone();
-                        self.cd(p);
-                    } else if self.entries.get(self.sel).is_some_and(|e| e.kind == Kind::Up) {
-                        self.go_up();
+                    let entry_idx = self.entry_line.get(self.sel).copied();
+                    if entry_idx.is_some_and(|idx| matches!(self.entries.get(idx), Some(Entry { kind: Kind::Archive { .. }, .. }))) {
+                        if let Some(p) = self.activate() {
+                            return Some(p);
+                        }
+                    } else if let Some(idx) = entry_idx {
+                        if let Some(Entry { kind: Kind::Dir { path, .. }, .. }) = self.entries.get(idx) {
+                            let p = path.clone();
+                            self.cd(p);
+                        } else if self.entries.get(idx).is_some_and(|e| e.kind == Kind::Up) {
+                            self.go_up();
+                        }
                     }
                 }
                 Act::Up => self.go_up(),
@@ -434,6 +562,7 @@ impl Picker {
     /// Library and settings keys. Ok(act): handle `act` the usual way;
     /// Err(Some(game)): play it; Err(None): handled.
     fn mode_act(&mut self, act: Act) -> Result<Act, Option<PathBuf>> {
+        let entry_idx = self.entry_line.get(self.sel).copied();
         match (self.mode, &act) {
             (Mode::Library, Act::Letter('a')) => {
                 self.start_adding();
@@ -446,41 +575,49 @@ impl Picker {
                 Err(None)
             }
             (Mode::Library, Act::Letter('d') | Act::Delete) => {
-                if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(self.sel) {
-                    let p = path.clone();
-                    self.st.remove_game(&p);
-                    self.st.save();
-                    let sel = self.sel;
-                    self.load();
-                    self.sel = sel.min(self.entries.len().saturating_sub(1));
-                    self.note = format!("Removed {} from the list (its files are still there).", p.display());
+                if let Some(idx) = entry_idx {
+                    if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(idx) {
+                        let p = path.clone();
+                        self.st.remove_game(&p);
+                        self.st.save();
+                        let line_sel = self.sel;
+                        self.load();
+                        self.sel = line_sel.min(self.entry_line.len().saturating_sub(1));
+                        self.note = format!("Removed {} from the list (its files are still there).", p.display());
+                    }
                 }
                 Err(None)
             }
             (Mode::Library, Act::Letter('u')) => {
-                if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(self.sel) {
-                    let p = path.clone();
-                    let (note, log) = match git_root(&p) {
-                        None => ("This game isn't a git checkout: nothing to update from.".to_string(), None),
-                        Some(root) => {
-                            let (cols, rows) = term_size();
-                            out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", rows.saturating_sub(1), fit(&format!("Updating {} (git pull)…", root.display()), cols))
+                if let Some(idx) = entry_idx {
+                    if let Some(Entry { kind: Kind::Game { path, .. }, .. }) = self.entries.get(idx) {
+                        let p = path.clone();
+                        let (note, log) = match git_root(&p) {
+                            None => ("This game isn't a git checkout: nothing to update from.".to_string(), None),
+                            Some(root) => {
+                                let (cols, rows) = term_size();
+                                out(format!(
+                                    "\x1b[{};1H\x1b[0m\x1b[2K{}",
+                                    rows.saturating_sub(1),
+                                    fit(&format!("Updating {} (git pull)…", root.display()), cols)
+                                )
                                 .as_bytes());
-                            let (res, log) = git_pull(&root);
-                            (
-                                match res {
-                                    Ok(m) => m,
-                                    Err(e) => format!("\x1b[31m{}\x1b[0m", e),
-                                },
-                                Some(log),
-                            )
-                        }
-                    };
-                    self.note = note;
-                    self.git_log = log;
-                    let sel = self.sel;
-                    self.load();
-                    self.sel = sel.min(self.entries.len().saturating_sub(1));
+                                let (res, log) = git_pull(&root);
+                                (
+                                    match res {
+                                        Ok(m) => m,
+                                        Err(e) => format!("\x1b[31m{}\x1b[0m", e),
+                                    },
+                                    Some(log),
+                                )
+                            }
+                        };
+                        self.note = note;
+                        self.git_log = log;
+                        let line_sel = self.sel;
+                        self.load();
+                        self.sel = line_sel.min(self.entry_line.len().saturating_sub(1));
+                    }
                 }
                 Err(None)
             }
@@ -529,9 +666,9 @@ impl Picker {
                 }
                 self.note = format!("Update all: {}.", parts.join("; "));
                 self.git_log = Some(log);
-                let sel = self.sel;
+                let line_sel = self.sel;
                 self.load();
-                self.sel = sel.min(self.entries.len().saturating_sub(1));
+                self.sel = line_sel.min(self.entry_line.len().saturating_sub(1));
                 Err(None)
             }
             // `g`: the full git output of the update just done, else "top" as usual
@@ -545,12 +682,14 @@ impl Picker {
             // ← / Backspace mean nothing on the library
             (Mode::Library, Act::Up) => Err(None),
             (Mode::Settings, Act::Open | Act::Up) => {
-                if let Some(Entry { kind: Kind::Setting(i), .. }) = self.entries.get(self.sel) {
-                    let key = crate::settings::ITEMS[*i].key;
-                    self.st.cycle(key, if matches!(act, Act::Up) { -1 } else { 1 });
-                    self.st.save();
-                    self.load();
-                    return Err(None);
+                if let Some(idx) = entry_idx {
+                    if let Some(Entry { kind: Kind::Setting(i), .. }) = self.entries.get(idx) {
+                        let key = crate::settings::ITEMS[*i].key;
+                        self.st.cycle(key, if matches!(act, Act::Up) { -1 } else { 1 });
+                        self.st.save();
+                        self.load();
+                        return Err(None);
+                    }
                 }
                 if matches!(act, Act::Up) {
                     return Ok(Act::Cancel);
@@ -564,24 +703,28 @@ impl Picker {
     /// A full-screen, scrollable text (the full git output). ↑↓ / PgUp / PgDn /
     /// Home / End scroll; q, Esc, Enter or `g` close it.
     fn view_text(&mut self, title: &str, text: &str) {
-        let lines: Vec<String> = text
-            .lines()
-            .map(|l| l.trim_end_matches('\r').rsplit('\r').next().unwrap_or("").replace('\t', "    ").chars().filter(|c| !c.is_control()).collect())
-            .collect();
+        let (cols, _) = term_size();
+        // Wrap all lines to terminal width
+        let mut wrapped_lines: Vec<String> = Vec::new();
+        for line in text.lines() {
+            let cleaned = line.trim_end_matches('\r').rsplit('\r').next().unwrap_or("").replace('\t', "    ");
+            let cleaned: String = cleaned.chars().filter(|c| !c.is_control()).collect();
+            wrapped_lines.extend(wrap_text(&cleaned, cols));
+        }
         let mut top = 0usize;
         loop {
             let (cols, trows) = term_size();
             let rows = trows.saturating_sub(3).max(1);
-            top = top.min(lines.len().saturating_sub(rows));
-            let last = (top + rows).min(lines.len());
+            top = top.min(wrapped_lines.len().saturating_sub(rows));
+            let last = (top + rows).min(wrapped_lines.len());
             let mut s = String::from("\x1b[H\x1b[0m\x1b[2J");
             s += &format!(
                 "\x1b[1m{}\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
                 fit(title, cols),
-                fit(&format!("lines {}-{} of {}", (top + 1).min(last), last, lines.len()), cols)
+                fit(&format!("lines {}-{} of {}", (top + 1).min(last), last, wrapped_lines.len()), cols)
             );
-            for l in lines.iter().skip(top).take(rows) {
-                s += &format!("{}\r\n", fit(l, cols));
+            for l in wrapped_lines.iter().skip(top).take(rows) {
+                s += &format!("{}\r\n", l);
             }
             s += &format!("\x1b[{};1H\x1b[2m{}\x1b[0m", trows, fit("↑↓ PgUp PgDn Home End scroll  q / Esc / Enter / g close", cols));
             out(s.as_bytes());
@@ -589,7 +732,7 @@ impl Picker {
                 Act::Move(d) => top = top.saturating_add_signed(d),
                 Act::Page(d) => top = top.saturating_add_signed(d * rows as isize),
                 Act::Top => top = 0,
-                Act::Bottom => top = lines.len(),
+                Act::Bottom => top = wrapped_lines.len().saturating_sub(1),
                 Act::Cancel | Act::Activate | Act::Letter('g') => return,
                 _ => {}
             }
@@ -938,7 +1081,8 @@ impl Picker {
 
     /// Enter on the selected entry: play a game, otherwise open the folder.
     fn activate(&mut self) -> Option<PathBuf> {
-        let kind = self.entries.get(self.sel)?.kind.clone();
+        let entry_idx = self.entry_line.get(self.sel).copied()?;
+        let kind = self.entries.get(entry_idx)?.kind.clone();
         match kind {
             Kind::Game { path, ok: true } => return Some(path),
             Kind::Game { path, ok: false } => self.note = format!("\x1b[31m{} is gone (d removes it from the list)\x1b[0m", path.display()),
