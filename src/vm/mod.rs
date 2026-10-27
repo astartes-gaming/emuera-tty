@@ -29,6 +29,7 @@
 
 pub mod builtins;
 pub mod datatable;
+pub mod debugger;
 pub mod erasav;
 mod memstats;
 pub mod save;
@@ -45,6 +46,7 @@ use crate::fxhash::{HashMap, HashSet};
 use crate::loader::sjis_len;
 use crate::parser::Program;
 use crate::resources::Resources;
+use crate::vm::debugger::Debugger;
 use std::path::PathBuf;
 // Arc (aliased as Rc): parsed programs are built on several threads
 use std::sync::Arc as Rc;
@@ -112,7 +114,7 @@ pub fn name_bit(var: &str) -> u8 {
 }
 
 /// Which array a [`Place`] is in.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Loc {
     /// a slot in `Vm::globals`
     Global(usize),
@@ -210,6 +212,8 @@ pub struct Vm {
     trace: Option<String>,
     /// `EMUERA_MEMSTATS`: the file the memory report goes to.
     memstats: Option<String>,
+    /// Debugger state (enabled via EMUERA_DEBUG=1 or --debug).
+    debugger: Debugger,
     /// user function calls so far
     calls: u64,
     /// roughly the memory compiled function bodies take (those that can
@@ -282,6 +286,10 @@ impl Vm {
             .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0x1234_5678));
         CURRENT_SEED.store(seed, std::sync::atomic::Ordering::Relaxed);
         let tr_run = csv.tr.active();
+        // EMUERA_VM_DEBUG=1 or --vm-debug enables the interactive debugger
+        let debug_enabled = std::env::var("EMUERA_VM_DEBUG").is_ok();
+        crate::vm::debugger::set_debug_enabled(debug_enabled);
+
         let mut vm = Vm {
             prog,
             csv,
@@ -319,6 +327,7 @@ impl Vm {
             tr_last: String::new(),
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             memstats: std::env::var("EMUERA_MEMSTATS").ok(),
+            debugger: Debugger::new(),
             calls: 0,
             code_bytes: 0,
             code_budget: crate::sys::memory_budget("EMUERA_CODE_MB", 16),
@@ -1572,6 +1581,11 @@ impl Vm {
                 eprintln!("trace {:8.3}s: {}@{} args={:?} CHARANUM={}", trace_clock(), "  ".repeat(self.frames.len()), f.name, args, self.charas.len());
             }
         }
+        // Debugger: function entry hook
+        if crate::vm::debugger::debug_enabled() {
+            let depth = self.frames.len();
+            self.debugger.on_function_enter(depth);
+        }
         if self.frames.len() >= MAX_DEPTH {
             return err("call stack overflow");
         }
@@ -1642,7 +1656,12 @@ impl Vm {
             self.warn(&format!("@{}: too many arguments", f.name));
         }
         let r = self.exec();
+        let depth_after_pop = self.frames.len();
         self.frames.pop();
+        // Debugger: function exit hook
+        if crate::vm::debugger::debug_enabled() {
+            self.debugger.on_function_exit(depth_after_pop);
+        }
         if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
             match self.frames.last() {
                 Some(fr) => prof::enter(&fr.func),
@@ -1748,6 +1767,91 @@ impl Vm {
             if self.ticks & 0xFFF == 0 {
                 self.tick()?;
             }
+            // Debugger: check for breakpoints / step mode before executing
+            if crate::vm::debugger::debug_enabled() {
+                let frame_depth = self.frames.len();
+                let func_name = &f.name;
+                let (file_name, line) =
+                    body.lines.get(pc).copied().and_then(|(fi, ln)| self.prog.files.get(fi as usize).map(|f| (f.as_str(), ln))).unwrap_or(("", 0));
+
+                if let Some(reason) = self.debugger.should_stop_at(frame_depth, func_name, &body, pc, Some(file_name), Some(line)) {
+                    // Set step_frame_depth for step over/out
+                    match reason {
+                        crate::vm::debugger::StopReason::Step(crate::vm::debugger::StepMode::Over)
+                        | crate::vm::debugger::StopReason::Step(crate::vm::debugger::StepMode::Out) => {
+                            self.debugger.set_step_frame_depth(frame_depth);
+                        }
+                        _ => {}
+                    }
+
+                    // Handle multi-step: if step_count > 0, decrement and continue without REPL
+                    if self.debugger.step_count() > 0 {
+                        if self.debugger.decrement_step_count() {
+                            // More steps remaining, continue without REPL
+                            // For step over/out, we still need to set frame depth
+                            if matches!(self.debugger.step_mode(), crate::vm::debugger::StepMode::Over | crate::vm::debugger::StepMode::Out) {
+                                self.debugger.set_step_frame_depth(frame_depth);
+                            }
+                        } else {
+                            // Last step, enter REPL
+                            // Print watches before entering REPL (evaluate them now)
+                            if self.debugger.verbose {
+                                eprintln!("\n=== Debugger stopped: {:?} ===", reason);
+                                // Print location
+                                if let Some(&(file_idx, line)) = body.lines.get(pc) {
+                                    let file = self.prog.files.get(file_idx as usize).cloned().unwrap_or_default();
+                                    if let Some(src) = self.source_line(&file, line) {
+                                        eprintln!("  {}:{}: {}", file, line, src.trim());
+                                    } else {
+                                        eprintln!("  {}:{} (source unavailable)", file, line);
+                                    }
+                                }
+                                eprintln!("  @{} (pc={})", func_name, pc);
+                                // Print watches - collect first to avoid borrow conflict
+                                let watches: Vec<String> = self.debugger.watch_exprs().to_vec();
+                                for (i, expr) in watches.iter().enumerate() {
+                                    let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                                    match self.get_var(&var_ref) {
+                                        Ok(v) => eprintln!("    [{}] {} = {:?}", i, expr, v),
+                                        Err(e) => eprintln!("    [{}] {} = <error: {:?}>", i, expr, e),
+                                    }
+                                }
+                            }
+
+                            // Enter REPL
+                            self.run_debugger_repl(reason)?;
+                        }
+                    } else {
+                        // Normal single step or breakpoint, enter REPL
+                        // Print watches before entering REPL (evaluate them now)
+                        if self.debugger.verbose {
+                            eprintln!("\n=== Debugger stopped: {:?} ===", reason);
+                            // Print location
+                            if let Some(&(file_idx, line)) = body.lines.get(pc) {
+                                let file = self.prog.files.get(file_idx as usize).cloned().unwrap_or_default();
+                                if let Some(src) = self.source_line(&file, line) {
+                                    eprintln!("  {}:{}: {}", file, line, src.trim());
+                                } else {
+                                    eprintln!("  {}:{} (source unavailable)", file, line);
+                                }
+                            }
+                            eprintln!("  @{} (pc={})", func_name, pc);
+                            // Print watches - collect first to avoid borrow conflict
+                            let watches: Vec<String> = self.debugger.watch_exprs().to_vec();
+                            for (i, expr) in watches.iter().enumerate() {
+                                let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                                match self.get_var(&var_ref) {
+                                    Ok(v) => eprintln!("    [{}] {} = {:?}", i, expr, v),
+                                    Err(e) => eprintln!("    [{}] {} = <error: {:?}>", i, expr, e),
+                                }
+                            }
+                        }
+
+                        // Enter REPL
+                        self.run_debugger_repl(reason)?;
+                    }
+                }
+            }
             let r = self.step(&body, pc);
             // (and off again after it, for whatever the engine evaluates next)
             self.tr_eval = false;
@@ -1761,6 +1865,180 @@ impl Vm {
 
     fn set_pc(&mut self, pc: usize) {
         self.frames.last_mut().unwrap().pc = pc;
+    }
+
+    /// Run the debugger REPL loop.
+    fn run_debugger_repl(&mut self, reason: crate::vm::debugger::StopReason) -> VmResult<()> {
+        use crate::vm::debugger::{DebugCommand, ReplAction};
+
+        // Print stop reason and location
+        if self.debugger.verbose {
+            eprintln!("\n=== Debugger stopped: {:?} ===", reason);
+            // Print location
+            let frame = self.frames.last().unwrap();
+            let f = &frame.func;
+            let body = &frame.body;
+            let pc = frame.pc;
+            if let Some(&(file_idx, line)) = body.lines.get(pc) {
+                let file = self.prog.files.get(file_idx as usize).cloned().unwrap_or_default();
+                if let Some(src) = self.source_line(&file, line) {
+                    eprintln!("  {}:{}: {}", file, line, src.trim());
+                } else {
+                    eprintln!("  {}:{} (source unavailable)", file, line);
+                }
+            }
+            eprintln!("  @{} (pc={})", f.name, pc);
+            // Print watches
+            let watches: Vec<String> = self.debugger.watch_exprs().to_vec();
+            for (i, expr) in watches.iter().enumerate() {
+                let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                match self.get_var(&var_ref) {
+                    Ok(v) => eprintln!("    [{}] {} = {:?}", i, expr, v),
+                    Err(e) => eprintln!("    [{}] {} = <error: {:?}>", i, expr, e),
+                }
+            }
+        }
+
+        loop {
+            // Read command via frontend (handles TUI/Headless correctly)
+            let line = self.fe.debugger_input(&mut self.con, &mut self.res, "(emu-debug)> ");
+            if line.is_empty() {
+                // EOF or empty - treat as quit or repeat last command
+                if line.is_empty() && self.fe.is_fullscreen() {
+                    // In TUI, empty might mean just Enter - repeat last command (step into)
+                    self.debugger.set_step_mode(crate::vm::debugger::StepMode::Into);
+                    break;
+                }
+                return Err(Ctrl::Quit);
+            }
+
+            let cmd = self.debugger.parse_command(&line);
+
+            // Try to execute simple commands first
+            if let Some(action) = self.debugger.execute_simple_command(cmd.clone()) {
+                match action {
+                    ReplAction::Continue => break,
+                    ReplAction::Quit => return Err(Ctrl::Quit),
+                    ReplAction::Stay => continue,
+                }
+            }
+
+            // Handle commands that need VM access
+            match cmd {
+                DebugCommand::Backtrace => {
+                    self.print_backtrace();
+                }
+                DebugCommand::Print(expr) => {
+                    let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                    match self.get_var(&var_ref) {
+                        Ok(v) => eprintln!("{} = {:?}", expr, v),
+                        Err(e) => eprintln!("Error: {:?}", e),
+                    }
+                }
+                DebugCommand::InfoLocals => {
+                    self.print_locals();
+                }
+                DebugCommand::InfoGlobals => {
+                    self.print_globals();
+                }
+                DebugCommand::InfoFrame => {
+                    self.print_frame_info();
+                }
+                DebugCommand::Help => {
+                    self.debugger.print_help();
+                }
+                DebugCommand::Quit => return Err(Ctrl::Quit),
+                // These are handled by execute_simple_command
+                DebugCommand::Continue
+                | DebugCommand::StepInto(_)
+                | DebugCommand::StepOver(_)
+                | DebugCommand::StepOut(_)
+                | DebugCommand::Watch(_)
+                | DebugCommand::Unwatch(_)
+                | DebugCommand::Breakpoint(_)
+                | DebugCommand::ClearBreakpoint(_)
+                | DebugCommand::ListBreakpoints
+                | DebugCommand::ListWatch => {
+                    // Should not reach here
+                }
+            }
+        }
+
+        // Set step_frame_depth for step over/out
+        if matches!(self.debugger.step_mode(), crate::vm::debugger::StepMode::Over | crate::vm::debugger::StepMode::Out) {
+            self.debugger.set_step_frame_depth(self.frames.len());
+        }
+
+        Ok(())
+    }
+
+    fn print_backtrace(&self) {
+        eprintln!("Backtrace:");
+        for (i, frame) in self.frames.iter().enumerate().rev() {
+            let f = &frame.func;
+            let body = &frame.body;
+            let pc = frame.pc;
+            let loc = body.lines.get(pc).copied().and_then(|(fi, ln)| self.prog.files.get(fi as usize).map(|f| (f.as_str(), ln)));
+            if let Some((file, line)) = loc {
+                eprintln!("  #{}: @{} ({}:{}) pc={}", i, f.name, file, line, pc);
+            } else {
+                eprintln!("  #{}: @{} pc={}", i, f.name, pc);
+            }
+        }
+    }
+
+    fn print_locals(&mut self) {
+        // Clone the data we need from the frame to avoid borrow conflict
+        let (func_name, params): (String, Vec<Rc<crate::ast::VarRef>>) = {
+            let frame = self.frames.last().unwrap();
+            let f = &frame.func;
+            (f.name.clone(), f.params.iter().map(|p| p.target.clone()).collect())
+        };
+        eprintln!("Locals in @{}:", func_name);
+        // Print function parameters
+        for param in &params {
+            if let Ok(v) = self.get_var(&crate::ast::VarRef::new(param.name.clone(), vec![])) {
+                eprintln!("  {} (param) = {:?}", param.name, v);
+            }
+        }
+        // Print LOCAL/STATIC variables (slots), DYNAMIC variables, REF parameters
+        let frame = self.frames.last().unwrap();
+        for (i, slot) in frame.slots.iter().enumerate() {
+            if !matches!(slot, Slot::None) {
+                eprintln!("  slot[{}] = {:?}", i, slot);
+            }
+        }
+        for (name, val) in &frame.vars {
+            eprintln!("  {} (dynamic) = {:?}", name, val);
+        }
+        for (name, loc) in &frame.refs {
+            eprintln!("  {} (ref) = {:?}", name, loc);
+        }
+    }
+
+    fn print_globals(&self) {
+        eprintln!("Globals:");
+        // Print global variables from the VM's global storage
+        for (name, arr) in self.globals.iter() {
+            eprintln!("  {} = {:?}", name, arr);
+        }
+    }
+
+    fn print_frame_info(&self) {
+        let frame = self.frames.last().unwrap();
+        let f = &frame.func;
+        let body = &frame.body;
+        let pc = frame.pc;
+        eprintln!("Frame: @{}", f.name);
+        eprintln!("  PC: {}", pc);
+        eprintln!("  Params: {}", f.params.len());
+        eprintln!("  Slots: {}", frame.slots.len());
+        eprintln!("  Dynamic vars: {}", frame.vars.len());
+        eprintln!("  Refs: {}", frame.refs.len());
+        if let Some(&(file_idx, line)) = body.lines.get(pc) {
+            let file = self.prog.files.get(file_idx as usize).cloned().unwrap_or_default();
+            eprintln!("  Source: {}:{}", file, line);
+        }
     }
 
     /// The function / label name of a CALL/GOTO target.

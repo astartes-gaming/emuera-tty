@@ -311,6 +311,16 @@ mod imp {
                 libc::tcsetattr(0, libc::TCSANOW, &self.orig);
             }
         }
+
+        /// Re-enter raw mode without changing the stored original termios.
+        /// Used when temporarily suspended (e.g., for debugger input).
+        pub fn re_enter(&self) -> Result<(), String> {
+            let mut raw = self.orig;
+            unsafe { libc::cfmakeraw(&mut raw) };
+            raw.c_oflag |= libc::OPOST | libc::ONLCR;
+            unsafe { libc::tcsetattr(0, libc::TCSANOW, &raw) };
+            Ok(())
+        }
     }
 
     impl Drop for RawMode {

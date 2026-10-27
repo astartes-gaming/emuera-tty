@@ -461,7 +461,7 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   them: Ctrl-E or F5 (unless a macro is stored on F5): the game carries on where it was
   with the new code (Emuera-Anchor's hotkeys, as in Emuera-EE; also in
   the settings). *Restart in debug mode* in the settings restarts with
-  `--debug` (Emuera's debug mode: `[IF_DEBUG]` blocks and `;#;` lines run),
+  `--game-debug` (Emuera's debug mode: `[IF_DEBUG]` blocks and `;#;` lines run),
   and *Restart without debug mode* turns it off again.
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
@@ -1130,7 +1130,8 @@ emuera-tty [GAME_DIR] [options]
 | `--check` | parse the game, list errors, exit |
 | `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input |
 | `--strict` | unimplemented commands are errors instead of warnings |
-| `--debug` | enable `[IF_DEBUG]` blocks and `;#;` lines |
+| `--game-debug` | enable `[IF_DEBUG]` blocks and `;#;` lines |
+| `--vm-debug` | enable interactive debugger (breakpoints, step, watches) |
 | `--colors truecolor\|256\|16` | colour depth, when detection guesses wrong (also `EMUERA_COLORS`) |
 | `--ambiguous wide\|narrow\|single\|osc66` | how box-drawing and symbol characters get Emuera's two columns (also `EMUERA_AMBIGUOUS`) |
 | `--translate-log FILE` | append every new translation to `FILE`, skipping rows it already has (see [A log for translators](#a-log-for-translators)) |
@@ -1488,6 +1489,40 @@ checked.
   the parser split their line in the wrong place (a function name holding
   `(`, `,` or spaces; FORM text still holding `%`, `{` or `}`), for hunting
   parser bugs across a whole game.
+
+### Interactive Debugger
+
+Enable with `--vm-debug` flag or `EMUERA_VM_DEBUG=1` environment variable.
+Game-level debug (`[IF_DEBUG]` blocks, `;#;` lines) is enabled with `--game-debug` flag or `EMUERA_GAME_DEBUG=1`.
+When the debugger stops (at a breakpoint or step), a REPL prompt appears:
+`(emu-debug)> `. Available commands:
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `continue` | `c` | Resume execution |
+| `step [n]` | `s`, `si`, `stepi` | Step into next `n` instructions (default 1) |
+| `next [n]` | `n` | Step over next `n` instructions in this or caller frame (default 1) |
+| `finish [n]` | `f` | Step out until `n` functions return (default 1) |
+| `backtrace` | `bt`, `where` | Show call stack |
+| `print <var>` | `p` | Print variable value |
+| `watch <expr>` | `w` | Add watch expression (evaluated at each stop) |
+| `unwatch <n>` | `uw` | Remove watch expression by index |
+| `break <spec>` | `b`, `breakpoint` | Set breakpoint: `file:line`, `@function`, or `function:pc` |
+| `clear <spec>` | `cb` | Clear breakpoint |
+| `listb` | `lb` | List breakpoints |
+| `listw` | `lw` | List watch expressions |
+| `locals` | `il` | Show local variables in current frame |
+| `globals` | `ig` | Show global variables |
+| `frame` | `if` | Show current frame info |
+| `help` | `h`, `?` | Show this help |
+| `quit` | `q` | Quit the game |
+
+Breakpoints can be pre-set via `EMUERA_BREAKPOINTS` env var (comma-separated):
+```
+EMUERA_BREAKPOINTS="@EVENTFIRST,ERB/TEST.ERB:42,EVENT_SHOP:10"
+```
+
+In the TUI, pressing Enter at an empty prompt repeats the last step command (defaults to step into).
 
 ## Tests
 

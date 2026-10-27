@@ -7,7 +7,7 @@
 
 use crate::console::{Console, Line};
 use crate::resources::Resources;
-use std::io::{BufRead, Write};
+use std::io::{self, BufRead, Write};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// What the script is waiting for.
@@ -200,6 +200,18 @@ pub trait Frontend {
         false
     }
     fn shutdown(&mut self) {}
+    /// Read a line of input for the debugger REPL.
+    /// Default: read from stdin (for Headless/scripted use).
+    fn debugger_input(&mut self, _con: &mut Console, _res: &mut Resources, prompt: &str) -> String {
+        use std::io::{self, Write};
+        eprint!("{}", prompt);
+        let _ = io::stderr().flush();
+        let mut line = String::new();
+        match io::stdin().lock().read_line(&mut line) {
+            Ok(0) | Err(_) => String::new(),
+            Ok(_) => line.trim_end_matches(['\r', '\n']).to_string(),
+        }
+    }
 }
 
 /// Line-oriented frontend for tests / pipes: prints plain text, reads stdin.
@@ -304,6 +316,17 @@ impl Frontend for Headless {
 
     fn set_cols(&mut self, cols: usize) {
         self.width = cols;
+    }
+
+    fn debugger_input(&mut self, _con: &mut Console, _res: &mut Resources, prompt: &str) -> String {
+        use std::io::Write;
+        eprint!("{}", prompt);
+        let _ = io::stderr().flush();
+        let mut line = String::new();
+        match self.lines_in.read_line(&mut line) {
+            Ok(0) | Err(_) => String::new(),
+            Ok(_) => line.trim_end_matches(['\r', '\n']).to_string(),
+        }
     }
 
     fn confirm(&mut self, _con: &mut Console, _res: &mut Resources, _msg: &str) -> bool {
