@@ -4403,6 +4403,44 @@ impl Frontend for Tty {
         }
         self.raw_mode.restore();
     }
+
+    /// Show a Yes/No confirmation dialog (for infinite loop warning, etc.).
+    /// Returns true for Yes, false for No.
+    fn confirm(&mut self, con: &mut Console, res: &mut Resources, msg: &str) -> bool {
+        use crate::tty::saves::Pick;
+        let mut sel = 1; // default to "No"
+        self.no_images = true;
+        let r = self.list_box(
+            con,
+            res,
+            &InputReq { kind: InputKind::Str, one: false, timeout_ms: None, stop_skip: false },
+            "Infinite loop detected",
+            &["Yes".to_string(), "No".to_string()],
+            0,
+            &mut sel,
+            msg,
+        );
+        matches!(r, Pick::Row(0))
+    }
+
+    /// Show a second confirmation dialog with custom button labels.
+    /// Returns true for "Exit anyway", false for "Wait for the line to finish".
+    fn confirm2(&mut self, con: &mut Console, res: &mut Resources, msg: &str) -> bool {
+        use crate::tty::saves::Pick;
+        let mut sel = 1; // default to "Wait for the line to finish"
+        self.no_images = true;
+        let r = self.list_box(
+            con,
+            res,
+            &InputReq { kind: InputKind::Str, one: false, timeout_ms: None, stop_skip: false },
+            "Confirm exit",
+            &["Exit anyway".to_string(), "Wait for the line to finish".to_string()],
+            0,
+            &mut sel,
+            msg,
+        );
+        matches!(r, Pick::Row(0))
+    }
 }
 
 impl Drop for Tty {

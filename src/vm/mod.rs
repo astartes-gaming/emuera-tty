@@ -237,6 +237,10 @@ pub struct Vm {
     /// instructions run, for the periodic screen update (`tick`)
     ticks: u32,
     last_draw: std::time::Instant,
+    /// Infinite loop detection: instructions since last input/check.
+    loop_check_count: u64,
+    /// Infinite loop detection: time of last input (or last prompt "No").
+    loop_check_time: std::time::Instant,
     /// ISTIMEOUT: did the last timed input expire?
     pub is_timeout: bool,
     pub last_input: String,
@@ -328,6 +332,8 @@ impl Vm {
             macro_queue: Default::default(),
             ticks: 0,
             last_draw: std::time::Instant::now(),
+            loop_check_count: 0,
+            loop_check_time: std::time::Instant::now(),
             is_timeout: false,
             last_input: String::new(),
             state: "TITLE".into(),
@@ -2343,6 +2349,9 @@ impl Vm {
             }
             None => self.fe.input(&mut self.con, &mut self.res, req),
         };
+        // Reset infinite loop timer on any input (including timeout/quit)
+        self.loop_check_time = std::time::Instant::now();
+        self.loop_check_count = 0;
         let r = match r {
             InputResult::Line(s) => {
                 self.macro_queue = crate::macros::expand(&s).into();
@@ -2465,6 +2474,37 @@ impl Vm {
         }
         self.note_running();
         self.fe.busy(&self.con);
+
+        // Infinite loop detection (Emuera's "InfiniteLoopAlertTime" config)
+        let alert_ms = self.con.infinite_loop_alert_time;
+        if alert_ms > 0 {
+            self.loop_check_count += 1;
+            // Check every ~4096 instructions (0xFFF), matching the tick frequency
+            if self.loop_check_count >= 1 {
+                let elapsed = self.loop_check_time.elapsed().as_millis() as u64;
+                if elapsed >= alert_ms {
+                    // Show the infinite loop warning prompt
+                    let msg = format!(
+                        "Currently executing line {} of {}.\n{}ms elapsed since last input, {} instructions executed.\nAbort and force exit (you will lose all unsaved progress!)?",
+                        self.frames.last().map_or(0, |f| f.pc),
+                        self.con.running,
+                        elapsed,
+                        self.loop_check_count * 4096
+                    );
+                    if self.fe.confirm(&mut self.con, &mut self.res, &msg) {
+                        // Second confirmation
+                        let msg2 = "Are you sure? You may also wait for the line to finish (lines may occasionally freeze up).";
+                        if self.fe.confirm2(&mut self.con, &mut self.res, msg2) {
+                            return Err(Ctrl::Quit);
+                        }
+                    }
+                    // User chose to continue: reset timer and counter
+                    self.loop_check_time = std::time::Instant::now();
+                    self.loop_check_count = 0;
+                }
+            }
+        }
+
         Ok(())
     }
 

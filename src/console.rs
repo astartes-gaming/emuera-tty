@@ -237,6 +237,9 @@ pub struct Console {
     pub title: String,
     /// The last line is a REUSELASTLINE line.
     pub last_temp: bool,
+    /// "無限ループ警告までのミリ秒数" / "Milliseconds for infinite loop warning".
+    /// 0 = disabled. Default 5000 (Emuera's default).
+    pub infinite_loop_alert_time: u64,
     /// lowest line count since the frontend last looked (tail removals)
     pub low_water: usize,
     /// lines dropped from the front so far (history limit)
@@ -295,6 +298,7 @@ impl Console {
             default_font: String::new(),
             title: String::new(),
             last_temp: false,
+            infinite_loop_alert_time: 5000,
             low_water: usize::MAX,
             dropped_front: 0,
         }

@@ -40,6 +40,7 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
             let k = line.trim_start_matches('\u{feff}').split_once(':').map(|x| x.0).unwrap_or(k);
             match crate::config_names::canonical(k) {
                 "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
+                "無限ループ警告までのミリ秒数" => con.infinite_loop_alert_time = v.parse().unwrap_or(5000),
                 "PRINTCを並べる数" => con.printc_per_line = v.parse().unwrap_or(con.printc_per_line),
                 "フォント名" => {
                     con.default_font = v.to_string();
@@ -141,6 +142,7 @@ pub const ITEMS: &[Item] = &[
     item("Environment", "キーボードマクロを使用する", "Use keyboard macros (F1…F12; off: other Fn keys take over)", Kind::Bool, "YES"),
     item("Environment", "履歴ログの行数", "Lines in history log", Kind::Int(100, 1000000), "5000"),
     item("Environment", "表示するセーブデータ数", "Number of save slots", Kind::Int(20, 80), "20"),
+    item("Environment", "無限ループ警告までのミリ秒数", "Milliseconds for infinite loop warning", Kind::Int(0, 60000), "5000"),
     item("Display", "PRINTCを並べる数", "PRINTC items per line", Kind::Int(1, 100), "3"),
     item("Display", "PRINTCの文字数", "PRINTC item width", Kind::Int(1, 400), "25"),
     item("Display", "ボタンの途中で行を折りかえさない", "Don't break lines inside a button", Kind::Bool, "NO"),

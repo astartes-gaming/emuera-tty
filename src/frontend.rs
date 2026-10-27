@@ -189,6 +189,16 @@ pub trait Frontend {
     fn set_cols(&mut self, _cols: usize) {}
     /// The game folder and where its saves are (for the save manager).
     fn set_game(&mut self, _game: &std::path::Path, _save_dir: &std::path::Path) {}
+    /// Show a Yes/No confirmation dialog (for infinite loop warning, etc.).
+    /// Returns true for Yes, false for No. Default: false (safe default).
+    fn confirm(&mut self, _con: &mut Console, _res: &mut Resources, _msg: &str) -> bool {
+        false
+    }
+    /// Show a second confirmation dialog with custom button labels.
+    /// Returns true for first button (e.g., "Exit anyway"), false for second (e.g., "Wait...").
+    fn confirm2(&mut self, _con: &mut Console, _res: &mut Resources, _msg: &str) -> bool {
+        false
+    }
     fn shutdown(&mut self) {}
 }
 
@@ -294,5 +304,13 @@ impl Frontend for Headless {
 
     fn set_cols(&mut self, cols: usize) {
         self.width = cols;
+    }
+
+    fn confirm(&mut self, _con: &mut Console, _res: &mut Resources, _msg: &str) -> bool {
+        true
+    }
+
+    fn confirm2(&mut self, _con: &mut Console, _res: &mut Resources, _msg: &str) -> bool {
+        true
     }
 }
