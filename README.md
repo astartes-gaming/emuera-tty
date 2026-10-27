@@ -597,7 +597,7 @@ break a game, on Emuera's tabs:
 
 | Tab | Settings |
 |---|---|
-| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`) |
+| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`), milliseconds for infinite loop warning (0 = disabled, default 5000) |
 | Display | PRINTC items per line and width, don't break lines inside a button |
 | Font | text colour, selected button colour, the font for text drawn into pictures |
 | System2 | compress save data (Emuera reads compressed saves too) |
@@ -1102,6 +1102,9 @@ This is a proof of concept, so it will happen.
   RETURN, PRINTW…: it is an error if it runs).
 - **Screen looks broken:** Ctrl-L redraws; try `--gfx none` to rule out
   image problems; make the window wider.
+- **Infinite loop detection:** if a script runs too long without input
+  (default 5 s), a prompt appears (TUI) or the program exits (headless);
+  configure via `Milliseconds for infinite loop warning` in *Game settings → Environment* or the game's `emuera.config` (`無限ループ警告までのミリ秒数`).
 - **Reporting a bug:** include the error text and, if you can, a trace:
   `EMUERA_TRACE=FUNCTIONNAME emuera-tty 2> trace.txt` logs every call to
   functions whose name contains `FUNCTIONNAME`, with their results.

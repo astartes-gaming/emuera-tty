@@ -97,6 +97,14 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
     // Emuera compresses only binary saves; emuera-tty always writes binary
     // (Emuera reads it whatever its config says)
     saves.zip = zip && binary;
+
+    // Environment variable override (takes precedence over config files)
+    if let Ok(v) = std::env::var("EMUERA_INFINITE_LOOP_ALERT_TIME") {
+        if let Ok(ms) = v.parse::<u64>() {
+            con.infinite_loop_alert_time = ms;
+        }
+    }
+
     window_px
 }
 
