@@ -1487,7 +1487,10 @@ checked.
 - `EMUERA_LINT=1` with `--check` lists compiled statements that look like
   the parser split their line in the wrong place (a function name holding
   `(`, `,` or spaces; FORM text still holding `%`, `{` or `}`), for hunting
-  parser bugs across a whole game.
+  parser bugs across a whole game. It also lists every `>=` and `<=` between
+  two strings (and `CASE IS >=` / `IS <=` in a SELECTCASE on a string):
+  Emuera evaluates both as `<`, a bug as old as vanilla Emuera, so these are
+  the lines a fix would change.
 
 ## Tests
 

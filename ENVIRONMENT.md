@@ -22,7 +22,7 @@ not variables: `--translate-log`, `--translate-load` and
 | `EMUERA_INJECT` | `STMT\|\|STMT` | Statements run just before the `EMUERA_INJECT_AT`-th input. |
 | `EMUERA_INJECT_AT` | number | The input number `EMUERA_INJECT` runs before. |
 | `EMUERA_LIBRETRANSLATE` | `host:port` | The LibreTranslate server (default `127.0.0.1:5000`; option: `--libretranslate`). |
-| `EMUERA_LINT` | any value | With `--check`: list statements the parser may have split wrongly. |
+| `EMUERA_LINT` | any value | With `--check`: list statements the parser may have split wrongly, and every `>=` / `<=` between strings (Emuera evaluates both as `<`). |
 | `EMUERA_LIST_BUTTONS` | `1` | With `--headless`: print the values of the buttons on screen before each input. |
 | `EMUERA_LOG_STYLE` | `emuera` | Headless output with only the lines the game printed, as Emuera's log has them (used by the tests). |
 | `EMUERA_MEASURE` | `0` | Skip measuring how wide the terminal draws ambiguous-width characters. |

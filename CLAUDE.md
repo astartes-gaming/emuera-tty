@@ -107,7 +107,7 @@ Useful environment variables: `EMUERA_TIMING=1` (load phases + memory),
 buttons' values before each input, for scripted play),
 `EMUERA_INJECT="STMT||STMT"` with `EMUERA_INJECT_AT=n` (run statements
 before the n-th input), `EMUERA_LINT=1` with `--check` (statements the
-parser probably split wrongly), `EMUERA_MOUSE_LOG=<file>`,
+parser probably split wrongly, string `>=` / `<=`), `EMUERA_MOUSE_LOG=<file>`,
 `EMUERA_AMBIGUOUS=wide|narrow|osc66|single` (also `--ambiguous`),
 `EMUERA_MOUSE=mice|off|term`. `--strict` makes unimplemented commands
 errors instead of warnings. The translation log is set with
