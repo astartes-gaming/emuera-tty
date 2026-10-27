@@ -3928,6 +3928,11 @@ impl Frontend for Tty {
                                 // so it is in the history too
                                 let v = self.buttons[b].to_string();
                                 self.line.remember(&v);
+                                if !v.is_empty() {
+                                    con.reset_style();
+                                    con.print_ex(&v, false);
+                                    con.newline();
+                                }
                                 return InputResult::Text(v);
                             }
                         }
@@ -3941,11 +3946,19 @@ impl Frontend for Tty {
                         2 if press => {
                             if req.kind == InputKind::Wait {
                                 self.scroll = 0;
+                                con.reset_style();
+                                con.print_ex("[skip]", false);
+                                con.newline();
                                 return InputResult::Skip(String::new());
                             }
                             if let Some(b) = self.click_at(x, y) {
                                 let v = self.buttons[b].to_string();
                                 self.line.remember(&v);
+                                if !v.is_empty() {
+                                    con.reset_style();
+                                    con.print_ex(&v, false);
+                                    con.newline();
+                                }
                                 return InputResult::Skip(v);
                             }
                         }
@@ -3954,6 +3967,9 @@ impl Frontend for Tty {
                 }
                 Key::Skip if req.kind == InputKind::Wait => {
                     self.scroll = 0;
+                    con.reset_style();
+                    con.print_ex("[skip]", false);
+                    con.newline();
                     return InputResult::Skip(String::new());
                 }
                 // Emuera's macro keys (MainWindow): Fn puts its macro in
@@ -3963,6 +3979,9 @@ impl Frontend for Tty {
                     let text = self.macros().get(n as usize - 1).to_string();
                     if !text.is_empty() {
                         self.scroll = 0;
+                        con.reset_style();
+                        con.print_ex(&text, false);
+                        con.newline();
                         return InputResult::Line(text);
                     }
                 }
@@ -3982,6 +4001,11 @@ impl Frontend for Tty {
                 Key::Enter => {
                     let s = self.line.take();
                     self.line.remember(&s);
+                    if !s.is_empty() {
+                        con.reset_style();
+                        con.print_ex(&s, false);
+                        con.newline();
+                    }
                     return InputResult::Line(s);
                 }
                 Key::Backspace => {
@@ -4010,8 +4034,12 @@ impl Frontend for Tty {
                 }
                 Key::Char(c) => {
                     if req.one {
-                        self.line.remember(&c.to_string());
-                        return InputResult::Text(c.to_string());
+                        let s = c.to_string();
+                        self.line.remember(&s);
+                        con.reset_style();
+                        con.print_ex(&s, false);
+                        con.newline();
+                        return InputResult::Text(s);
                     }
                     self.line.insert(c);
                     redraw = true;
