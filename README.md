@@ -1458,6 +1458,11 @@ checked.
   still live: typing goes into the input line (`GETTEXTBOX`), the button
   under the pointer is `MOUSEB()`, and clicks and keys reach
   `GETKEY`/`GETKEYTRIGGERED` (AnonTW's dish search by name).
+- Infinite loop detection (`無限ループ警告までのミリ秒数` /
+  `Milliseconds for infinite loop warning`): after a configurable timeout
+  (default 5 s) without input, a confirmation dialog appears (TUI) or the
+  program exits (headless); configurable via `emuera.config`, the in-game
+  settings (Environment tab), or `EMUERA_INFINITE_LOOP_ALERT_TIME`.
 
 ### Debugging
 
