@@ -69,6 +69,7 @@ cargo test --release                        # unit tests, sample self-test, ERB 
 cargo test --release --test erb_suite       # just the ERB suite (tests/erb, golden, save)
 cargo test --release emuera_name_order      # one test by name
 cargo test --release --test sample_selftest # only the sample-game integration tests
+cargo test --release --test compat_suite -- --ignored  # the compat/ submodule (eraBasic compatibility suite)
 cargo clippy --release                      # lint config lives in Cargo.toml [lints.clippy]
 cargo fmt                                   # format before committing (rustfmt.toml: 160 columns)
 ./target/release/emuera-tty --install       # install to ~/.local/bin
