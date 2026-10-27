@@ -20,7 +20,6 @@ use crate::frontend::{Frontend, InputKind, InputReq, InputResult};
 use crate::gfx::{self, Backend, Placement};
 use crate::resources::Resources;
 use crate::vm::value::Value;
-use libc;
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
@@ -4463,7 +4462,9 @@ impl Frontend for Tty {
 
 /// Read a line from stdin, filtering out mouse escape sequences.
 /// Mouse sequences: VT200 (\x1b[M + 3 bytes), SGR (\x1b[<...M/m), urxvt (\x1b[...M), UTF-8 (\x1b[<...M)
+#[cfg(unix)]
 fn read_line_filtered() -> String {
+    use libc;
     use std::os::fd::AsRawFd;
     let stdin_fd = io::stdin().as_raw_fd();
     let mut line = String::new();
@@ -4527,7 +4528,7 @@ fn read_line_filtered() -> String {
                         }
                     } else if b.is_ascii_digit() || b == b';' || b == b':' || b == b'?' {
                         // Parameter bytes, stay in CSI state
-                    } else if b >= 0x40 && b <= 0x7e {
+                    } else if (0x40..=0x7e).contains(&b) {
                         // Final byte of CSI sequence
                         if mouse_bytes_remaining > 0 {
                             // This was a mouse sequence, discard it all
@@ -4567,6 +4568,16 @@ fn read_line_filtered() -> String {
             }
         }
     }
+    line.trim_end_matches(['\r', '\n']).to_string()
+}
+
+/// Windows implementation: in cooked mode (after RawMode::restore), just use standard read_line
+/// since mouse reporting is disabled via escape sequences.
+#[cfg(windows)]
+fn read_line_filtered() -> String {
+    use std::io::{stdin, BufRead};
+    let mut line = String::new();
+    stdin().lock().read_line(&mut line).unwrap_or_default();
     line.trim_end_matches(['\r', '\n']).to_string()
 }
 

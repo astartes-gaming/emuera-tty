@@ -480,6 +480,21 @@ mod imp {
                 SetConsoleOutputCP(self.orig_cp.1);
             }
         }
+
+        /// Re-enter raw mode without changing the stored original termios.
+        /// Used when temporarily suspended (e.g., for debugger input).
+        pub fn re_enter(&self) -> Result<(), String> {
+            let (hi, ho) = (handle(STD_INPUT_HANDLE), handle(STD_OUTPUT_HANDLE));
+            unsafe {
+                if SetConsoleMode(ho, ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0 {
+                    return Err("this console has no VT mode (needs Windows 10 or Windows Terminal)".into());
+                }
+                SetConsoleMode(hi, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS);
+                SetConsoleCP(65001);
+                SetConsoleOutputCP(65001);
+            }
+            Ok(())
+        }
     }
 
     impl Drop for RawMode {
