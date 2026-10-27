@@ -1105,6 +1105,12 @@ This is a proof of concept, so it will happen.
 - **Infinite loop detection:** if a script runs too long without input
   (default 5 s), a prompt appears (TUI) or the program exits (headless);
   configure via `Milliseconds for infinite loop warning` in *Game settings → Environment* or the game's `emuera.config` (`無限ループ警告までのミリ秒数`).
+- **Silent misparsing:** this fork could potentially parse or handle parts
+  of a script incorrectly, leading to unintended behavior without an error
+  message. If something feels off (wrong branch taken, variable not set,
+  event not firing), compare with the original `Emuera.exe` the game comes
+  with — run both on the same save and check for divergence.
+  **These discrepancies can be very minor/almost unnoticeable, so keep a close eye on mishaps you might see.**
 - **Reporting a bug:** include the error text and, if you can, a trace:
   `EMUERA_TRACE=FUNCTIONNAME emuera-tty 2> trace.txt` logs every call to
   functions whose name contains `FUNCTIONNAME`, with their results.
