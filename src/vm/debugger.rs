@@ -264,11 +264,7 @@ impl Debugger {
         }
 
         // Parse optional count argument for step commands
-        let count = if parts.len() > 1 {
-            parts[1].parse::<usize>().ok()
-        } else {
-            None
-        };
+        let count = if parts.len() > 1 { parts[1].parse::<usize>().ok() } else { None };
 
         match parts[0] {
             "c" | "continue" => DebugCommand::Continue,

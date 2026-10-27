@@ -4474,11 +4474,7 @@ fn read_line_filtered() -> String {
 
     loop {
         // Use poll to wait for input with a small timeout
-        let mut fds = [libc::pollfd {
-            fd: stdin_fd,
-            events: libc::POLLIN,
-            revents: 0,
-        }];
+        let mut fds = [libc::pollfd { fd: stdin_fd, events: libc::POLLIN, revents: 0 }];
         let ret = unsafe { libc::poll(fds.as_mut_ptr(), 1, 50) };
         if ret <= 0 {
             continue; // timeout or error, keep waiting
@@ -4493,7 +4489,8 @@ fn read_line_filtered() -> String {
         for &b in &buf[..n as usize] {
             match escape_state {
                 0 => {
-                    if b == 0x1b { // ESC
+                    if b == 0x1b {
+                        // ESC
                         escape_state = 1;
                     } else if b == b'\n' || b == b'\r' {
                         return line.trim_end_matches(['\r', '\n']).to_string();
