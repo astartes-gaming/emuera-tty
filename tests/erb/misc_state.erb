@@ -7,6 +7,8 @@
 SAVENOS LOCAL:1
 PRINTCPERLINE LOCAL:2
 CALL CHECK, "SAVENOS X, PRINTCPERLINE X", LOCAL:1 == SAVENOS() && LOCAL:1 > 0 && LOCAL:2 == PRINTCPERLINE()
+; eratohoPM: no 最初からいるキャラ in GameBase.csv is -1 (Emuera's DefaultCharacter)
+CALL CHECK, "GAMEBASE_DEFAULTCHARA unset", GAMEBASE_DEFAULTCHARA == -1
 ;--- CSV data functions
 CALL CHECK, "csv getters", CSVEXP(1, 0) == 0 && CSVMARK(1, 0) == 0 && CSVJUEL(1, 0) == 0 && CSVEQUIP(1, 0) == 0 && CSVRELATION(1, 0) == 0
 CALL CHECKS, "csvcstr csvmastername", CSVCSTR(1, 0) + CSVMASTERNAME(1), ""

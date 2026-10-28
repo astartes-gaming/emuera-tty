@@ -1163,7 +1163,9 @@ impl Vm {
             "GAMEBASE_CODE" | "GAMEBASE_GAMECODE" => Value::Int(self.gb_int("コード")),
             "GAMEBASE_VERSION" => Value::Int(self.gb_int("バージョン")),
             "GAMEBASE_ALLOWVERSION" => Value::Int(self.gb_int("バージョン違い認める")),
-            "GAMEBASE_DEFAULTCHARA" => Value::Int(self.gb_int("最初からいるキャラ")),
+            // -1 when GameBase.csv doesn't say (GameBase.DefaultCharacter):
+            // eratohoPM adds it when >= 0, and got a second character 0
+            "GAMEBASE_DEFAULTCHARA" => Value::Int(self.csv.gamebase.get("最初からいるキャラ").and_then(|s| s.trim().parse().ok()).unwrap_or(-1)),
             "GAMEBASE_NOITEM" => Value::Int(self.gb_int("アイテムなし")),
             "GAMEBASE_AUTHOR" | "GAMEBASE_AUTHER" => Value::Str(self.gb_str("作者")),
             "GAMEBASE_YEAR" => Value::Str(self.gb_str("製作年")),

@@ -4,7 +4,7 @@
 #
 # The game is never touched: it runs in a temporary copy (scripts and CSV
 # copied, pictures and sound linked) with its own settings, under a 4 GB
-# memory cap (VERBOSE=1 shows the last screen). Each step answers with one of the buttons on screen
+# memory cap (VERBOSE=1 shows the last screen, ANSWERS=FILE keeps the answers). Each step answers with one of the buttons on screen
 # (EMUERA_LIST_BUTTONS), or Enter / 0 / 1. Exit status 1 on a script error.
 # Run at most two at once on a small machine.
 set -e
@@ -37,10 +37,13 @@ for ((i = 0; i < steps; i++)); do
   btns=$(grep -a '^\[buttons: ' "$tmp/out" | tail -1 | sed 's/^\[buttons: //; s/\]$//')
   mapfile -t arr < <([ -n "$btns" ] && printf '%s\n' "$btns" | sed 's/\\,/\x01/g; s/, /\n/g' | sed 's/\x01/,/g')
   if ((${#arr[@]} > 0 && RANDOM % 10 < 9)); then
-    echo "${arr[RANDOM % ${#arr[@]}]}" >&3
+    ans=${arr[RANDOM % ${#arr[@]}]}
   else
-    case $((RANDOM % 3)) in 0) echo >&3 ;; 1) echo 0 >&3 ;; *) echo 1 >&3 ;; esac
+    case $((RANDOM % 3)) in 0) ans= ;; 1) ans=0 ;; *) ans=1 ;; esac
   fi
+  echo "$ans" >&3
+  # ANSWERS=FILE keeps them, to replay the session with --headless < FILE
+  [ -n "$ANSWERS" ] && echo "$ans" >> "$ANSWERS"
 done
 exec 3>&-
 wait $pid || true

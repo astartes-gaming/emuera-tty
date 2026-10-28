@@ -266,8 +266,9 @@ impl GameCsv {
             let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
             if stem.starts_with("CHARA") {
                 if let Ok(text) = read_text(&p) {
-                    let c = g.parse_chara(&text, &p);
-                    g.charas.push(c);
+                    if let Some(c) = g.parse_chara(&text, &p) {
+                        g.charas.push(c);
+                    }
                 }
             }
         }
@@ -353,8 +354,12 @@ impl GameCsv {
     }
 
     /// One character file: `番号,1` / `名前,…` / `能力,技巧,3` style rows.
-    fn parse_chara(&mut self, text: &str, file: &Path) -> CharaTemplate {
+    /// None when the file never gives a 番号: Emuera makes no character of
+    /// it (eraMegaten keeps emptied files that hold only a comment, which
+    /// made a second "character 0" here, ahead of the real one).
+    fn parse_chara(&mut self, text: &str, file: &Path) -> Option<CharaTemplate> {
         let mut c = CharaTemplate::default();
+        let mut numbered = false;
         for (line, joined) in joined_lines(text) {
             let line = line.as_str();
             let f = csv_fields(line);
@@ -367,8 +372,22 @@ impl GameCsv {
             let a1 = f.get(1).map(|s| s.as_str()).unwrap_or("");
             let a2 = f.get(2).map(|s| s.as_str());
             let ival = |s: Option<&str>, d: i64| s.and_then(parse_i64).unwrap_or(d);
+            // (ConstantData.loadCharacterDataFile: data before the 番号, a
+            // 番号 that isn't a number and a second 番号 are warned about
+            // and skipped)
+            if matches!(key, "番号" | "NO") {
+                match (numbered, parse_i64(a1)) {
+                    (false, Some(n)) => (c.no, numbered) = (n, true),
+                    (true, _) => self.warnings.push(format!("{}: a second 番号 (skipped)", file.display())),
+                    (false, None) => self.warnings.push(format!("{}: 番号 '{}' isn't a number", file.display(), a1)),
+                }
+                continue;
+            }
+            if !numbered {
+                self.warnings.push(format!("{}: '{}' before the 番号 (skipped)", file.display(), key));
+                continue;
+            }
             match key {
-                "番号" | "NO" => c.no = parse_i64(a1).unwrap_or(0),
                 "名前" | "NAME" => (c.name, c.names_set) = (a1.to_string(), c.names_set | 1),
                 "呼び名" | "CALLNAME" => (c.callname, c.names_set) = (a1.to_string(), c.names_set | 2),
                 "あだ名" | "NICKNAME" => (c.nickname, c.names_set) = (a1.to_string(), c.names_set | 4),
@@ -417,7 +436,7 @@ impl GameCsv {
         if c.callname.is_empty() {
             c.callname = c.name.clone();
         }
-        c
+        numbered.then_some(c)
     }
 }
 
@@ -466,9 +485,20 @@ mod tests {
     fn chara_keys_and_joined_cstr() {
         // lower-case keys (eraMegaten's `cstr`), a joined CSTR kept whole
         let mut g = GameCsv::default();
-        let t = g.parse_chara("番号,5\ncstr,0,abc\n{\nCSTR,1,\nx\ny\n}\n", Path::new("Chara5.csv"));
+        let t = g.parse_chara("番号,5\ncstr,0,abc\n{\nCSTR,1,\nx\ny\n}\n", Path::new("Chara5.csv")).unwrap();
         assert_eq!(t.no, 5);
         assert_eq!(t.strs, [("CSTR".to_string(), 0, "abc".to_string()), ("CSTR".to_string(), 1, " x y ".to_string())]);
         assert!(g.warnings.is_empty(), "{:?}", g.warnings);
+    }
+
+    #[test]
+    fn chara_files_without_a_number() {
+        // no 番号: no character (not a second "character 0")
+        let mut g = GameCsv::default();
+        assert!(g.parse_chara(";emptied\n", Path::new("Chara4912.csv")).is_none());
+        assert!(g.parse_chara("基礎,5,41\n", Path::new("Chara1.csv")).is_none());
+        let t = g.parse_chara("名前,early\n番号,3\n番号,4\n名前,A\n", Path::new("Chara3.csv")).unwrap();
+        assert_eq!((t.no, t.name.as_str()), (3, "A"));
+        assert_eq!(g.warnings.len(), 3, "{:?}", g.warnings);
     }
 }
