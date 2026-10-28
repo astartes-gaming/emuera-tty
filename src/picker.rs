@@ -222,21 +222,10 @@ struct Picker {
     wiki: Vec<crate::download::WikiGame>,
     wiki_game: usize,
     wiki_info: crate::download::Details,
-    /// whether each of the selected game's repositories answered
-    wiki_access: Vec<Access>,
+    /// the selected game's downloads, and whether each answered
+    wiki_opts: Vec<crate::download::Opt>,
     /// logins typed in this session (never written anywhere by us)
     logins: Vec<Login>,
-}
-
-/// Whether a repository answered `git ls-remote`.
-#[derive(Clone, Copy, PartialEq)]
-enum Access {
-    Unknown,
-    Ok,
-    /// it asked for a login: for signed-in users only, or gone
-    Login,
-    /// the repository answered, without the branch
-    NoBranch,
 }
 
 /// A user name and password (or access token) for a git host.
@@ -299,7 +288,7 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> 
         wiki: Vec::new(),
         wiki_game: 0,
         wiki_info: Default::default(),
-        wiki_access: Vec::new(),
+        wiki_opts: Vec::new(),
         logins: load_logins(),
     };
     p.load();
@@ -569,18 +558,21 @@ impl Picker {
                 if let Some(g) = self.wiki.get(self.wiki_game) {
                     self.entries.push(info(format!("  {}", crate::download::page_link(&g.title))));
                     self.entries.push(info(String::new()));
-                    let gated = self.wiki_access.contains(&Access::Login);
+                    use crate::download::Access;
+                    let gated = self.wiki_opts.iter().any(|o| o.access == Access::Login);
                     if gated || g.repos.iter().any(|r| url_host(&r.url).as_deref() == Some(GITGUD)) && self.login_for(&format!("https://{}/", GITGUD)).is_some()
                     {
                         self.entries.push(Entry { label: self.login_label(), wrapped: Vec::new(), kind: Kind::Login });
                     }
-                    for (i, r) in g.repos.iter().enumerate() {
-                        let note = match self.wiki_access.get(i) {
-                            Some(Access::Login) => "  (asks for a gitgud.io login, or is gone)",
-                            Some(Access::NoBranch) => "  (this branch is gone)",
-                            _ => "",
+                    for (i, o) in self.wiki_opts.iter().enumerate() {
+                        let note = match o.access {
+                            Access::Login => "  (asks for a gitgud.io login, or is gone)".to_string(),
+                            Access::NoBranch => "  (this branch is gone)".to_string(),
+                            _ if !o.note.is_empty() => format!("  ({})", o.note),
+                            _ => String::new(),
                         };
-                        self.entries.push(Entry { label: format!("⇩ Download {}{}", repo_label(r), note), wrapped: Vec::new(), kind: Kind::WikiRepo(i) });
+                        let label = format!("⇩ Download {}{}", repo_label(&o.repo), note);
+                        self.entries.push(Entry { label, wrapped: Vec::new(), kind: Kind::WikiRepo(i) });
                     }
                 }
                 self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
@@ -1367,30 +1359,25 @@ impl Picker {
                 }
             }
         };
-        // which repositories answer (and have the branch the wiki names)
+        // which repositories answer, their branches (see `download::options`)
         let repos = self.wiki[i].repos.clone();
         g.step(Step::Start("Asking its repositories…"));
-        let mut heads: Vec<(String, Option<String>)> = Vec::new();
-        self.wiki_access = vec![Access::Unknown; repos.len()];
-        'ask: for (k, r) in repos.iter().enumerate() {
-            if !heads.iter().any(|(u, _)| *u == r.url) {
-                let login = self.login_for(&r.url);
-                let mut c = git_cmd(login.as_ref());
-                c.args(["ls-remote", "--heads", &r.url]);
-                let got = match run_watched(&mut c, &mut |s| g.step(s), &mut || self.cancel_pressed()) {
-                    Ok((RunEnd::Ok, out, _)) => Some(out),
-                    Ok((RunEnd::Cancelled, ..)) => break 'ask,
-                    _ => None,
-                };
-                heads.push((r.url.clone(), got));
+        let mut heads: Vec<(String, Option<crate::download::Heads>)> = Vec::new();
+        for r in &repos {
+            if heads.iter().any(|(u, _)| *u == r.url) {
+                continue;
             }
-            let h = heads.iter().find(|(u, _)| *u == r.url).and_then(|(_, h)| h.as_deref());
-            self.wiki_access[k] = match h {
-                None => Access::Login,
-                Some(h) if r.branch.is_empty() || h.lines().any(|l| l.ends_with(&format!("refs/heads/{}", r.branch))) => Access::Ok,
-                Some(_) => Access::NoBranch,
+            let login = self.login_for(&r.url);
+            let mut c = git_cmd(login.as_ref());
+            c.args(["ls-remote", "--symref", &r.url, "HEAD", "refs/heads/*"]);
+            let got = match run_watched(&mut c, &mut |s| g.step(s), &mut || self.cancel_pressed()) {
+                Ok((RunEnd::Ok, out, _)) => Some(crate::download::parse_heads(&out)),
+                Ok((RunEnd::Cancelled, ..)) => break,
+                _ => None,
             };
+            heads.push((r.url.clone(), got));
         }
+        self.wiki_opts = crate::download::options(&repos, &heads);
         self.wiki_game = i;
         self.mode = Mode::DownloadGame;
         self.load();
@@ -1703,7 +1690,7 @@ impl Picker {
             Kind::Download => self.open_downloader(),
             Kind::WikiGame(i) => self.open_wiki_game(i),
             Kind::WikiRepo(i) => {
-                if let Some(r) = self.wiki.get(self.wiki_game).and_then(|g| g.repos.get(i)).cloned() {
+                if let Some(r) = self.wiki_opts.get(i).map(|o| o.repo.clone()) {
                     if which("git").is_none() {
                         self.note = "\x1b[31mgit isn't installed (or isn't on PATH): can't download.\x1b[0m".into();
                     } else {

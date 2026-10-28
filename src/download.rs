@@ -42,6 +42,104 @@ impl Repo {
     }
 }
 
+/// What `git ls-remote --symref URL HEAD refs/heads/*` says of a repository.
+#[derive(Debug, Default, PartialEq)]
+pub struct Heads {
+    /// the branch a clone without `--branch` checks out
+    pub default: String,
+    pub branches: Vec<String>,
+}
+
+pub fn parse_heads(out: &str) -> Heads {
+    let mut h = Heads::default();
+    for l in out.lines() {
+        if let Some(r) = l.strip_prefix("ref: refs/heads/") {
+            h.default = r.split('\t').next().unwrap_or("").to_string();
+        } else if let Some((_, r)) = l.split_once("\trefs/heads/") {
+            h.branches.push(r.to_string());
+        }
+    }
+    h
+}
+
+/// Is `branch` an English one by its name (`game/eng-release`,
+/// `english-translated`, `Eng-Dev`)?
+pub fn looks_english(branch: &str) -> bool {
+    branch.to_lowercase().contains("eng")
+}
+
+/// A repository's English branches, best first (releases, translations,
+/// then the rest; old ones and numbered snapshots last), at most three.
+pub fn english_branches(h: &Heads) -> Vec<String> {
+    let rank = |b: &str| {
+        let b = b.to_lowercase();
+        let stale = b.contains("old") || b.contains(|c: char| c.is_ascii_digit());
+        (stale, !b.contains("release"), !b.contains("translat"), !b.contains("dev"), b.len())
+    };
+    let mut v: Vec<&String> = h.branches.iter().filter(|b| looks_english(b)).collect();
+    v.sort_by_key(|b| rank(b));
+    v.into_iter().take(3).cloned().collect()
+}
+
+/// Whether a repository answered.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Access {
+    Unknown,
+    Ok,
+    /// it asked for a login: for signed-in users only, or gone
+    Login,
+    /// the repository answered, without the branch
+    NoBranch,
+}
+
+/// Something to download on a game's page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Opt {
+    pub repo: Repo,
+    pub access: Access,
+    /// shown after it: the default branch, or "found in the repository"
+    pub note: String,
+}
+
+/// A game page's downloads: the repositories its page links to, each with
+/// whether it answered (`heads`: what each repository said, None for no
+/// answer). When the page names a repository without a branch and its
+/// default branch isn't English while English ones exist (era-games'
+/// `game-old/master` or `game/japanese` beside `game/eng-release`), those
+/// come first, unless the page names one itself.
+pub fn options(repos: &[Repo], heads: &[(String, Option<Heads>)]) -> Vec<Opt> {
+    let answer = |url: &str| heads.iter().find(|(u, _)| u == url).map(|(_, h)| h.as_ref());
+    let mut out: Vec<Opt> = Vec::new();
+    let has = |out: &[Opt], r: &Repo| out.iter().any(|o| o.repo.url == r.url && o.repo.branch == r.branch);
+    for r in repos {
+        let access = match answer(&r.url) {
+            None => Access::Unknown,
+            Some(None) => Access::Login,
+            Some(Some(h)) if r.branch.is_empty() || h.branches.contains(&r.branch) => Access::Ok,
+            Some(Some(_)) => Access::NoBranch,
+        };
+        let mut note = String::new();
+        if let (true, Some(Some(h))) = (r.branch.is_empty(), answer(&r.url)) {
+            if !h.default.is_empty() {
+                note = format!("default branch {}", h.default);
+            }
+            let named = repos.iter().any(|o| o.url == r.url && looks_english(&o.branch));
+            if !looks_english(&h.default) && !named {
+                for b in english_branches(h) {
+                    let e = Repo { branch: b, ..r.clone() };
+                    if !has(&out, &e) {
+                        out.push(Opt { repo: e, access: Access::Ok, note: "found in the repository".into() });
+                    }
+                }
+            }
+        }
+        if !has(&out, r) {
+            out.push(Opt { repo: r.clone(), access, note });
+        }
+    }
+    out
+}
+
 /// A game page's infobox and first paragraph.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Details {
@@ -378,6 +476,34 @@ mod tests {
         let b = repo_of("https://gitgud.io/era-games/eratohoTW/-/tree/game/eng-release").unwrap();
         assert_eq!(b.folder(), "eratohoTW-game-eng-release");
         assert_eq!(repo_of("https://gitgud.io/era-games/eraAS").unwrap().folder(), "eraAS");
+    }
+
+    #[test]
+    fn english_branches_first() {
+        let h = parse_heads("ref: refs/heads/game-old/master\tHEAD\nabc\tHEAD\nabc\trefs/heads/game-old/master\nabd\trefs/heads/game/eng-development\nabe\trefs/heads/game/eng-release\nabf\trefs/heads/game/eng-translation\nabg\trefs/heads/game/eng-development-old\n");
+        assert_eq!(h.default, "game-old/master");
+        assert_eq!(english_branches(&h), ["game/eng-release", "game/eng-translation", "game/eng-development"]);
+        let r = repo_of("https://gitgud.io/era-games/eraAWT").unwrap();
+        let opts = options(std::slice::from_ref(&r), &[(r.url.clone(), Some(h))]);
+        let shown: Vec<(&str, &str)> = opts.iter().map(|o| (o.repo.branch.as_str(), o.note.as_str())).collect();
+        assert_eq!(
+            shown,
+            [
+                ("game/eng-release", "found in the repository"),
+                ("game/eng-translation", "found in the repository"),
+                ("game/eng-development", "found in the repository"),
+                ("", "default branch game-old/master"),
+            ]
+        );
+        // an English default, a branch the page names, no answer: as they are
+        let en = Heads { default: "game/eng-translation".into(), branches: vec!["game/eng-translation".into(), "game/eng-release".into()] };
+        assert_eq!(options(std::slice::from_ref(&r), &[(r.url.clone(), Some(en))]).len(), 1);
+        let named = repo_of("https://gitgud.io/era-games/eraAWT/-/tree/game/eng-translation").unwrap();
+        let jp = Heads { default: "master".into(), branches: vec!["master".into(), "game/eng-translation".into()] };
+        assert_eq!(options(&[r.clone(), named.clone()], &[(r.url.clone(), Some(jp))]).len(), 2);
+        let gone = options(&[named], &[(r.url.clone(), None)]);
+        assert_eq!(gone[0].access, Access::Login);
+        assert_eq!(english_branches(&parse_heads("x\trefs/heads/Eng-Dev\nx\trefs/heads/master\n")), ["Eng-Dev"]);
     }
 
     #[test]
