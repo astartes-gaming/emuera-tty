@@ -95,7 +95,7 @@ pub struct Frame {
 /// One character added with ADDCHARA: its character-variable arrays,
 /// created lazily on first access, by the variable's number in
 /// [`CharaNames`] (the same in every character).
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone)]
 pub struct Chara {
     pub vars: Vec<Option<Arr>>,
     /// NAME, CALLNAME, NICKNAME, MASTERNAME never set (bits 1, 2, 4, 8):

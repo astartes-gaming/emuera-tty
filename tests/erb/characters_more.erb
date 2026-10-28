@@ -10,9 +10,12 @@ CFLAG:1:好感度 = 9
 CFLAG:2:好感度 = 1
 CALL CHECK, "sumcarray maxcarray mincarray", SUMCARRAY(CFLAG:好感度) == 15 && MAXCARRAY(CFLAG:好感度) == 9 && MINCARRAY(CFLAG:好感度) == 1
 CALL CHECK, "inrangecarray", INRANGECARRAY(CFLAG:好感度, 2, 6) == 1
-; (MASTER, character 0 by default, stays where it is)
+; (MASTER, character 0 by default, stays where it is; TARGET and ASSI follow theirs)
+TARGET = 1
+ASSI = 2
 SORTCHARA CFLAG:好感度, FORWARD
 CALL CHECK, "sortchara keeps MASTER", CFLAG:0:好感度 == 5 && CFLAG:1:好感度 == 1 && CFLAG:2:好感度 == 9
+CALL CHECK, "sortchara: TARGET and ASSI follow", CFLAG:TARGET:好感度 == 9 && CFLAG:ASSI:好感度 == 1
 ADDCOPYCHARA 0
 CALL CHECK, "addcopychara", CHARANUM == 4 && NO:3 == NO:0
 PICKUPCHARA 1, 2

@@ -1511,9 +1511,6 @@ impl Vm {
                     None => (key.clone(), 0),
                 };
                 let master = self.get_global_i("MASTER", 0);
-                let target = self.get_global_i("TARGET", 0);
-                // Track the character that TARGET points to before sorting
-                let target_chara = if target >= 0 && (target as usize) < self.charas.len() { Some(self.charas[target as usize].clone()) } else { None };
                 let mut items: Vec<(usize, Value)> = Vec::new();
                 for c in 0..self.charas.len() {
                     if c as i64 == master {
@@ -1529,21 +1526,17 @@ impl Vm {
                 if back {
                     items.reverse();
                 }
-                let old = self.charas.clone();
-                let mut new = Vec::new();
-                let mut it = items.into_iter();
-                for c in 0..old.len() {
-                    if c as i64 == master {
-                        new.push(old[c].clone());
-                    } else if let Some((i, _)) = it.next() {
-                        new.push(old[i].clone());
-                    }
-                }
-                self.charas = new;
-                // Update TARGET to follow its character
-                if let Some(tc) = target_chara {
-                    if let Some(new_idx) = self.charas.iter().position(|c| c == &tc) {
-                        self.set_global_i("TARGET", 0, new_idx as i64);
+                // the new order as old positions; the characters are moved,
+                // not copied, and TARGET / ASSI follow theirs (Emuera's
+                // VariableEvaluator.SortChara, temp_CurrentOrder)
+                let mut it = items.into_iter().map(|(i, _)| i);
+                let order: Vec<usize> = (0..self.charas.len()).map(|c| if c as i64 == master { c } else { it.next().unwrap_or(c) }).collect();
+                let mut old: Vec<Option<Chara>> = std::mem::take(&mut self.charas).into_iter().map(Some).collect();
+                self.charas = order.iter().map(|&i| old[i].take().unwrap_or_default()).collect();
+                for v in ["TARGET", "ASSI"] {
+                    let was = self.get_global_i(v, 0);
+                    if let Some(now) = order.iter().position(|&i| i as i64 == was) {
+                        self.set_global_i(v, 0, now as i64);
                     }
                 }
             }
