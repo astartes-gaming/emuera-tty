@@ -1349,6 +1349,12 @@ them all (`EMUERA_PARSE=all` compiles everything at load for a normal
 run too). A script file edited while the game runs is read as it is
 then, for functions not run yet; the reload key (Ctrl-E) reloads everything.
 
+**Arrays hold only what was written.** An array keeps its elements up to
+the last one written to; the rest read as 0 / "" and cost nothing. eraAL-K
+gives each of its 743 characters CSTR:100000 and CFLAG:100000: allocated
+in full, they took 2 GB and the game ran out of memory at "new game";
+now they take 25 MB.
+
 Three things are kept within a share of the machine's memory, so a 512 MB
 board copes and a PC with memory to spare does exactly what it did:
 
@@ -1383,7 +1389,8 @@ reduce peak memory use at launch on small machines.
 | pops-tw, a new game | 1204 MB | 636 MB | 346 MB |
 
 `EMUERA_MEMSTATS=<file>` writes what the memory holds (functions
-compiled, the biggest variables, characters, picture buffers…) to
+compiled, the biggest variables, characters and their biggest
+variables, picture buffers…) to
 `<file>` at every input.
 
 ## Mouse

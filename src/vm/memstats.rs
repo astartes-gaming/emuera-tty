@@ -50,8 +50,23 @@ impl Vm {
         }
         let statics: usize = self.statics.iter().flatten().map(|a| a.bytes()).sum();
         let _ = writeln!(out, "function variables: {} ({})", self.statics.iter().flatten().count(), mb(statics));
-        let chara: usize = self.charas.iter().map(|c| c.vars.iter().flatten().map(|a| a.bytes()).sum::<usize>()).sum();
-        let _ = writeln!(out, "characters: {} ({})", self.charas.len(), mb(chara));
+        // per variable, summed over the characters
+        let mut per: Vec<(usize, u32)> = Vec::new();
+        for c in &self.charas {
+            for (id, a) in c.vars.iter().enumerate() {
+                if let Some(a) = a {
+                    if per.len() <= id {
+                        per.resize(id + 1, (0, 0));
+                    }
+                    per[id] = (per[id].0 + a.bytes(), id as u32);
+                }
+            }
+        }
+        let _ = writeln!(out, "characters: {} ({})", self.charas.len(), mb(per.iter().map(|p| p.0).sum()));
+        per.sort_unstable_by(|a, b| b.cmp(a));
+        for &(b, id) in per.iter().take(8).filter(|p| p.0 > 0) {
+            let _ = writeln!(out, "  {:<24} {}", self.chara_names.name(id), mb(b));
+        }
         // the game's own pictures, then the sprite pictures decoded for the
         // screen (the ones Images: none skips)
         let (game, sprites) = self.res.mem_stats();

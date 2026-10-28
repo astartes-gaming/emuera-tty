@@ -3,7 +3,10 @@
 
 use super::value::Value;
 
-/// The element storage of an [`Arr`], row-major.
+/// The element storage of an [`Arr`], row-major. It holds the elements up
+/// to the last one written: those past its end read as 0 / "", so a big
+/// array nothing wrote to costs nothing (eraAL-K's characters have
+/// CSTR:100000 and CFLAG:100000 each).
 #[derive(Clone, Debug)]
 pub enum Data {
     I(Vec<i64>),
@@ -20,8 +23,7 @@ pub struct Arr {
 
 impl Arr {
     pub fn new(is_str: bool, dims: &[usize]) -> Arr {
-        let n: usize = dims.iter().product::<usize>().max(1);
-        Arr { data: if is_str { Data::S(vec![String::new(); n]) } else { Data::I(vec![0; n]) }, dims: dims.to_vec() }
+        Arr { data: if is_str { Data::S(Vec::new()) } else { Data::I(Vec::new()) }, dims: dims.to_vec() }
     }
 
     pub fn is_str(&self) -> bool {
@@ -36,7 +38,17 @@ impl Arr {
         }
     }
 
+    /// The number of elements (written or not).
     pub fn len(&self) -> usize {
+        match self.dims.len() {
+            0 => self.stored().max(1),
+            1 => self.dims[0],
+            _ => self.dims.iter().product(),
+        }
+    }
+
+    /// The number of elements held (see [`Data`]).
+    fn stored(&self) -> usize {
         match &self.data {
             Data::I(v) => v.len(),
             Data::S(v) => v.len(),
@@ -79,20 +91,34 @@ impl Arr {
         }
     }
 
-    /// Make room for element `f` (capped at 50M elements to survive
-    /// runaway indices).
+    /// Make a 1-D array (or a scalar) long enough for element `f` (capped
+    /// at 50M elements to survive runaway indices); false if `f` stays out
+    /// of range.
+    fn extend(&mut self, f: usize) -> bool {
+        let n = self.len();
+        if f < n {
+            return true;
+        }
+        if f > 50_000_000 || self.dims.len() > 1 {
+            return false;
+        }
+        if let [d] = &mut self.dims[..] {
+            *d = f + 1;
+        }
+        true
+    }
+
+    /// Make room for element `f`, holding the elements up to it: a small
+    /// array is held whole at once.
     fn grow(&mut self, f: usize) {
-        if f >= self.len() {
-            if f > 50_000_000 {
-                return;
-            }
-            match &mut self.data {
-                Data::I(v) => v.resize(f + 1, 0),
-                Data::S(v) => v.resize(f + 1, String::new()),
-            }
-            if self.dims.len() == 1 {
-                self.dims[0] = f + 1;
-            }
+        if f < self.stored() || !self.extend(f) {
+            return;
+        }
+        let n = self.len();
+        let to = if n <= 1024 { n.max(f + 1) } else { f + 1 };
+        match &mut self.data {
+            Data::I(v) => v.resize(to, 0),
+            Data::S(v) => v.resize(to, String::new()),
         }
     }
 
@@ -119,8 +145,17 @@ impl Arr {
         if range.is_empty() {
             return;
         }
-        self.grow(range.end - 1);
-        let end = range.end.min(self.len());
+        // 0 / "" needn't reach past the elements held
+        let unset = match &self.data {
+            Data::I(_) => val.as_int() == 0,
+            Data::S(_) => val.as_string().is_empty(),
+        };
+        if unset {
+            self.extend(range.end - 1);
+        } else {
+            self.grow(range.end - 1);
+        }
+        let end = range.end.min(self.stored());
         let start = range.start.min(end);
         match &mut self.data {
             Data::I(v) => v[start..end].fill(val.as_int()),
@@ -143,7 +178,7 @@ impl Arr {
             return;
         }
         self.grow(range.end - 1);
-        let end = range.end.min(self.len());
+        let end = range.end.min(self.stored());
         let start = range.start.min(end);
         let m = (k.unsigned_abs() as usize).min(end - start);
         if m == 0 {
@@ -177,8 +212,8 @@ impl Arr {
     /// Reset every element to 0 / "".
     pub fn clear(&mut self) {
         match &mut self.data {
-            Data::I(v) => v.iter_mut().for_each(|x| *x = 0),
-            Data::S(v) => v.iter_mut().for_each(|x| x.clear()),
+            Data::I(v) => v.clear(),
+            Data::S(v) => v.clear(),
         }
     }
 
@@ -415,5 +450,32 @@ mod tests {
         }
         s.shift(1..4, -1, &Value::Str(String::new()));
         assert_eq!((0..4).map(|i| s.get(i).into_string()).collect::<Vec<_>>(), ["a", "c", "d", ""]);
+    }
+
+    #[test]
+    fn big_arrays_hold_only_what_was_written() {
+        let mut a = Arr::new(true, &[100_000]);
+        assert_eq!((a.len(), a.bytes()), (100_000, 0));
+        a.set(10, Value::Str("x".into()));
+        assert_eq!((a.len(), a.get(10).into_string(), a.get(99_999).into_string()), (100_000, "x".to_string(), String::new()));
+        assert!(a.bytes() < 1000);
+        // clearing past the held part holds nothing more; a value does
+        a.fill(0..100_000, &Value::Str(String::new()));
+        assert!(a.bytes() < 1000 && a.get(10).into_string().is_empty());
+        a.fill(50..60, &Value::Str("y".into()));
+        assert_eq!((a.get(59).into_string(), a.get(60).into_string()), ("y".to_string(), String::new()));
+        // 1-D arrays still grow past their size; 2-D ones don't
+        a.set(100_005, Value::Str("z".into()));
+        assert_eq!(a.len(), 100_006);
+        let mut m = Arr::new(false, &[3, 4]);
+        assert_eq!(m.len(), 12);
+        m.set(11, Value::Int(5));
+        m.set(12, Value::Int(6));
+        assert_eq!((m.get_i(11), m.get_i(12), m.len()), (5, 0, 12));
+        // a scalar
+        let mut sc = Arr::new(false, &[]);
+        assert_eq!(sc.len(), 1);
+        sc.set(0, Value::Int(3));
+        assert_eq!(sc.get_i(0), 3);
     }
 }
