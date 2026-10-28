@@ -510,6 +510,10 @@ print the values of the buttons on screen before each input.
 .B EMUERA_THREADS
 Cap the threads used for loading and picture decoding.
 .TP
+.B EMUERA_STACK_MB
+The script thread's stack in MB (default 512, or the most the system
+allows); scripts may nest one call per 16 KB of it, up to 4000.
+.TP
 .B EMUERA_SEED
 Fix the random number generator (reproducible runs).
 .TP

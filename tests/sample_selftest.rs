@@ -194,3 +194,28 @@ fn save_history() {
     assert!(tmp.is_empty(), "{:?}", tmp);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// On a small stack (Haiku allows a thread under 16 MB; EMUERA_STACK_MB
+/// stands in for it here) endless recursion is still a script error, not
+/// a crash: the call-depth limit follows the stack's size.
+#[test]
+fn deep_recursion_on_a_small_stack() {
+    let dir = temp_dir("small-stack");
+    for erb in
+        ["@SYSTEM_TITLE\nCALL R(0)\n@R(N)\n#DIM N\nCALL R(N + 1)\n", "@SYSTEM_TITLE\nPRINTFORML {F(0)}\n@F(N)\n#FUNCTION\n#DIM N\nRETURNF 1 + F(N + 1)\n"]
+    {
+        game(&dir, &[("ERB/T.ERB", erb)]);
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty"))
+            .arg(&dir)
+            .arg("--headless")
+            .env("EMUERA_STACK_MB", "2")
+            .env("XDG_DATA_HOME", dir.join("data"))
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+        assert!(text.contains("call stack overflow"), "{:?}\n{}", out.status, text);
+        assert!(out.status.code().is_some(), "killed: {:?}\n{}", out.status, text);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

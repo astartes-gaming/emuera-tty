@@ -170,6 +170,7 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_SEED", "number the random generator starts from (reproducible runs)"),
     ("EMUERA_SOUND", "on or off: play the game's sounds (default: yes, except over SSH)"),
     ("EMUERA_SOUND_PLAYER", "the sound player: mpv, ffplay, mplayer, afplay, pw-play, paplay, aplay or powershell"),
+    ("EMUERA_STACK_MB", "stack of the script thread in MB (default 512, or the most the system allows)"),
     ("EMUERA_THREADS", "cap on the threads used for loading and picture decoding"),
     ("EMUERA_TIMING", "1: print how long each loading phase takes and the memory in use"),
     ("EMUERA_TRACE", "log calls to functions whose name contains this, with timestamps, to stderr"),

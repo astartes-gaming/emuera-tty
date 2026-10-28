@@ -669,16 +669,14 @@ fn parallel_chunks<T: Sync, R: Send>(items: &[T], threads: usize, weight: impl F
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<R>>> = Mutex::new((0..chunks.len()).map(|_| None).collect());
     std::thread::scope(|s| {
+        let work = || loop {
+            let k = next.fetch_add(1, Ordering::Relaxed);
+            let Some(c) = chunks.get(k) else { break };
+            let r = f(c);
+            results.lock().unwrap()[k] = Some(r);
+        };
         for _ in 0..threads.min(chunks.len()) {
-            std::thread::Builder::new()
-                .stack_size(64 << 20)
-                .spawn_scoped(s, || loop {
-                    let k = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(c) = chunks.get(k) else { break };
-                    let r = f(c);
-                    results.lock().unwrap()[k] = Some(r);
-                })
-                .expect("spawn");
+            stack_sizes(64 << 20).find_map(|size| std::thread::Builder::new().stack_size(size).spawn_scoped(s, work).ok()).expect("spawn");
         }
     });
     results.into_inner().unwrap().into_iter().map(|r| r.expect("chunk not processed")).collect()
@@ -778,10 +776,27 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
     Some(g)
 }
 
+/// Stack sizes to try for a thread that wants `want` bytes, largest first.
+/// Some systems cap a thread's stack (Haiku: 16 MB less its guard pages),
+/// so each halving is tried 64 KB short too.
+fn stack_sizes(want: usize) -> impl Iterator<Item = usize> {
+    std::iter::successors(Some(want), |&s| (s > 1 << 20).then_some(s / 2)).flat_map(|s| [s, s - (64 << 10)])
+}
+
 fn main() {
     let o = parse_args();
-    // ERB call chains can be deep; run on a thread with a large stack.
-    let h = std::thread::Builder::new().stack_size(512 << 20).spawn(move || run(o)).expect("spawn");
+    // ERB call chains can be deep: run on a thread with a large stack
+    // (EMUERA_STACK_MB, default 512), or the largest the system allows
+    let want = std::env::var("EMUERA_STACK_MB").ok().and_then(|m| m.parse::<usize>().ok()).filter(|&m| m > 0).map_or(512 << 20, |m| m << 20);
+    let o = std::sync::Arc::new(std::sync::Mutex::new(Some(o)));
+    let h = stack_sizes(want)
+        .find_map(|size| {
+            let o = o.clone();
+            let h = std::thread::Builder::new().stack_size(size).spawn(move || run(o.lock().unwrap().take().expect("options"))).ok()?;
+            vm::set_stack_bytes(size);
+            Some(h)
+        })
+        .expect("spawn");
     let code = h.join().unwrap_or(101);
     std::process::exit(code);
 }

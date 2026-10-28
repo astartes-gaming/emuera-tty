@@ -309,8 +309,25 @@ pub struct Vm {
     pub defer_warnings: bool,
 }
 
-/// Nested user calls allowed before reporting a stack overflow.
-const MAX_DEPTH: usize = 4000;
+/// The VM thread's stack size, as `main` got it (Haiku allows a thread
+/// under 16 MB, not the 512 MB asked for).
+static STACK_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(512 << 20);
+
+/// Native stack allowed per nested user call: a CALL takes about 2 KB, a
+/// #FUNCTION recursing inside an expression about 3 KB (x86-64 release),
+/// so this leaves room to spare. 512 MB gives the 4000 levels; Haiku's
+/// 16 MB about 1000.
+const CALL_STACK_BYTES: usize = 16 << 10;
+
+pub fn set_stack_bytes(n: usize) {
+    STACK_BYTES.store(n, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Nested user calls allowed before reporting a stack overflow: 4000, or
+/// fewer on a smaller stack.
+fn max_depth() -> usize {
+    (STACK_BYTES.load(std::sync::atomic::Ordering::Relaxed) / CALL_STACK_BYTES).clamp(16, 4000)
+}
 
 /// A built-in variable's dimensions with VariableSize.csv applied.
 pub(crate) fn sized_dims(varsize: &HashMap<String, Vec<usize>>, name: &str, def: &VarDef) -> Vec<usize> {
@@ -1673,7 +1690,7 @@ impl Vm {
             let depth = self.frames.len();
             self.debugger.on_function_enter(depth);
         }
-        if self.frames.len() >= MAX_DEPTH {
+        if self.frames.len() >= max_depth() {
             return err("call stack overflow");
         }
         // (compiled on its first call: report what didn't parse)
