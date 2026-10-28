@@ -746,6 +746,40 @@ impl Mt {
     pub fn busy(&self) -> bool {
         self.seen.values().any(|s| matches!(s, State::Waiting))
     }
+
+    /// Export the translation cache to a file, formatted like a translation log.
+    /// Only includes successful translations (from `memory` and `seen`).
+    /// Returns the number of lines written, or an error.
+    pub fn export_cache(&self, path: &std::path::Path) -> Result<usize, String> {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().create(true).truncate(true).write(true).open(path).map_err(|e| format!("open {}: {}", path.display(), e))?;
+        let header = log_header(&self.lang, &self.engine_desc);
+        writeln!(file, "{}", header).map_err(|e| e.to_string())?;
+        let mut count = 0;
+        // First: translations from --translate-load files (memory)
+        for (orig, tr) in &self.memory {
+            if orig.is_empty() || tr.is_empty() {
+                continue;
+            }
+            // We don't have a place for these, so use "-"
+            let pair = format!("{}>{}", if orig.chars().any(|c| is_japanese(c)) { "ja" } else { "en" }, self.lang);
+            let _ = writeln!(file, "-\t{}\t{}\t{}\t{}", pair, self.engine_desc, flat(orig), flat(tr));
+            count += 1;
+        }
+        // Then: translations from this session (seen)
+        for (orig, state) in &self.seen {
+            if let State::Done(tr) = state {
+                if orig.is_empty() || tr.is_empty() {
+                    continue;
+                }
+                // We don't track the place in seen, so use "-"
+                let pair = format!("{}>{}", if orig.chars().any(|c| is_japanese(c)) { "ja" } else { "en" }, self.lang);
+                let _ = writeln!(file, "-\t{}\t{}\t{}\t{}", pair, self.engine_desc, flat(orig), flat(tr));
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
 }
 
 /// A text on one line, as the log has it: tabs and line breaks as spaces.
@@ -1237,5 +1271,36 @@ mod tests {
         }
         assert_eq!(mt.get("abc", "ja", None), Some("ABC"));
         assert!(!mt.busy());
+    }
+
+    #[test]
+    fn export_cache() {
+        let dir = std::env::temp_dir().join(format!("emuera-tty-mtexport-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("export.tsv");
+        // Start with loaded translations from a file
+        let load = dir.join("load.tsv");
+        std::fs::write(&load, "ERB/x.ERB:1\tja>en\t「おはよう」\t「Good morning.」\nERB/x.ERB:2\tja>en\t「元気?」\t「How are you?」\n").unwrap();
+        let mut mt = Mt::start_with(None, "en", &[load], None);
+        assert_eq!(mt.memory_len(), 2);
+        // Add a translation from the session
+        let e = Engine::Command("tr a-z A-Z".into());
+        let _ = e.translate("こんにちは", "ja", "en", &mut None).unwrap(); // dummy to create engine
+                                                                           // Simulate a translated line by inserting into seen
+        mt.seen.insert("こんにちは".to_string(), State::Done("KONNICHIWA".to_string()));
+        // Export
+        let n = mt.export_cache(&out).unwrap();
+        assert_eq!(n, 3); // 2 from memory + 1 from seen
+        let text = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).collect();
+        assert_eq!(lines.len(), 3);
+        // Check header
+        assert!(text.lines().next().unwrap().starts_with("# emuera-tty translations into en"));
+        // Check loaded translations (flat replaces tabs/newlines with spaces, keeps punctuation)
+        assert!(lines.iter().any(|l| l.contains("「おはよう」") && l.contains("Good morning.")));
+        assert!(lines.iter().any(|l| l.contains("「元気?」") && l.contains("How are you?")));
+        // Check session translation
+        assert!(lines.iter().any(|l| l.contains("こんにちは") && l.contains("KONNICHIWA")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

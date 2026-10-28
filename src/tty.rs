@@ -2905,6 +2905,7 @@ impl Tty {
             }
             rows.extend([
                 ("Clear the translation cache  (translate the screen again)", 4),
+                ("Export translation cache…  (save translations to a file)", 14),
                 ("Clear the picture cache  (frees decoded sprites; they load again when shown)", 5),
                 ("Recolor…  (draw a colour of the game's as another)", 12),
                 ("Back to the title  (Ctrl-T)", 6),
@@ -3061,6 +3062,32 @@ impl Tty {
                             None => "translation is off: no cache to clear".into(),
                         };
                         self.force_frame = true;
+                    }
+                    14 => {
+                        // Export translation cache: only offered when translation is on and no --translate-log
+                        let note_ = match self.mt.as_ref().map(|m| m.logging()) {
+                            Some(true) => "a translation log is already being written; no need to export".into(),
+                            Some(false) => {
+                                if let Some(v) =
+                                    self.prompt(con, res, req, "Export translation cache", "File path to write the translation cache (empty: cancel):", "")
+                                {
+                                    let path = std::path::PathBuf::from(v.trim());
+                                    if path.as_os_str().is_empty() {
+                                        "export cancelled".into()
+                                    } else {
+                                        match self.mt.as_ref().map(|m| m.export_cache(&path)) {
+                                            Some(Ok(n)) => format!("translation cache exported ({} lines) to {}", n, path.display()),
+                                            Some(Err(e)) => format!("export failed: {}", e),
+                                            None => "translation is off: no cache to export".into(),
+                                        }
+                                    }
+                                } else {
+                                    "export cancelled".into()
+                                }
+                            }
+                            None => "translation is off: no cache to export".into(),
+                        };
+                        note = note_;
                     }
                     5 => {
                         // whatever the Images setting: drop the decoded
