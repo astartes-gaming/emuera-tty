@@ -135,11 +135,11 @@ Expect rough edges in parts of the games nobody has played through yet
   OpenBSD, DragonFly), **Windows 10/11** (works in either the base `cmd` or
   WezTerm), **Termux** on Android (having an OTG mouse + keyboard on hand
   and using the device in landscape mode is recommended), **illumos /
-  Solaris**, **Haiku** and **Redox**, but **Linux is the main tested system.
+  Solaris**, **Haiku**, **GNU/Hurd** and **Redox**, but **Linux is the main tested system.
   Windows and Android have had some testing too (Android on Termux, and
   even under a custom Android recovery environment), but both still need
-  further feedback. Haiku, FreeBSD, NetBSD, OpenBSD and illumos (OmniOS)
-  pass the test suite in virtual machines; macOS, DragonFly, Solaris and
+  further feedback. Haiku, FreeBSD, NetBSD, OpenBSD, illumos (OmniOS) and
+  GNU/Hurd (Debian) pass the test suite in virtual machines; macOS, DragonFly, Solaris and
   Redox are compile-checked only.** Reports are welcome. See [Other systems](#other-systems) for the differences,
   [Other CPUs](#other-cpus) for ARM, RISC-V, PowerPC, MIPS and the rest,
   and [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for
@@ -211,6 +211,8 @@ export PATH="$HOME/.local/bin:$PATH"
 | illumos x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OmniOS r151058 VM, game output identical to Linux |
 | Solaris x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Haiku x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with Haiku's own gcc: the test suite passes in a Haiku R1/beta5 VM, game output identical to Linux |
+| GNU/Hurd x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own gcc: the test suite passes in a Debian GNU/Hurd 2026-03-14 VM, game output identical to Linux; played on its console |
+| GNU/Hurd i686 | Build failed (under actions), check passed | Compile-checked only |
 | Redox x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)... somehow |
 | Linux RISC-V 32 | Build failed (under actions), check failed | Rust's own standard library doesn't build there at the moment (`SYS_futex` missing from libc for that target), nothing in emuera-tty |
@@ -264,8 +266,8 @@ export PATH="$HOME/.local/bin:$PATH"
   Linux; `--install` puts the program in Termux's `$PREFIX/bin`. Pictures
   show if Termux's terminal answers that it can draw sixels (auto
   detection), else placeholders.
-- **Haiku**, **Redox**, **illumos / Solaris**, **NetBSD / OpenBSD /
-  DragonFly**: the Unix code path (termios, `poll`), as on Linux minus the
+- **Haiku**, **Redox**, **illumos / Solaris**, **GNU/Hurd**, **NetBSD /
+  OpenBSD / DragonFly**: the Unix code path (termios, `poll`), as on Linux minus the
   Linux-console extras. Haiku's Terminal and Redox's console show text
   only; on Haiku the fastest serial speeds (460800, 921600) aren't
   offered, on Redox there is no RTS/CTS flow control. Haiku gives a thread
@@ -276,7 +278,10 @@ export PATH="$HOME/.local/bin:$PATH"
   (NetBSD's console, xterm in Latin-1 mode) is detected at startup and
   gets ASCII lookalikes or `?` in each character's cells, so layouts stay
   aligned; FreeBSD's console takes UTF-8 but its default font has no
-  Japanese.
+  Japanese. The Hurd's console (`TERM=hurd`) shows Japanese and is
+  treated like the Linux console: 16 colours (brightened by bold, as it
+  drops 90–97), no terminal queries, no mouse (the keyboard pointer is
+  on), and no copying to the clipboard (it would print the OSC 52 escape).
 
 ### Other CPUs
 
@@ -1429,7 +1434,7 @@ report.
 ### No mouse?
 
 *Keyboard pointer* in the settings (`auto` turns it on by itself on the
-Linux console when no mouse can be found) puts a pointer on the screen
+Linux console when no mouse can be found, and on the Hurd's console) puts a pointer on the screen
 that the **cursor keys** move a cell at a time; **Insert** clicks under it,
 and so does **Shift+Enter** where the terminal sends it apart from Enter
 (Konsole, xterm; not the Linux console). Enter keeps its own job, and
@@ -1785,7 +1790,7 @@ text.
 
 1. Run it on macOS, DragonFly and Redox and on a real Raspberry Pi Zero:
    they compile (the Pi build also runs under emulation; Haiku, the other
-   BSDs and illumos pass the tests in virtual machines), nobody has
+   BSDs, illumos and GNU/Hurd pass the tests in virtual machines), nobody has
    played on them yet. Windows and Android have
    had some testing, and need more feedback.
 2. A good way to play on Android phones, through Termux: players keep

@@ -643,6 +643,9 @@ pub struct Tty {
     animating: bool,
     /// fbterm: 256 colours through its own escapes
     fbterm: bool,
+    /// 16 colours: the bright ones as 90-97 (the Hurd's console drops a
+    /// whole SGR with them: bold brightens there)
+    bright_codes: bool,
     /// hash of each screen row as last written (0: unknown, write it)
     row_hash: Vec<u64>,
     hash_cols: usize,
@@ -862,7 +865,7 @@ impl Tty {
             Ok("16") => Some(ColorMode::C16),
             _ => None,
         };
-        let detected = if term == "linux" {
+        let detected = if term == "linux" || term == "hurd" {
             ColorMode::C16
         } else if term.starts_with("fbterm") {
             // with its own escapes (see `sgr`)
@@ -952,6 +955,7 @@ impl Tty {
             game: None,
             animating: false,
             fbterm: term.starts_with("fbterm"),
+            bright_codes: term != "hurd",
             row_hash: Vec::new(),
             hash_cols: 0,
             redraw_all: std::cell::Cell::new(true),
@@ -974,7 +978,7 @@ impl Tty {
         if t.ambi != Ambi::Narrow {
             t.widths = t.measure_widths();
         }
-        let is_vt = term == "linux" || term.starts_with("fbterm");
+        let is_vt = text_console(&term);
         // the terminal's own background, for readable colours (the Linux
         // console's is black and it doesn't answer)
         if !is_vt {
@@ -1218,7 +1222,7 @@ impl Tty {
     /// why the framebuffer wasn't), for stderr at start or the settings
     /// page later: printed while the game is on screen it would land on it.
     fn setup_gfx(&mut self, pref: &str, term: &str) -> String {
-        let is_vt = term == "linux" || term.starts_with("fbterm");
+        let is_vt = text_console(term);
         let mut why = String::new();
         let mut try_fb = |t: &mut Tty| -> bool {
             match gfx::fb::Fb::open() {
@@ -1838,7 +1842,7 @@ impl Tty {
             }
             ColorMode::C16 => {
                 let (c, bright) = rgb16(fg);
-                let _ = write!(out, ";{}", if bright { 90 + c } else { 30 + c });
+                let _ = write!(out, ";{}", if bright && self.bright_codes { 90 + c } else { 30 + c });
                 // the Linux console and fbterm brighten via bold, not 90-97
                 if bright {
                     out.extend_from_slice(b";1");
@@ -2270,7 +2274,7 @@ impl Tty {
         // as one synchronized update (DEC mode 2026: kitty, WezTerm, foot,
         // Ghostty, Konsole, Windows Terminal…; others ignore it), so a
         // picture replaced by another is never shown half done or gone
-        let console = self.term == "linux" || self.term.starts_with("fbterm");
+        let console = text_console(&self.term);
         if !console {
             write_all(b"\x1b[?2026h");
         }
@@ -2616,6 +2620,10 @@ impl Tty {
 
     /// Copy the printed text to the clipboard if `t` is a trigger for it.
     fn copy_text(&mut self, con: &Console, t: crate::clipboard::Trigger) {
+        // (the Hurd's console would print the OSC 52 string)
+        if self.term == "hurd" {
+            return;
+        }
         let cfg = self.clip_config(con);
         if let Some(seq) = self.clip.check(con, &cfg, t) {
             write_all(&seq);
@@ -2771,7 +2779,7 @@ impl Tty {
             }
         }
         // (on the Linux console every move, for the mouse counter there)
-        let console = self.term == "linux" || self.term.starts_with("fbterm");
+        let console = text_console(&self.term);
         if self.status_info && (new_hover != old_hover || console) {
             self.draw_bar(&mut out, new_hover);
         }
@@ -3411,11 +3419,17 @@ impl Tty {
             // 16 colours: white / yellow on black, black on white
             ColorMode::C16 => {
                 let f = if fg == (0, 0, 0) {
-                    30
+                    "30"
                 } else if fg.2 < 100 {
-                    93
+                    if self.bright_codes {
+                        "93"
+                    } else {
+                        "33;1"
+                    }
+                } else if self.bright_codes {
+                    "97"
                 } else {
-                    97
+                    "37;1"
                 };
                 let k = if bg == (0, 0, 0) || bg.0 < 128 { 40 } else { 47 };
                 format!("\x1b[0;{}{};{}m", b, f, k)
@@ -3563,7 +3577,7 @@ impl Tty {
             }
             // on the Linux console: is the mouse there, and are its events
             // coming in?
-            if self.term == "linux" || self.term.starts_with("fbterm") {
+            if text_console(&self.term) {
                 let m = match &self.mice {
                     Some(m) => format!("mouse:{} {}", m.describe().split(' ').next().unwrap_or(""), self.mouse_events),
                     None => "mouse:none".to_string(),
@@ -3645,7 +3659,7 @@ impl Tty {
     }
 
     pub fn set_kbd_pointer(&mut self, v: &str) {
-        let console = self.term == "linux" || self.term.starts_with("fbterm");
+        let console = text_console(&self.term);
         self.kbd_ptr = v == "on" || (v == "auto" && console && self.mice.is_none());
         if self.kbd_ptr && self.mouse.is_none() {
             self.mouse = Some((self.cols / 2, self.rows / 2));
@@ -3845,6 +3859,13 @@ fn rgb256(c: Rgb) -> u8 {
     } else {
         16 + 36 * cube.0 + 6 * cube.1 + cube.2
     }
+}
+
+/// A text console: no answers to terminal queries, no pictures beyond its
+/// own framebuffer, a pointer of our own for the mouse. The Linux console,
+/// fbterm and the Hurd's console (which prints OSC strings as text).
+fn text_console(term: &str) -> bool {
+    term == "linux" || term.starts_with("fbterm") || term == "hurd"
 }
 
 /// One of the 8 ANSI colours for an RGB colour, and whether it should be
@@ -4606,7 +4627,7 @@ impl Frontend for Tty {
         }
         let mut out = Vec::new();
         self.gfx.shutdown(&mut out);
-        if !(self.term == "linux" || self.term.starts_with("fbterm")) {
+        if !text_console(&self.term) {
             out.extend_from_slice(b"\x1b[>4m");
         }
         out.extend_from_slice(b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");

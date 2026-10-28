@@ -113,7 +113,7 @@ pub fn set_executable(_p: &Path) -> std::io::Result<()> {
 
 /// Give freed memory back to the system where the allocator keeps it.
 pub fn trim_memory() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[cfg(all(any(target_os = "linux", target_os = "hurd"), target_env = "gnu"))]
     unsafe {
         libc::malloc_trim(0);
     }
@@ -130,7 +130,8 @@ pub fn memory_budget(env: &str, div: u64) -> usize {
 
 /// The machine's memory in bytes, where it can be read.
 pub fn total_memory() -> Option<u64> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    // the Hurd's procfs translator has Linux's meminfo and statm
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "hurd"))]
     {
         let s = std::fs::read_to_string("/proc/meminfo").ok()?;
         let kb: u64 = s.lines().find(|l| l.starts_with("MemTotal:"))?.split_whitespace().nth(1)?.parse().ok()?;
@@ -143,7 +144,7 @@ pub fn total_memory() -> Option<u64> {
         m.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
         (GlobalMemoryStatusEx(&mut m) != 0).then_some(m.ullTotalPhys)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "hurd", windows)))]
     None
 }
 
@@ -203,7 +204,7 @@ pub fn memory_text(now: u64) -> String {
 }
 
 fn memory_in_use_raw() -> Option<u64> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "hurd"))]
     {
         let s = std::fs::read_to_string("/proc/self/statm").ok()?;
         let pages: u64 = s.split_whitespace().nth(1)?.parse().ok()?;
@@ -273,6 +274,7 @@ fn memory_in_use_raw() -> Option<u64> {
         not(any(
             target_os = "linux",
             target_os = "android",
+            target_os = "hurd",
             target_os = "haiku",
             target_os = "freebsd",
             target_os = "dragonfly",

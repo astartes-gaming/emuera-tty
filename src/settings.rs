@@ -113,7 +113,7 @@ pub const ITEMS: &[Item] = &[
         label: "Keyboard pointer",
         choices: &["auto", "on", "off"],
         live: true,
-        help: "cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on the Linux console without a mouse",
+        help: "cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on a text console (Linux, Hurd) without a mouse",
     },
     Item {
         key: "gamepad",

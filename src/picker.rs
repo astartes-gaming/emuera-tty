@@ -750,12 +750,14 @@ impl Picker {
                         Some(at) => format!("{}{}{}{}{}", &l[..at], code, tag, back, &l[at + tag.len()..]),
                         None => l,
                     };
+                    // (the Hurd's console has 8 colours and reads 38;5 as blink)
+                    let (sky, gold) = if std::env::var("TERM").as_deref() == Ok("hurd") { ("36", "33") } else { ("38;5;117", "38;5;220") };
                     let git_tail = |l: String| match l.rfind("· git") {
-                        Some(at) => format!("{}\x1b[38;5;117m{}{}", &l[..at], &l[at..], back),
+                        Some(at) => format!("{}\x1b[{}m{}{}", &l[..at], sky, &l[at..], back),
                         None => l,
                     };
                     let line = match wrapped_line.strip_prefix("★ (NEW)") {
-                        Some(rest) => format!("★ \x1b[1;38;5;220m(NEW){}{}", back, rest),
+                        Some(rest) => format!("★ \x1b[1;{}m(NEW){}{}", gold, back, rest),
                         None => wrapped_line.clone(),
                     };
                     git_tail(tint(line, "· last played", "\x1b[32m"))
