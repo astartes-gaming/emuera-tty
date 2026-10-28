@@ -875,6 +875,13 @@ translator and shows the result and how long it took, or why it failed.
 **Clear the translation cache** forgets every translation made this
 session (they are kept in memory only), so what is on screen is
 translated again: after changing translator or fixing one that failed.
+**Export translation cache…** writes the current translation cache to a file
+(formatted like a translation log, see [A log for translators](#a-log-for-translators)),
+so it can be reused with `--translate-load` later. This option only appears
+when translation is on and no `--translate-log` was given (since the log
+already persists the cache in that case). The export includes both
+translations loaded from `--translate-load` files and translations obtained
+during the current session.
 
 #### A log for translators
 
