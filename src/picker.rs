@@ -1139,13 +1139,39 @@ impl Picker {
                 self.pending.drain(..used);
                 return a;
             }
-            let r = crate::sys::poll(500, self.mice.as_ref().map_or(-1, |m| m.fd()));
+            let pad = if self.st.get("gamepad") != "off" {
+                crate::gamepad::start();
+                crate::gamepad::fd()
+            } else {
+                -1
+            };
+            let r = crate::sys::poll2(500, self.mice.as_ref().map_or(-1, |m| m.fd()), pad);
             if r.hangup {
                 return Act::Cancel;
             }
-            if !r.input && !r.extra {
+            if !r.input && !r.extra && !r.extra2 {
                 // redraw on resize
                 return Act::None;
+            }
+            if r.extra2 {
+                // a gamepad: as the keys it stands for here
+                use crate::gamepad::Ev;
+                for ev in crate::gamepad::read() {
+                    self.pending.extend_from_slice(match ev {
+                        Ev::Dir(0) | Ev::ScrollUp => b"\x1b[A",
+                        Ev::Dir(1) | Ev::ScrollDown => b"\x1b[B",
+                        Ev::Dir(2) => b"\x1b[D",
+                        Ev::Dir(_) => b"\x1b[C",
+                        Ev::A | Ev::Enter => b"\r",
+                        Ev::B | Ev::Esc => b"\x1b",
+                        Ev::Settings => b"s",
+                        Ev::PageUp => b"\x1b[5~",
+                        Ev::PageDown => b"\x1b[6~",
+                        Ev::Home => b"\x1b[H",
+                        Ev::End => b"\x1b[F",
+                        Ev::Move(..) => b"",
+                    });
+                }
             }
             if r.extra {
                 let (cols, rows) = term_size();

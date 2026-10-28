@@ -114,6 +114,14 @@ Redraw the screen.
 .TP
 .B Ctrl\-C
 Quit (also while a script is busy). Save first.
+.TP
+.B Gamepad
+(Linux: the Steam Deck under Steam, Xbox, PlayStation, 8BitDo...; the
+\fBGamepad\fR setting turns it off.) D\-pad: jump between buttons; left
+stick: move the pointer; A: click; B: right click (skip); X / Y: Enter;
+Start: settings; Select: Esc; LB / RB: page up / down; right stick:
+scroll; LT / RT: Home / End. In menus the d\-pad, A and B are the
+arrows, Enter and Esc.
 .SH CLIPBOARD
 With
 .B 表示したテキストをクリップボードにコピーする:YES
@@ -414,6 +422,12 @@ of the LibreTranslate server, default 127.0.0.1:5000
 .TP
 .B EMUERA_MEASURE=0
 Skip measuring how wide the terminal draws ambiguous characters.
+.TP
+.B EMUERA_GAMEPAD
+.BR off :
+don't read gamepads;
+.IR /dev/input/eventN :
+read just that device as a pad.
 .TP
 .B EMUERA_MOUSE
 .BR off " / " term :

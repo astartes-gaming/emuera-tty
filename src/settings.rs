@@ -115,6 +115,13 @@ pub const ITEMS: &[Item] = &[
         live: true,
         help: "cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on the Linux console without a mouse",
     },
+    Item {
+        key: "gamepad",
+        label: "Gamepad",
+        choices: &["auto", "off"],
+        live: true,
+        help: "Steam Deck, Xbox, PlayStation… pads: d-pad between buttons, stick moves, A click, B skip, X/Y Enter, Start settings, LB/RB page",
+    },
     Item { key: "wheel", label: "Wheel scrolls", choices: &["3", "1", "5", "10"], live: true, help: "lines per mouse-wheel step" },
     Item {
         key: "warmup",
@@ -147,6 +154,7 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_GFX", "default for --gfx: kitty, iterm, sixel, fb or none"),
     ("EMUERA_GPMCTL", "path of the gpm socket (default /dev/gpmctl), for testing the Linux-console mouse"),
     ("EMUERA_GPM_VC", "the virtual console number the gpm mouse is read for (testing)"),
+    ("EMUERA_GAMEPAD", "off: don't read gamepads; /dev/input/eventN: read just that device as a pad"),
     ("EMUERA_INJECT", "STMT||STMT: statements run just before the EMUERA_INJECT_AT-th input (debugging)"),
     ("EMUERA_INJECT_AT", "the input number EMUERA_INJECT runs before"),
     ("EMUERA_LIBRETRANSLATE", "host:port of the LibreTranslate server (default 127.0.0.1:5000)"),

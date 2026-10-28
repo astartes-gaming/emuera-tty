@@ -42,6 +42,8 @@ thousands of random choices through them without errors. What it has
   choose).
 - A game library with archives and `git pull` updates, a settings page,
   save management, and readable script errors with the call stack.
+- **Gamepads** on Linux, the **Steam Deck** included (see
+  [Gamepads and the Steam Deck](#gamepads-and-the-steam-deck)).
 - Linux, and builds for macOS, Windows, the BSDs, Termux and more, down to a
   Raspberry Pi Zero.
 
@@ -87,6 +89,7 @@ Expect rough edges in parts of the games nobody has played through yet
       - [Keeping files and lines untranslated](#keeping-files-and-lines-untranslated)
     - [Copying text to the clipboard](#copying-text-to-the-clipboard)
     - [Translated games (Emuera-Anchor)](#translated-games-emuera-anchor)
+    - [Gamepads and the Steam Deck](#gamepads-and-the-steam-deck)
   - [5. Picking a terminal](#5-picking-a-terminal)
     - [Terminal support](#terminal-support)
     - [Tips for any terminal](#tips-for-any-terminal)
@@ -553,6 +556,7 @@ running game:
 | Copy to clipboard | game, on, off | printed text to the clipboard (see [Copying text to the clipboard](#copying-text-to-the-clipboard)); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
+| Gamepad | auto, off | read gamepads (Steam Deck, Xbox, PlayStation…; Linux), see [Gamepads and the Steam Deck](#gamepads-and-the-steam-deck) |
 | Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
 | Translator | off, auto, local, argos, translate-shell, deepl, file | off: no translation; auto: whichever is installed, this computer's first; file: no translator, only the translations read with `--translate-load` (see [Reusing a log as translations](#reusing-a-log-as-translations)) |
 | Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see [Translating the game](#translating-the-game)) |
@@ -953,6 +957,77 @@ Games translated with Emuera-Anchor's system play translated here too:
   an index that has a name or a name in that CSV; anything else is a
   script error ("Invalid first argument" / "Invalid second argument").
 
+### Gamepads and the Steam Deck
+
+On Linux, emuera-tty reads gamepads itself: the **Steam Deck**'s
+controller (when Steam hands it to the game, see below), Xbox,
+PlayStation, 8BitDo and other pads, wired or Bluetooth. Plug one in at any
+time; the first touch shows a pointer on the first button.
+
+| Pad | In a game | In menus (launcher, settings, saves) |
+|---|---|---|
+| D-pad | jump to the next button that way (held: repeats) | ↑ ↓ ← → |
+| Left stick | move the pointer freely (picture menus, maps) | — |
+| A | click under the pointer | Enter |
+| B | right click: skip messages, as in Emuera | Esc / back |
+| X, Y | Enter (continue, send what is typed) | Enter |
+| Start | settings | settings |
+| Select / Back | Esc | Esc |
+| LB / RB | page up / down through the text | page up / down |
+| Right stick | scroll a line at a time | ↑ ↓ |
+| LT / RT | top / bottom of the text (Home / End) | — |
+
+*Gamepad* in the settings turns it off (it also shows which pads were
+found); `EMUERA_GAMEPAD=/dev/input/eventN` reads just one device. Pads are
+readable without setup by whoever is logged in at the computer. Over SSH
+they aren't yours to read, and nothing happens.
+
+**On the Steam Deck** (SteamOS):
+
+1. **Desktop Mode** (Steam button → Power → Switch to Desktop) for setting
+   up.
+2. **Get the program.** SteamOS has no C compiler, which building needs, so
+   either:
+   - copy a **static build** from another Linux PC: build it there with the
+     recipe under [Other CPUs](#other-cpus) for `x86_64-unknown-linux-musl`
+     (or take the `emuera-tty-linux-x86_64-static` artifact of the *Build
+     all platforms* workflow on GitHub), put it in `~/.local/bin` on the
+     Deck and `chmod +x` it; or
+   - build it on the Deck in a **Distrobox** container (SteamOS 3.5 and
+     later have `distrobox`; the container shares your home folder):
+
+     ```sh
+     distrobox create -n build -i archlinux:latest
+     distrobox enter build
+     sudo pacman -S --needed git rust gcc
+     git clone https://github.com/astartes-gaming/emuera-tty.git
+     cd emuera-tty && cargo build --release
+     ./target/release/emuera-tty --install
+     ```
+
+     The program lands in `~/.local/bin`, outside the container, and runs
+     on SteamOS itself.
+3. **Copy your game** somewhere in your home folder (`~/Games/…`), with
+   its saves if you have some.
+4. **Add it to Steam**, so Steam hands the controller over as a gamepad:
+   Steam → *Games* → *Add a Non-Steam Game to My Library* → **Konsole**.
+   In its *Properties*, set *Launch Options* to
+   `--fullscreen -e /home/deck/.local/bin/emuera-tty` and the name to
+   something like *emuera-tty*. In *Controller* settings pick the
+   **Gamepad** layout.
+5. Back in **Game Mode**, start it from the library: the launcher opens,
+   the d-pad and A choose the game. **Steam + X** brings up the on-screen
+   keyboard for typing names or numbers.
+
+Konsole shows the pictures (kitty graphics). If the text is too big for
+games laid out for wide windows, make the font smaller in Konsole's
+profile (or Ctrl+−). Started from Desktop Mode without Steam, the Deck's
+controller works as Steam's desktop layout (trackpad as mouse, triggers as
+clicks), which emuera-tty takes like any mouse.
+
+The gamepad code is tested with a simulated pad; it hasn't been tried on
+a real Deck yet, so reports are welcome.
+
 ## 5. Picking a terminal
 
 ### Terminal support
@@ -1155,6 +1230,7 @@ the saved setting. A value can also be written `--colors=256`.
 
 - `FRAMEBUFFER=/dev/fbN` picks another framebuffer.
 - `EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice (see [Mouse](#mouse)).
+- `EMUERA_GAMEPAD=off|/dev/input/eventN` turns gamepads off or reads just one device as a pad (see [Gamepads and the Steam Deck](#gamepads-and-the-steam-deck)).
 - `EMUERA_AMBIGUOUS=wide|narrow|osc66` (or `--ambiguous`) overrides how box-drawing and symbol
   characters are fitted to Emuera's two columns (detected at startup:
   terminals that draw them wide need nothing, others are padded; `osc66`

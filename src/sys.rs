@@ -24,6 +24,8 @@ pub struct Ready {
     pub input: bool,
     /// the extra file descriptor (the Linux console mouse) is readable
     pub extra: bool,
+    /// the second extra one (the gamepads' pipe) is readable
+    pub extra2: bool,
     /// stdin was closed
     pub hangup: bool,
 }
@@ -335,6 +337,52 @@ mod imp {
         poll_fd(0, timeout_ms, extra)
     }
 
+    /// [`poll`] watching two extra file descriptors (the console mouse
+    /// and the gamepads), -1 for none.
+    pub fn poll2(timeout_ms: i32, extra: i32, extra2: i32) -> Ready {
+        if extra2 < 0 {
+            return poll_fd(0, timeout_ms, extra);
+        }
+        #[cfg(target_os = "macos")]
+        unsafe {
+            let mut set: libc::fd_set = std::mem::zeroed();
+            libc::FD_ZERO(&mut set);
+            libc::FD_SET(0, &mut set);
+            for f in [extra, extra2] {
+                if f >= 0 {
+                    libc::FD_SET(f, &mut set);
+                }
+            }
+            let mut tv = libc::timeval { tv_sec: (timeout_ms.max(0) / 1000) as _, tv_usec: ((timeout_ms.max(0) % 1000) * 1000) as _ };
+            let tvp = if timeout_ms < 0 { std::ptr::null_mut() } else { &mut tv as *mut _ };
+            if libc::select(extra.max(extra2) + 1, &mut set, std::ptr::null_mut(), std::ptr::null_mut(), tvp) <= 0 {
+                return Ready::default();
+            }
+            return Ready {
+                input: libc::FD_ISSET(0, &set),
+                extra: extra >= 0 && libc::FD_ISSET(extra, &set),
+                extra2: libc::FD_ISSET(extra2, &set),
+                hangup: false,
+            };
+        }
+        #[allow(unreachable_code)]
+        let mut pfd = [
+            libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: extra, events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: extra2, events: libc::POLLIN, revents: 0 },
+        ];
+        let r = unsafe { libc::poll(pfd.as_mut_ptr(), 3, timeout_ms) };
+        if r <= 0 {
+            return Ready::default();
+        }
+        Ready {
+            input: pfd[0].revents & libc::POLLIN != 0,
+            extra: pfd[1].revents & libc::POLLIN != 0,
+            extra2: pfd[2].revents & libc::POLLIN != 0,
+            hangup: pfd[0].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 && pfd[0].revents & libc::POLLIN == 0,
+        }
+    }
+
     /// [`poll`] for any file descriptor `fd` (a serial line) in place of
     /// stdin.
     pub fn poll_fd(fd: i32, timeout_ms: i32, extra: i32) -> Ready {
@@ -353,7 +401,7 @@ mod imp {
             if libc::select(extra.max(fd) + 1, &mut set, std::ptr::null_mut(), std::ptr::null_mut(), tvp) <= 0 {
                 return Ready::default();
             }
-            return Ready { input: libc::FD_ISSET(fd, &set), extra: extra >= 0 && libc::FD_ISSET(extra, &set), hangup: false };
+            return Ready { input: libc::FD_ISSET(fd, &set), extra: extra >= 0 && libc::FD_ISSET(extra, &set), extra2: false, hangup: false };
         }
         #[allow(unreachable_code)]
         let mut pfd = [libc::pollfd { fd, events: libc::POLLIN, revents: 0 }, libc::pollfd { fd: extra, events: libc::POLLIN, revents: 0 }];
@@ -364,6 +412,7 @@ mod imp {
         Ready {
             input: pfd[0].revents & libc::POLLIN != 0,
             extra: pfd[1].revents & libc::POLLIN != 0,
+            extra2: false,
             hangup: pfd[0].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 && pfd[0].revents & libc::POLLIN == 0,
         }
     }
@@ -557,6 +606,11 @@ mod imp {
                 }
             }
         }
+    }
+
+    /// [`poll`]: no console mouse or gamepads here either.
+    pub fn poll2(timeout_ms: i32, _extra: i32, _extra2: i32) -> Ready {
+        poll(timeout_ms, -1)
     }
 
     /// Wait up to `timeout_ms` (-1: forever) for input. There is no Linux

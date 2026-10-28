@@ -346,6 +346,10 @@ enum Key {
     /// Insert, or Shift+Enter where the terminal tells it from Enter: a
     /// click with the keyboard pointer
     Click,
+    /// a gamepad's d-pad, left stick, A or B: the pointer and clicks while
+    /// a game waits for input (`Tty::game_key`), arrows, Enter and Esc in
+    /// menus (`Tty::next_key`)
+    Pad(crate::gamepad::Ev),
     Other,
 }
 
@@ -564,6 +568,13 @@ pub struct Tty {
     pub status_info: bool,
     /// the keyboard pointer (see `kbd_pointer`)
     pub kbd_ptr: bool,
+    /// gamepads are read (the Gamepad setting)
+    pad_enabled: bool,
+    /// a gamepad has been used: its pointer shows
+    pad_on: bool,
+    /// a game's input is reading keys: a pad moves the pointer and clicks
+    /// (see `game_key`)
+    pad_game: bool,
     /// EMUERA_MOUSE_LOG: what the mouse did, for finding out why a pointer
     /// misbehaves where it can't be watched (the Linux console)
     mouse_log: Option<std::fs::File>,
@@ -893,6 +904,9 @@ impl Tty {
             yen: false,
             status_info: true,
             kbd_ptr: false,
+            pad_enabled: false,
+            pad_on: false,
+            pad_game: false,
             mouse_log: std::env::var_os("EMUERA_MOUSE_LOG").and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()),
             mouse_events: 0,
             ptr_on: true,
@@ -999,10 +1013,28 @@ impl Tty {
     /// Wait up to `timeout_ms` for input on stdin (and the console mouse);
     /// returns whether anything arrived.
     fn read_bytes(&mut self, timeout_ms: i32) -> bool {
-        let r = crate::sys::poll(timeout_ms, self.mice.as_ref().map_or(-1, |m| m.fd()));
+        let pad = if self.pad_enabled { crate::gamepad::fd() } else { -1 };
+        let r = crate::sys::poll2(timeout_ms, self.mice.as_ref().map_or(-1, |m| m.fd()), pad);
         if r.hangup {
             self.hangup = true;
             return false;
+        }
+        if r.extra2 {
+            use crate::gamepad::Ev;
+            for ev in crate::gamepad::read() {
+                self.queued.push_back(match ev {
+                    Ev::Enter => Key::Enter,
+                    Ev::Settings => Key::Settings,
+                    Ev::Esc => Key::Esc,
+                    Ev::PageUp => Key::PageUp,
+                    Ev::PageDown => Key::PageDown,
+                    Ev::ScrollUp => Key::ScrollUp,
+                    Ev::ScrollDown => Key::ScrollDown,
+                    Ev::Home => Key::Home,
+                    Ev::End => Key::End,
+                    ev => Key::Pad(ev),
+                });
+            }
         }
         if r.extra {
             let (cell, cols, rows) = (self.cell, self.cols, self.rows);
@@ -1316,8 +1348,30 @@ impl Tty {
                 self.queued.push_front(Key::Char((b'0' + d) as char));
                 Key::Esc
             }
+            // a pad in a menu (settings, saves, a dialog): arrows, Enter, Esc
+            Key::Pad(ev) if !self.pad_game => {
+                use crate::gamepad::Ev;
+                match ev {
+                    Ev::Dir(0) => Key::Up,
+                    Ev::Dir(1) => Key::Down,
+                    Ev::Dir(2) => Key::Left,
+                    Ev::Dir(_) => Key::Right,
+                    Ev::A => Key::Enter,
+                    Ev::B => Key::Esc,
+                    _ => Key::Other,
+                }
+            }
             k => k,
         })
+    }
+
+    /// [`Tty::next_key`] for a game's input, with the keyboard pointer and
+    /// the gamepad's pointer applied (`raw`: a picture menu's input).
+    fn game_key(&mut self, timeout_ms: i32, raw: bool) -> Option<Key> {
+        self.pad_game = true;
+        let k = self.next_key(timeout_ms);
+        self.pad_game = false;
+        k.map(|k| self.kbd_pointer(k, raw))
     }
 
     /// Decode the next key or mouse event, waiting up to `timeout_ms`.
@@ -2979,6 +3033,7 @@ impl Tty {
             }
             "statusbar" => self.status_info = v == "on",
             "kbdpointer" => self.set_kbd_pointer(v),
+            "gamepad" => self.set_gamepad(v),
             "translate" | "translator" => self.setting_note = self.set_translate(st),
             "translate_from" | "translate_what" => {
                 self.tr_from = st.get("translate_from").to_string();
@@ -3334,6 +3389,8 @@ impl Tty {
             self.mt.as_ref().and_then(|m| m.last_error.as_ref()),
         ) {
             format!("last translation failed: {}", e)
+        } else if sel < vis.len() && ITEMS[vis[sel]].key == "gamepad" {
+            format!("{}; found: {}", ITEMS[vis[sel]].help, crate::gamepad::describe())
         } else if sel < vis.len() {
             ITEMS[vis[sel]].help.to_string()
         } else if sel == vis.len() {
@@ -3520,10 +3577,86 @@ impl Tty {
         self.redraw_all.set(true);
     }
 
+    /// The Gamepad setting: auto (read the pads there are) or off.
+    pub fn set_gamepad(&mut self, v: &str) {
+        self.pad_enabled = v != "off";
+        if self.pad_enabled {
+            crate::gamepad::start();
+        } else if self.pad_on {
+            self.pad_on = false;
+            self.redraw_all.set(true);
+        }
+    }
+
+    /// A gamepad's pointer event in a game's input, as mouse events: the
+    /// d-pad jumps between buttons, the left stick moves freely, A clicks
+    /// and B right-clicks (Emuera's skip) where the pointer is.
+    fn pad_pointer(&mut self, ev: crate::gamepad::Ev) -> Key {
+        use crate::gamepad::Ev;
+        if !self.pad_on {
+            // the first touch only shows the pointer: on the first button
+            // (where there is no mouse yet), else in the middle
+            self.pad_on = true;
+            self.redraw_all.set(true);
+            if self.mouse.is_none() {
+                let first = self.btn_map.iter().enumerate().find_map(|(r, row)| row.iter().find(|s| self.is_button(s.2)).map(|s| (s.0, r)));
+                let (x, y) = first.unwrap_or((self.cols / 2, self.rows / 2));
+                self.mouse = Some((x, y));
+                return Key::Mouse { btn: 35, x: x as u16 + 1, y: y as u16 + 1, press: true };
+            }
+        }
+        let (x, y) = self.mouse.unwrap_or((self.cols / 2, self.rows / 2));
+        let (nx, ny) = match ev {
+            Ev::A => return Key::Mouse { btn: 0, x: x as u16 + 1, y: y as u16 + 1, press: true },
+            Ev::B => return Key::Mouse { btn: 2, x: x as u16 + 1, y: y as u16 + 1, press: true },
+            Ev::Dir(d) => self.button_jump((x, y), d).unwrap_or((x, y)),
+            Ev::Move(dx, dy) => (
+                (x as isize + dx as isize).clamp(0, self.cols.saturating_sub(1) as isize) as usize,
+                (y as isize + dy as isize).clamp(0, self.rows.saturating_sub(2) as isize) as usize,
+            ),
+            _ => return Key::Other,
+        };
+        Key::Mouse { btn: 35, x: nx as u16 + 1, y: ny as u16 + 1, press: true }
+    }
+
+    /// The button the d-pad goes to from cell `(x, y)` in direction `d`
+    /// (0 up, 1 down, 2 left, 3 right): the next one along the row, or on
+    /// the nearest row above / below the closest one across; where it
+    /// starts. None: there is no button that way.
+    fn button_jump(&self, (x, y): (usize, usize), d: u8) -> Option<(usize, usize)> {
+        let here = self.button_at(x, y);
+        // live buttons: (row, start, end, id), the one under the pointer left out
+        let spans: Vec<(usize, usize, usize, usize)> = self
+            .btn_map
+            .iter()
+            .enumerate()
+            .flat_map(|(r, row)| row.iter().map(move |&(s, e, b)| (r, s, e, b)))
+            .filter(|&(_, _, _, b)| self.is_button(b) && Some(b) != here)
+            .collect();
+        // where the pointer's button starts (or the pointer), to compare with
+        let from = here.and_then(|h| self.btn_map.get(y)?.iter().find(|s| s.2 == h).map(|s| s.0)).unwrap_or(x);
+        let centre = |s: usize, e: usize| (s + e) / 2;
+        let pick = match d {
+            // along the row, else the next row's first / the last row's last
+            3 => spans.iter().filter(|t| t.0 == y && t.1 > from).min_by_key(|t| t.1).or_else(|| spans.iter().filter(|t| t.0 > y).min_by_key(|t| (t.0, t.1))),
+            2 => spans.iter().filter(|t| t.0 == y && t.1 < from).max_by_key(|t| t.1).or_else(|| spans.iter().filter(|t| t.0 < y).max_by_key(|t| (t.0, t.1))),
+            // the nearest row that has one, the closest one across there
+            1 => {
+                let row = spans.iter().filter(|t| t.0 > y).map(|t| t.0).min();
+                row.and_then(|r| spans.iter().filter(|t| t.0 == r).min_by_key(|t| centre(t.1, t.2).abs_diff(x)))
+            }
+            _ => {
+                let row = spans.iter().filter(|t| t.0 < y).map(|t| t.0).max();
+                row.and_then(|r| spans.iter().filter(|t| t.0 == r).min_by_key(|t| centre(t.1, t.2).abs_diff(x)))
+            }
+        };
+        pick.map(|t| (t.1, t.0))
+    }
+
     /// Is the mouse pointer ours to draw? (the console mouse, gpm's or the
     /// raw device's, or the keyboard pointer: no terminal shows one)
     fn own_pointer(&self) -> bool {
-        self.mice.is_some() || self.kbd_ptr
+        self.mice.is_some() || self.kbd_ptr || self.pad_on
     }
 
     /// Blink the pointer: how long until it changes (None: no pointer of
@@ -3571,6 +3704,9 @@ impl Tty {
     /// cell and Insert or Shift+Enter click under it, as mouse events (Enter
     /// keeps its own uses). `raw`: a picture menu's input.
     fn kbd_pointer(&mut self, k: Key, _raw: bool) -> Key {
+        if let Key::Pad(ev) = k {
+            return self.pad_pointer(ev);
+        }
         if !self.kbd_ptr {
             return k;
         }
@@ -3803,7 +3939,7 @@ impl Frontend for Tty {
                 Some((_, t)) => wait.min(t.saturating_duration_since(Instant::now()).as_millis() as i32 + 1),
                 None => wait,
             };
-            let Some(k) = self.next_key(wait).map(|k| self.kbd_pointer(k, false)) else {
+            let Some(k) = self.game_key(wait, false) else {
                 let (c, r, _, _) = winsize();
                 let translated = self.mt.as_mut().is_some_and(|m| m.poll());
                 let note_gone = self.macro_note.as_ref().is_some_and(|(_, t)| Instant::now() >= *t);
@@ -4066,7 +4202,7 @@ impl Frontend for Tty {
                 return true;
             }
             let left = end.saturating_duration_since(Instant::now()).as_millis() as i32;
-            let Some(k) = self.next_key(left).map(|k| self.kbd_pointer(k, false)) else {
+            let Some(k) = self.game_key(left, false) else {
                 if Instant::now() >= end {
                     break;
                 }
@@ -4199,7 +4335,7 @@ impl Frontend for Tty {
                 None => 200,
             };
             let wait = self.blink_wait(con.focus_fg).map_or(wait, |b| wait.min(b));
-            let Some(k) = self.next_key(wait).map(|k| self.kbd_pointer(k, true)) else { continue };
+            let Some(k) = self.game_key(wait, true) else { continue };
             let key = |code: i64| RawInput::Key { code, data: code };
             match k {
                 Key::CtrlC => return RawInput::Quit,
@@ -4282,7 +4418,8 @@ impl Frontend for Tty {
                 // them before the game sees keys)
                 Key::F(n, shift) => self.macro_key(n, shift),
                 Key::Group(g) => self.macro_group(g),
-                Key::Other => {}
+                // (game_key has made the pad's moves and clicks mouse events)
+                Key::Other | Key::Pad(_) => {}
             }
         }
     }

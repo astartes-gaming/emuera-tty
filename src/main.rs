@@ -17,6 +17,11 @@ mod emuconfig;
 mod expr;
 mod frontend;
 mod fxhash;
+#[cfg(target_os = "linux")]
+mod gamepad;
+#[cfg(not(target_os = "linux"))]
+#[path = "gamepad_none.rs"]
+mod gamepad;
 mod gfx;
 mod html;
 mod lint;
@@ -535,6 +540,7 @@ fn run(o: Opts) -> i32 {
                 t.status_info = st.get("statusbar") == "on";
                 t.show_memory = st.get("memory") == "on";
                 t.set_kbd_pointer(st.get("kbdpointer"));
+                t.set_gamepad(st.get("gamepad"));
                 if st.get("translator") != "off" {
                     let note = t.set_translate(&st);
                     eprintln!("{}", note);
