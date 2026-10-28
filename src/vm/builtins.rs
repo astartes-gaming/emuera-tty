@@ -84,6 +84,11 @@ const STR_FUNCTIONS: &[&str] = &[
     "MAP_GETKEYS", "MAP_TOXML", "DT_TOXML", "GGETFONT", "GETTEXTBOX", "ERDNAME", "GETDISPLAYLINE", "GETDOINGFUNCTION", "GETMETHS", "TR_NAME",
 ];
 
+/// Whether the built-in function `name` (upper case) returns a string.
+pub fn returns_str(name: &str) -> bool {
+    STR_FUNCTIONS.contains(&name)
+}
+
 /// Statements a `#FUNCTION(S)` can't use: those without Emuera's
 /// METHOD_SAFE flag (FunctionIdentifier.cs, and PRINT_Instruction /
 /// PRINT_DATA_Instruction for the PRINT…W forms), the same in Emuera-EM

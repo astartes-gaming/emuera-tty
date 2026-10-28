@@ -1487,7 +1487,10 @@ checked.
 - `EMUERA_LINT=1` with `--check` lists compiled statements that look like
   the parser split their line in the wrong place (a function name holding
   `(`, `,` or spaces; FORM text still holding `%`, `{` or `}`), for hunting
-  parser bugs across a whole game.
+  parser bugs across a whole game. It also lists every `>=` and `<=` between
+  two strings (and `CASE IS >=` / `IS <=` in a SELECTCASE on a string):
+  Emuera evaluates both as `<`, a bug as old as vanilla Emuera, so these are
+  the lines a fix would change.
 
 ## Tests
 
@@ -1513,6 +1516,14 @@ game folders; with Emuera.exe run in each (each writes `emuera.log`),
 output that differs and saves that aren't byte-identical.
 `tools/erb_coverage.py` lists which of Emuera's 558 built-in functions and
 statements no test uses yet (about 90% are used).
+
+`compat/` is the [eraBasic compatibility suite](https://gitgud.io/era-games/erabasic-compat)
+(mirror: https://github.com/vinumsabbathi789/erabasic-compat),
+a git submodule (clone with `--recurse-submodules`, or run
+`git submodule update --init`): one game of checks, meant for every
+eraBasic interpreter, whose expected values are Emuera-EM/EE's.
+`cargo test --release --test compat_suite -- --ignored` runs it; it is
+ignored by default until emuera-tty passes it.
 
 `tools/game_smoke.sh GAME_DIR [STEPS] [SEED]` plays a real game with random
 menu choices in a throwaway copy and reports script errors.

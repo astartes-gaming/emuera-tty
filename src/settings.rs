@@ -150,7 +150,7 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_INJECT", "STMT||STMT: statements run just before the EMUERA_INJECT_AT-th input (debugging)"),
     ("EMUERA_INJECT_AT", "the input number EMUERA_INJECT runs before"),
     ("EMUERA_LIBRETRANSLATE", "host:port of the LibreTranslate server (default 127.0.0.1:5000)"),
-    ("EMUERA_LINT", "any value, with --check: point at statements the parser may have split wrongly"),
+    ("EMUERA_LINT", "any value, with --check: point at statements the parser may have split wrongly, and string >= / <= (Emuera evaluates them as <)"),
     ("EMUERA_LIST_BUTTONS", "1, with --headless: print the values of the buttons on screen before each input"),
     ("EMUERA_MEASURE", "0 skips measuring how wide the terminal draws ambiguous characters"),
     ("EMUERA_MEMSTATS", "file the report of what the memory holds is written to, at every input"),
