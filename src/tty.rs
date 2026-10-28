@@ -3864,7 +3864,7 @@ fn rgb256(c: Rgb) -> u8 {
 /// A text console: no answers to terminal queries, no pictures beyond its
 /// own framebuffer, a pointer of our own for the mouse. The Linux console,
 /// fbterm and the Hurd's console (which prints OSC strings as text).
-fn text_console(term: &str) -> bool {
+pub(crate) fn text_console(term: &str) -> bool {
     term == "linux" || term.starts_with("fbterm") || term == "hurd"
 }
 
@@ -4629,6 +4629,10 @@ impl Frontend for Tty {
         self.gfx.shutdown(&mut out);
         if !text_console(&self.term) {
             out.extend_from_slice(b"\x1b[>4m");
+        } else {
+            // no alternate screen there: the last frame (and the keyboard
+            // pointer) would stay under the shell's prompt
+            out.extend_from_slice(b"\x1b[0m\x1b[2J\x1b[H");
         }
         out.extend_from_slice(b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
         write_all(&out);

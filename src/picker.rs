@@ -297,6 +297,10 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> 
         p.clone_direct(url);
     }
     let chosen = p.run();
+    // (a text console has no alternate screen to go back from)
+    if crate::tty::text_console(&term) {
+        out(b"\x1b[0m\x1b[2J\x1b[H");
+    }
     out(b"\x1b[?1006l\x1b[?1015l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
     raw_mode.restore();
     chosen
