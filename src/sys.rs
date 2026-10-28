@@ -227,13 +227,66 @@ fn memory_in_use_raw() -> Option<u64> {
         }
         (sum > 0).then_some(sum)
     }
-    // macOS, the BSDs, illumos: the peak resident size, the nearest a
-    // portable call gives (bytes on macOS, KB elsewhere)
-    #[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_os = "haiku"))))]
+    // the BSDs: the process's resident pages from sysctl
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly", target_os = "netbsd", target_os = "openbsd"))]
+    unsafe {
+        let page = libc::sysconf(libc::_SC_PAGESIZE).max(4096) as u64;
+        #[cfg(target_os = "netbsd")]
+        let (mut kp, mib) = (std::mem::zeroed::<libc::kinfo_proc2>(), libc::KERN_PROC2);
+        #[cfg(not(target_os = "netbsd"))]
+        let (mut kp, mib) = (std::mem::zeroed::<libc::kinfo_proc>(), libc::KERN_PROC);
+        let size = std::mem::size_of_val(&kp);
+        let mut len = size;
+        // NetBSD and OpenBSD take the record size and count in the name
+        let mib = [libc::CTL_KERN, mib, libc::KERN_PROC_PID, libc::getpid(), size as libc::c_int, 1];
+        let n = if cfg!(any(target_os = "netbsd", target_os = "openbsd")) { 6 } else { 4 };
+        if libc::sysctl(mib.as_ptr(), n, &mut kp as *mut _ as *mut libc::c_void, &mut len, std::ptr::null_mut(), 0) != 0 || len == 0 {
+            return None;
+        }
+        #[cfg(target_os = "freebsd")]
+        let pages = kp.ki_rssize as u64;
+        #[cfg(target_os = "dragonfly")]
+        let pages = kp.kp_vm_rssize as u64;
+        #[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+        let pages = kp.p_vm_rssize as u64;
+        (pages > 0).then_some(pages * page)
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    unsafe {
+        let mut t: libc::proc_taskinfo = std::mem::zeroed();
+        let size = std::mem::size_of_val(&t) as libc::c_int;
+        (libc::proc_pidinfo(libc::getpid(), libc::PROC_PIDTASKINFO, 0, &mut t as *mut _ as *mut libc::c_void, size) == size).then_some(t.pti_resident_size)
+    }
+    // illumos / Solaris: psinfo_t's pr_rssize (KB), after ten 4-byte ids
+    // and two pointer-sized fields
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    {
+        let b = std::fs::read("/proc/self/psinfo").ok()?;
+        let at = 40 + 2 * std::mem::size_of::<usize>();
+        let kb = usize::from_ne_bytes(b.get(at..at + std::mem::size_of::<usize>())?.try_into().ok()?);
+        (kb > 0).then_some(kb as u64 * 1024)
+    }
+    // other Unixes: the peak resident size (KB), the nearest a portable call
+    // gives
+    #[cfg(all(
+        unix,
+        not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "haiku",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "illumos",
+            target_os = "solaris"
+        ))
+    ))]
     unsafe {
         let mut u: libc::rusage = std::mem::zeroed();
-        let unit = if cfg!(target_vendor = "apple") { 1 } else { 1024 };
-        (libc::getrusage(libc::RUSAGE_SELF, &mut u) == 0 && u.ru_maxrss > 0).then(|| u.ru_maxrss as u64 * unit)
+        (libc::getrusage(libc::RUSAGE_SELF, &mut u) == 0 && u.ru_maxrss > 0).then(|| u.ru_maxrss as u64 * 1024)
     }
     #[cfg(not(any(unix, windows)))]
     None
