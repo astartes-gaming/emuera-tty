@@ -50,7 +50,7 @@ impl Vm {
         }
         let statics: usize = self.statics.iter().flatten().map(|a| a.bytes()).sum();
         let _ = writeln!(out, "function variables: {} ({})", self.statics.iter().flatten().count(), mb(statics));
-        let chara: usize = self.charas.iter().map(|c| c.vars.values().map(|a| a.bytes()).sum::<usize>()).sum();
+        let chara: usize = self.charas.iter().map(|c| c.vars.iter().flatten().map(|a| a.bytes()).sum::<usize>()).sum();
         let _ = writeln!(out, "characters: {} ({})", self.charas.len(), mb(chara));
         // the game's own pictures, then the sprite pictures decoded for the
         // screen (the ones Images: none skips)

@@ -9,7 +9,7 @@
 //! | kind | storage |
 //! |---|---|
 //! | system globals (FLAG, RESULT…) and ERH `#DIM`s | `Vm::globals`, created on first use |
-//! | character variables (CFLAG, TALENT…, `#DIM CHARADATA`) | `Vm::charas[i].vars` |
+//! | character variables (CFLAG, TALENT…, `#DIM CHARADATA`) | `Vm::charas[i].vars`, by number (`Vm::chara_names`) |
 //! | a function's LOCAL/ARG and non-DYNAMIC private `#DIM`s | `Vm::statics[FUNC][NAME]` |
 //! | `#DIM DYNAMIC` privates | the call's [`Frame::vars`] |
 //! | `#DIM REF` parameters | an alias in [`Frame::refs`] to the caller's storage |
@@ -93,13 +93,61 @@ pub struct Frame {
 }
 
 /// One character added with ADDCHARA: its character-variable arrays,
-/// created lazily on first access.
+/// created lazily on first access, by the variable's number in
+/// [`CharaNames`] (the same in every character).
 #[derive(Default, Clone)]
 pub struct Chara {
-    pub vars: HashMap<String, Arr>,
+    pub vars: Vec<Option<Arr>>,
     /// NAME, CALLNAME, NICKNAME, MASTERNAME never set (bits 1, 2, 4, 8):
     /// null in Emuera, which leaves them out of saves
     pub names_unset: u8,
+}
+
+impl Chara {
+    /// The array numbered `id`, if this character has it yet.
+    pub fn var_mut(&mut self, id: u32) -> Option<&mut Arr> {
+        self.vars.get_mut(id as usize)?.as_mut()
+    }
+
+    /// The array numbered `id`, made by `make` if it isn't there yet.
+    pub fn var_or(&mut self, id: u32, make: impl FnOnce() -> Arr) -> &mut Arr {
+        let i = id as usize;
+        if self.vars.len() <= i {
+            self.vars.resize_with(i + 1, || None);
+        }
+        self.vars[i].get_or_insert_with(make)
+    }
+}
+
+/// Character variables' names, numbered as they are first used: a
+/// character keeps its arrays in a `Vec` by these numbers, so a variable
+/// reference (which remembers its number) reaches its array without
+/// hashing the name.
+#[derive(Default)]
+pub struct CharaNames {
+    ids: HashMap<String, u32>,
+    names: Vec<Name>,
+}
+
+impl CharaNames {
+    /// The number of `name`, given now if it has none.
+    pub fn id(&mut self, name: &str) -> u32 {
+        if let Some(&i) = self.ids.get(name) {
+            return i;
+        }
+        let i = self.names.len() as u32;
+        self.ids.insert(name.to_string(), i);
+        self.names.push(name.into());
+        i
+    }
+
+    pub fn get(&self, name: &str) -> Option<u32> {
+        self.ids.get(name).copied()
+    }
+
+    pub fn name(&self, id: u32) -> &str {
+        &self.names[id as usize]
+    }
 }
 
 /// The bit of a character name string in `Chara::names_unset`.
@@ -124,8 +172,8 @@ pub enum Loc {
     FrameAt(usize, Name),
     /// function-owned storage: slot in `Vm::statics`
     Static(usize),
-    /// (character index, variable)
-    Chara(usize, Name),
+    /// (character index, variable's number in `Vm::chara_names`)
+    Chara(usize, u32),
     /// read-only computed value (CHARANUM, RAND:n, GAMEBASE_*…)
     Ro(Value),
 }
@@ -150,6 +198,8 @@ pub struct Vm {
     /// (function name, variable) → slot in `statics`
     static_index: HashMap<(String, String), usize>,
     pub charas: Vec<Chara>,
+    /// the numbers of character variables' names (see [`CharaNames`])
+    pub chara_names: CharaNames,
     /// The call stack, innermost last.
     pub frames: Vec<Frame>,
     /// ERH `#DIM` declarations by name (sizes / flags for lookups).
@@ -220,6 +270,9 @@ pub struct Vm {
     /// be compiled again), and how much they may (`EMUERA_CODE_MB`)
     code_bytes: usize,
     pub code_budget: usize,
+    /// huge functions whose code was let go as they returned the first
+    /// time (see `call_func_in`), by address: called again, they are kept
+    big_dropped: HashSet<usize>,
     rng: u64,
     /// Warnings already printed (each is shown once).
     warned: HashSet<String>,
@@ -300,6 +353,7 @@ impl Vm {
             statics: Vec::new(),
             static_index: HashMap::default(),
             charas: Vec::new(),
+            chara_names: CharaNames::default(),
             frames: Vec::new(),
             user_dims: HashMap::default(),
             dim_order: Default::default(),
@@ -331,6 +385,7 @@ impl Vm {
             calls: 0,
             code_bytes: 0,
             code_budget: crate::sys::memory_budget("EMUERA_CODE_MB", 16),
+            big_dropped: HashSet::default(),
             rng: seed | 1,
             warned: HashSet::default(),
             long_oneinput: crate::emuconfig::Values::read(&game_dir).flag("ONEINPUT系命令でマウスによる2文字以上の入力を許可する"),
@@ -430,7 +485,7 @@ impl Vm {
         let n: usize = self.prog.funcs.values().map(|v| v.len()).sum();
         self.con.print(&format!("Reloaded {} functions in {:.1?} ({} parse errors)", n, t0.elapsed(), errors));
         self.con.newline();
-        for e in self.prog.errors.iter().take(10).cloned().collect::<Vec<_>>() {
+        for e in self.prog.errors.iter().take(10) {
             self.con.print(&format!("  {}", e));
             self.con.newline();
         }
@@ -594,12 +649,20 @@ impl Vm {
     /// Character `c`'s array for `name`, created on first use (system
     /// character variable or `#DIM CHARADATA`).
     pub fn chara_arr(&mut self, c: usize, name: &str) -> &mut Arr {
+        let id = self.chara_names.id(name);
+        self.chara_arr_id(c, id)
+    }
+
+    /// [`Vm::chara_arr`] by the variable's number.
+    pub fn chara_arr_id(&mut self, c: usize, id: u32) -> &mut Arr {
         // one lookup when it exists (see global_arr)
-        if let Some(a) = self.charas[c].vars.get_mut(name) {
+        if let Some(a) = self.charas[c].var_mut(id) {
             let a: *mut Arr = a;
             return unsafe { &mut *a };
         }
         {
+            let name = self.chara_names.name(id).to_string();
+            let name = name.as_str();
             let a = if let Some(def) = system_var(name) {
                 Arr::new(def.is_str, &self.var_def_dims(name, def))
             } else if let Some(d) = self.user_dims.get(name).cloned() {
@@ -611,9 +674,9 @@ impl Vm {
             } else {
                 Arr::new(false, &[1])
             };
-            self.charas[c].vars.insert(name.to_string(), a);
+            self.charas[c].var_or(id, || a);
         }
-        self.charas[c].vars.get_mut(name).unwrap()
+        self.charas[c].var_mut(id).unwrap()
     }
 
     pub fn get_global_i(&mut self, name: &str, i: usize) -> i64 {
@@ -826,7 +889,7 @@ impl Vm {
                 let cache = body.static_cache.get().unwrap();
                 // storage is per function name (event functions with one
                 // name share it)
-                let k = (self.frames.last().unwrap().func.name.to_string(), name.to_string());
+                let k = (self.frames.last().unwrap().func.name.clone(), name.to_string());
                 let s = match self.static_index.get(&k) {
                     Some(&s) => s,
                     None => {
@@ -941,7 +1004,7 @@ impl Vm {
         let Some(f) = self.prog.funcs.get(func).and_then(|fs| fs.first()).cloned() else {
             return err(format!("{}: there is no function @{}", v.name, func));
         };
-        let k = (f.name.to_string(), base.to_string());
+        let k = (f.name.clone(), base.to_string());
         let slot = match self.static_index.get(&k) {
             Some(&s) => s,
             None => {
@@ -969,9 +1032,18 @@ impl Vm {
         let (c, rest) = if v.idx.len() > ndim { (self.eval(&v.idx[0])?.as_int(), 1) } else { (self.target(), 0) };
         let ci = self.chara_index(c, &v.name)?;
         let idx = self.eval_indices(v, rest, table)?;
-        let a = self.chara_arr(ci, &v.name);
+        // (the name's number, remembered in the reference)
+        let id = match v.cslot.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => {
+                let id = self.chara_names.id(&v.name);
+                v.cslot.store(id + 1, std::sync::atomic::Ordering::Relaxed);
+                id
+            }
+            s => s - 1,
+        };
+        let a = self.chara_arr_id(ci, id);
         let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", v.name, e), false))?;
-        Ok(Place { loc: Loc::Chara(ci, v.name.clone()), flat })
+        Ok(Place { loc: Loc::Chara(ci, id), flat })
     }
 
     /// The array a location refers to (None for read-only values).
@@ -981,7 +1053,7 @@ impl Vm {
             Loc::Frame(n) => self.frames.last_mut().and_then(|f| f.vars.get_mut(&**n)),
             Loc::FrameAt(d, n) => self.frames.get_mut(*d).and_then(|f| f.vars.get_mut(&**n)),
             Loc::Static(slot) => self.statics.get_mut(*slot).and_then(|a| a.as_mut()),
-            Loc::Chara(c, n) => Some(self.chara_arr(*c, n)),
+            Loc::Chara(c, id) => Some(self.chara_arr_id(*c, *id)),
             Loc::Ro(_) => None,
         }
     }
@@ -999,9 +1071,10 @@ impl Vm {
             Loc::Ro(_) => err("cannot assign to read-only variable"),
             loc => {
                 let f = p.flat;
-                if let Loc::Chara(c, n) = loc {
-                    if let Some(ch) = self.charas.get_mut(*c).filter(|ch| ch.names_unset != 0) {
-                        ch.names_unset &= !name_bit(n);
+                if let Loc::Chara(c, id) = loc {
+                    if self.charas.get(*c).is_some_and(|ch| ch.names_unset != 0) {
+                        let bit = name_bit(self.chara_names.name(*id));
+                        self.charas[*c].names_unset &= !bit;
                     }
                 }
                 if let Some(a) = self.arr_at(loc) {
@@ -1517,7 +1590,7 @@ impl Vm {
             self.call_func(only.clone(), args)?;
             return Ok(true);
         }
-        let mut ordered = fs.clone();
+        let mut ordered = fs;
         ordered.sort_by_key(|f| f.order);
         for f in ordered {
             self.call_func(f.clone(), args.clone())?;
@@ -1658,6 +1731,7 @@ impl Vm {
         let r = self.exec();
         let depth_after_pop = self.frames.len();
         self.frames.pop();
+        self.drop_if_huge(&f);
         // Debugger: function exit hook
         if crate::vm::debugger::debug_enabled() {
             self.debugger.on_function_exit(depth_after_pop);
@@ -1674,6 +1748,27 @@ impl Vm {
             }
         }
         r
+    }
+
+    /// A huge function that has just returned for the first time (pops-tw's
+    /// @CREATE_NAME_LIST fills name lists at the title: 170,000 lines, about
+    /// 50 MB compiled, run once) lets its code go at once, rather than
+    /// holding it until the code budget runs out; if it is called again it
+    /// is compiled again and kept like any other.
+    fn drop_if_huge(&mut self, f: &Rc<Function>) {
+        const HUGE: usize = 4 << 20;
+        if f.lazy.is_none() {
+            return;
+        }
+        let Some(bytes) = f.body.get().map(|b| b.approx_bytes()) else { return };
+        if bytes < HUGE || self.frames.iter().any(|fr| Rc::ptr_eq(&fr.func, f)) || !self.big_dropped.insert(Rc::as_ptr(f) as usize) {
+            return;
+        }
+        // SAFETY: the program runs on this thread alone
+        if unsafe { f.body.clear() } {
+            self.code_bytes = self.code_bytes.saturating_sub(bytes);
+            crate::sys::trim_memory();
+        }
     }
 
     /// Keep compiled function bodies within `code_budget`: drop those
@@ -3007,7 +3102,7 @@ pub mod prof {
         let id = std::sync::Arc::as_ptr(f) as usize;
         if CUR.swap(id, Ordering::Relaxed) != id {
             let mut n = NAMES.lock().unwrap();
-            n.get_or_insert_with(HashMap::new).entry(id).or_insert_with(|| f.name.to_string());
+            n.get_or_insert_with(HashMap::new).entry(id).or_insert_with(|| f.name.clone());
         }
     }
 

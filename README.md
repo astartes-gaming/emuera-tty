@@ -1277,7 +1277,10 @@ board copes and a PC with memory to spare does exactly what it did:
 
 - **Compiled functions** beyond 1/16 of the memory (`EMUERA_CODE_MB=n`
   sets it): the bodies called longest ago are dropped and compiled again
-  if needed. pops-tw runs a 170000-line function once at the title.
+  if needed. A huge function (4 MB of code or more) lets its code go as
+  soon as it first returns: pops-tw runs a 170,000-line one once at the
+  title, about 50 MB compiled. If it is called again, it is kept like
+  any other.
 - **Graphics buffers** (`GCREATE`) beyond 1/8 (`EMUERA_GBUF_MB=n`): the
   least recently used are kept packed (run-length coded, exactly) until
   drawn or shown again. pops-tw keeps three portraits per character in

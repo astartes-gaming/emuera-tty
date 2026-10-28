@@ -479,29 +479,29 @@ impl Vm {
     pub fn new_chara_from_csv(&mut self, no: i64) -> VmResult<Chara> {
         let mut c = Chara::default();
         let varsize = &self.csv.varsize;
-        let set = |c: &mut Chara, name: &str, idx: i64, val: Value| {
+        let set = |c: &mut Chara, names: &mut super::CharaNames, name: &str, idx: i64, val: Value| {
             let def = super::vars::system_var(name);
-            let a = c.vars.entry(name.to_string()).or_insert_with(|| match def {
+            let a = c.var_or(names.id(name), || match def {
                 Some(d) => Arr::new(d.is_str, &super::sized_dims(varsize, name, d)),
                 None => Arr::new(val.is_str(), &[1000]),
             });
             a.set(idx.max(0) as usize, val);
         };
         // (an empty character is Emuera's pseudo template: number 0)
-        set(&mut c, "NO", 0, Value::Int(no.max(0)));
+        set(&mut c, &mut self.chara_names, "NO", 0, Value::Int(no.max(0)));
         c.names_unset = 15;
         if let Some(ti) = self.chara_no_template(no) {
             let t = self.csv.charas[ti].clone();
             c.names_unset = !t.names_set & 15;
-            set(&mut c, "NAME", 0, Value::Str(t.name));
-            set(&mut c, "CALLNAME", 0, Value::Str(t.callname));
-            set(&mut c, "NICKNAME", 0, Value::Str(t.nickname));
-            set(&mut c, "MASTERNAME", 0, Value::Str(t.mastername));
+            set(&mut c, &mut self.chara_names, "NAME", 0, Value::Str(t.name));
+            set(&mut c, &mut self.chara_names, "CALLNAME", 0, Value::Str(t.callname));
+            set(&mut c, &mut self.chara_names, "NICKNAME", 0, Value::Str(t.nickname));
+            set(&mut c, &mut self.chara_names, "MASTERNAME", 0, Value::Str(t.mastername));
             for (var, i, v) in t.ints {
-                set(&mut c, &var, i, Value::Int(v));
+                set(&mut c, &mut self.chara_names, &var, i, Value::Int(v));
             }
             for (var, i, s) in t.strs {
-                set(&mut c, &var, i, Value::Str(s));
+                set(&mut c, &mut self.chara_names, &var, i, Value::Str(s));
             }
         } else if no != -1 {
             return err(format!("ADDCHARA: no Chara CSV with 番号 {}", no));
@@ -4310,7 +4310,7 @@ fn format_custom(v: i64, fmt: &str) -> String {
         z.extend(&digits);
         z
     } else {
-        digits.clone()
+        digits
     };
     let int_len = point.max(0) as usize;
     let (mut r, carry) = round_digits(&all, total);

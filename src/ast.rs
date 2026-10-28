@@ -73,6 +73,9 @@ pub struct VarRef {
     pub idx: Vec<Expr>,
     /// the global variable slot it names, plus one (0: not known yet)
     pub gslot: std::sync::atomic::AtomicU32,
+    /// the character variable it names (`vm::CharaNames`), plus one (0:
+    /// not known yet)
+    pub cslot: std::sync::atomic::AtomicU32,
     /// what the name means apart from the function using it, packed (see
     /// `vm::NameInfo`; 0: not worked out yet)
     pub cache: crate::atomic64::AtomicU64,
@@ -80,7 +83,7 @@ pub struct VarRef {
 
 impl VarRef {
     pub fn new(name: Name, idx: Vec<Expr>) -> VarRef {
-        VarRef { name, idx, cache: Default::default(), gslot: Default::default() }
+        VarRef { name, idx, cache: Default::default(), gslot: Default::default(), cslot: Default::default() }
     }
 }
 
@@ -91,6 +94,7 @@ impl Clone for VarRef {
             idx: self.idx.clone(),
             cache: crate::atomic64::AtomicU64::new(self.cache.load(std::sync::atomic::Ordering::Relaxed)),
             gslot: std::sync::atomic::AtomicU32::new(self.gslot.load(std::sync::atomic::Ordering::Relaxed)),
+            cslot: std::sync::atomic::AtomicU32::new(self.cslot.load(std::sync::atomic::Ordering::Relaxed)),
         }
     }
 }

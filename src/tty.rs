@@ -1189,7 +1189,7 @@ impl Tty {
                     true
                 }
                 Err(e) => {
-                    let hint = if e.to_string().contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
+                    let hint = if e.contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
                     why = format!("; framebuffer unavailable: {}{}", e, hint);
                     false
                 }
@@ -2321,7 +2321,10 @@ impl Tty {
             let scaled = match self.cbg_scaled.get(&key) {
                 Some(i) => i.clone(),
                 None => {
-                    if self.cbg_scaled.len() > 8 {
+                    // (bounded by size: a canvas redrawn every frame is a
+                    // new picture each time, never asked for again)
+                    let held: usize = self.cbg_scaled.values().map(|i| i.as_raw().len()).sum();
+                    if self.cbg_scaled.len() > 8 || held > 16 << 20 {
                         self.cbg_scaled.clear();
                     }
                     let i = if (pw, ph) == img.dimensions() { img.clone() } else { std::rc::Rc::new(crate::resources::resize(&img, pw, ph)) };

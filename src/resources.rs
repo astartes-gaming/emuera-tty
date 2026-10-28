@@ -1317,7 +1317,7 @@ impl Resources {
                 None
             }
         };
-        self.insert_file(p.to_path_buf(), img.clone());
+        self.insert_file(p.clone(), img.clone());
         img
     }
 

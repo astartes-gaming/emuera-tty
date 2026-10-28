@@ -14,14 +14,20 @@ pub fn read_text(path: &Path) -> io::Result<String> {
 }
 
 pub fn decode(bytes: &[u8]) -> String {
+    decode_detect(bytes).0
+}
+
+/// [`decode`], and whether the bytes were read as Shift_JIS (one pass over
+/// them: a big game has 50 MB of scripts).
+pub fn decode_detect(bytes: &[u8]) -> (String, bool) {
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        return String::from_utf8_lossy(&bytes[3..]).into_owned();
+        return (String::from_utf8_lossy(&bytes[3..]).into_owned(), false);
     }
     match std::str::from_utf8(bytes) {
-        Ok(s) => s.to_owned(),
+        Ok(s) => (s.to_owned(), false),
         Err(_) => {
             let (cow, _, _) = encoding_rs::SHIFT_JIS.decode(bytes);
-            cow.into_owned()
+            (cow.into_owned(), true)
         }
     }
 }

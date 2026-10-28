@@ -857,7 +857,8 @@ impl Vm {
                             self.globals.insert(name, arr);
                         }
                         ("V", Some(c)) => {
-                            self.charas[c].vars.insert(name, arr);
+                            let id = self.chara_names.id(&name);
+                            *self.charas[c].var_or(id, || Arr::new(false, &[1])) = arr;
                         }
                         _ => {}
                     }
@@ -873,7 +874,7 @@ impl Vm {
                             a.set(idx, v);
                         }
                     } else if let Some(c) = cur_chara {
-                        if let Some(a) = self.charas[c].vars.get_mut(name) {
+                        if let Some(a) = self.chara_names.get(name).and_then(|id| self.charas[c].var_mut(id)) {
                             a.set(idx, v);
                         }
                     }

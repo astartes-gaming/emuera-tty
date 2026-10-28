@@ -492,8 +492,9 @@ fn print_data_flags(cmd: &str) -> Option<PrintFlags> {
 /// Lines whose text is shown as written, trailing spaces included: the
 /// PRINT family and PRINTDATA's DATA / DATAFORM entries.
 fn keeps_line_end(line: &str) -> bool {
-    let word: String = line.chars().take_while(|c| crate::expr::is_ident_char(*c)).collect::<String>().to_uppercase();
-    word.starts_with("PRINT") || word == "DATA" || word == "DATAFORM"
+    let end = line.find(|c: char| !crate::expr::is_ident_char(c)).unwrap_or(line.len());
+    let word = &line[..end];
+    word.get(..5).is_some_and(|w| w.eq_ignore_ascii_case("PRINT")) || word.eq_ignore_ascii_case("DATA") || word.eq_ignore_ascii_case("DATAFORM")
 }
 
 /// Commands whose argument is a raw string (no expression parsing).
@@ -807,7 +808,7 @@ impl Parser {
                 _ => {
                     let _ = save;
                     d.name = id.to_uppercase();
-                    d.decl_name = id.to_string();
+                    d.decl_name = id.clone();
                     break;
                 }
             }
@@ -854,16 +855,10 @@ impl Parser {
     ///
     /// [`compile_lazily`]: Parser::compile_lazily
     pub fn parse_erb_file(&mut self, file_idx: u32, rel: &str, path: &std::path::Path, raw: &[u8]) {
-        let text = crate::loader::decode(raw);
+        let (text, sjis) = crate::loader::decode_detect(raw);
         if let Some(ctx) = &self.lazy {
             let meta = std::fs::metadata(path).ok();
-            let file = LazyFile {
-                path: path.to_path_buf(),
-                rel: rel.to_string(),
-                sjis: crate::loader::is_sjis(raw),
-                len: raw.len() as u64,
-                mtime: meta.and_then(|m| m.modified().ok()),
-            };
+            let file = LazyFile { path: path.to_path_buf(), rel: rel.to_string(), sjis, len: raw.len() as u64, mtime: meta.and_then(|m| m.modified().ok()) };
             if let Some(slot) = ctx.files.get(file_idx as usize) {
                 let _ = slot.set(file);
             }
@@ -1494,7 +1489,7 @@ impl Parser {
                         is_dynamic: true,
                     });
                 }
-                let var = Rc::new(VarRef::new(name.clone().into(), vec![]));
+                let var = Rc::new(VarRef::new(name.into(), vec![]));
                 if is_array {
                     // a fresh, empty array each time the line runs
                     b.emit(Instr::Command(Box::new(("VARSET".into(), Args::Exprs(vec![Expr::Var(var)])))));

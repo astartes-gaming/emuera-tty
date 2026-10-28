@@ -388,12 +388,6 @@ impl Backend for Kitty {
             ));
         }
         let keep: Vec<u32> = want.iter().map(|w| w.0).collect();
-        for id in &keep {
-            if let Some(k) = self.parked.iter().position(|p| p == id) {
-                self.parked.remove(k);
-                self.parked_bytes -= self.size.get(id).copied().unwrap_or(0);
-            }
-        }
         // images whose placements changed: placed again over the old ones
         // (same `p`), so a moved picture is never off the screen
         for (id, cmds) in want {
@@ -414,12 +408,11 @@ impl Backend for Kitty {
         // so a picture replaced by another (a CBG redrawn every frame) never
         // leaves the screen empty in between
         let gone: Vec<u32> = self.shown.keys().filter(|id| !keep.contains(id)).copied().collect();
-        for id in gone {
+        for id in &gone {
             let _ = write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", id);
-            self.shown.remove(&id);
-            self.parked.push_back(id);
-            self.parked_bytes += self.size.get(&id).copied().unwrap_or(0);
+            self.shown.remove(id);
         }
+        self.park_others(&keep, gone);
         // off-screen pictures are kept in the terminal only up to a budget,
         // the least recently shown freed first: a canvas redrawn every frame
         // (a new picture each time) would otherwise pile up there, hundreds
