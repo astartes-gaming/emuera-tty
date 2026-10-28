@@ -1071,9 +1071,21 @@ impl Tty {
 
     /// The terminal's background colour (OSC 11), if it says: the device
     /// attributes query after it answers anyway, so a terminal that ignores
-    /// OSC 11 costs no wait.
+    /// OSC 11 costs no wait. Haiku's Terminal answers the two the other
+    /// way round, so the OSC reply gets 60 ms more after the DA one.
     fn query_background(&mut self) -> Option<Rgb> {
-        let r = self.query(b"\x1b]11;?\x1b\\\x1b[c", |b| b.windows(3).any(|w| w == b"\x1b[?") && b.ends_with(b"c"), 300);
+        let da_at = std::cell::Cell::new(None::<Instant>);
+        let r = self.query(
+            b"\x1b]11;?\x1b\\\x1b[c",
+            |b| {
+                if da_at.get().is_none() && b.windows(3).any(|w| w == b"\x1b[?") && b.contains(&b'c') {
+                    da_at.set(Some(Instant::now()));
+                }
+                let osc = b.windows(4).position(|w| w == b"\x1b]11").is_some_and(|i| b[i..].iter().any(|&c| c == 0x07 || c == b'\\'));
+                da_at.get().is_some_and(|t| osc || t.elapsed() >= Duration::from_millis(60))
+            },
+            300,
+        );
         parse_osc11(&String::from_utf8_lossy(&r))
     }
 
@@ -1511,6 +1523,21 @@ impl Tty {
                 } else if b[1].is_ascii_digit() {
                     // Alt+digit (sent as ESC and the digit)
                     (Key::Group(b[1] - b'0'), 2)
+                } else if matches!(b[1], b']' | b'P' | b'_' | b'^' | b'X') {
+                    // a terminal's string reply (OSC, DCS, APC…) that came
+                    // after its query gave up: skip it whole, to BEL or ESC \
+                    let end = |b: &[u8]| {
+                        b[2..].iter().position(|&c| c == 0x07).map(|i| i + 3).or_else(|| b[2..].windows(2).position(|w| w == b"\x1b\\").map(|i| i + 4))
+                    };
+                    if end(&self.pending).is_none() {
+                        self.read_bytes(30);
+                        if end(&self.pending).is_none() {
+                            self.pending.clear();
+                            return Some(Key::Other);
+                        }
+                        return self.next_key(0);
+                    }
+                    (Key::Other, end(&b).unwrap())
                 } else {
                     (Key::Esc, 1)
                 }
