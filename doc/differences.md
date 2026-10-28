@@ -21,6 +21,7 @@ them here when you come across one.
 | What | Emuera-EM/EE | emuera-tty | Why |
 |---|---|---|---|
 | A statement a `#FUNCTION(S)` may not use (input, CALL, BEGIN, PRINTW…) | a load warning for each such line in every function it analyses, then a script error if the line runs (`ErbLoader.setArgument`, `ErbLoader.cs:923`) | the same script error when it runs, reported when the function is first compiled; `--check` lists them all (`parser.rs`, `NOT_IN_FUNCTION` in `vm/builtins.rs`) | Bodies are compiled lazily, to fit in 512 MB: there is no load pass over every line to warn from |
+| `VARS = …` / `VARI = …` (a variable the game declared itself, e.g. `#DIMS VARS`, assigned) | always EE's `VARS`/`VARI` declaration: the name before `=` is empty, so a nameless private variable is declared and set, and the game's own `VARS` is left untouched (`LogicalLineParser.cs:421`) | an assignment to the game's variable when no name follows the command (`"VARI" \| "VARS"` in `parser.rs`) | Vanilla Emuera and Anchor have no such commands and assign; eraAS (`RPG_BATTLE.ERB`, `#DIMS VARS`) is written that way |
 
 ## Helpers that come with games
 

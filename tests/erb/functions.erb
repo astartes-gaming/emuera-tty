@@ -7,6 +7,7 @@ NUMS:1 = 1
 CALL INCREMENT(NUMS)
 CALL CHECK, "REF array argument", NUMS:1 == 2
 CALL CHECK, "recursion", FACT(10) == 3628800
+CALL CHECKS, "a private VARS is assigned, not declared again", OWN_VARS(), "Turn 3+"
 ;--- private #DIMs keep their value between calls unless DYNAMIC
 CALL COUNTER
 CALL COUNTER
@@ -59,3 +60,12 @@ LOCAL = 5
 
 @DYN_2
 RETURN 22
+
+; eraAS: a variable of the game's own named VARS (Emuera-EE's declaration
+; command): `VARS = …` assigns it, as in Emuera and Anchor
+@OWN_VARS
+#FUNCTIONS
+#DIMS VARS
+VARS = Turn {1 + 2}
+VARS += "+"
+RETURNF VARS

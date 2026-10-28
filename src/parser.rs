@@ -1159,7 +1159,9 @@ impl Parser {
         let (cmd, rest) = split_cmd(line);
         // Emuera (ErbLoader.setArgument): a #FUNCTION(S) can't use input,
         // calls, BEGIN… The line is an error when it runs.
-        if b.f.is_function && crate::vm::builtins::NOT_IN_FUNCTION.binary_search(&cmd.as_str()).is_ok() {
+        // (`VARS = …` assigns a variable of the game's: no statement, see below)
+        let assigns = matches!(cmd.as_str(), "VARI" | "VARS") && rest.trim_start().starts_with(|c: char| "=+-*/%&|^<>'".contains(c));
+        if b.f.is_function && !assigns && crate::vm::builtins::NOT_IN_FUNCTION.binary_search(&cmd.as_str()).is_ok() {
             return Err(format!("{} instruction cannot be used in #FUNCTION(S)", cmd));
         }
         let defs = &self.prog.defines;
@@ -1464,6 +1466,14 @@ impl Parser {
                 };
                 let mut parts = left.split(',').map(|x| x.trim());
                 let decl = parts.next().unwrap_or("").to_string();
+                if right.is_some() && !decl.starts_with(|c: char| c.is_alphanumeric() || c == '_' || !c.is_ascii()) {
+                    // `VARS = …`, `VARS += …`: an assignment to the game's own VARS (eraAS
+                    // has `#DIMS VARS`), as in Emuera and Anchor, which have no
+                    // such command (see doc/differences.md)
+                    self.assignment(b, line)?;
+                    Self::after_stmt(b);
+                    return Ok(());
+                }
                 if decl.is_empty() {
                     return Err(format!("{}: missing variable name", cmd));
                 }
