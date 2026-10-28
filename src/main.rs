@@ -56,7 +56,8 @@ struct Opts {
     gfx: String,
     strict: bool,
     check: bool,
-    debug: bool,
+    game_debug: bool,
+    vm_debug: bool,
     echo: bool,
     /// --retro / --retro=line: the retro-terminal frontend (otherwise used
     /// only when $TERM isn't ANSI)
@@ -99,7 +100,8 @@ fn usage_exit(code: i32) -> ! {
          \x20 --echo                           echo inputs in headless mode\n\
          \x20 --check                          parse the game and report errors only\n\
          \x20 --strict                         unknown commands are errors\n\
-         \x20 --debug                          enable [IF_DEBUG] / ;#; lines\n\
+         \x20 --game-debug                    enable [IF_DEBUG] / ;#; lines\n\
+         \x20 --vm-debug                      enable interactive debugger (breakpoints, step, watches)\n\
          \n\
          display (each also has an environment variable, which the option overrides):\n\
          \x20 --colors truecolor|256|16        colour depth, when detection guesses wrong (EMUERA_COLORS)\n\
@@ -153,7 +155,8 @@ fn parse_args() -> Opts {
         gfx: "auto".into(),
         strict: false,
         check: false,
-        debug: false,
+        game_debug: false,
+        vm_debug: false,
         echo: false,
         retro: None,
         term: None,
@@ -198,7 +201,8 @@ fn parse_args() -> Opts {
             "--headless" => o.headless = true,
             "--strict" => o.strict = true,
             "--check" => o.check = true,
-            "--debug" => o.debug = true,
+            "--game-debug" => o.game_debug = true,
+            "--vm-debug" => o.vm_debug = true,
             "--echo" => o.echo = true,
             "--choose" => o.choose = true,
             "--saves" => o.saves = Some("list"),
@@ -258,6 +262,13 @@ fn parse_args() -> Opts {
         if o.translate_log.is_none() {
             o.translate_log = Some(s);
         }
+    }
+    // Check env vars for debug flags
+    if !o.game_debug {
+        o.game_debug = std::env::var("EMUERA_GAME_DEBUG").is_ok();
+    }
+    if !o.vm_debug {
+        o.vm_debug = std::env::var("EMUERA_VM_DEBUG").is_ok();
     }
     o
 }
@@ -432,7 +443,7 @@ fn run(o: Opts) -> i32 {
     // function bodies are compiled when first called, except for --check
     // (or EMUERA_PARSE=all): a game runs a few percent of them
     let lazy = !o.check && std::env::var("EMUERA_PARSE").map_or(true, |v| v != "all");
-    let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.debug, lazy, &mut phase);
+    let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.game_debug, lazy, &mut phase);
     let n_funcs: usize = prog.funcs.values().map(|v| v.len()).sum();
     eprintln!(
         "loaded {} files, {} functions, {} chara templates in {:.2?} ({} parse errors)",
@@ -537,11 +548,13 @@ fn run(o: Opts) -> i32 {
             }
         }
     };
+    // Enable debugger via --vm-debug flag or EMUERA_VM_DEBUG env var
+    // The VM reads EMUERA_VM_DEBUG directly
     let rename = csv.rename.clone();
     let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone());
     // the reload hotkey parses the ERB files again
     {
-        let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.debug);
+        let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.game_debug);
         vm.reloader = Some(Box::new(move || build_program(&g, erb.as_deref(), &rename, debug, lazy, &mut |_| {}).0));
     }
     if timing {

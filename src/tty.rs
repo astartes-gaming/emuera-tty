@@ -20,7 +20,7 @@ use crate::frontend::{Frontend, InputKind, InputReq, InputResult};
 use crate::gfx::{self, Backend, Placement};
 use crate::resources::Resources;
 use crate::vm::value::Value;
-use std::io::Write;
+use std::io::{self, Write};
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
@@ -4441,6 +4441,141 @@ impl Frontend for Tty {
         );
         matches!(r, Pick::Row(0))
     }
+
+    fn debugger_input(&mut self, _con: &mut Console, _res: &mut Resources, prompt: &str) -> String {
+        // Disable mouse reporting (including UTF-8 mode ?1005 for scroll wheel)
+        write_all(b"\x1b[?1006l\x1b[?1015l\x1b[?1005l\x1b[?1003l\x1b[?1002l\x1b[?1000l");
+        let _ = io::stdout().flush();
+        // Temporarily restore cooked mode
+        self.raw_mode.restore();
+        eprint!("{}", prompt);
+        let _ = io::stderr().flush();
+        // Read line while filtering out mouse escape sequences
+        let line = read_line_filtered();
+        // Re-enter raw mode using the original termios
+        let _ = self.raw_mode.re_enter();
+        // Re-enable mouse reporting
+        write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1005h\x1b[?1015h\x1b[?1006h");
+        line
+    }
+}
+
+/// Read a line from stdin, filtering out mouse escape sequences.
+/// Mouse sequences: VT200 (\x1b[M + 3 bytes), SGR (\x1b[<...M/m), urxvt (\x1b[...M), UTF-8 (\x1b[<...M)
+#[cfg(unix)]
+fn read_line_filtered() -> String {
+    use libc;
+    use std::os::fd::AsRawFd;
+    let stdin_fd = io::stdin().as_raw_fd();
+    let mut line = String::new();
+    let mut buf = [0u8; 1024];
+    let mut escape_state = 0; // 0=normal, 1=ESC, 2=CSI, 3=mouse params
+    let mut mouse_bytes_remaining = 0;
+
+    loop {
+        // Use poll to wait for input with a small timeout
+        let mut fds = [libc::pollfd { fd: stdin_fd, events: libc::POLLIN, revents: 0 }];
+        let ret = unsafe { libc::poll(fds.as_mut_ptr(), 1, 50) };
+        if ret <= 0 {
+            continue; // timeout or error, keep waiting
+        }
+
+        // Read available data
+        let n = unsafe { libc::read(stdin_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        if n <= 0 {
+            break; // EOF or error
+        }
+
+        for &b in &buf[..n as usize] {
+            match escape_state {
+                0 => {
+                    if b == 0x1b {
+                        // ESC
+                        escape_state = 1;
+                    } else if b == b'\n' || b == b'\r' {
+                        return line.trim_end_matches(['\r', '\n']).to_string();
+                    } else {
+                        line.push(b as char);
+                    }
+                }
+                1 => {
+                    if b == b'[' {
+                        escape_state = 2;
+                    } else if b == b'M' || b == b'm' {
+                        // ESC M or ESC m - could be start of mouse sequence, but not CSI
+                        // Treat as normal chars
+                        line.push(0x1b as char);
+                        line.push(b as char);
+                        escape_state = 0;
+                    } else {
+                        // Not a CSI sequence, treat ESC as literal
+                        line.push(0x1b as char);
+                        line.push(b as char);
+                        escape_state = 0;
+                    }
+                }
+                2 => {
+                    // CSI sequence - check for mouse sequences and cursor keys
+                    if b == b'<' || b == b'M' {
+                        // CSI < ... or CSI M - likely mouse sequence
+                        escape_state = 3;
+                        if b == b'M' {
+                            // VT200 mouse: ESC [ M + 3 bytes
+                            mouse_bytes_remaining = 3;
+                        }
+                    } else if b.is_ascii_digit() || b == b';' || b == b':' || b == b'?' {
+                        // Parameter bytes, stay in CSI state
+                    } else if (0x40..=0x7e).contains(&b) {
+                        // Final byte of CSI sequence
+                        if mouse_bytes_remaining > 0 {
+                            // This was a mouse sequence, discard it all
+                            mouse_bytes_remaining = 0;
+                            escape_state = 0;
+                        } else if matches!(b, b'A' | b'B' | b'C' | b'D') {
+                            // Cursor key (Up/Down/Right/Left) - likely from scroll wheel
+                            // when mouse reporting is disabled. Discard silently.
+                            escape_state = 0;
+                        } else {
+                            // Not a mouse sequence or cursor key, treat as literal
+                            line.push(0x1b as char);
+                            line.push('[');
+                            // We've lost the intermediate bytes, but this is rare for non-mouse
+                            line.push(b as char);
+                            escape_state = 0;
+                        }
+                    } else {
+                        // Unexpected byte, abort escape sequence
+                        escape_state = 0;
+                    }
+                }
+                3 => {
+                    // In mouse parameter/data bytes
+                    if mouse_bytes_remaining > 0 {
+                        mouse_bytes_remaining -= 1;
+                        if mouse_bytes_remaining == 0 {
+                            escape_state = 0;
+                        }
+                    } else if b == b'M' || b == b'm' {
+                        // End of SGR/urxvt mouse sequence
+                        escape_state = 0;
+                    }
+                    // Otherwise keep consuming mouse bytes
+                }
+                _ => {}
+            }
+        }
+    }
+    line.trim_end_matches(['\r', '\n']).to_string()
+}
+
+/// Windows implementation: in cooked mode (after RawMode::restore), just use standard read_line
+/// since mouse reporting is disabled via escape sequences.
+#[cfg(windows)]
+fn read_line_filtered() -> String {
+    use std::io::{stdin, BufRead};
+    let mut line = String::new();
+    stdin().lock().read_line(&mut line).unwrap_or_default();
+    line.trim_end_matches(['\r', '\n']).to_string()
 }
 
 impl Drop for Tty {

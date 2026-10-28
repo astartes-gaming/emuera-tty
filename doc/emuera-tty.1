@@ -211,7 +211,7 @@ reported then.)
 .B \-\-strict
 Commands emuera-tty doesn't implement are errors instead of warnings.
 .TP
-.B \-\-debug
+.B \-\-game-debug
 Run
 .B [IF_DEBUG]
 blocks and
@@ -219,6 +219,72 @@ blocks and
 lines, like Emuera's debug mode. \fBRestart in debug mode\fR in the
 options overlay restarts the game with it (and \fBRestart without debug
 mode\fR without it).
+.TP
+.B \-\-vm-debug
+Enable the interactive debugger (breakpoints, stepping, variable inspection).
+.SS Interactive Debugger Commands
+When the debugger stops, a prompt \fB(emu-debug)> \fR appears.
+Commands accept an optional numeric argument for multi-step:
+.TP
+.BR c " | " continue
+Resume execution.
+.TP
+.BR s " | " step " | " si " | " stepi " [" n "]
+Step into next \fIn\fR instructions (default 1).
+.TP
+.BR n " | " next " [" n "]
+Step over next \fIn\fR instructions in this or caller frame (default 1).
+.TP
+.BR f " | " finish " [" n "]
+Step out until \fIn\fR functions return (default 1).
+.TP
+.BR bt " | " backtrace " | " where
+Show call stack.
+.TP
+.BR p " | " print " " var
+Print variable value.
+.TP
+.BR w " | " watch " " expr
+Add watch expression (evaluated at each stop).
+.TP
+.BR uw " | " unwatch " " n
+Remove watch expression by index.
+.TP
+.BR b " | " break " | " breakpoint " " spec
+Set breakpoint: \fIfile:line\fR, \fI@function\fR, or \fIfunction:pc\fR.
+.TP
+.BR cb " | " clear " " spec
+Clear breakpoint.
+.TP
+.BR lb " | " listb
+List breakpoints.
+.TP
+.BR lw " | " listw
+List watch expressions.
+.TP
+.BR il " | " locals
+Show local variables in current frame.
+.TP
+.BR ig " | " globals
+Show global variables.
+.TP
+.BR if " | " frame
+Show current frame info.
+.TP
+.BR h " | " help " | " ?
+Show this help.
+.TP
+.BR q " | " quit
+Quit the game.
+.TP
+.B EMUERA_BREAKPOINTS
+Pre-set breakpoints (comma-separated): \fI@EVENTFIRST,ERB/TEST.ERB:42,EVENT_SHOP:10\fR.
+.TP
+.B EMUERA_GAME_DEBUG=1
+Enable game-level debug mode ([IF_DEBUG] blocks, ;#; lines) (same as \fB\-\-game-debug\fR).
+.TP
+.B EMUERA_VM_DEBUG=1
+Enable the interactive debugger (same as \fB\-\-vm-debug\fR).
 .SS Retro and serial terminals
 .TP
 .BR \-\-retro [ =line ]
