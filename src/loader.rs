@@ -21,14 +21,23 @@ pub fn emuera_lines(s: &str) -> impl Iterator<Item = &str> {
         if rest.is_empty() {
             return None;
         }
-        let b = rest.as_bytes();
-        Some(match b.iter().position(|&c| c == b'\n' || c == b'\r') {
-            Some(i) => {
-                let line = &rest[..i];
-                rest = &rest[i + if b[i] == b'\r' && b.get(i + 1) == Some(&b'\n') { 2 } else { 1 }..];
-                line
+        // the next "\n" (a fast search), then a "\r" before it: the "\r\n"
+        // ending, or (rarely) a lone "\r" ending the line earlier
+        let nl = rest.find('\n');
+        let seg = &rest[..nl.unwrap_or(rest.len())];
+        Some(match seg.find('\r') {
+            Some(j) if j + 1 == seg.len() && nl.is_some() => {
+                rest = &rest[j + 2..];
+                &seg[..j]
             }
-            None => std::mem::take(&mut rest),
+            Some(j) => {
+                rest = &rest[j + 1..];
+                &seg[..j]
+            }
+            None => {
+                rest = nl.map_or("", |i| &rest[i + 1..]);
+                seg
+            }
         })
     })
 }

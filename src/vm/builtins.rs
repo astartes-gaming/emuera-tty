@@ -477,7 +477,11 @@ impl Vm {
 
     /// Index into `csv.charas` of the template with 番号 `no`.
     fn chara_no_template(&self, no: i64) -> Option<usize> {
-        self.csv.charas.iter().position(|c| c.no == no)
+        // (the templates are sorted by 番号 at load: the first of that
+        // number, by halves; CSVNAME / CSVCFLAG run often)
+        let c = &self.csv.charas;
+        let k = c.partition_point(|t| t.no < no);
+        (k < c.len() && c[k].no == no).then_some(k)
     }
 
     /// Build a character from its Chara*.csv template (ADDCHARA); `-1`
@@ -3337,10 +3341,11 @@ impl Vm {
                     None => 0,
                 };
                 let t = self.chara_no_template(no).map(|k| &self.csv.charas[k]);
+                // (the index first: comparing names is the slow part)
                 if var == "CSTR" {
-                    return s(t.and_then(|t| t.strs.iter().find(|(v, i, _)| v == "CSTR" && *i == idx).map(|x| x.2.clone())).unwrap_or_default());
+                    return s(t.and_then(|t| t.strs.iter().find(|(v, i, _)| *i == idx && v == "CSTR").map(|x| x.2.clone())).unwrap_or_default());
                 }
-                i(t.and_then(|t| t.ints.iter().find(|(v, i, _)| v == var && *i == idx).map(|x| x.2)).unwrap_or(0))
+                i(t.and_then(|t| t.ints.iter().find(|(v, i, _)| *i == idx && v == var).map(|x| x.2)).unwrap_or(0))
             }
             "EXISTCSV" => {
                 let no = self.ai(a, 0, 0)?;

@@ -314,6 +314,7 @@ fn line_offsets(raw: &[u8], lines: impl Iterator<Item = u32>) -> Vec<u32> {
     let (mut line, mut pos) = (1u32, 0usize);
     for want in lines {
         while line < want {
+            // (one pass: the bytes may be Shift_JIS, so no str search)
             match raw[pos..].iter().position(|&c| c == b'\n' || c == b'\r') {
                 Some(i) => {
                     pos += i + if raw[pos + i] == b'\r' && raw.get(pos + i + 1) == Some(&b'\n') { 2 } else { 1 };

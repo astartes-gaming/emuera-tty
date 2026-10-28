@@ -293,7 +293,10 @@ for `i586-unknown-linux-musl`, `arm-unknown-linux-musleabihf`,
 `powerpc64-unknown-linux-musl`, `powerpc64le-unknown-linux-musl` or
 `loongarch64-unknown-linux-musl`. The compile-checked ones need nightly
 Rust (`cargo +nightly build -Z build-std=std,panic_abort --target …`)
-for most, and the target's C library to link. On the machine itself,
+for most, and the target's C library to link. RISC-V 32 is checked as
+`riscv32gc-unknown-linux-musl`: the glibc target's own standard library
+doesn't build with current nightly Rust (`SYS_futex` is missing from its
+`libc`). On the machine itself,
 `cargo build --release` works wherever Rust is installed.
 
 ### Small machines (Raspberry Pi Zero and the like)
