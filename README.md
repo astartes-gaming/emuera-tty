@@ -375,7 +375,7 @@ Enter takes the folder next to your last game) and, if you want them, the
 branch to check out straight away (Enter for the repository's default) and
 a history depth for big repositories (`1` fetches only the latest commit,
 Enter the full history; a shallow clone still updates with `u`). It shows
-git's progress. Each field starts from what you gave last time, shown in
+git's progress in a box over the launcher (see below). Each field starts from what you gave last time, shown in
 [brackets]: Enter on an empty field reuses it, and **Tab** puts it in the
 field for editing (clear it to leave the field empty, e.g. to drop a
 remembered branch). **Esc** or **Ctrl-C** cancels the clone (git cleans up
@@ -396,6 +396,15 @@ just done. It only fast-forwards and never asks for a password, so a game
 you have edited, or a repository that needs a login, reports why it
 couldn't update instead (commit or stash your edits, or run `git pull` yourself).
 Saves in the game folder that the repository ignores are left alone.
+
+While a game updates, clones or comes out of its archive, a box over the
+launcher shows how far along it is, drawn like the gauges of Debian's
+installer: the bar fills in red from git's own progress (receiving the
+objects, resolving deltas, writing the files, then the Git LFS pictures),
+and a block sweeps along it while git hasn't said how far it is yet (and
+for archives, with the count of files written). With `U` the bar covers all
+the games, "Updating 2 of 5: …". A terminal too small for the box (under
+42 columns or about 10 rows) gets the same news on the status line.
 
 #### Games with pictures in Git LFS
 

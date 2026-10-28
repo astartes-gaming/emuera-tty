@@ -256,6 +256,159 @@ fn term_size() -> (usize, usize) {
     crate::sys::winsize().map_or((80, 24), |(c, r, _, _)| (c, r))
 }
 
+/// `s` cut or padded with spaces to exactly `w` display cells.
+fn padded(s: &str, w: usize) -> String {
+    let f = fit(s, w);
+    let used: usize = f.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+    f + &" ".repeat(w.saturating_sub(used))
+}
+
+/// A checkout's folder name, for the gauge's title.
+fn repo_title(root: &Path) -> String {
+    root.file_name().map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// What a running git command reports to the launcher's gauge.
+enum Step<'a> {
+    /// a command starts: what it does
+    Start(&'a str),
+    /// its latest progress line
+    Line(&'a str),
+    /// 100 ms went by without output
+    Quiet,
+}
+
+/// A box over the launcher's screen showing a long job (update, clone,
+/// extraction), drawn the way Debian's installer draws its gauges: grey, with
+/// a shadow, the bar filling in red. Until a percentage is known a block
+/// sweeps along the bar instead, and a spinner turns while the job works.
+/// Of several jobs (update all), the bar covers them all.
+struct Gauge {
+    title: String,
+    /// the bottom line (how to cancel), may be empty
+    hint: String,
+    text: String,
+    pct: Option<u32>,
+    /// (this job, of how many)
+    job: (usize, usize),
+    born: std::time::Instant,
+    drawn: std::time::Instant,
+}
+
+impl Gauge {
+    fn new(title: &str, hint: &str) -> Gauge {
+        let now = std::time::Instant::now();
+        let mut g = Gauge { title: title.into(), hint: hint.into(), text: String::new(), pct: None, job: (0, 1), born: now, drawn: now };
+        g.draw();
+        g
+    }
+
+    /// Job `i` (from 0) of `n` starts, called `title`.
+    fn job(&mut self, i: usize, n: usize, title: &str) {
+        self.job = (i, n.max(1));
+        self.title = title.into();
+        self.step(Step::Start(""));
+    }
+
+    fn step(&mut self, s: Step) {
+        match s {
+            Step::Start(what) => {
+                self.text = what.into();
+                self.pct = None;
+                self.draw();
+            }
+            Step::Line(l) => self.show(l, git_percent(l)),
+            Step::Quiet => {
+                if self.drawn.elapsed().as_millis() >= 100 {
+                    self.draw();
+                }
+            }
+        }
+    }
+
+    /// The job's latest news and, when known, how far along it is in percent
+    /// (a line without one keeps the last).
+    fn show(&mut self, text: &str, pct: Option<u32>) {
+        let moved = pct.is_some() && pct != self.pct;
+        self.text = text.chars().filter(|c| !c.is_control()).collect();
+        if pct.is_some() {
+            self.pct = pct;
+        }
+        if moved || self.drawn.elapsed().as_millis() >= 80 {
+            self.draw();
+        }
+    }
+
+    fn draw(&mut self) {
+        self.drawn = std::time::Instant::now();
+        let frame = self.born.elapsed().as_millis() as usize / 100;
+        let spin = ['|', '/', '-', '\\'][frame % 4];
+        let (i, n) = (self.job.0 as u32, self.job.1 as u32);
+        // past the first of several jobs the bar is never empty
+        let pct = match self.pct {
+            Some(p) => Some((i * 100 + p.min(100)) / n),
+            None if i > 0 => Some(i * 100 / n),
+            None => None,
+        };
+        let (cols, rows) = term_size();
+        let w = cols.saturating_sub(12).min(72);
+        let h = if self.hint.is_empty() { 7 } else { 8 };
+        if w < 30 || rows < h + 2 {
+            // no room for a box: the status line
+            let p = pct.map_or(String::new(), |p| format!(" {}%", p));
+            let line = format!("{} {}: {}{}", spin, self.title, self.text, p);
+            out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", rows.saturating_sub(1).max(1), fit(&line, cols)).as_bytes());
+            return;
+        }
+        let inner = w - 2;
+        // centred with its shadow (2 columns right, 1 row below)
+        let (x, y) = ((cols - w - 2) / 2 + 1, (rows - h - 1) / 2 + 1);
+        let face = "\x1b[0;30;47m";
+        let shadow = "\x1b[0;40m  ";
+        let mut s = String::new();
+        let mut row = |r: usize, body: &str, shade: bool| {
+            s += &format!("\x1b[{};{}H{}{}", y + r, x, face, body);
+            if shade {
+                s += shadow;
+            }
+        };
+        let title = fit(&self.title, inner.saturating_sub(4));
+        let tw: usize = title.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+        let left = (inner - tw - 2) / 2;
+        row(0, &format!("┌{} {} {}┐", "─".repeat(left), title, "─".repeat(inner - tw - 2 - left)), false);
+        let blank = format!("│{}│", " ".repeat(inner));
+        row(1, &blank, true);
+        row(2, &format!("│ {} {} │", spin, padded(&self.text, inner - 4)), true);
+        row(3, &blank, true);
+        let bw = inner - 7;
+        let bar = match pct {
+            Some(p) => {
+                let full = bw * p.min(100) as usize / 100;
+                format!("\x1b[41m{}\x1b[44m{}{} {:>3}%", " ".repeat(full), " ".repeat(bw - full), face, p.min(100))
+            }
+            None => {
+                // a block bouncing between the ends
+                let len = (bw / 5).max(2);
+                let travel = bw - len;
+                let t = frame % (2 * travel).max(1);
+                let at = if t <= travel { t } else { 2 * travel - t };
+                format!("\x1b[44m{}\x1b[41m{}\x1b[44m{}{}     ", " ".repeat(at), " ".repeat(len), " ".repeat(travel - at), face)
+            }
+        };
+        row(4, &format!("│ {} │", bar), true);
+        row(5, &blank, true);
+        if !self.hint.is_empty() {
+            let hint = fit(&self.hint, inner - 2);
+            let hw: usize = hint.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+            let l = (inner - hw) / 2;
+            row(6, &format!("│{}{}{}│", " ".repeat(l), hint, " ".repeat(inner - hw - l)), true);
+        }
+        row(h - 1, &format!("└{}┘", "─".repeat(inner)), true);
+        s += &format!("\x1b[{};{}H{}{}\x1b[0m", y + h, x + 2, shadow, " ".repeat(w - 2));
+        out(s.as_bytes());
+    }
+}
+
 impl Picker {
     /// List the current page.
     fn load(&mut self) {
@@ -595,14 +748,8 @@ impl Picker {
                         let (note, log) = match git_root(&p) {
                             None => ("This game isn't a git checkout: nothing to update from.".to_string(), None),
                             Some(root) => {
-                                let (cols, rows) = term_size();
-                                out(format!(
-                                    "\x1b[{};1H\x1b[0m\x1b[2K{}",
-                                    rows.saturating_sub(1),
-                                    fit(&format!("Updating {} (git pull)…", root.display()), cols)
-                                )
-                                .as_bytes());
-                                let (res, log) = git_pull(&root);
+                                let mut g = Gauge::new(&format!("Updating {}", repo_title(&root)), "");
+                                let (res, log) = git_pull(&root, &mut |s| g.step(s));
                                 (
                                     match res {
                                         Ok(m) => m,
@@ -635,18 +782,13 @@ impl Picker {
                     self.note = "None of these games is a git checkout: nothing to update from.".into();
                     return Err(None);
                 }
-                let (cols, rows) = term_size();
                 let (mut updated, mut current, mut failed) = (Vec::new(), 0, Vec::new());
                 let mut log = String::new();
+                let mut g = Gauge::new("Updating", "");
                 for (i, root) in roots.iter().enumerate() {
-                    out(format!(
-                        "\x1b[{};1H\x1b[0m\x1b[2K{}",
-                        rows.saturating_sub(1),
-                        fit(&format!("Updating {}/{}: {} (git pull)…", i + 1, roots.len(), root.display()), cols)
-                    )
-                    .as_bytes());
-                    let name = root.file_name().map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned());
-                    let (res, text) = git_pull(root);
+                    let name = repo_title(root);
+                    g.job(i, roots.len(), &format!("Updating {} of {}: {}", i + 1, roots.len(), name));
+                    let (res, text) = git_pull(root, &mut |s| g.step(s));
                     log += &format!("== {} ==\n{}\n", root.display(), text);
                     match res {
                         Ok(m) if m.starts_with("Already") => current += 1,
@@ -942,16 +1084,14 @@ impl Picker {
             self.note = format!("\x1b[31mCan't create {}: {}\x1b[0m", parent.display(), e);
             return;
         }
-        let (cols, rows) = term_size();
-        let line = rows.saturating_sub(1);
-        out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", line, fit(&format!("Cloning {}…", url), cols)).as_bytes());
-        out(format!("\x1b[{};1H\x1b[2K\x1b[2m{}\x1b[0m", rows, fit("Esc / Ctrl-C: cancel the clone", cols)).as_bytes());
-        let mut show = |p: &str| out(format!("\x1b[{};1H\x1b[2K{}", line, fit(&format!("Cloning {}… {}", name, p), cols)).as_bytes());
-        let (end, mut log) = git_clone(&url, branch.trim(), depth, &target, &mut show, &mut || self.cancel_pressed());
+        // (the launcher again behind the gauge, without the prompts)
+        self.draw();
+        let mut g = Gauge::new(&format!("Cloning {}", name), "Esc / Ctrl-C: cancel the clone");
+        let (end, mut log) = git_clone(&url, branch.trim(), depth, &target, &mut |s| g.step(s), &mut || self.cancel_pressed());
         let mut pics = String::new();
         if matches!(end, CloneEnd::Done) {
-            show("fetching its pictures (git lfs pull)…");
-            pics = lfs_pull(&target, &mut log);
+            g.hint.clear();
+            pics = lfs_pull(&target, &mut log, &mut |s| g.step(s));
         }
         self.git_log = Some(log);
         match end {
@@ -960,6 +1100,7 @@ impl Picker {
                 // git removes the folder it was making when it can; if something
                 // is left, ask before deleting it (it was missing or empty before
                 // we started)
+                self.draw();
                 let left = target.exists()
                     && match std::fs::read_dir(&target) {
                         Ok(mut d) => d.next().is_some(),
@@ -1122,14 +1263,11 @@ impl Picker {
         None
     }
 
-    /// Extract an archive, showing progress on the status line.
+    /// Extract an archive, showing progress in a gauge.
     fn extract(&mut self, archive: &Path) -> Result<PathBuf, String> {
         let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let (cols, rows) = term_size();
-        let line = rows.saturating_sub(1);
-        out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", line, fit(&format!("Extracting {}…", name), cols)).as_bytes());
-        let mut show = |n: usize| out(format!("\x1b[{};1H\x1b[2K{}", line, fit(&format!("Extracting {}… {} files", name, n), cols)).as_bytes());
-        crate::archive::extract_game(archive, &mut show)
+        let mut g = Gauge::new(&format!("Extracting {}", name), "");
+        crate::archive::extract_game(archive, &mut |n| g.show(&format!("{} files", n), None))
     }
 
     /// Wait for input and turn it into an action.
@@ -1565,24 +1703,136 @@ fn stop_git(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+/// How far along a git command is, in percent, from its latest progress line
+/// (`--progress`), its phases weighted by how long they usually take: the
+/// server counting and compressing, receiving the objects, resolving deltas,
+/// writing the files out. A phase not listed (git speaking another
+/// language) counts on its own; None for a line without a percentage.
+fn git_percent(line: &str) -> Option<u32> {
+    const PHASES: [(&str, u32, u32); 9] = [
+        ("Counting objects", 0, 2),
+        ("Compressing objects", 2, 5),
+        ("Receiving objects", 5, 80),
+        ("Unpacking objects", 5, 90),
+        ("Resolving deltas", 80, 90),
+        ("Updating files", 90, 100),
+        ("Checking out files", 90, 100),
+        ("Filtering content", 90, 100),
+        ("Downloading LFS objects", 0, 100),
+    ];
+    let line = line.trim_start_matches("remote:").trim_start();
+    let (phase, rest) = line.split_once(':')?;
+    let pct = rest.trim_start().split_once('%')?.0.trim().parse::<u32>().ok()?.min(100);
+    let (from, to) = PHASES.iter().find(|p| p.0 == phase.trim()).map_or((0, 100), |p| (p.1, p.2));
+    Some(from + (to - from) * pct / 100)
+}
+
+/// Git's output as a terminal would have left it: of each line, what comes
+/// after its last carriage return (progress lines rewrite themselves).
+fn settled(s: &str) -> String {
+    s.split('\n').map(|l| l.trim_end_matches('\r').rsplit('\r').next().unwrap_or("")).collect::<Vec<_>>().join("\n")
+}
+
+/// How a git command run by `git_run` ended.
+enum GitEnd {
+    Ok,
+    Failed,
+    /// stopped by the user (`cancel` said so)
+    Cancelled,
+}
+
+/// Run the git command `c` without prompts, its progress shown: git's stderr
+/// is read as it comes and its latest line handed to `progress` (`Quiet`
+/// after 100 ms of silence); `cancel` is asked about every 100 ms and stops
+/// git when it says true. Returns how it ended, its stdout and its stderr;
+/// Err when git can't be started.
+fn git_run(c: &mut std::process::Command, progress: &mut dyn FnMut(Step), cancel: &mut dyn FnMut() -> bool) -> Result<(GitEnd, String, String), String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+    use std::time::Duration;
+    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0");
+    if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+        c.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
+    }
+    let mut child = c.spawn().map_err(|e| format!("git: {}", e))?;
+    // the pipes are read on threads of their own, so the keyboard can be
+    // watched meanwhile. (Git's helpers may keep them open after git itself
+    // is gone, so the threads are never waited for.)
+    fn pump(mut p: impl Read + Send + 'static, err: bool, tx: Sender<(bool, Vec<u8>)>) {
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = p.read(&mut buf) {
+                if n == 0 || tx.send((err, buf[..n].to_vec())).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    let (tx, rx) = channel();
+    if let Some(p) = child.stdout.take() {
+        pump(p, false, tx.clone());
+    }
+    if let Some(p) = child.stderr.take() {
+        pump(p, true, tx);
+    }
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let mut take = |(is_err, chunk): (bool, Vec<u8>), progress: &mut dyn FnMut(Step)| {
+        if !is_err {
+            out.extend_from_slice(&chunk);
+            return;
+        }
+        err.extend_from_slice(&chunk);
+        let tail = String::from_utf8_lossy(&err[err.len().saturating_sub(300)..]);
+        if let Some(l) = tail.split(['\r', '\n']).map(str::trim).rev().find(|l| !l.is_empty()) {
+            progress(Step::Line(l));
+        }
+    };
+    let mut cancelled = false;
+    loop {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(m) => take(m, progress),
+            Err(RecvTimeoutError::Timeout) => {
+                // git is gone but something else holds a pipe: take what is left and go on
+                if matches!(child.try_wait(), Ok(Some(_))) {
+                    while let Ok(m) = rx.recv_timeout(Duration::from_millis(50)) {
+                        take(m, progress);
+                    }
+                    break;
+                }
+                progress(Step::Quiet);
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        if cancel() {
+            cancelled = true;
+            break;
+        }
+    }
+    let end = if cancelled {
+        stop_git(&mut child);
+        GitEnd::Cancelled
+    } else if child.wait().is_ok_and(|s| s.success()) {
+        GitEnd::Ok
+    } else {
+        GitEnd::Failed
+    };
+    Ok((end, String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned()))
+}
+
 /// `git clone` of `url` into `target` (on `branch` and with only the last
-/// `depth` commits, when given), without prompts. `progress` is handed git's
-/// latest progress line; `cancel` is asked about every 100 ms and stops the
-/// clone when it says true. Returns the outcome and everything git said (for
-/// the launcher's `g`).
+/// `depth` commits, when given), without prompts, its progress handed to
+/// `progress`; `cancel` stops it (see `git_run`). Returns the outcome and
+/// everything git said (for the launcher's `g`).
 fn git_clone(
     url: &str,
     branch: &str,
     depth: Option<u32>,
     target: &Path,
-    progress: &mut dyn FnMut(&str),
+    progress: &mut dyn FnMut(Step),
     cancel: &mut dyn FnMut() -> bool,
 ) -> (CloneEnd, String) {
-    use std::io::Read;
-    use std::process::{Command, Stdio};
-    use std::sync::mpsc::{channel, RecvTimeoutError};
-    use std::time::Duration;
-    let mut c = Command::new("git");
+    let mut c = std::process::Command::new("git");
     c.args(["clone", "--progress"]);
     if !branch.is_empty() {
         c.args(["--branch", branch]);
@@ -1590,84 +1840,38 @@ fn git_clone(
     if let Some(d) = depth {
         c.args(["--depth", &d.to_string()]);
     }
-    c.arg("--").arg(url).arg(target).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0");
-    if std::env::var_os("GIT_SSH_COMMAND").is_none() {
-        c.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
-    }
+    c.arg("--").arg(url).arg(target);
     let mut log = format!(
         "$ git clone{}{} {}\n",
         if branch.is_empty() { String::new() } else { format!(" --branch {}", branch) },
         depth.map(|d| format!(" --depth {}", d)).unwrap_or_default(),
         url
     );
-    let mut child = match c.spawn() {
-        Ok(ch) => ch,
-        Err(e) => return (CloneEnd::Failed(format!("git: {}", e)), log),
+    progress(Step::Start("Downloading (git clone)…"));
+    let (end, _, err) = match git_run(&mut c, progress, cancel) {
+        Ok(r) => r,
+        Err(e) => return (CloneEnd::Failed(e), log),
     };
-    let mut raw: Vec<u8> = Vec::new();
-    let mut cancelled = false;
-    if let Some(mut err) = child.stderr.take() {
-        // git's output is read on a thread of its own, so the keyboard can be
-        // watched meanwhile. (Git's helpers may keep the pipe open after git
-        // itself is gone, so the thread is never waited for.)
-        let (tx, rx) = channel::<Vec<u8>>();
-        std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            while let Ok(n) = err.read(&mut buf) {
-                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
-                    break;
-                }
-            }
-        });
-        let mut take = |chunk: Vec<u8>, raw: &mut Vec<u8>| {
-            raw.extend_from_slice(&chunk);
-            let from = raw.len().saturating_sub(300);
-            let tail = String::from_utf8_lossy(&raw[from..]);
-            if let Some(l) = tail.split(['\r', '\n']).map(str::trim).rev().find(|l| !l.is_empty()) {
-                progress(l);
-            }
-        };
-        loop {
-            match rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(chunk) => take(chunk, &mut raw),
-                Err(RecvTimeoutError::Timeout) => {
-                    // git is gone but something else holds the pipe: take what is left and go on
-                    if matches!(child.try_wait(), Ok(Some(_))) {
-                        while let Ok(chunk) = rx.recv_timeout(Duration::from_millis(50)) {
-                            take(chunk, &mut raw);
-                        }
-                        break;
-                    }
-                }
-                Err(RecvTimeoutError::Disconnected) => break,
-            }
-            if cancel() {
-                cancelled = true;
-                break;
-            }
+    let text = settled(&err);
+    log += &text;
+    match end {
+        GitEnd::Ok => (CloneEnd::Done, log),
+        GitEnd::Cancelled => {
+            log += "\n(cancelled)\n";
+            (CloneEnd::Cancelled, log)
+        }
+        GitEnd::Failed => {
+            let why = text
+                .lines()
+                .map(str::trim)
+                .rev()
+                .find(|l| l.starts_with("fatal:") || l.starts_with("error:"))
+                .and_then(|l| l.split_once(':').map(|x| x.1.trim().to_string()))
+                .filter(|w| !w.is_empty())
+                .unwrap_or_else(|| "git clone didn't work".to_string());
+            (CloneEnd::Failed(format!("Clone failed: {}", why)), log)
         }
     }
-    if cancelled {
-        stop_git(&mut child);
-        log += &String::from_utf8_lossy(&raw);
-        log += "\n(cancelled)\n";
-        return (CloneEnd::Cancelled, log);
-    }
-    let ok = child.wait().map(|s| s.success()).unwrap_or(false);
-    let text = String::from_utf8_lossy(&raw).into_owned();
-    log += &text;
-    if ok {
-        return (CloneEnd::Done, log);
-    }
-    let lines: Vec<&str> = text.split(['\r', '\n']).map(str::trim).collect();
-    let why = lines
-        .iter()
-        .rev()
-        .find(|l| l.starts_with("fatal:") || l.starts_with("error:"))
-        .and_then(|l| l.split_once(':').map(|x| x.1.trim().to_string()))
-        .filter(|w| !w.is_empty())
-        .unwrap_or_else(|| "git clone didn't work".to_string());
-    (CloneEnd::Failed(format!("Clone failed: {}", why)), log)
 }
 
 /// `root`'s HEAD as "<branch> @ <short hash>" ("detached @ <short hash>" when
@@ -1695,9 +1899,9 @@ fn git_head(root: &Path) -> Option<String> {
 /// can be asked for here). The result is Ok: what changed (with the
 /// "(<previous hash> -> <new hash>)" of an update); Err: why it didn't. The
 /// second part is git's full output, for the launcher's `g`.
-fn git_pull(root: &Path) -> (Result<String, String>, String) {
+fn git_pull(root: &Path, progress: &mut dyn FnMut(Step)) -> (Result<String, String>, String) {
     let mut log = String::new();
-    let res = git_pull_logged(root, &mut log);
+    let res = git_pull_logged(root, &mut log, progress);
     if log.is_empty() {
         if let Err(e) = &res {
             log = e.clone();
@@ -1711,23 +1915,26 @@ fn git_pull(root: &Path) -> (Result<String, String>, String) {
 /// (SPRITEWIDTH 0, a division by zero). Fetches them in the checkout at
 /// `root` when its .gitattributes uses LFS; returns "" or a sentence on what
 /// went wrong (to append to the launcher's note).
-fn lfs_pull(root: &Path, log: &mut String) -> String {
-    use std::process::{Command, Stdio};
+fn lfs_pull(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)) -> String {
     let lfs = std::fs::read_to_string(root.join(".gitattributes")).is_ok_and(|a| a.contains("filter=lfs"));
     if !lfs {
         return String::new();
     }
-    let o = match Command::new("git").arg("-C").arg(root).args(["lfs", "pull"]).stdin(Stdio::null()).env("GIT_TERMINAL_PROMPT", "0").output() {
-        Ok(o) => o,
+    progress(Step::Start("Fetching its pictures (git lfs pull)…"));
+    let mut c = std::process::Command::new("git");
+    // (git-lfs shows progress only on a terminal unless told to)
+    c.arg("-C").arg(root).args(["lfs", "pull"]).env("GIT_LFS_FORCE_PROGRESS", "1");
+    let (end, out, err) = match git_run(&mut c, progress, &mut || false) {
+        Ok(r) => r,
         Err(e) => return format!(" Pictures (git lfs pull) failed: {}", e),
     };
+    let err = settled(&err);
     log.push_str("$ git lfs pull\n");
-    log.push_str(&String::from_utf8_lossy(&o.stderr));
-    log.push_str(&String::from_utf8_lossy(&o.stdout));
-    if o.status.success() {
+    log.push_str(&err);
+    log.push_str(&out);
+    if matches!(end, GitEnd::Ok) {
         return String::new();
     }
-    let err = String::from_utf8_lossy(&o.stderr);
     if err.contains("not a git command") {
         " Its pictures are in Git LFS: install git-lfs and update again.".into()
     } else {
@@ -1735,7 +1942,7 @@ fn lfs_pull(root: &Path, log: &mut String) -> String {
     }
 }
 
-fn git_pull_logged(root: &Path, log: &mut String) -> Result<String, String> {
+fn git_pull_logged(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)) -> Result<String, String> {
     use std::process::{Command, Stdio};
     let git = |args: &[&str]| {
         let mut c = Command::new("git");
@@ -1747,16 +1954,17 @@ fn git_pull_logged(root: &Path, log: &mut String) -> Result<String, String> {
     };
     let head = |o: std::process::Output| String::from_utf8_lossy(&o.stdout).trim().to_string();
     let before = head(git(&["rev-parse", "HEAD"])?);
-    let o = git(&["pull", "--ff-only"])?;
+    progress(Step::Start("Downloading the changes (git pull)…"));
+    let (end, out, err) = git_run(Command::new("git").arg("-C").arg(root).args(["pull", "--ff-only", "--progress"]), progress, &mut || false)?;
     // everything git said (fetch's "From …" and ref lines come on stderr,
     // the merge summary on stdout)
+    let err = settled(&err);
     log.push_str("$ git pull --ff-only\n");
-    log.push_str(&String::from_utf8_lossy(&o.stderr));
-    log.push_str(&String::from_utf8_lossy(&o.stdout));
-    if !o.status.success() {
+    log.push_str(&err);
+    log.push_str(&out);
+    if !matches!(end, GitEnd::Ok) {
         // git's own explanation (its error: / fatal: line and the files
         // listed under it), not the fetch progress or hints
-        let err = String::from_utf8_lossy(&o.stderr);
         let lines: Vec<&str> = err.lines().collect();
         let why = match lines.iter().position(|l| l.starts_with("error:") || l.starts_with("fatal:")) {
             Some(k) => {
@@ -1771,7 +1979,7 @@ fn git_pull_logged(root: &Path, log: &mut String) -> Result<String, String> {
         };
         return Err(format!("Update failed: {}", if why.is_empty() { "git pull didn't work".to_string() } else { why }));
     }
-    let pics = lfs_pull(root, log);
+    let pics = lfs_pull(root, log, progress);
     let after = head(git(&["rev-parse", "HEAD"])?);
     if before == after {
         return Ok(format!("Already up to date.{}", pics));
@@ -1786,4 +1994,31 @@ fn git_pull_logged(root: &Path, log: &mut String) -> Result<String, String> {
 fn which(name: &str) -> Option<PathBuf> {
     let exe = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };
     std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(&exe)).find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn git_progress_lines() {
+        // the phases weighted into one rising percentage
+        assert_eq!(git_percent("remote: Counting objects:  50% (5/10)"), Some(1));
+        assert_eq!(git_percent("Receiving objects:   0% (0/273)"), Some(5));
+        assert_eq!(git_percent("Receiving objects:  60% (164/273), 1.20 MiB | 500.00 KiB/s"), Some(50));
+        assert_eq!(git_percent("Resolving deltas: 100% (40/40), done."), Some(90));
+        assert_eq!(git_percent("Updating files: 100% (20/20), done."), Some(100));
+        assert_eq!(git_percent("Downloading LFS objects:  45% (9/20), 12 MB | 3.2 MB/s"), Some(45));
+        // another language: its own percentage
+        assert_eq!(git_percent("オブジェクトを受信中:  33% (1/3)"), Some(33));
+        assert_eq!(git_percent("remote: Enumerating objects: 5, done."), None);
+        assert_eq!(git_percent("From https://example.org/era"), None);
+    }
+
+    #[test]
+    fn git_output_settles() {
+        assert_eq!(settled("Receiving objects:  50% (1/2)\rReceiving objects: 100% (2/2), done.\nok\r\n"), "Receiving objects: 100% (2/2), done.\nok\n");
+        assert_eq!(padded("ab", 4), "ab  ");
+        assert_eq!(padded("サンプル", 5), "サン ");
+    }
 }
