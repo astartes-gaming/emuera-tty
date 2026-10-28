@@ -138,8 +138,9 @@ Expect rough edges in parts of the games nobody has played through yet
   Solaris**, **Haiku** and **Redox**, but **Linux is the main tested system.
   Windows and Android have had some testing too (Android on Termux, and
   even under a custom Android recovery environment), but both still need
-  further feedback. Haiku passes the test suite in a virtual machine (R1/beta5);
-  every other system is compile-checked only and untested.** Reports are welcome. See [Other systems](#other-systems) for the differences,
+  further feedback. Haiku, FreeBSD, NetBSD, OpenBSD and illumos (OmniOS)
+  pass the test suite in virtual machines; macOS, DragonFly, Solaris and
+  Redox are compile-checked only.** Reports are welcome. See [Other systems](#other-systems) for the differences,
   [Other CPUs](#other-cpus) for ARM, RISC-V, PowerPC, MIPS and the rest,
   and [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for
   the Raspberry Pi Zero and other 512 MB boards.
@@ -203,11 +204,11 @@ export PATH="$HOME/.local/bin:$PATH"
 | Linux PowerPC 64, big-endian (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
 | Linux PowerPC 64, little-endian (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
 | Linux LoongArch 64 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
-| FreeBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
-| NetBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
-| OpenBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| FreeBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a FreeBSD 15.1 VM, game output identical to Linux |
+| NetBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a NetBSD 11.0 VM, game output identical to Linux |
+| OpenBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OpenBSD 8.0 VM, game output identical to Linux |
 | DragonFly BSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
-| illumos x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| illumos x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OmniOS r151058 VM, game output identical to Linux |
 | Solaris x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Haiku x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with Haiku's own gcc: the test suite passes in a Haiku R1/beta5 VM, game output identical to Linux |
 | Redox x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
@@ -271,7 +272,11 @@ export PATH="$HOME/.local/bin:$PATH"
   at most 16 MB of stack (Linux: the 512 MB emuera-tty asks for), so there
   scripts may nest about 1,000 calls instead of 4,000 before "call stack
   overflow". `GETMEMORYUSAGE` and the memory counter read the memory in
-  use on Linux, Android, Windows and Haiku, the peak on the others.
+  use everywhere (Redox: the peak). A terminal that doesn't take UTF-8
+  (NetBSD's console, xterm in Latin-1 mode) is detected at startup and
+  gets ASCII lookalikes or `?` in each character's cells, so layouts stay
+  aligned; FreeBSD's console takes UTF-8 but its default font has no
+  Japanese.
 
 ### Other CPUs
 
@@ -1778,9 +1783,10 @@ text.
 
 ## Roadmap
 
-1. Run it on the other systems (macOS, the BSDs, Redox) and on a
-   real Raspberry Pi Zero: they compile (the Pi build also runs under
-   emulation, Haiku in a virtual machine), nobody has played on them yet. Windows and Android have
+1. Run it on macOS, DragonFly and Redox and on a real Raspberry Pi Zero:
+   they compile (the Pi build also runs under emulation; Haiku, the other
+   BSDs and illumos pass the tests in virtual machines), nobody has
+   played on them yet. Windows and Android have
    had some testing, and need more feedback.
 2. A good way to play on Android phones, through Termux: players keep
    asking for an up-to-date eraBASIC player there, and saves would move
