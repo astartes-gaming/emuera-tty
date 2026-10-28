@@ -404,17 +404,33 @@ was given last (else next to your last game), named after the repository
 and branch (`eraMegaten-game-eng-release`). Then it joins the library,
 selected and marked **(NEW)**: Enter plays it.
 
-It needs `curl` (for the wiki) and `git`. Many repositories of gitgud.io's
-*era-games* group are for signed-in users only; the downloader asks each
-repository first and marks those that don't answer *(asks for a gitgud.io
-login, or is gone)* (gitgud answers the same for a repository that no
-longer exists). Downloading one asks for your gitgud.io user name and
-password (or an access token with *read_repository*), typed hidden. It is
-handed to git for that command through its environment, never on a
-command line or on disk, and kept in memory until you leave the launcher.
-If git has a credential helper set up (`git config --global
-credential.helper store`, or your desktop's keyring), the login is offered
-to it, so later updates (`u`) find it; otherwise `u` asks again.
+It needs `curl` (for the wiki) and `git`.
+
+#### Logging in to gitgud.io
+
+Many repositories of gitgud.io's *era-games* group are for signed-in
+users only. When a game opens, the downloader asks each of its
+repositories first and marks those that don't answer *(asks for a
+gitgud.io login, or is gone)*: gitgud answers the same for a repository
+that no longer exists.
+
+**🔑 Log in to gitgud.io…**, at the top of the list (and on the page of a
+game that needs it), asks for your gitgud.io user name and password, or
+an [access token](https://gitgud.io/-/user_settings/personal_access_tokens)
+with *read_repository* (needed when your account has two-factor
+authentication). The password is typed hidden. git checks it right away;
+then the launcher offers to remember it. A remembered login is kept in
+`~/.config/emuera-tty/git-credentials`, readable only by you, in plain
+text as git's own credential store keeps it, and is used in later
+sessions and by `u`. Otherwise it is forgotten when you leave the
+launcher. Once logged in, the entry says as whom, and Enter on it logs out
+(forgetting a remembered login too). Downloading or updating (`u`) a
+repository that wants a login when you haven't given one asks for it
+there and then, and offers to remember it once it has worked.
+
+The login reaches git through the environment of each git command, read
+by a credential helper of emuera-tty's own: never on a command line,
+where other users could see it.
 
 ### Updating games kept in git
 

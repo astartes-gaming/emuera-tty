@@ -48,8 +48,8 @@ pub struct Details {
     pub about: String,
 }
 
-/// `s` %-encoded for a URL's query.
-fn enc(s: &str) -> String {
+/// `s` %-encoded for a URL (its query, or a user name in it).
+pub fn enc(s: &str) -> String {
     s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{:02X}", b) }).collect()
 }
 

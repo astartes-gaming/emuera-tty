@@ -46,9 +46,12 @@ the git repository its page links to, latest version only (it needs
 .B curl
 and
 .BR git ).
-Repositories that ask for a login (many of gitgud.io's era-games) get
-the user name and password or access token asked for, typed hidden, kept
-in memory for the session and offered to git's credential helper.
+Its \fILog in to gitgud.io\fR entry (many of gitgud.io's era-games
+repositories are for signed-in users) asks for the user name and password
+or access token, typed hidden, checks it with git and offers to remember
+it in
+.I ~/.config/emuera-tty/git-credentials
+(readable only by the user); Enter on it again logs out.
 .SH PLAYING
 .TP
 .B Numbers, Enter, clicks
@@ -569,6 +572,10 @@ Where settings and data go (below).
 Settings and the game library
 .RB ( %APPDATA%\eemuera-tty
 on Windows).
+.TP
+.I ~/.config/emuera-tty/git-credentials
+Logins the launcher's downloader was told to remember, in git's
+credential-store format, readable only by the user.
 .TP
 .I ~/.local/share/emuera-tty/games/
 Games extracted from archives.

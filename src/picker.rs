@@ -161,6 +161,8 @@ enum Kind {
     WikiRepo(usize),
     /// text to read, not to choose (a game's facts)
     Info,
+    /// downloader: log in to gitgud.io, or out
+    Login,
     OpenSettings,
     /// settings: `crate::settings::ITEMS[i]`
     Setting(usize),
@@ -242,7 +244,13 @@ struct Login {
     host: String,
     user: String,
     pass: String,
+    /// kept in `logins_path()` for the next sessions
+    remember: bool,
 }
+
+/// The host of most era games' repositories, which the downloader offers
+/// to log in to.
+const GITGUD: &str = "gitgud.io";
 
 /// The launcher: the game library, with adding games and settings. Returns
 /// the game to play (already remembered as the last one), or None.
@@ -291,7 +299,7 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> 
         wiki_game: 0,
         wiki_info: Default::default(),
         wiki_access: Vec::new(),
-        logins: Vec::new(),
+        logins: load_logins(),
     };
     p.load();
     if let Some(url) = clone {
@@ -517,6 +525,8 @@ impl Picker {
                 return;
             }
             Mode::Download => {
+                let login = Entry { label: self.login_label(), wrapped: Vec::new(), kind: Kind::Login };
+                self.entries.push(login);
                 for (i, g) in self.wiki.iter().enumerate() {
                     let more = match g.repos.len() {
                         1 => String::new(),
@@ -527,7 +537,8 @@ impl Picker {
                 }
                 self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
                 self.rebuild_entry_line();
-                self.sel = self.first_line(self.wiki_game.min(self.entries.len().saturating_sub(1)));
+                // (the games come after the login entry)
+                self.sel = self.first_line((self.wiki_game + 1).min(self.entries.len().saturating_sub(1)));
                 self.top = 0;
                 return;
             }
@@ -542,6 +553,11 @@ impl Picker {
                 if let Some(g) = self.wiki.get(self.wiki_game) {
                     self.entries.push(info(format!("  {}", crate::download::page_link(&g.title))));
                     self.entries.push(info(String::new()));
+                    let gated = self.wiki_access.contains(&Access::Login);
+                    if gated || g.repos.iter().any(|r| url_host(&r.url).as_deref() == Some(GITGUD)) && self.login_for(&format!("https://{}/", GITGUD)).is_some()
+                    {
+                        self.entries.push(Entry { label: self.login_label(), wrapped: Vec::new(), kind: Kind::Login });
+                    }
                     for (i, r) in g.repos.iter().enumerate() {
                         let note = match self.wiki_access.get(i) {
                             Some(Access::Login) => "  (asks for a gitgud.io login, or is gone)",
@@ -553,7 +569,7 @@ impl Picker {
                 }
                 self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
                 self.rebuild_entry_line();
-                let first = self.entries.iter().position(|e| e.kind != Kind::Info).unwrap_or(0);
+                let first = self.entries.iter().position(|e| matches!(e.kind, Kind::WikiRepo(_))).unwrap_or(0);
                 self.sel = self.first_line(first);
                 self.top = 0;
                 return;
@@ -712,6 +728,7 @@ impl Picker {
                     Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
                     Kind::AddGame | Kind::CloneGame | Kind::Download | Kind::OpenSettings => "\x1b[36m",
                     Kind::WikiGame(_) | Kind::WikiRepo(_) => "\x1b[33m",
+                    Kind::Login => "\x1b[36m",
                     Kind::Archive { .. } => "\x1b[36m",
                     _ => "",
                 };
@@ -909,7 +926,8 @@ impl Picker {
                                         let mut g = Gauge::new(&format!("Updating {}", repo_title(&root)), "");
                                         (res, log) = git_pull(&root, Some(&l), &mut |s| g.step(s));
                                         if res.is_ok() {
-                                            remember_login(&l);
+                                            self.draw();
+                                            self.offer_remember(&l);
                                         }
                                     }
                                 }
@@ -1361,17 +1379,104 @@ impl Picker {
     }
 
     /// Ask for a login to `url`'s host, after git said the repository wants
-    /// one. It is kept for this launcher session and offered to git's
-    /// credential helper, if one is set up (then updates find it too).
+    /// one. It is kept for this launcher session (`offer_remember` once it
+    /// has worked).
     fn ask_login(&mut self, url: &str) -> Option<Login> {
         let host = url_host(url)?;
         self.draw();
-        let user = self.prompt(&format!("{} asks for a login. Your {} user name", host, host), "").filter(|u| !u.is_empty())?;
-        let pass = self.prompt_with(&format!("{}'s password or access token on {}", user, host), "", true).filter(|p| !p.is_empty())?;
-        let l = Login { host: host.clone(), user, pass };
+        let l = self.type_login(&host, &format!("{} asks for a login. ", host))?;
         self.logins.retain(|o| o.host != host);
         self.logins.push(l.clone());
         Some(l)
+    }
+
+    /// The user name and password for `host`, typed (the password hidden).
+    fn type_login(&mut self, host: &str, why: &str) -> Option<Login> {
+        let user = self.prompt(&format!("{}Your {} user name", why, host), "").filter(|u| !u.is_empty())?;
+        let pass = self.prompt_with(&format!("{}'s password or access token (read_repository) on {}", user, host), "", true).filter(|p| !p.is_empty())?;
+        Some(Login { host: host.to_string(), user, pass, remember: false })
+    }
+
+    /// After a typed login worked: keep it for the next sessions?
+    fn offer_remember(&mut self, l: &Login) {
+        if l.remember {
+            return;
+        }
+        let path = logins_path().map_or_else(|| "the settings folder".into(), |p| p.display().to_string());
+        let yes = self
+            .prompt(&format!("Remember {}'s login on {}? It is kept in {} (plain text, readable only by you) (y/N)", l.user, l.host, path), "")
+            .is_some_and(|a| matches!(a.to_lowercase().as_str(), "y" | "yes"));
+        for o in self.logins.iter_mut().filter(|o| o.host == l.host) {
+            o.remember = yes;
+        }
+        // (also on "no": a remembered login this one replaced goes)
+        if let Err(e) = save_logins(&self.logins) {
+            self.note = format!("\x1b[31mCan't keep the login: {}\x1b[0m", e);
+        }
+    }
+
+    /// The downloader's login entry: who is logged in to gitgud.io.
+    fn login_label(&self) -> String {
+        match self.login_for(&format!("https://{}/", GITGUD)) {
+            Some(l) => format!(
+                "🔑 Logged in to {} as {}{} · Enter to log out",
+                GITGUD,
+                l.user,
+                if l.remember { " (remembered)" } else { " (until you leave the launcher)" }
+            ),
+            None => format!("🔑 Log in to {}… (many era-games repositories are for signed-in users)", GITGUD),
+        }
+    }
+
+    /// The login entry chosen: log in (checked with git, then offered to be
+    /// remembered), or out (forgetting a remembered login too).
+    fn login_entry(&mut self) {
+        let host = GITGUD;
+        if let Some(l) = self.login_for(&format!("https://{}/", host)) {
+            let yes = self
+                .prompt(&format!("Log out of {}, forgetting {}'s login? (y/N)", host, l.user), "")
+                .is_some_and(|a| matches!(a.to_lowercase().as_str(), "y" | "yes"));
+            if yes {
+                self.logins.retain(|o| o.host != host);
+                self.note = match save_logins(&self.logins) {
+                    Ok(()) => format!("Logged out of {}.", host),
+                    Err(e) => format!("\x1b[31mLogged out, but can't update the saved logins: {}\x1b[0m", e),
+                };
+            }
+        } else if let Some(mut l) = self.type_login(host, "") {
+            let mut g = Gauge::new(&format!("Logging in to {}", host), "Esc / Ctrl-C: cancel");
+            g.step(Step::Start("Checking the login with git…"));
+            match check_login(&l, &mut g, &mut || self.cancel_pressed()) {
+                Ok(true) => {
+                    self.logins.retain(|o| o.host != host);
+                    self.logins.push(l.clone());
+                    self.draw();
+                    self.offer_remember(&l);
+                    l.remember = self.login_for(&format!("https://{}/", host)).is_some_and(|o| o.remember);
+                    if self.note.is_empty() {
+                        self.note = format!("Logged in to {} as {}{}.", host, l.user, if l.remember { " (remembered)" } else { "" });
+                    }
+                }
+                Ok(false) => {
+                    self.note = format!(
+                        "\x1b[31m{} refused the login: a wrong user name or password, or one that needs an access token (read_repository).\x1b[0m",
+                        host
+                    )
+                }
+                Err(e) if e == CANCELLED => self.note = e,
+                Err(e) => self.note = format!("\x1b[31mCan't check the login: {}\x1b[0m", e),
+            }
+        }
+        // a game's repositories are asked again with the new login
+        if self.mode == Mode::DownloadGame {
+            let (i, note) = (self.wiki_game, std::mem::take(&mut self.note));
+            self.open_wiki_game(i);
+            if self.note.is_empty() {
+                self.note = note;
+            }
+        } else {
+            self.load();
+        }
     }
 
     /// Select game `g` in the library, adding it if it isn't there.
@@ -1432,10 +1537,9 @@ impl Picker {
         if matches!(end, CloneEnd::Done) {
             g.hint.clear();
             pics = lfs_pull(&target, &mut log, login.as_ref(), &mut |s| g.step(s));
-            if asked {
-                if let Some(l) = &login {
-                    remember_login(l);
-                }
+            if let (true, Some(l)) = (asked, &login) {
+                self.draw();
+                self.offer_remember(l);
             }
         }
         self.git_log = Some(log);
@@ -1585,6 +1689,7 @@ impl Picker {
                 }
             }
             Kind::Info => {}
+            Kind::Login => self.login_entry(),
             Kind::OpenSettings => {
                 self.mode = Mode::Settings;
                 self.sel = 0;
@@ -2020,17 +2125,97 @@ fn git_cmd(login: Option<&Login>) -> std::process::Command {
     c
 }
 
-/// Offer a login that worked to the user's git credential helper (`git
-/// credential approve`); without one configured git keeps nothing.
-fn remember_login(l: &Login) {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    let child = Command::new("git").args(["credential", "approve"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
-    if let Ok(mut ch) = child {
-        if let Some(mut i) = ch.stdin.take() {
-            let _ = write!(i, "protocol=https\nhost={}\nusername={}\npassword={}\n\n", l.host, l.user, l.pass);
+/// Where remembered logins are kept: `git-credentials` next to the
+/// settings, in git's credential-store format (`https://user:pass@host`,
+/// %-encoded), readable only by the user, as git's own store keeps them.
+fn logins_path() -> Option<PathBuf> {
+    Some(crate::settings::config_path()?.with_file_name("git-credentials"))
+}
+
+/// `s` with its %XX escapes decoded.
+fn pct_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match (b[i], s.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok())) {
+            (b'%', Some(v)) => {
+                out.push(v);
+                i += 3;
+            }
+            (c, _) => {
+                out.push(c);
+                i += 1;
+            }
         }
-        let _ = ch.wait();
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The logins remembered in earlier sessions.
+fn load_logins() -> Vec<Login> {
+    let text = logins_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    parse_logins(&text)
+}
+
+fn parse_logins(text: &str) -> Vec<Login> {
+    let mut v: Vec<Login> = Vec::new();
+    for l in text.lines().map(str::trim) {
+        let Some((cred, host)) = l.strip_prefix("https://").and_then(|r| r.trim_end_matches('/').rsplit_once('@')) else { continue };
+        let Some((user, pass)) = cred.split_once(':') else { continue };
+        let host = host.to_ascii_lowercase();
+        if !host.is_empty() && !v.iter().any(|o| o.host == host) {
+            v.push(Login { host, user: pct_decode(user), pass: pct_decode(pass), remember: true });
+        }
+    }
+    v
+}
+
+/// Write the remembered ones of `logins` (none: the file goes).
+fn save_logins(logins: &[Login]) -> Result<(), String> {
+    save_logins_to(&logins_path().ok_or("no settings folder (HOME not set?)")?, logins)
+}
+
+fn save_logins_to(path: &Path, logins: &[Login]) -> Result<(), String> {
+    let text = logins_text(logins);
+    if text.is_empty() {
+        return match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("{}: {}", path.display(), e)),
+            _ => Ok(()),
+        };
+    }
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {}", d.display(), e))?;
+    }
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    let mut f = o.open(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    // (made before: readable only by the user from now on)
+    #[cfg(unix)]
+    let _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600));
+    f.write_all(text.as_bytes()).map_err(|e| format!("{}: {}", path.display(), e))
+}
+
+/// The remembered ones of `logins`, a line each.
+fn logins_text(logins: &[Login]) -> String {
+    logins.iter().filter(|l| l.remember).map(|l| format!("https://{}:{}@{}\n", crate::download::enc(&l.user), crate::download::enc(&l.pass), l.host)).collect()
+}
+
+/// Does `l.host` accept login `l`? git is asked for a repository that
+/// can't be there, in the user's own namespace: GitLab answers "not found"
+/// to a login it accepts and "access denied" to one it refuses.
+fn check_login(l: &Login, g: &mut Gauge, cancel: &mut dyn FnMut() -> bool) -> Result<bool, String> {
+    let url = format!("https://{}/{}/emuera-tty-login-check.git", l.host, crate::download::enc(&l.user));
+    let mut c = git_cmd(Some(l));
+    c.args(["ls-remote", &url]);
+    match run_watched(&mut c, &mut |s| g.step(s), cancel)? {
+        (RunEnd::Ok, ..) => Ok(true),
+        (RunEnd::Cancelled, ..) => Err(CANCELLED.into()),
+        (RunEnd::Failed, _, err) if needs_login(&err) => Ok(false),
+        (RunEnd::Failed, _, err) if err.contains("not found") => Ok(true),
+        (RunEnd::Failed, _, err) => Err(settled(&err).lines().map(str::trim).rev().find(|l| !l.is_empty()).unwrap_or("git failed").to_string()),
     }
 }
 
@@ -2195,7 +2380,9 @@ fn run_watched(c: &mut std::process::Command, progress: &mut dyn FnMut(Step), ca
     use std::time::Duration;
     // (no password window either: GIT_ASKPASS set but empty stops git from
     // trying core.askPass and SSH_ASKPASS; the launcher asks itself)
-    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "");
+    // LANGUAGE: git's messages in English (no catalogue for "en"), as the
+    // launcher reads them (progress phases, "not found", a login wanted)
+    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "").env("LANGUAGE", "en");
     if std::env::var_os("GIT_SSH_COMMAND").is_none() {
         c.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
     }
@@ -2485,13 +2672,41 @@ mod tests {
             return;
         }
         // git asks our helper, which answers from the environment
-        let l = Login { host: "example.org".into(), user: "me".into(), pass: "p a'ss\"$x".into() };
+        let l = Login { host: "example.org".into(), user: "me".into(), pass: "p a'ss\"$x".into(), remember: false };
         let mut c = git_cmd(Some(&l));
         c.args(["credential", "fill"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0");
         let mut ch = c.spawn().unwrap();
         std::io::Write::write_all(ch.stdin.as_mut().unwrap(), b"protocol=https\nhost=example.org\n\n").unwrap();
         let out = String::from_utf8(ch.wait_with_output().unwrap().stdout).unwrap();
         assert!(out.contains("username=me\n") && out.contains("password=p a'ss\"$x\n"), "{}", out);
+    }
+
+    #[test]
+    fn remembered_logins() {
+        let ls = [
+            Login { host: "gitgud.io".into(), user: "me@x".into(), pass: "p:a/s s%".into(), remember: true },
+            Login { host: "github.com".into(), user: "u".into(), pass: "t".into(), remember: false },
+        ];
+        let text = logins_text(&ls);
+        assert_eq!(text, "https://me%40x:p%3Aa%2Fs%20s%25@gitgud.io\n");
+        let back = parse_logins(&text);
+        assert_eq!(back.len(), 1);
+        assert_eq!((back[0].host.as_str(), back[0].user.as_str(), back[0].pass.as_str(), back[0].remember), ("gitgud.io", "me@x", "p:a/s s%", true));
+        // git's own store lines read too; junk is skipped
+        assert_eq!(parse_logins("https://a:b@GitGud.io/\nnot a url\nhttps://nopass@x\n").len(), 1);
+        assert_eq!(pct_decode("%E6%97%A5%zz"), "日%zz");
+        // the file: readable only by the user, gone when nothing is remembered
+        let dir = std::env::temp_dir().join(format!("emuera-tty-logins-{}", std::process::id()));
+        let f = dir.join("git-credentials");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&f, "old").unwrap();
+        save_logins_to(&f, &ls).unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), text);
+        #[cfg(unix)]
+        assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&f).unwrap().permissions()) & 0o777, 0o600);
+        save_logins_to(&f, &ls[1..]).unwrap();
+        assert!(!f.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
