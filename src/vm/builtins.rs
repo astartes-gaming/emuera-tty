@@ -1492,7 +1492,7 @@ impl Vm {
                 }
             }
             "SORTCHARA" => {
-                // SORTCHARA [var], [FORWARD|BACK] — default NO, forward; MASTER stays put
+                // SORTCHARA [var], [FORWARD|BACK] — default NO, forward; MASTER stays put, TARGET follows its character
                 let raw = if let Args::Raw(s) = args { s.clone() } else { String::new() };
                 let parts: Vec<String> = raw.split(',').map(|s| s.trim().to_uppercase()).collect();
                 let key = parts.first().filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| "NO".into());
@@ -1507,6 +1507,9 @@ impl Vm {
                     None => (key.clone(), 0),
                 };
                 let master = self.get_global_i("MASTER", 0);
+                let target = self.get_global_i("TARGET", 0);
+                // Track the character that TARGET points to before sorting
+                let target_chara = if target >= 0 && (target as usize) < self.charas.len() { Some(self.charas[target as usize].clone()) } else { None };
                 let mut items: Vec<(usize, Value)> = Vec::new();
                 for c in 0..self.charas.len() {
                     if c as i64 == master {
@@ -1533,6 +1536,12 @@ impl Vm {
                     }
                 }
                 self.charas = new;
+                // Update TARGET to follow its character
+                if let Some(tc) = target_chara {
+                    if let Some(new_idx) = self.charas.iter().position(|c| c == &tc) {
+                        self.set_global_i("TARGET", 0, new_idx as i64);
+                    }
+                }
             }
             "RESET_STAIN" => {
                 let c = self.ai(a, 0, 0)?;
@@ -3463,9 +3472,49 @@ impl Vm {
                     None => 0,
                 })
             }
-            "EXISTVAR" | "ISDEFINED" => {
+            "EXISTVAR" => {
                 let n = self.as_(a, 0, "")?.to_uppercase();
                 i(self.var_exists(&n) as i64)
+            }
+            "ISDEFINED" => {
+                // ISDEFINED checks if a #DEFINE macro is defined, not a variable
+                let n = self.as_(a, 0, "")?.to_uppercase();
+                i(self.prog.defines.contains_key(&n) as i64)
+            }
+            "VARSETEX" => {
+                // VARSETEX "VAR:i:j", value, all_rows = 1, start = 0, end
+                let n = self.as_(a, 0, "")?;
+                let e = crate::expr::parse_expr(&n, &self.prog.defines).map_err(|e| Ctrl::Error(e, false))?;
+                let Expr::Var(v) = crate::parser::upper_expr(e) else { return err(format!("VARSETEX: '{}' is not a variable", n)) };
+                let val = self.arg(a, 1)?;
+                let all_rows = self.ai(a, 2, 1)? != 0;
+                let start = self.ai(a, 3, 0)?.max(0) as usize;
+                let end = self.arg(a, 4)?.map(|x| x.as_int().max(0) as usize);
+                let p = self.locate(&v)?;
+                let arr = self.arr_at(&p.loc).ok_or_else(|| Ctrl::Error(format!("VARSETEX: {} is read-only", n), false))?;
+                let is_str = arr.is_str();
+                let val = match val {
+                    Some(x) if x.is_str() != is_str => return err(format!("VARSETEX: value type doesn't match {}", n)),
+                    Some(x) => x,
+                    None if is_str => Value::Str(String::new()),
+                    None => Value::Int(0),
+                };
+                let rl = if arr.dims.len() <= 1 { arr.len() } else { arr.last_dim() }.max(1);
+                let end = end.unwrap_or(rl).min(rl);
+                if arr.dims.len() <= 1 {
+                    for i in start..end {
+                        arr.set(i, val.clone());
+                    }
+                } else {
+                    let col = p.flat % rl;
+                    let rows: Vec<usize> = if all_rows && !is_str { (0..arr.len() / rl).collect() } else { vec![p.flat / rl] };
+                    for r in rows {
+                        for i in start.max(col)..end {
+                            arr.set(r * rl + i, val.clone());
+                        }
+                    }
+                }
+                i(1)
             }
             "GETVAR" | "GETVARS" => {
                 let n = self.as_(a, 0, "")?;

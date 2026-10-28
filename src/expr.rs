@@ -458,8 +458,11 @@ impl<'a> ExprParser<'a> {
             if self.depth > 32 {
                 return Err("#DEFINE recursion too deep".into());
             }
+            // First, try parsing the body as an expression to see if it's a simple variable reference.
+            // This handles the case where `#DEFINE KFLAG JUEL` should allow `KFLAG:1` -> `JUEL:1`.
             let mut sub = ExprParser::with_depth(body, self.defs, self.depth + 1);
             let e = sub.expr()?;
+            let _body_is_var = matches!(&e, Expr::Var(_));
             if !sub.at_end() {
                 return Err(format!("bad #DEFINE body for {}", name));
             }
@@ -472,8 +475,21 @@ impl<'a> ExprParser<'a> {
                     let idx: Vec<Expr> = v.idx.iter().cloned().chain(more).collect();
                     return Ok(Expr::Var(Rc::new(VarRef::new(v.name.clone(), idx))));
                 }
+                // It's a variable reference but no extra indices - return the var
+                return Ok(e);
             }
-            return Ok(e);
+            // For non-variable bodies (expressions, strings, etc.), do textual substitution
+            // like Emuera's lexical analyzer: insert the body text into the token stream.
+            // This preserves operator precedence (e.g., `#DEFINE HDR_BARE 2 + 3` then
+            // `HDR_BARE * 2` becomes `2 + 3 * 2` = 8, not `(2 + 3) * 2` = 10).
+            let remaining: String = self.s[self.pos..].iter().collect();
+            let new_input = if remaining.trim().is_empty() { body.clone() } else { format!("{} {}", body, remaining) };
+            // Replace this parser's input with the expanded text and re-parse.
+            self.s = new_input.chars().collect();
+            self.pos = 0;
+            self.depth += 1;
+            // Re-parse from the start (which now begins with the macro body)
+            return self.primary(allow_index);
         }
         // Emuera accepts a space between a function name and its '('
         let save = self.pos;

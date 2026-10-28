@@ -320,6 +320,12 @@ pub enum Instr {
         slot: usize,
         body: usize,
     },
+    /// BREAK inside FOR/REPEAT: `var += step` then jump to `exit`.
+    ForBreak {
+        var: Rc<VarRef>,
+        slot: usize,
+        exit: usize,
+    },
     /// SELECTCASE: evaluate once into `slot`. The third field caches a jump
     /// table for selects made of literal CASEs (built on first use).
     SelectEval(Expr, usize, Box<std::sync::OnceLock<Option<CaseTable>>>),

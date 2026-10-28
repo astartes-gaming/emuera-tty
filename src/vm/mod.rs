@@ -95,7 +95,7 @@ pub struct Frame {
 /// One character added with ADDCHARA: its character-variable arrays,
 /// created lazily on first access, by the variable's number in
 /// [`CharaNames`] (the same in every character).
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 pub struct Chara {
     pub vars: Vec<Option<Arr>>,
     /// NAME, CALLNAME, NICKNAME, MASTERNAME never set (bits 1, 2, 4, 8):
@@ -543,6 +543,7 @@ impl Vm {
         self.global_arr("MASTER").set_i(0, 0);
         self.global_arr("TARGET").set_i(0, 1);
         self.global_arr("ASSI").set_i(0, -1);
+        self.global_arr("EJAC").set_i(0, 10000);
         // Emuera's level tables (_Replace.csv may give its own, `a/b/c…`)
         for (var, key, def) in [
             ("PALAMLV", "PALAMLVの初期値", &[0i64, 100, 500, 3000, 10000, 30000, 60000, 100000, 150000, 250000][..]),
@@ -1159,7 +1160,7 @@ impl Vm {
             "LASTLOAD_TEXT" | "LASTLOAD_NO" | "LASTLOAD_VERSION" => {
                 self.globals.get(name).map(|a| a.get(0)).unwrap_or(if name == "LASTLOAD_TEXT" { Value::Str(String::new()) } else { Value::Int(-1) })
             }
-            "GAMEBASE_CODE" => Value::Int(self.gb_int("コード")),
+            "GAMEBASE_CODE" | "GAMEBASE_GAMECODE" => Value::Int(self.gb_int("コード")),
             "GAMEBASE_VERSION" => Value::Int(self.gb_int("バージョン")),
             "GAMEBASE_ALLOWVERSION" => Value::Int(self.gb_int("バージョン違い認める")),
             "GAMEBASE_DEFAULTCHARA" => Value::Int(self.gb_int("最初からいるキャラ")),
@@ -1316,9 +1317,10 @@ impl Vm {
                 BinOp::Eq => Value::Int((xs == ys) as i64),
                 BinOp::Ne => Value::Int((xs != ys) as i64),
                 BinOp::Lt => Value::Int((xs < ys) as i64),
-                BinOp::Le => Value::Int((xs <= ys) as i64),
+                // Emuera quirk: for strings, >= and <= both mean < (strictly less than)
+                BinOp::Le => Value::Int((xs < ys) as i64),
                 BinOp::Gt => Value::Int((xs > ys) as i64),
-                BinOp::Ge => Value::Int((xs >= ys) as i64),
+                BinOp::Ge => Value::Int((xs < ys) as i64),
                 _ => return err(format!("operator {:?} not valid for strings", op)),
             });
         }
@@ -2285,6 +2287,16 @@ impl Vm {
                     self.set_pc(*body);
                 }
             }
+            Instr::ForBreak { var, slot, exit } => {
+                let (_, st) = match self.frames.last().unwrap().slots[*slot] {
+                    Slot::For(e, st) => (e, st),
+                    _ => (0, 1),
+                };
+                let p = self.locate(var)?;
+                let v = self.get_place(&p).as_int() + st;
+                self.set_place(&p, Value::Int(v))?;
+                self.set_pc(*exit);
+            }
             Instr::SelectEval(e, slot, table) => {
                 let v = self.eval(e)?;
                 // literal CASEs: straight to the matching one (same result as
@@ -2396,7 +2408,14 @@ impl Vm {
                     Some(&t) => self.set_pc(t),
                     None => {
                         if *try_ {
-                            if let Some(c) = catch {
+                            // Emuera quirk: TRYCGOTO to a missing *constant* label
+                            // (not a form) doesn't jump to catch - it just continues
+                            // to the next instruction. The CATCH then skips to ENDCATCH.
+                            // Only TRYCGOTOFORM (dynamic label) jumps to catch on missing label.
+                            if matches!(target, CallTarget::Static(_)) {
+                                // Constant label missing: don't jump, just continue
+                            } else if let Some(c) = catch {
+                                // Form label missing: jump to catch
                                 self.set_pc(*c);
                             }
                         } else {
@@ -2936,6 +2955,7 @@ pub fn pseudo_var(name: &str) -> bool {
             | "LASTLOAD_NO"
             | "LASTLOAD_VERSION"
             | "GAMEBASE_CODE"
+            | "GAMEBASE_GAMECODE"
             | "GAMEBASE_VERSION"
             | "GAMEBASE_ALLOWVERSION"
             | "GAMEBASE_DEFAULTCHARA"

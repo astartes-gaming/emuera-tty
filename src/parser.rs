@@ -198,6 +198,7 @@ impl FuncBuilder {
             Instr::Jump(t) => *t = target,
             Instr::JumpIfNot(_, t) => *t = target,
             Instr::ForBegin(f) => f.exit = target,
+            Instr::ForBreak { exit, .. } => *exit = target,
             Instr::CaseTest(_, _, t) => *t = target,
             Instr::Call(c) => c.catch = Some(target),
             Instr::Goto(g) => g.2 = Some(target),
@@ -1394,11 +1395,18 @@ impl Parser {
                 for c in conts {
                     b.patch(c, next_pc);
                 }
-                b.emit(Instr::ForNext { var, slot, body: begin + 1 });
+                b.emit(Instr::ForNext { var: var.clone(), slot, body: begin + 1 });
+                // Emit a jump over ForBreak for normal loop exit
+                let jump_over_break = b.emit(Instr::Jump(0));
+                // Emit ForBreak for BREAK statements: increments counter then jumps to exit
+                let for_break_pc = b.pc();
+                b.emit(Instr::ForBreak { var, slot, exit: 0 }); // exit will be patched below
                 let exit = b.pc();
                 b.patch(begin, exit);
+                b.patch(for_break_pc, exit); // patch the exit field of ForBreak
+                b.patch(jump_over_break, exit); // patch the jump over ForBreak
                 for x in breaks {
-                    b.patch(x, exit);
+                    b.patch(x, for_break_pc);
                 }
                 Self::after_stmt(b);
             }

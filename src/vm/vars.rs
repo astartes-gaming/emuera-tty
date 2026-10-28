@@ -4,14 +4,14 @@
 use super::value::Value;
 
 /// The element storage of an [`Arr`], row-major.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Data {
     I(Vec<i64>),
     S(Vec<String>),
 }
 
 /// One variable: every Emuera variable, scalars included, is an array.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Arr {
     pub data: Data,
     /// empty => scalar

@@ -28,14 +28,17 @@ TRYCGOTO NO_SUCH_LABEL
 CATCH
 	LOCAL = 2
 ENDCATCH
-CALL CHECK, "trycgoto catch", LOCAL == 2
+; TRYCGOTO to missing constant label: first branch runs, CATCH skipped (Emuera quirk)
+CALL CHECK, "trycgoto catch", LOCAL == 1
 TRYCGOTOFORM LAB{2}
 	LOCAL = 3
 CATCH
 	LOCAL = 4
 ENDCATCH
 $LAB2
-CALL CHECK, "trycgotoform found", LOCAL == 2
+; TRYCGOTOFORM to existing label jumps to label (after ENDCATCH), neither branch runs
+; LOCAL remains 1 from previous TRYCGOTO's first branch
+CALL CHECK, "trycgotoform found", LOCAL == 1
 ; (every list names its targets with FUNC, labels here)
 TRYGOTOLIST
 	FUNC NO_SUCH_LABEL

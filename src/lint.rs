@@ -142,6 +142,7 @@ fn string_compares(prog: &Program, out: &mut Vec<String>) {
                     [&fb.start, &fb.end].into_iter().chain(&fb.step).for_each(|x| t.expr(x, &mut found));
                 }
                 Instr::ForNext { var, .. } => t.var(var, &mut found),
+                Instr::ForBreak { var, .. } => t.var(var, &mut found),
                 Instr::SelectEval(e, slot, _) => {
                     t.expr(e, &mut found);
                     select_str.insert(*slot, t.is_str(e));

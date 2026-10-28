@@ -15,7 +15,8 @@ FOR LOCAL:1, 0, 10
 		BREAK
 	LOCAL += LOCAL:1
 NEXT
-CALL CHECK, "for continue break", LOCAL == 0 + 1 + 2 + 4 + 5 && LOCAL:1 == 6
+; BREAK steps the counter before leaving (Emuera behavior)
+CALL CHECK, "for continue break", LOCAL == 0 + 1 + 2 + 4 + 5 && LOCAL:1 == 7
 LOCAL = 0
 FOR LOCAL:1, 10, 0, -2
 	LOCAL += 1
