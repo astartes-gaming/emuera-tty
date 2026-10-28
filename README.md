@@ -1448,7 +1448,11 @@ nothing for it.)
 ERB and ERH files load in Emuera's order: each folder's files before its
 subfolders, sorted the way Emuera sorts them when the config's
 `読み込み順をファイル名順にソートする` is on (else the order Windows lists
-them in), and folders whose name has a `#` first (Emuera-EE). Subfolders
+them in), and folders whose name has a `#` first (Emuera-EE). Sorted
+order depends on the .NET Emuera runs on, and games rely on the one they
+were made with: a game that ships only .NET Framework builds of Emuera
+(Emuera 1821, Anchor, PuchiAnchor) gets their order (`A.ERB` before
+`A_B.ERB`), any other the order of today's Emuera-EM/EE (`A_B.ERB` first). Subfolders
 are read only when `サブディレクトリを検索する` is on, as in Emuera; a
 note at startup says how many files that leaves out. The order decides
 which of two functions with the same name wins, the order event

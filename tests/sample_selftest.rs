@@ -219,3 +219,29 @@ fn deep_recursion_on_a_small_stack() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// With 読み込み順をファイル名順にソートする, `A.ERB` and `A_B.ERB` load in
+/// the order of the .NET the game's own Emuera runs on, and the first
+/// loaded wins a function both define: `.` first on .NET Framework (NLS:
+/// eraSumireTeru's COMABLE.ERB hides COMABLE_DUMMY.ERB's), `_` first on
+/// .NET Core (ICU: Emuera-EM / EE, also when no Emuera is shipped).
+#[test]
+fn sorted_load_order_follows_the_shipped_emuera() {
+    let dir = temp_dir("load-order");
+    for (exe, want) in [(None, "dummy"), (Some("MZ .NETFramework,Version=v4.5"), "main"), (Some("MZ .NETCoreApp,Version=v8.0"), "dummy")] {
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut files = vec![
+            ("emuera.config", "読み込み順をファイル名順にソートする:YES\n"),
+            ("ERB/T.ERB", "@SYSTEM_TITLE\nPRINTFORML [%F()%]\nQUIT\n"),
+            ("ERB/COMABLE.ERB", "@F\n#FUNCTIONS\nRETURNF \"main\"\n"),
+            ("ERB/COMABLE_DUMMY.ERB", "@F\n#FUNCTIONS\nRETURNF \"dummy\"\n"),
+        ];
+        if let Some(e) = exe {
+            files.push(("Emuera.exe", e));
+        }
+        game(&dir, &files);
+        let text = run(&dir, b"");
+        assert!(text.contains(&format!("[{}]", want)), "{:?}: {}", exe, text);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

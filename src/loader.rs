@@ -114,22 +114,56 @@ pub fn find_file_ci(dir: &Path, name: &str) -> Option<PathBuf> {
 #[derive(Clone, Copy, Debug)]
 pub struct Listing {
     pub subdirs: bool,
-    pub sort: bool,
+    pub order: Order,
+}
+
+/// How a folder's names are ordered: unsorted (as Windows lists NTFS), or
+/// sorted by .NET's culture order, which is ICU's on .NET Core (Emuera-EM /
+/// EE) and Windows' NLS on .NET Framework (Emuera 1821, Anchor). The two
+/// disagree on punctuation, so on which of `A.ERB` and `A_B.ERB` loads
+/// first and wins a function both define (eraSumireTeru's COMABLE.ERB
+/// must hide COMABLE_DUMMY.ERB's, as the game says; eraAL-K was made on
+/// EE's order).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Order {
+    Ntfs,
+    Icu,
+    Nls,
 }
 
 impl Listing {
     pub fn of(game: &Path) -> Listing {
         let v = crate::emuconfig::Values::read(game);
-        Listing { subdirs: v.flag("サブディレクトリを検索する"), sort: v.flag("読み込み順をファイル名順にソートする") }
+        let order = match v.flag("読み込み順をファイル名順にソートする") {
+            false => Order::Ntfs,
+            true if framework_emuera(game) => Order::Nls,
+            true => Order::Icu,
+        };
+        Listing { subdirs: v.flag("サブディレクトリを検索する"), order }
     }
 }
 
-/// Emuera's order of names in a folder. Sorted (`Array.Sort`, .NET's
-/// culture order, ICU): case aside, punctuation before digits before
-/// letters, kana as one, and on to other scripts by code point. Unsorted:
-/// the order Windows lists an NTFS folder in, by upper-cased code units.
-pub fn name_order(a: &str, b: &str, sort: bool) -> std::cmp::Ordering {
-    if !sort {
+/// Whether the game ships its Emuera and only .NET Framework builds of it
+/// (no `.NETCoreApp` in any of its .exe files): the order its scripts were
+/// written for is then NLS's. Games that ship none get EM/EE's.
+fn framework_emuera(game: &Path) -> bool {
+    let exes: Vec<PathBuf> = fs::read_dir(game)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")))
+        .collect();
+    !exes.is_empty() && !exes.iter().any(|p| fs::read(p).is_ok_and(|b| b.windows(12).any(|w| w == b".NETCoreApp,")))
+}
+
+/// Emuera's order of names in a folder (see [`Order`]). Sorted: case
+/// aside, punctuation before digits before letters, kana as one, and on to
+/// other scripts by code point; ICU and NLS order the punctuation
+/// differently, and NLS skips hyphens and apostrophes. Unsorted: the order
+/// Windows lists an NTFS folder in, by upper-cased code units.
+pub fn name_order(a: &str, b: &str, order: Order) -> std::cmp::Ordering {
+    if order == Order::Ntfs {
         let up = |s: &str| {
             s.encode_utf16()
                 .map(|u| char::from_u32(u as u32).map_or(u as u32, |c| c.to_uppercase().next().map_or(u as u32, |c| c as u32)))
@@ -137,8 +171,11 @@ pub fn name_order(a: &str, b: &str, sort: bool) -> std::cmp::Ordering {
         };
         return up(a).cmp(&up(b)).then_with(|| a.cmp(b));
     }
-    fn key(c: char) -> (u8, u32) {
-        const PUNCT: &str = "_-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
+    let punct = match order {
+        Order::Nls => "!\"#$%&()*,./:;?@[\\]^_`{|}~+<=>",
+        _ => "_-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$",
+    };
+    let key = |c: char| -> (u8, u32) {
         // full-width ASCII is the same letter
         let c = match c as u32 {
             0xFF01..=0xFF5E => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
@@ -149,16 +186,17 @@ pub fn name_order(a: &str, b: &str, sort: bool) -> std::cmp::Ordering {
             ' ' | '\t' => (0, 0),
             '0'..='9' => (1, c as u32),
             'a'..='z' | 'A'..='Z' => (2, c.to_ascii_lowercase() as u32),
-            _ if c.is_ascii() => (0, PUNCT.find(c).map_or(200, |i| i as u32 + 1)),
+            _ if c.is_ascii() => (0, punct.find(c).map_or(200, |i| i as u32 + 1)),
             // CJK punctuation and general symbols sort with punctuation
             '\u{2000}'..='\u{2BFF}' | '\u{3001}'..='\u{303F}' | '\u{30FB}' => (0, 1000 + c as u32),
             // katakana as hiragana
             '\u{30A1}'..='\u{30F6}' => (3, c as u32 - 0x60),
             _ => (3, c as u32),
         }
-    }
-    let ka: Vec<(u8, u32)> = a.chars().map(key).collect();
-    let kb: Vec<(u8, u32)> = b.chars().map(key).collect();
+    };
+    let skip = |c: &char| order == Order::Nls && (*c == '-' || *c == '\'');
+    let ka: Vec<(u8, u32)> = a.chars().filter(|c| !skip(c)).map(key).collect();
+    let kb: Vec<(u8, u32)> = b.chars().filter(|c| !skip(c)).map(key).collect();
     // then lower case before upper, then by code point
     let case = |s: &str| s.chars().map(|c| c.is_uppercase() as u8).collect::<Vec<u8>>();
     ka.cmp(&kb).then_with(|| case(a).cmp(&case(b))).then_with(|| a.cmp(b))
@@ -188,10 +226,10 @@ fn list_into(dir: &Path, exts: &[&str], l: Listing, out: &mut Vec<PathBuf>) {
             }
         }
     }
-    files.sort_by(|a, b| name_order(&a.0, &b.0, l.sort));
+    files.sort_by(|a, b| name_order(&a.0, &b.0, l.order));
     out.extend(files.into_iter().map(|f| f.1));
     if l.subdirs {
-        dirs.sort_by(|a, b| name_order(&a.0, &b.0, l.sort));
+        dirs.sort_by(|a, b| name_order(&a.0, &b.0, l.order));
         for (_, d) in dirs {
             list_into(&d, exts, l, out);
         }
@@ -201,7 +239,7 @@ fn list_into(dir: &Path, exts: &[&str], l: Listing, out: &mut Vec<PathBuf>) {
 /// The ERB files in Emuera's load order: first those under folders whose
 /// name has a `#` (Emuera-EE's load-first folders), then the rest.
 pub fn erb_files(erb: &Path, l: Listing) -> Vec<PathBuf> {
-    fn hash_dirs(d: &Path, deep: bool, sort: bool, out: &mut Vec<PathBuf>) {
+    fn hash_dirs(d: &Path, deep: bool, sort: Order, out: &mut Vec<PathBuf>) {
         let Ok(rd) = fs::read_dir(d) else { return };
         let mut dirs: Vec<(String, PathBuf)> =
             rd.flatten().filter(|e| e.path().is_dir()).map(|e| (e.file_name().to_string_lossy().into_owned(), e.path())).collect();
@@ -216,7 +254,7 @@ pub fn erb_files(erb: &Path, l: Listing) -> Vec<PathBuf> {
         }
     }
     let mut first = Vec::new();
-    hash_dirs(erb, l.subdirs, l.sort, &mut first);
+    hash_dirs(erb, l.subdirs, l.order, &mut first);
     let mut out: Vec<PathBuf> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for d in first {
@@ -313,17 +351,23 @@ mod order_tests {
 
     #[test]
     fn emuera_name_order() {
+        use super::Order::*;
         use std::cmp::Ordering::*;
-        // sorted (.NET / ICU): case aside, punctuation < digits < letters
-        assert_eq!(name_order("apple.ERB", "Banana.ERB", true), Less);
-        assert_eq!(name_order("A_B.ERB", "A.ERB", true), Less);
-        assert_eq!(name_order("10.ERB", "2.ERB", true), Less);
-        assert_eq!(name_order("_X.ERB", "0.ERB", true), Less);
-        assert_eq!(name_order("a.erb", "A.erb", true), Less);
-        assert_eq!(name_order("カ.ERB", "き.ERB", true), Less);
+        // sorted (.NET Core / ICU): case aside, punctuation < digits < letters
+        assert_eq!(name_order("apple.ERB", "Banana.ERB", Icu), Less);
+        assert_eq!(name_order("A_B.ERB", "A.ERB", Icu), Less);
+        assert_eq!(name_order("10.ERB", "2.ERB", Icu), Less);
+        assert_eq!(name_order("_X.ERB", "0.ERB", Icu), Less);
+        assert_eq!(name_order("a.erb", "A.erb", Icu), Less);
+        assert_eq!(name_order("カ.ERB", "き.ERB", Icu), Less);
+        // .NET Framework (NLS): '.' before '_', hyphens skipped
+        assert_eq!(name_order("COMABLE.ERB", "COMABLE_DUMMY.ERB", Nls), Less);
+        assert_eq!(name_order("_X.ERB", "0.ERB", Nls), Less);
+        assert_eq!(name_order("A-C.ERB", "AB.ERB", Nls), Greater);
+        assert_eq!(name_order("カ.ERB", "き.ERB", Nls), Less);
         // unsorted (NTFS): upper-cased code units, so '_' after letters
-        assert_eq!(name_order("A_B.ERB", "AB.ERB", false), Greater);
-        assert_eq!(name_order("A.ERB", "A_B.ERB", false), Less);
+        assert_eq!(name_order("A_B.ERB", "AB.ERB", Ntfs), Greater);
+        assert_eq!(name_order("A.ERB", "A_B.ERB", Ntfs), Less);
     }
 }
 
