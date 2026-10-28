@@ -218,7 +218,24 @@ fn memory_in_use_raw() -> Option<u64> {
         c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
         (GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) != 0).then_some(c.WorkingSetSize as u64)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    #[cfg(target_os = "haiku")]
+    unsafe {
+        // the RAM held by this team's areas (heap, stacks, mapped files)
+        let (mut cookie, mut info, mut sum) = (0isize, std::mem::zeroed::<libc::area_info>(), 0u64);
+        while libc::get_next_area_info(0, &mut cookie, &mut info) == libc::B_OK {
+            sum += info.ram_size as u64;
+        }
+        (sum > 0).then_some(sum)
+    }
+    // macOS, the BSDs, illumos: the peak resident size, the nearest a
+    // portable call gives (bytes on macOS, KB elsewhere)
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_os = "haiku"))))]
+    unsafe {
+        let mut u: libc::rusage = std::mem::zeroed();
+        let unit = if cfg!(target_vendor = "apple") { 1 } else { 1024 };
+        (libc::getrusage(libc::RUSAGE_SELF, &mut u) == 0 && u.ru_maxrss > 0).then(|| u.ru_maxrss as u64 * unit)
+    }
+    #[cfg(not(any(unix, windows)))]
     None
 }
 
