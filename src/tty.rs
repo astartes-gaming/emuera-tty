@@ -446,6 +446,19 @@ fn backslash_is_yen(font: &str) -> bool {
     ms || f.contains("meiryo") || f.contains("メイリオ")
 }
 
+/// The column in a cursor position report (`ESC [ row ; col R`).
+fn cpr_column(s: &str) -> Option<u32> {
+    let mut rest = s;
+    while let Some(i) = rest.find("\x1b[") {
+        rest = &rest[i + 2..];
+        let end = rest.find(|c: char| !(c.is_ascii_digit() || c == ';'))?;
+        if rest[end..].starts_with('R') {
+            return rest[..end].split(';').nth(1)?.parse().ok();
+        }
+    }
+    None
+}
+
 /// The colour in an OSC 11 reply (`ESC ] 11 ; rgb:RRRR/GGGG/BBBB`, one to
 /// four hex digits per channel).
 fn parse_osc11(s: &str) -> Option<Rgb> {
@@ -510,6 +523,8 @@ pub struct Tty {
     ambi: Ambi,
     /// what the Linux console's font can draw (None: any terminal font)
     font_chars: Option<std::collections::HashSet<char>>,
+    /// the terminal doesn't take UTF-8: everything else drawn as ASCII
+    ascii_only: bool,
     /// Widths this terminal actually draws, for characters where tables
     /// disagree (measured at startup; only entries that differ from
     /// unicode-width are kept).
@@ -702,6 +717,9 @@ fn console_lookalike(ch: char, has: &std::collections::HashSet<char>) -> char {
         '≦' | '≤' => &['≤', '<'],
         '≧' | '≥' => &['≥', '>'],
         '┃' | '│' => &['│', '|'],
+        '░' => &['░', ':'],
+        '▒' => &['▒', '#'],
+        '▓' | '█' => &['█', '#'],
         // nothing like it (kana, kanji): the console's diamond says so
         _ => return ch,
     };
@@ -876,6 +894,7 @@ impl Tty {
             mouse: None,
             ambi: Ambi::Pad,
             font_chars: None,
+            ascii_only: false,
             widths: std::collections::HashMap::new(),
             btn_map: Vec::new(),
             buttons: Vec::new(),
@@ -959,7 +978,13 @@ impl Tty {
         // the terminal's own background, for readable colours (the Linux
         // console's is black and it doesn't answer)
         if !is_vt {
-            t.term_bg = t.query_background();
+            let (bg, utf8) = t.query_terminal();
+            t.term_bg = bg;
+            // an 8-bit terminal: plain ASCII (its widths measured wrong too)
+            if !utf8 {
+                t.ascii_only = true;
+                t.widths.clear();
+            }
         }
         // (fbterm draws with fontconfig's fonts)
         if term == "linux" {
@@ -1069,14 +1094,16 @@ impl Tty {
         crate::sys::poll(0, -1).input
     }
 
-    /// The terminal's background colour (OSC 11), if it says: the device
-    /// attributes query after it answers anyway, so a terminal that ignores
-    /// OSC 11 costs no wait. Haiku's Terminal answers the two the other
-    /// way round, so the OSC reply gets 60 ms more after the DA one.
-    fn query_background(&mut self) -> Option<Rgb> {
+    /// The terminal's background colour (OSC 11), if it says, and whether
+    /// it takes UTF-8: `ñ` (two bytes, never wide) moves the cursor one
+    /// column there, two on an 8-bit terminal (NetBSD's console). The
+    /// device attributes query after them answers anyway, so a terminal
+    /// that ignores the others costs no wait. Haiku's Terminal answers DA
+    /// before OSC 11, so the OSC reply gets 60 ms more after the DA one.
+    fn query_terminal(&mut self) -> (Option<Rgb>, bool) {
         let da_at = std::cell::Cell::new(None::<Instant>);
         let r = self.query(
-            b"\x1b]11;?\x1b\\\x1b[c",
+            "\r\u{f1}\x1b[6n\r\x1b[K\x1b]11;?\x1b\\\x1b[c".as_bytes(),
             |b| {
                 if da_at.get().is_none() && b.windows(3).any(|w| w == b"\x1b[?") && b.contains(&b'c') {
                     da_at.set(Some(Instant::now()));
@@ -1086,7 +1113,8 @@ impl Tty {
             },
             300,
         );
-        parse_osc11(&String::from_utf8_lossy(&r))
+        let r = String::from_utf8_lossy(&r);
+        (parse_osc11(&r), cpr_column(&r) != Some(3))
     }
 
     /// Send a query and collect the reply until `done` or timeout.
@@ -2031,6 +2059,8 @@ impl Tty {
                 if self.ambi == Ambi::Osc66 && cell.w == 2 && UnicodeWidthChar::width(cell.ch) == Some(1) {
                     // a one-column glyph drawn across two cells (see char_cells)
                     let _ = write!(out, "\x1b]66;w=2;{}\x1b\\", cell.ch);
+                } else if self.ascii_only && !cell.ch.is_ascii() {
+                    self.put_ascii(&mut out, cell.ch, cell.w as usize);
                 } else {
                     out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
                 }
@@ -2374,10 +2404,24 @@ impl Tty {
         out
     }
 
+    /// What an 8-bit terminal gets for a character drawn by other paths
+    /// than [`Self::drawable`] (placeholders, the status line): an ASCII
+    /// lookalike or `?`, padded to the cells it takes.
+    fn put_ascii(&self, out: &mut Vec<u8>, ch: char, w: usize) {
+        let c = console_lookalike(ch, &std::collections::HashSet::new());
+        out.push(if c.is_ascii() { c as u8 } else { b'?' });
+        out.extend(std::iter::repeat_n(b' ', w.saturating_sub(1)));
+    }
+
     /// A character as the screen can draw it (`char_cells`' cells): on the
     /// Linux console one its font lacks becomes a lookalike, in the same
     /// cells (the lookalike in the first, filler after).
     fn drawable(&self, ch: char, tw: usize, extra: usize, fill: char) -> (char, usize, usize, char) {
+        if self.ascii_only && tw > 0 && !ch.is_ascii() {
+            let c = console_lookalike(ch, &std::collections::HashSet::new());
+            let c = if c.is_ascii() { c } else { '?' };
+            return (c, 1, tw + extra - 1, if fill == ch { c } else { ' ' });
+        }
         match &self.font_chars {
             Some(has) if tw > 0 && !ch.is_ascii() && !has.contains(&ch) => {
                 let c = console_lookalike(ch, has);
@@ -2705,6 +2749,8 @@ impl Tty {
                 let mut tmp = [0u8; 4];
                 if self.ambi == Ambi::Osc66 && cell.w == 2 && UnicodeWidthChar::width(cell.ch) == Some(1) {
                     let _ = write!(out, "\x1b]66;w=2;{}\x1b\\", cell.ch);
+                } else if self.ascii_only && !cell.ch.is_ascii() {
+                    self.put_ascii(&mut out, cell.ch, cell.w as usize);
                 } else {
                     out.extend_from_slice(cell.ch.encode_utf8(&mut tmp).as_bytes());
                 }
@@ -4796,6 +4842,14 @@ mod tests {
         for f in ["游ゴシック", "Yu Gothic", "Consolas", "DFKai-SB", "Courier New", "ＤＦ平成ゴシック体"] {
             assert!(!super::backslash_is_yen(f), "{:?}", f);
         }
+    }
+
+    /// The column in a cursor position report, among other replies
+    #[test]
+    fn cursor_reports() {
+        assert_eq!(super::cpr_column("\x1b[12;2R\x1b]11;rgb:0/0/0\x07\x1b[?62c"), Some(2));
+        assert_eq!(super::cpr_column("\x1b[?6c\x1b[1;3R"), Some(3));
+        assert_eq!(super::cpr_column("\x1b[?62;4c"), None);
     }
 
     /// The terminal's background from its OSC 11 reply
