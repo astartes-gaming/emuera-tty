@@ -124,10 +124,11 @@ struct Entry {
 }
 
 impl Entry {
-    /// Compute wrapped lines for this entry given the terminal width.
+    /// Compute wrapped lines for this entry given the terminal width (a
+    /// line break in the label starts a new line).
     fn wrap(&mut self, width: usize) {
         if self.wrapped.is_empty() || width == 0 {
-            self.wrapped = wrap_text(&self.label, width.max(1));
+            self.wrapped = self.label.split('\n').flat_map(|l| wrap_text(l, width.max(1))).collect();
         }
     }
 }
@@ -320,6 +321,16 @@ fn out(b: &[u8]) {
 
 fn term_size() -> (usize, usize) {
     crate::sys::winsize().map_or((80, 24), |(c, r, _, _)| (c, r))
+}
+
+/// `s` cut to `w` display cells, ending in "…" when something was cut.
+fn fit_dots(s: &str, w: usize) -> String {
+    let width: usize = s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+    if width <= w {
+        s.to_string()
+    } else {
+        format!("{}…", fit(s, w.saturating_sub(1)))
+    }
 }
 
 /// `s` cut or padded with spaces to exactly `w` display cells.
@@ -533,7 +544,12 @@ impl Picker {
                         n => format!(" (+{} more)", n - 1),
                     };
                     let first = g.repos.first().map_or(String::new(), repo_label);
-                    self.entries.push(Entry { label: format!("⇩ {}   {}{}", g.title, first, more), wrapped: Vec::new(), kind: Kind::WikiGame(i) });
+                    // a second line: what the game is (cut to the screen)
+                    let about = match g.info.summary() {
+                        a if a.is_empty() => String::new(),
+                        a => format!("\n    {}", fit_dots(&a, term_size().0.saturating_sub(6))),
+                    };
+                    self.entries.push(Entry { label: format!("⇩ {}   {}{}{}", g.title, first, more, about), wrapped: Vec::new(), kind: Kind::WikiGame(i) });
                 }
                 self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
                 self.rebuild_entry_line();
@@ -713,7 +729,7 @@ impl Picker {
         let sel_entry = self.entry_line.get(self.sel).copied();
         for (ei, e) in self.entries.iter().enumerate() {
             let selected = sel_entry == Some(ei);
-            for wrapped_line in &e.wrapped {
+            for (li, wrapped_line) in e.wrapped.iter().enumerate() {
                 if line_idx < self.top {
                     line_idx += 1;
                     continue;
@@ -727,6 +743,8 @@ impl Picker {
                     Kind::Game { ok: false, .. } => "\x1b[2m",
                     Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
                     Kind::AddGame | Kind::CloneGame | Kind::Download | Kind::OpenSettings => "\x1b[36m",
+                    // (a game's description, under it, dimmed)
+                    Kind::WikiGame(_) if li > 0 => "\x1b[2m",
                     Kind::WikiGame(_) | Kind::WikiRepo(_) => "\x1b[33m",
                     Kind::Login => "\x1b[36m",
                     Kind::Archive { .. } => "\x1b[36m",
@@ -1332,15 +1350,21 @@ impl Picker {
     fn open_wiki_game(&mut self, i: usize) {
         let Some(title) = self.wiki.get(i).map(|g| g.title.clone()) else { return };
         let mut g = Gauge::new(&title, "Esc / Ctrl-C: cancel");
-        g.step(Step::Start("Reading its page on the eraGames wiki…"));
-        let got = fetch(&crate::download::page_url(&title), &mut g, &mut || self.cancel_pressed());
-        // without the page the repositories are still there to clone
-        self.wiki_info = match got.and_then(|json| crate::download::details(&json)) {
-            Ok(d) => d,
-            Err(e) if e == CANCELLED => return,
-            Err(e) => {
-                self.note = format!("\x1b[31mCan't read its page: {}\x1b[0m", e);
-                Default::default()
+        // (the page's first section came with the list; read alone only
+        // when it didn't)
+        self.wiki_info = if self.wiki[i].info != Default::default() {
+            self.wiki[i].info.clone()
+        } else {
+            g.step(Step::Start("Reading its page on the eraGames wiki…"));
+            let got = fetch(&crate::download::page_url(&title), &mut g, &mut || self.cancel_pressed());
+            // without the page the repositories are still there to clone
+            match got.and_then(|json| crate::download::details(&json)) {
+                Ok(d) => d,
+                Err(e) if e == CANCELLED => return,
+                Err(e) => {
+                    self.note = format!("\x1b[31mCan't read its page: {}\x1b[0m", e);
+                    Default::default()
+                }
             }
         };
         // which repositories answer (and have the branch the wiki names)

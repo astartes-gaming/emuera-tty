@@ -14,6 +14,8 @@ pub const WIKI: &str = "https://wiki.eragames.rip";
 pub struct WikiGame {
     pub title: String,
     pub repos: Vec<Repo>,
+    /// its page's infobox and introduction
+    pub info: Details,
 }
 
 /// A repository to clone, from a link on a game's page.
@@ -41,7 +43,7 @@ impl Repo {
 }
 
 /// A game page's infobox and first paragraph.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Details {
     /// "Genre", "Translation Status"… as the page has them
     pub facts: Vec<(String, String)>,
@@ -53,11 +55,12 @@ pub fn enc(s: &str) -> String {
     s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{:02X}", b) }).collect()
 }
 
-/// The request for the Games category's pages and their external links;
-/// `more` is the `continue` part of the previous answer.
+/// The request for the Games category's pages, their external links and
+/// their first section (for the descriptions: one request rather than one
+/// a page); `more` is the `continue` part of the previous answer.
 pub fn list_url(more: &str) -> String {
     format!(
-        "{}/api.php?action=query&format=json&formatversion=2&generator=categorymembers&gcmtitle=Category:Games&gcmtype=page&gcmlimit=500&prop=extlinks&ellimit=max{}",
+        "{}/api.php?action=query&format=json&formatversion=2&generator=categorymembers&gcmtitle=Category:Games&gcmtype=page&gcmlimit=500&prop=extlinks|revisions&ellimit=max&rvprop=content&rvsection=0{}",
         WIKI, more
     )
 }
@@ -75,10 +78,16 @@ pub fn add_list(json: &str, games: &mut Vec<WikiGame>) -> Result<String, String>
         let at = match games.iter().position(|g| g.title == title) {
             Some(i) => i,
             None => {
-                games.push(WikiGame { title: title.to_string(), repos: Vec::new() });
+                games.push(WikiGame { title: title.to_string(), repos: Vec::new(), info: Details::default() });
                 games.len() - 1
             }
         };
+        // the first section's text: `content` (older MediaWiki) or the main slot's
+        let rev = p.get("revisions").and_then(|r| r.items().first());
+        let text = rev.and_then(|r| r.get("content").or_else(|| r.get("slots")?.get("main")?.get("content"))).and_then(Json::str);
+        if let (Some(t), true) = (text, games[at].info == Details::default()) {
+            games[at].info = read_page(t);
+        }
         for l in p.get("extlinks").map(Json::items).unwrap_or_default() {
             if let Some(r) = l.get("url").and_then(Json::str).and_then(repo_of) {
                 let g = &mut games[at];
@@ -97,6 +106,62 @@ fn value_text(v: &Json) -> String {
         Json::Num(n) => format!("{}", n),
         _ => String::new(),
     }
+}
+
+impl Details {
+    /// One line on the game for the list: a notice the page starts with
+    /// (no longer maintained…), the genre, the first sentence of the
+    /// introduction (or, without one, the translation status).
+    pub fn summary(&self) -> String {
+        let fact = |k: &str| self.facts.iter().find(|(f, _)| f.to_lowercase().contains(k)).map(|(_, v)| v.trim_end_matches('.').to_string());
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(n) = fact("note") {
+            parts.push(n.replace('⚠', "").split_whitespace().collect::<Vec<_>>().join(" "));
+        }
+        if let Some(g) = fact("genre") {
+            parts.push(g);
+        }
+        let first = first_sentence(&self.about);
+        if !first.is_empty() {
+            parts.push(first);
+        } else if let Some(t) = fact("translation") {
+            parts.push(format!("translation: {}", t));
+        }
+        parts.retain(|p| !p.is_empty());
+        parts.join(" · ")
+    }
+}
+
+/// The first sentence of `text` (up to a `.`, `?` or `!` and any closing
+/// quote, before a space), without quotes around it or a lone one in front.
+fn first_sentence(text: &str) -> String {
+    let quote = |c: char| matches!(c, '"' | '“' | '”');
+    let mut end = text.len();
+    let mut it = text.char_indices().peekable();
+    while let Some((i, c)) = it.next() {
+        if matches!(c, '.' | '?' | '!') {
+            let mut e = i + c.len_utf8();
+            while let Some(&(j, q)) = it.peek().filter(|(_, q)| quote(*q)) {
+                e = j + q.len_utf8();
+                it.next();
+            }
+            if it.peek().is_none_or(|(_, n)| n.is_whitespace()) {
+                end = e;
+                break;
+            }
+        }
+    }
+    let s = text[..end].trim();
+    let opens = s.starts_with(quote);
+    let closes = s.chars().filter(|&c| quote(c)).count() >= 2 && s.ends_with(quote);
+    let s = if opens && closes {
+        s.trim_start_matches(quote).trim_end_matches(quote)
+    } else if opens && s.chars().filter(|&c| quote(c)).count() == 1 {
+        s.trim_start_matches(quote)
+    } else {
+        s
+    };
+    s.trim().to_string()
 }
 
 /// The request for a page's first section (its infobox and introduction).
@@ -215,7 +280,12 @@ pub fn read_page(wikitext: &str) -> Details {
             }
             continue;
         }
-        let c = clean(l);
+        // list items (`* …`) as sentences of their own
+        let item = l.starts_with(['*', '#']);
+        let mut c = clean(l.trim_start_matches(['*', '#', ':', ';', ' ']));
+        if item && !c.is_empty() && !c.ends_with(['.', '!', '?', '"', ')']) {
+            c.push('.');
+        }
         if !c.is_empty() {
             para.push(c);
         }
@@ -320,6 +390,10 @@ mod tests {
         assert_eq!(games.len(), 2);
         assert_eq!(games[0].repos.iter().map(|r| r.branch.as_str()).collect::<Vec<_>>(), ["", "game/eng-release"]);
         assert_eq!(games[1].repos[0].path, "gitgud.io/era-games/eratohoPM");
+        // the first section, when the answer has it
+        let page3 = r#"{"query":{"pages":[{"pageid":15,"title":"EraTohoPM","revisions":[{"content":"{|\n| Genre: Trainer\n|}\nA game. More."}]}]}}"#;
+        add_list(page3, &mut games).unwrap();
+        assert_eq!(games[1].info.summary(), "Trainer · A game.");
         assert!(add_list(r#"{"error":{"code":"x","info":"bad request"}}"#, &mut games).unwrap_err().contains("bad request"));
     }
 
@@ -336,7 +410,16 @@ mod tests {
             ]
         );
         assert_eq!(d.about, "A fork of Pedy's TW with new features. Second line.");
+        assert_eq!(
+            d.summary(),
+            "No longer maintained. The updated version is now EramegatenP · Dungeon Crawler/Trainer · A fork of Pedy's TW with new features."
+        );
         assert_eq!(clean("[[Category:Games]] [https://x.y/z] {{a}}b"), "b");
+        assert_eq!(first_sentence("\"Touhou dating simulator. With more\" here."), "Touhou dating simulator.");
+        assert_eq!(first_sentence("\"Who is it?\" A title."), "Who is it?");
+        assert_eq!(first_sentence("Era gaming..."), "Era gaming...");
+        assert_eq!(first_sentence("v1.5 is out. Next"), "v1.5 is out.");
+        assert_eq!(read_page("* Roguelike game\n* Gameplay is translated.\n").about, "Roguelike game. Gameplay is translated.");
         assert_eq!(page_url("Pedy's TW"), format!("{}/api.php?action=parse&format=json&formatversion=2&prop=wikitext&section=0&page=Pedy%27s%20TW", WIKI));
     }
 }

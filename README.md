@@ -393,9 +393,11 @@ repository (up to two levels down) is found too.
 **⇩ Download a game (from the eraGames wiki)…** lists the games of the
 [eraGames wiki](https://wiki.eragames.rip/index.php/Category:Games) (its
 *Games* category) that link a git repository, each with the repository
-it names first (`(+2 more)`: other repositories or branches). Enter on
-one reads its wiki page and shows its genre, version and translation
-status, its description and what to download: each repository or branch
+it names first (`(+2 more)`: other repositories or branches) and, dimmed
+under it, what the game is: a notice from its page (no longer
+maintained…), its genre and the first sentence of its description (or its
+translation status). Enter on one shows its genre, version and
+translation status, its description and what to download: each repository or branch
 the page links to (a link to a branch's zip counts as that branch). Only
 repositories are offered, never release archives or file hosts. Enter
 on one clones it with only the latest version (`--depth 1`: much smaller
