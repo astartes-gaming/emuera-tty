@@ -138,8 +138,8 @@ Expect rough edges in parts of the games nobody has played through yet
   Solaris**, **Haiku** and **Redox**, but **Linux is the main tested system.
   Windows and Android have had some testing too (Android on Termux, and
   even under a custom Android recovery environment), but both still need
-  further feedback; every other system is compile-checked only and
-  untested.** Reports are welcome. See [Other systems](#other-systems) for the differences,
+  further feedback. Haiku passes the test suite in a virtual machine (R1/beta5);
+  every other system is compile-checked only and untested.** Reports are welcome. See [Other systems](#other-systems) for the differences,
   [Other CPUs](#other-cpus) for ARM, RISC-V, PowerPC, MIPS and the rest,
   and [Small machines](#small-machines-raspberry-pi-zero-and-the-like) for
   the Raspberry Pi Zero and other 512 MB boards.
@@ -194,25 +194,25 @@ export PATH="$HOME/.local/bin:$PATH"
 | Windows ARM64 | Build passed | Untested |
 | macOS ARM64 (Apple silicon) | Build passed | Untested |
 | macOS x86-64 | Build passed | Untested |
-| Linux i586 (static) | Build passed | Untested |
-| Linux ARMv5 (static) | Build passed | Untested |
-| Linux ARMv6 (static) | Build passed | Untested |
-| Linux ARMv7 (static) | Build passed | Untested |
-| Linux AArch64 (static) | Build passed | Untested |
-| Linux RISC-V 64 (static) | Build passed | Untested |
-| Linux PowerPC 64, big-endian (static) | Build passed | Untested |
-| Linux PowerPC 64, little-endian (static) | Build passed | Untested |
-| Linux LoongArch 64 (static) | Build passed | Untested |
+| Linux i586 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux ARMv5 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux ARMv6 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux ARMv7 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux AArch64 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux RISC-V 64 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux PowerPC 64, big-endian (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux PowerPC 64, little-endian (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
+| Linux LoongArch 64 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
 | FreeBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | NetBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | OpenBSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | DragonFly BSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | illumos x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Solaris x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
-| Haiku x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Haiku x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with Haiku's own gcc: the test suite passes in a Haiku R1/beta5 VM, game output identical to Linux |
 | Redox x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)... somehow |
-| Linux RISC-V 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Linux RISC-V 32 | Build failed (under actions), check failed | Rust's own standard library doesn't build there at the moment (`SYS_futex` missing from libc for that target), nothing in emuera-tty |
 | Linux PowerPC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux IBM Z (s390x) | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux SPARC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
@@ -221,9 +221,9 @@ export PATH="$HOME/.local/bin:$PATH"
 | Linux MIPS 32, little-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux MIPS 64, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux MIPS 64, little-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
-| Linux Motorola 68000 | Build failed (under actions), check failed | Fails under Github Actions, needs testing on emulated/real hardware instead. Very likely might not compile at all |
+| Linux Motorola 68000 | Build failed (under actions), check passed | Fails under Github Actions; compiles with nightly `-Z build-std` |
 | Linux Hexagon | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
-| Linux C-SKY | Build failed (under actions), check failed | Fails under Github Actions, needs testing on emulated/real hardware instead. Very likely might not compile at all |
+| Linux C-SKY | Build failed (under actions), check passed | Fails under Github Actions; compiles with nightly `-Z build-std` |
 | Linux ARM, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux AArch64, big-endian | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux x32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
@@ -267,7 +267,11 @@ export PATH="$HOME/.local/bin:$PATH"
   DragonFly**: the Unix code path (termios, `poll`), as on Linux minus the
   Linux-console extras. Haiku's Terminal and Redox's console show text
   only; on Haiku the fastest serial speeds (460800, 921600) aren't
-  offered, on Redox there is no RTS/CTS flow control.
+  offered, on Redox there is no RTS/CTS flow control. Haiku gives a thread
+  at most 16 MB of stack (Linux: the 512 MB emuera-tty asks for), so there
+  scripts may nest about 1,000 calls instead of 4,000 before "call stack
+  overflow". `GETMEMORYUSAGE` and the memory counter read the memory in
+  use on Linux, Android, Windows and Haiku, the peak on the others.
 
 ### Other CPUs
 
@@ -1317,6 +1321,9 @@ the saved setting. A value can also be written `--colors=256`.
   aligned in Konsole, kitty and others.
 - `EMUERA_TRACE` logs calls (see [When something goes wrong](#7-when-something-goes-wrong)).
 - `EMUERA_THREADS=N` caps the thread count game scripts are read on.
+- `EMUERA_STACK_MB=N` sets the script thread's stack (default 512; a system
+  that allows less gets the most it allows). Scripts may nest one call per
+  16 KB of it, up to 4,000.
 - `EMUERA_TIMING=1` prints how long each loading phase took and the memory
   in use after it.
 - `EMUERA_SEED=N` fixes the random
@@ -1771,9 +1778,9 @@ text.
 
 ## Roadmap
 
-1. Run it on the other systems (macOS, the BSDs, Haiku, Redox) and on a
+1. Run it on the other systems (macOS, the BSDs, Redox) and on a
    real Raspberry Pi Zero: they compile (the Pi build also runs under
-   emulation), nobody has played on them yet. Windows and Android have
+   emulation, Haiku in a virtual machine), nobody has played on them yet. Windows and Android have
    had some testing, and need more feedback.
 2. A good way to play on Android phones, through Termux: players keep
    asking for an up-to-date eraBASIC player there, and saves would move
