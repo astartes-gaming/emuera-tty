@@ -1249,7 +1249,9 @@ This is a proof of concept, so it will happen.
 - **Screen looks broken:** Ctrl-L redraws; try `--gfx none` to rule out
   image problems; make the window wider.
 - **Infinite loop detection:** if a script runs too long without input
-  (default 5 s), a prompt appears (TUI) or the program exits (headless);
+  (default 5 s), a prompt appears (TUI); headless runs go on, with a note
+  on stderr (no one is there to answer, and on a slow machine a big game's
+  day change takes that long);
   configure via `Milliseconds for infinite loop warning` in *Game settings → Environment* or the game's `emuera.config` (`無限ループ警告までのミリ秒数`).
 - **Silent misparsing:** this fork could potentially parse or handle parts
   of a script incorrectly, leading to unintended behavior without an error
@@ -1618,8 +1620,8 @@ checked.
   `GETKEY`/`GETKEYTRIGGERED` (AnonTW's dish search by name).
 - Infinite loop detection (`無限ループ警告までのミリ秒数` /
   `Milliseconds for infinite loop warning`): after a configurable timeout
-  (default 5 s) without input, a confirmation dialog appears (TUI) or the
-  program exits (headless); configurable via `emuera.config`, the in-game
+  (default 5 s) without input, a confirmation dialog appears (TUI); headless
+  runs go on with a note on stderr; configurable via `emuera.config`, the in-game
   settings (Environment tab), or `EMUERA_INFINITE_LOOP_ALERT_TIME`.
 
 ### Debugging

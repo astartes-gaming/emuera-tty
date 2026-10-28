@@ -228,6 +228,8 @@ pub struct Headless {
     /// Emuera's log has them (no prompt or blank line at each input), so
     /// the test suite's expected output compares with emuera.log
     log_style: bool,
+    /// the long-computation note was printed
+    loop_noted: bool,
 }
 
 impl Headless {
@@ -240,6 +242,7 @@ impl Headless {
             lines_in: Box::new(std::io::BufReader::new(std::io::stdin())),
             width: 80,
             log_style: std::env::var("EMUERA_LOG_STYLE").as_deref() == Ok("emuera"),
+            loop_noted: false,
         }
     }
 
@@ -331,11 +334,20 @@ impl Frontend for Headless {
         }
     }
 
-    fn confirm(&mut self, _con: &mut Console, _res: &mut Resources, _msg: &str) -> bool {
-        true
+    /// The long-computation alert (InfiniteLoopAlertTime): no one is here to
+    /// answer, so the script goes on, as Emuera does until the player stops
+    /// it. Quitting here cut scripted runs short on slow machines and
+    /// under emulation (a big game's day change takes seconds there),
+    /// silently and with exit status 0. A note goes to stderr, once.
+    fn confirm(&mut self, _con: &mut Console, _res: &mut Resources, msg: &str) -> bool {
+        if !self.loop_noted {
+            self.loop_noted = true;
+            eprintln!("note: {} (Emuera would ask whether to stop it; going on)", msg.lines().nth(1).unwrap_or("long computation"));
+        }
+        false
     }
 
     fn confirm2(&mut self, _con: &mut Console, _res: &mut Resources, _msg: &str) -> bool {
-        true
+        false
     }
 }
