@@ -1,5 +1,9 @@
 ;=== more string functions and statements ===
 @TEST_MAIN
+; eraSQN, eraSumireTeru: an Anchor game indexes by a translated name (Abl_TR.csv)
+LOCAL = 1
+LOCALS = %ABLNAME:LOCAL%
+CALL CHECK, "ABL by a translated name", LOCALS != "技巧" && GETNUM(ABL, LOCALS) == 1
 CALL CHECK, "strfindu", STRFINDU("あいう", "う") == 2 && STRFIND("あいう", "う") == 4
 STRLEN あいu
 CALL CHECK, "strlen statement", RESULT == 5

@@ -236,6 +236,23 @@ the index must have a name. Anything else is a **script error**
 emuera-tty: the same, errors included (`TR_NAME: Invalid first argument:
 BOGUS`).
 
+## 7b. Translated names as indices
+
+Inferred from games, not yet checked in Anchor's source (`../emuEra` isn't
+checked out here): Anchor games index name tables by the *translated*
+name. eraSQN does `LOCALS = %ABLNAME:LCOUNT%` (which stores "Tongue Skill"
+with the translate flag on, §2) and then `ABL:ARG:LOCALS`; eraSumireTeru
+(PuchiAnchor) does the same with PALAM. Both would stop at their first
+screens if Anchor refused, so it must look the translation up.
+
+eraSQN goes further: it indexes TALENT with ABL's translation ("Tongue
+Skill", from 舌使い, which is a talent too, translated "Tongue User"), so
+the translation isn't matched within the one table only.
+
+emuera-tty (`GameCsv::lookup`, `Tr::original`): a name not in the table
+is looked up among the table's own `*_TR.csv` translations, then any
+table's, and the original's index used.
+
 ## 8. Engine-printed lists
 
 | What | Anchor | emuera-tty |

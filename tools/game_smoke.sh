@@ -32,8 +32,10 @@ RANDOM=$seed
 for ((i = 0; i < steps; i++)); do
   sleep 0.05
   kill -0 $pid 2>/dev/null || break
-  btns=$(grep -a '^\[buttons: ' "$tmp/out" | tail -1 | sed 's/^\[buttons: //; s/\]$//' | tr -d ' ')
-  IFS=, read -ra arr <<< "$btns"
+  # values are ", "-separated, a comma inside one written "\," (string buttons
+  # like "SORT,LEVEL"); spaces inside values are kept
+  btns=$(grep -a '^\[buttons: ' "$tmp/out" | tail -1 | sed 's/^\[buttons: //; s/\]$//')
+  mapfile -t arr < <([ -n "$btns" ] && printf '%s\n' "$btns" | sed 's/\\,/\x01/g; s/, /\n/g' | sed 's/\x01/,/g')
   if ((${#arr[@]} > 0 && RANDOM % 10 < 9)); then
     echo "${arr[RANDOM % ${#arr[@]}]}" >&3
   else

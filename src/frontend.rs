@@ -290,7 +290,9 @@ impl Frontend for Headless {
         // EMUERA_LIST_BUTTONS=1: the values the buttons on screen send, even
         // those that don't show a number (map cells), for scripted play
         if std::env::var_os("EMUERA_LIST_BUTTONS").is_some() {
-            let vals: Vec<String> = con.button_values().iter().map(|v| v.to_string()).collect();
+            // (", " between values, a comma inside one written `\,`: string
+            // buttons like eraMegatenP's "SORT,LEVEL")
+            let vals: Vec<String> = con.button_values().iter().map(|v| v.to_string().replace(',', "\\,")).collect();
             if !vals.is_empty() {
                 println!("[buttons: {}]", vals.join(", "));
             }

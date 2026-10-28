@@ -215,6 +215,22 @@ impl Tr {
         self.tables.get(table).and_then(|m| m.get(orig)).map(|s| s.as_str())
     }
 
+    /// The original name whose translation is `shown` (exactly, else
+    /// ignoring ASCII case), for indexing by a translated name: `table`'s
+    /// own translations first, then any table's (eraSQN looks TALENT up
+    /// with ABL's "Tongue Skill", whose original 舌使い is a talent too).
+    pub fn original(&self, table: &str, shown: &str) -> Option<&str> {
+        fn find<'a>(m: &'a HashMap<String, String>, shown: &str) -> Option<&'a str> {
+            m.iter().find(|(_, t)| *t == shown).or_else(|| m.iter().find(|(_, t)| t.eq_ignore_ascii_case(shown))).map(|(o, _)| o.as_str())
+        }
+        self.tables.get(table).and_then(|m| find(m, shown)).or_else(|| {
+            let mut names: Vec<&String> = self.tables.keys().filter(|k| *k != table).collect();
+            // (in a fixed order: the first table that has it wins)
+            names.sort();
+            names.into_iter().find_map(|k| find(&self.tables[k], shown))
+        })
+    }
+
     /// A `%…%` value's translation from ALL_TR.csv.
     pub fn all(&self, orig: &str) -> Option<&String> {
         self.tables.get("ALL").and_then(|m| m.get(orig))

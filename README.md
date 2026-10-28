@@ -398,8 +398,13 @@ under it, what the game is: a notice from its page (no longer
 maintained…), its genre and the first sentence of its description (or its
 translation status). Enter on one shows its genre, version and
 translation status, its description and what to download: each repository or branch
-the page links to (a link to a branch's zip counts as that branch). Only
-repositories are offered, never release archives or file hosts. Enter
+the page links to (a link to a branch's zip counts as that branch), with
+the branch a repository checks out by default. Where that default isn't
+an English branch but the repository has English ones the page doesn't
+name (many era-games repositories default to `game-old/master` or
+`game/japanese` beside `game/eng-release`), those are offered first:
+releases, then translations, then the rest. Only repositories are
+offered, never release archives or file hosts. Enter
 on one clones it with only the latest version (`--depth 1`: much smaller
 and quicker, and `u` still updates it), into the folder *Clone a game…*
 was given last (else next to your last game), named after the repository
@@ -1630,7 +1635,7 @@ checked.
   statements as a function `@__INJECT` just before the n-th input.
 - `EMUERA_LIST_BUTTONS=1` makes `--headless` print the values of the buttons
   on screen before each input (`[buttons: 1001, 1002]`), hidden ones included,
-  for scripted play.
+  for scripted play; a comma inside a value is written `\,`.
 - `EMUERA_LINT=1` with `--check` lists compiled statements that look like
   the parser split their line in the wrong place (a function name holding
   `(`, `,` or spaces; FORM text still holding `%`, `{` or `}`), for hunting

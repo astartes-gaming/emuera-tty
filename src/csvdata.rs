@@ -321,7 +321,11 @@ impl GameCsv {
     /// run-time strings (`GETNUM(TALENT, "Lunatic")`) match case-insensitively.
     pub fn lookup(&self, table: &str, name: &str) -> Option<i64> {
         let t = self.tables.get(table)?;
-        t.by_name.get(name).or_else(|| t.by_name.get(&name.to_uppercase())).copied()
+        let find = |n: &str| t.by_name.get(n).or_else(|| t.by_name.get(&n.to_uppercase())).copied();
+        // Anchor games index by translated names too: `%PALAMNAME:i%` gives
+        // the translation (Anchor runs with translation on), then
+        // `PALAM:X:LOCALS` names it (eraSQN, eraSumireTeru; doc/anchor.md)
+        find(name).or_else(|| if self.tr.active() { self.tr.original(table, name).and_then(find) } else { None })
     }
 
     pub fn name_of(&self, table: &str, idx: i64) -> Option<&str> {
