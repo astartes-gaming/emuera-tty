@@ -309,13 +309,15 @@ fn declare_scoped(b: &mut FuncBuilder, decl: &str, sizes: &[i64], is_str: bool) 
 
 /// Byte offsets of the starts of `lines` (1-based, ascending) in `raw`,
 /// counted as `loader::emuera_lines` counts them (a lone `\r` ends a line).
-fn line_offsets(raw: &[u8], lines: impl Iterator<Item = u32>) -> Vec<u32> {
+fn line_offsets(raw: &[u8], lines: impl Iterator<Item = u32>, lone_cr: bool) -> Vec<u32> {
     let mut out = Vec::new();
     let (mut line, mut pos) = (1u32, 0usize);
     for want in lines {
         while line < want {
-            // (one pass: the bytes may be Shift_JIS, so no str search)
-            match raw[pos..].iter().position(|&c| c == b'\n' || c == b'\r') {
+            // (one pass: the bytes may be Shift_JIS, so no str search; a
+            // "\r" matters only in a file that has a lone one)
+            let end = if lone_cr { raw[pos..].iter().position(|&c| c == b'\n' || c == b'\r') } else { raw[pos..].iter().position(|&c| c == b'\n') };
+            match end {
                 Some(i) => {
                     pos += i + if raw[pos + i] == b'\r' && raw.get(pos + i + 1) == Some(&b'\n') { 2 } else { 1 };
                     line += 1;
@@ -927,7 +929,7 @@ impl Parser {
             self.prog.errors.push(format!("{}:{}: line outside of function", path, no));
         }
         let offsets = match &lazy {
-            Some((_, raw)) => line_offsets(raw, starts.iter().map(|&i| lines[i].0)),
+            Some((_, raw)) => line_offsets(raw, starts.iter().map(|&i| lines[i].0), crate::loader::has_lone_cr(text)),
             None => Vec::new(),
         };
         let mut ords: HashMap<String, u16> = HashMap::default();
@@ -2007,7 +2009,8 @@ mod tests {
     fn line_offsets_count_lone_cr() {
         // lines 1 "a", 2 "", 3 "b", 4 "c": the lazy compiler reads from these
         let raw = b"a\r\rb\r\nc";
-        assert_eq!(super::line_offsets(raw, [1, 2, 3, 4].into_iter()), [0, 2, 3, 6]);
+        assert_eq!(super::line_offsets(raw, [1, 2, 3, 4].into_iter(), true), [0, 2, 3, 6]);
+        assert_eq!(super::line_offsets(b"a\r\nb\nc", [1, 2, 3].into_iter(), false), [0, 3, 5]);
         let text = std::str::from_utf8(raw).unwrap();
         assert_eq!(crate::loader::emuera_lines(text).nth(3), Some("c"));
     }

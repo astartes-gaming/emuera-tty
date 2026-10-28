@@ -462,7 +462,6 @@ impl<'a> ExprParser<'a> {
             // This handles the case where `#DEFINE KFLAG JUEL` should allow `KFLAG:1` -> `JUEL:1`.
             let mut sub = ExprParser::with_depth(body, self.defs, self.depth + 1);
             let e = sub.expr()?;
-            let _body_is_var = matches!(&e, Expr::Var(_));
             if !sub.at_end() {
                 return Err(format!("bad #DEFINE body for {}", name));
             }
@@ -488,7 +487,12 @@ impl<'a> ExprParser<'a> {
             self.s = new_input.chars().collect();
             self.pos = 0;
             self.depth += 1;
-            // Re-parse from the start (which now begins with the macro body)
+            // Re-parse from the start (which now begins with the macro body);
+            // one starting with a prefix operator from the unary level
+            // (pops-tw's `#DEFINE K1011_IS_DAY !INRANGE(時間帯, 5, 7)`)
+            if body.trim_start().starts_with(['!', '~', '-', '+']) {
+                return self.unary();
+            }
             return self.primary(allow_index);
         }
         // Emuera accepts a space between a function name and its '('

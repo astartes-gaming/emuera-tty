@@ -47,6 +47,8 @@ LOCAL = 1
 	LOCAL = 2
 }
 CALL CHECK, "commented-out { } block", LOCAL == 1
+LOCAL = 7
+CALL CHECK, "#DEFINE !…, -…", !NOT_SEVEN && MINUS_TWO * 3 == -6 && 1 + MINUS_TWO == -1
 ; eTC: a full-width space around TO
 SELECTCASE 7
 	CASE 1　TO 14

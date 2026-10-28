@@ -17,6 +17,8 @@ pub fn read_text(path: &Path) -> io::Result<String> {
 /// "\r\n", "\n" or a lone "\r" (eraMaouEX has `\rDRAWLINE\rCALL …`).
 pub fn emuera_lines(s: &str) -> impl Iterator<Item = &str> {
     let mut rest = s;
+    // most files have no lone "\r": then a "\r" can only end a "\r\n"
+    let lone = has_lone_cr(s);
     std::iter::from_fn(move || {
         if rest.is_empty() {
             return None;
@@ -25,6 +27,10 @@ pub fn emuera_lines(s: &str) -> impl Iterator<Item = &str> {
         // ending, or (rarely) a lone "\r" ending the line earlier
         let nl = rest.find('\n');
         let seg = &rest[..nl.unwrap_or(rest.len())];
+        if !lone {
+            rest = nl.map_or("", |i| &rest[i + 1..]);
+            return Some(seg.strip_suffix('\r').unwrap_or(seg));
+        }
         Some(match seg.find('\r') {
             Some(j) if j + 1 == seg.len() && nl.is_some() => {
                 rest = &rest[j + 2..];
@@ -40,6 +46,11 @@ pub fn emuera_lines(s: &str) -> impl Iterator<Item = &str> {
             }
         })
     })
+}
+
+/// Has `s` a "\r" that isn't the start of a "\r\n"?
+pub fn has_lone_cr(s: &str) -> bool {
+    s.match_indices('\r').any(|(i, _)| s.as_bytes().get(i + 1) != Some(&b'\n'))
 }
 
 pub fn decode(bytes: &[u8]) -> String {
@@ -292,6 +303,10 @@ mod order_tests {
         assert_eq!(v, ["a", "b", "c", "", "d"]);
         assert_eq!(super::emuera_lines("x").collect::<Vec<_>>(), ["x"]);
         assert_eq!(super::emuera_lines("").count(), 0);
+        // no lone "\r": the fast path, same lines
+        let v: Vec<&str> = super::emuera_lines("a\r\nb\nc\r\n").collect();
+        assert_eq!(v, ["a", "b", "c"]);
+        assert!(super::has_lone_cr("a\rb") && super::has_lone_cr("a\r") && !super::has_lone_cr("a\r\nb"));
     }
 
     use super::name_order;
