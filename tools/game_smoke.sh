@@ -5,7 +5,8 @@
 # The game is never touched: it runs in a temporary copy (scripts and CSV
 # copied, pictures and sound linked) with its own settings, under a 4 GB
 # memory cap (VERBOSE=1 shows the last screen, ANSWERS=FILE keeps the answers). Each step answers with one of the buttons on screen
-# (EMUERA_LIST_BUTTONS), or Enter / 0 / 1. Exit status 1 on a script error.
+# (EMUERA_LIST_BUTTONS), or Enter / 0 / 1. Exit status 1 on a script error
+# or a crash.
 # Run at most two at once on a small machine.
 set -e
 game=$(cd "${1:?usage: $0 GAME_DIR [STEPS] [SEED]}" && pwd)
@@ -46,7 +47,14 @@ for ((i = 0; i < steps; i++)); do
   [ -n "$ANSWERS" ] && echo "$ans" >> "$ANSWERS"
 done
 exec 3>&-
-wait $pid || true
+st=0
+wait $pid || st=$?
+# killed by a signal (an abort, e.g. out of memory under the cap): 128 + its number
+if ((st >= 128)); then
+  echo "FAIL $(basename "$game") seed $seed: killed by signal $((st - 128)) after $i steps"
+  tail -5 "$tmp/out"
+  exit 1
+fi
 if grep -aq "script error\|panicked" "$tmp/out"; then
   echo "FAIL $(basename "$game") seed $seed:"
   grep -a -A8 "script error\|panicked" "$tmp/out" | head -20
