@@ -24,7 +24,7 @@ use std::path::{Component, Path, PathBuf};
 const SUFFIXES: &[&str] = &[".zip", ".tar.gz", ".tgz", ".tar", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".tar.zst", ".7z", ".rar"];
 
 /// The archive suffix of `path`, if it has one we know.
-fn suffix(path: &Path) -> Option<&'static str> {
+pub fn suffix(path: &Path) -> Option<&'static str> {
     let name = path.file_name()?.to_string_lossy().to_lowercase();
     SUFFIXES.iter().copied().filter(|s| name.ends_with(s)).max_by_key(|s| s.len())
 }

@@ -425,7 +425,15 @@ emuera-tty --choose                 # open the launcher even with one game
 emuera-tty ~/games/eratohoTW        # play a specific folder
 cd ~/games/eratohoTW && emuera-tty  # a game in the current folder wins
 emuera-tty ~/Downloads/eratohoTW.zip # play straight from the archive
+emuera-tty https://gitgud.io/eracorrection/eraflappytengu.git  # clone it in the launcher
 ```
+
+A git repository's address (or `--clone URL`) opens the launcher and
+clones the game straight away, without *Clone a game…*'s questions: into
+the folder it would offer first, on the default branch, with the full
+history (use *Clone a game…* for a branch or a shallow clone). The game is
+then selected, marked **(NEW)**: Enter plays it. If it was cloned there
+before, that copy is selected instead (`u` updates it).
 
 ### Archives
 
@@ -1204,12 +1212,13 @@ This is a proof of concept, so it will happen.
 ## Command-line options
 
 ```sh
-emuera-tty [GAME_DIR] [options]
+emuera-tty [GAME_DIR | GIT_URL] [options]
 ```
 
 | Option | |
 |---|---|
 | `--choose` | open the game picker even if a game is remembered |
+| `--clone URL` | clone a game's git repository in the launcher and select it (a URL as `GAME_DIR` does the same) |
 | `--gfx auto\|kitty\|iterm\|sixel\|fb\|none` | image backend (also `EMUERA_GFX`) |
 | `--check` | parse the game, list errors, exit |
 | `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input |

@@ -1,4 +1,4 @@
-.TH EMUERA-TTY 1 "2026-10-18" "emuera-tty" "User Commands"
+.TH EMUERA-TTY 1 "2026-10-28" "emuera-tty" "User Commands"
 .SH NAME
 emuera-tty \- play Emuera (era) games in a terminal
 .SH SYNOPSIS
@@ -33,7 +33,9 @@ and
 .IR ERB/ )
 or an archive of one
 .RI ( .zip ", " .tar.gz ", " .7z ", ...),"
-which is extracted once into the data folder. Without
+which is extracted once into the data folder. A git repository's address
+(https://..., git@host:...) in its place has the launcher clone the game
+into the library, as its \fIClone a game...\fR does, and select it. Without
 .IR GAME :
 the current folder if it is a game, else the game played last, else a
 launcher opens with the game library and a folder browser.
@@ -193,6 +195,14 @@ saves into a new, dated backup folder.
 .TP
 .B \-\-choose
 Open the launcher even if a game is remembered.
+.TP
+.BI \-\-clone " URL"
+Open the launcher and clone the game's git repository at
+.I URL
+straight away: into the folder \fIClone a game...\fR offers first (next
+to the last game, or the one used last time), on the default branch, with
+the full history; then the game is selected, marked (NEW). A repository
+cloned there before is selected instead.
 .TP
 .BR \-\-gfx " auto|kitty|iterm|sixel|fb|none"
 How pictures are drawn. \fBauto\fR (default) asks the terminal: kitty

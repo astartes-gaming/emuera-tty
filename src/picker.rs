@@ -207,10 +207,20 @@ struct Picker {
 
 /// The launcher: the game library, with adding games and settings. Returns
 /// the game to play (already remembered as the last one), or None.
-pub fn launcher() -> Option<PathBuf> {
+/// `clone`: a git repository to clone into the library first (`--clone`).
+pub fn launcher(clone: Option<&str>) -> Option<PathBuf> {
     let st = crate::settings::Settings::load();
     let start = browse_start(&st);
-    run_screen(Mode::Library, &start)
+    run_screen(Mode::Library, &start, clone)
+}
+
+/// Is `s` a git repository's address rather than a folder: a URL git
+/// fetches from (https://, ssh://, git://, file://…) or ssh's
+/// `user@host:path`? Archives behind a URL aren't repositories.
+pub fn is_git_url(s: &str) -> bool {
+    let scheme = ["https://", "http://", "ssh://", "git://", "git+ssh://", "file://"].iter().any(|p| s.starts_with(p));
+    let scp = s.split_once(':').is_some_and(|(host, path)| host.contains('@') && !host.contains('/') && !path.is_empty());
+    (scheme || scp) && crate::archive::suffix(Path::new(s)).is_none()
 }
 
 /// Where the browser opens: next to the last game, else home.
@@ -218,7 +228,7 @@ fn browse_start(st: &crate::settings::Settings) -> PathBuf {
     st.last.as_ref().and_then(|g| g.parent().map(|p| p.to_path_buf())).or_else(crate::sys::home_dir).unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
+fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> {
     let raw_mode = crate::sys::RawMode::enter().ok()?;
     let term = std::env::var("TERM").unwrap_or_default();
     let is_vt = term == "linux" || term.starts_with("fbterm");
@@ -240,6 +250,10 @@ fn run_screen(mode: Mode, start: &Path) -> Option<PathBuf> {
         st: crate::settings::Settings::load(),
     };
     p.load();
+    if let Some(url) = clone {
+        p.draw();
+        p.clone_direct(url);
+    }
     let chosen = p.run();
     out(b"\x1b[?1006l\x1b[?1015l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
     raw_mode.restore();
@@ -1069,25 +1083,70 @@ impl Picker {
             self.st.set(k, v);
         }
         self.st.save();
-        let parent = expand_home(&dir);
-        let target = parent.join(&name);
+        self.clone_into(&url, &name, &expand_home(&dir), branch.trim(), depth);
+    }
+
+    /// `--clone URL` (or a URL in place of the game folder): clone it
+    /// straight away, without the questions of "Clone a game…": into the
+    /// folder it would offer first, on the default branch, the full history.
+    fn clone_direct(&mut self, url: &str) {
+        if which("git").is_none() {
+            self.note = "\x1b[31mgit isn't installed (or isn't on PATH): can't clone.\x1b[0m".into();
+            return;
+        }
+        let Some(name) = repo_name(url) else {
+            self.note = format!("\x1b[31mCan't tell a folder name from \"{}\".\x1b[0m", url);
+            return;
+        };
+        let parent = match self.st.get("clone_dir") {
+            "" => browse_start(&self.st),
+            d => expand_home(d),
+        };
+        // (offered by "Clone a game…" next time)
+        self.st.set("clone_url", url);
+        self.st.save();
+        self.clone_into(url, &name, &parent, "", None);
+    }
+
+    /// Select game `g` in the library, adding it if it isn't there.
+    fn select_game(&mut self, g: &Path) -> PathBuf {
+        let g = self.st.add_game(g);
+        self.st.save();
+        self.load();
+        // (the first screen line of its entry: long ones wrap)
+        let idx = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == g));
+        self.sel = idx.and_then(|i| self.entry_line.iter().position(|&e| e == i)).unwrap_or(0);
+        g
+    }
+
+    /// `git clone` `url` into `parent`/`name` with the gauge, then add the
+    /// game to the library, selected and marked (NEW).
+    fn clone_into(&mut self, url: &str, name: &str, parent: &Path, branch: &str, depth: Option<u32>) {
+        let target = parent.join(name);
         let in_use = target.exists()
             && match std::fs::read_dir(&target) {
                 Ok(mut d) => d.next().is_some(),
                 Err(_) => true,
             };
         if in_use {
+            // cloned before: that game, to play or update
+            let origin = git_origin(&target);
+            if let (Some(game), true) = (find_game_dir(&target, 2), origin.as_deref() == Some(url.trim())) {
+                let g = self.select_game(&game);
+                self.note = format!("Already cloned at {}: Enter to play, u to update.", g.display());
+                return;
+            }
             self.note = format!("\x1b[31m{} already exists and isn't empty.\x1b[0m", target.display());
             return;
         }
-        if let Err(e) = std::fs::create_dir_all(&parent) {
+        if let Err(e) = std::fs::create_dir_all(parent) {
             self.note = format!("\x1b[31mCan't create {}: {}\x1b[0m", parent.display(), e);
             return;
         }
         // (the launcher again behind the gauge, without the prompts)
         self.draw();
         let mut g = Gauge::new(&format!("Cloning {}", name), "Esc / Ctrl-C: cancel the clone");
-        let (end, mut log) = git_clone(&url, branch.trim(), depth, &target, &mut |s| g.step(s), &mut || self.cancel_pressed());
+        let (end, mut log) = git_clone(url, branch, depth, &target, &mut |s| g.step(s), &mut || self.cancel_pressed());
         let mut pics = String::new();
         if matches!(end, CloneEnd::Done) {
             g.hint.clear();
@@ -1132,9 +1191,7 @@ impl Picker {
         };
         let g = self.st.add_game(&game);
         self.st.mark_new(&g);
-        self.st.save();
-        self.load();
-        self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == g)).unwrap_or(0);
+        let g = self.select_game(&g);
         let at = match (git_root(&g).and_then(|r| git_head(&r)), depth) {
             (Some(h), Some(d)) => format!(" ({}, depth {})", h, d),
             (Some(h), None) => format!(" ({})", h),
@@ -1636,6 +1693,19 @@ fn git_root(game: &Path) -> Option<PathBuf> {
     game.ancestors().take(3).find(|d| d.join(".git").exists()).map(Path::to_path_buf)
 }
 
+/// The address `root` was cloned from (its `origin`), if any.
+fn git_origin(root: &Path) -> Option<String> {
+    let o = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["remote", "get-url", "origin"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    o.status.success().then(|| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
 /// The folder `git clone` makes for `url`: its last path part without ".git".
 fn repo_name(url: &str) -> Option<String> {
     let u = url.trim().trim_end_matches('/');
@@ -2013,6 +2083,16 @@ mod tests {
         assert_eq!(git_percent("オブジェクトを受信中:  33% (1/3)"), Some(33));
         assert_eq!(git_percent("remote: Enumerating objects: 5, done."), None);
         assert_eq!(git_percent("From https://example.org/era"), None);
+    }
+
+    #[test]
+    fn git_urls() {
+        for u in ["https://gitgud.io/eracorrection/eraflappytengu.git", "git@github.com:a/b.git", "ssh://git@host/x", "file:///srv/game.git"] {
+            assert!(is_git_url(u), "{}", u);
+        }
+        for p in ["eraTW", "/home/me/games/eraTW", "C:\\games\\eraTW", "https://example.org/eraTW.zip", "./a@b:c/d"] {
+            assert!(!is_git_url(p), "{}", p);
+        }
     }
 
     #[test]

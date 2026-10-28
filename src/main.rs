@@ -55,6 +55,8 @@ use std::path::PathBuf;
 struct Opts {
     /// None: use the current folder, the remembered game, or the picker
     game: Option<PathBuf>,
+    /// --clone URL (or a URL as GAME_DIR): a git repository the launcher clones
+    clone: Option<String>,
     /// --choose: open the picker even if a game is remembered
     choose: bool,
     headless: bool,
@@ -91,15 +93,18 @@ struct Opts {
 /// Print help; exit 0 when asked for (--help), 2 on bad options.
 fn usage_exit(code: i32) -> ! {
     eprintln!(
-        "usage: emuera-tty [GAME_DIR] [options]\n\
+        "usage: emuera-tty [GAME_DIR | GIT_URL] [options]\n\
          \n\
          GAME_DIR may be a game folder or an archive of one (.zip, .tar.gz, .7z…;\n\
          extracted once to ~/.local/share/emuera-tty/games).\n\
+         GIT_URL (https://…, git@host:…): the launcher clones the game's repository\n\
+         into the library (as its \"Clone a game…\" does) and selects it.\n\
          Without GAME_DIR: the current folder if it is a game, else the game\n\
          chosen last time, else a folder picker opens.\n\
          \n\
          options:\n\
          \x20 --choose                         pick a game folder (even if one is remembered)\n\
+         \x20 --clone URL                      clone a game's git repository in the launcher (as GIT_URL)\n\
          \x20 --gfx auto|kitty|iterm|sixel|fb|none image backend (default auto)\n\
          \x20 --headless                       plain stdin/stdout mode (scripts, tests)\n\
          \x20 --echo                           echo inputs in headless mode\n\
@@ -155,6 +160,7 @@ fn usage() -> ! {
 fn parse_args() -> Opts {
     let mut o = Opts {
         game: None,
+        clone: None,
         choose: false,
         headless: false,
         gfx: "auto".into(),
@@ -231,6 +237,7 @@ fn parse_args() -> Opts {
                 }
             }
             "--gfx" => o.gfx = it.next().unwrap_or_else(|| usage()),
+            "--clone" => o.clone = Some(it.next().unwrap_or_else(|| usage())),
             "--retro" => o.retro = Some("screen".into()),
             s if s.starts_with("--retro=") => o.retro = Some(s[8..].to_string()),
             "--term" => o.term = Some(it.next().unwrap_or_else(|| usage())),
@@ -251,7 +258,9 @@ fn parse_args() -> Opts {
                 std::process::exit(0)
             }
             s if s.starts_with("--gfx=") => o.gfx = s[6..].to_string(),
+            s if s.starts_with("--clone=") => o.clone = Some(s[8..].to_string()),
             s if s.starts_with('-') => usage(),
+            s if picker::is_git_url(s) && !std::path::Path::new(s).exists() => o.clone = Some(s.to_string()),
             s => o.game = Some(PathBuf::from(s)),
         }
     }
@@ -702,6 +711,16 @@ fn saves_cmd(cmd: &str, game: &std::path::Path) -> i32 {
 /// the picker (or there is nothing to run, already reported).
 fn choose_game(o: &Opts) -> Option<PathBuf> {
     let interactive = !o.headless && !o.check && sys::is_tty();
+    // a repository to clone: the launcher clones it and selects the game
+    if let Some(url) = &o.clone {
+        if !interactive {
+            eprintln!("emuera-tty: cloning {} needs a terminal (the launcher does it)", url);
+            return None;
+        }
+        let g = picker::launcher(Some(url))?;
+        picker::remember(&g);
+        return Some(g);
+    }
     // an explicit folder is used as-is; only picker choices are remembered
     if let Some(g) = &o.game {
         if archive::is_archive(g) {
@@ -745,7 +764,7 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
         eprintln!("emuera-tty: no game folder given (pass GAME_DIR, or run in a terminal to pick one)");
         return None;
     }
-    let g = picker::launcher()?;
+    let g = picker::launcher(None)?;
     picker::remember(&g);
     Some(g)
 }
