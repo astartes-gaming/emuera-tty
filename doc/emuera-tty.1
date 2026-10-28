@@ -39,6 +39,16 @@ into the library, as its \fIClone a game...\fR does, and select it. Without
 .IR GAME :
 the current folder if it is a game, else the game played last, else a
 launcher opens with the game library and a folder browser.
+.PP
+The launcher's \fIDownload a game\fR lists the games of the eraGames wiki
+(wiki.eragames.rip, its Games category) and clones the one picked from
+the git repository its page links to, latest version only (it needs
+.B curl
+and
+.BR git ).
+Repositories that ask for a login (many of gitgud.io's era-games) get
+the user name and password or access token asked for, typed hidden, kept
+in memory for the session and offered to git's credential helper.
 .SH PLAYING
 .TP
 .B Numbers, Enter, clicks

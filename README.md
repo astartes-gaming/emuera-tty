@@ -40,8 +40,9 @@ thousands of random choices through them without errors. What it has
   Japanese or English games into other languages (the dialog or all text)
   with a translator on your computer (or DeepL / translate-shell if you
   choose).
-- A game library with archives and `git pull` updates, a settings page,
-  save management, and readable script errors with the call stack.
+- A game library with archives and `git pull` updates, a **game
+  downloader** (the games of the eraGames wiki), a settings page, save
+  management, and readable script errors with the call stack.
 - **Gamepads** on Linux, the **Steam Deck** included (see
   [Gamepads and the Steam Deck](#gamepads-and-the-steam-deck)).
 - Linux, and builds for macOS, Windows, the BSDs, Termux and more, down to a
@@ -64,6 +65,7 @@ Expect rough edges in parts of the games nobody has played through yet
     - [The folder picker](#the-folder-picker)
     - [The launcher (several games)](#the-launcher-several-games)
     - [Cloning a game from the launcher](#cloning-a-game-from-the-launcher)
+    - [Downloading a game](#downloading-a-game)
     - [Updating games kept in git](#updating-games-kept-in-git)
       - [Games with pictures in Git LFS](#games-with-pictures-in-git-lfs)
     - [Other ways to start](#other-ways-to-start)
@@ -359,6 +361,7 @@ you play or add goes into your **library**. Once there are two or more,
 | Enter (or click twice) | play the selected game |
 | `a` / **＋ Add a game…** | open the folder picker above to add a folder or archive (it only joins the list, marked gold **(NEW)** until you first play it; Enter then plays it) |
 | **↓ Clone a game…** | ask for a git repository, the folder to keep it in and (optionally) a branch and a history depth, `git clone` it (Esc cancels) and add it to the list, marked gold **(NEW)** until you first play it; it doesn't start |
+| **⇩ Download a game…** | pick a game from the [eraGames wiki](https://wiki.eragames.rip)'s list and clone it (see [Downloading a game](#downloading-a-game)) |
 | `u` | update a game kept in a git checkout (`git pull --ff-only`; marked **· git** with its branch and short commit hash) |
 | `U` (Shift-U) | update all of them, each checkout once, then sum up what changed |
 | `g` | right after an update (`u` / `U`): show git's full output in a scrollable view (`g` is "go to top" otherwise) |
@@ -384,6 +387,34 @@ Otherwise it adds the game to the list without starting it,
 marked **(NEW)** in gold until you first play it (games added with *Add a game…* get the same mark). `g` shows git's full output
 of the clone, also when it failed. A game kept in a subfolder of the
 repository (up to two levels down) is found too.
+
+### Downloading a game
+
+**⇩ Download a game (from the eraGames wiki)…** lists the games of the
+[eraGames wiki](https://wiki.eragames.rip/index.php/Category:Games) (its
+*Games* category) that link a git repository, each with the repository
+it names first (`(+2 more)`: other repositories or branches). Enter on
+one reads its wiki page and shows its genre, version and translation
+status, its description and what to download: each repository or branch
+the page links to (a link to a branch's zip counts as that branch). Only
+repositories are offered, never release archives or file hosts. Enter
+on one clones it with only the latest version (`--depth 1`: much smaller
+and quicker, and `u` still updates it), into the folder *Clone a game…*
+was given last (else next to your last game), named after the repository
+and branch (`eraMegaten-game-eng-release`). Then it joins the library,
+selected and marked **(NEW)**: Enter plays it.
+
+It needs `curl` (for the wiki) and `git`. Many repositories of gitgud.io's
+*era-games* group are for signed-in users only; the downloader asks each
+repository first and marks those that don't answer *(asks for a gitgud.io
+login, or is gone)* (gitgud answers the same for a repository that no
+longer exists). Downloading one asks for your gitgud.io user name and
+password (or an access token with *read_repository*), typed hidden. It is
+handed to git for that command through its environment, never on a
+command line or on disk, and kept in memory until you leave the launcher.
+If git has a credential helper set up (`git config --global
+credential.helper store`, or your desktop's keyring), the login is offered
+to it, so later updates (`u`) find it; otherwise `u` asks again.
 
 ### Updating games kept in git
 

@@ -137,6 +137,10 @@ enum Mode {
     Library,
     Browse,
     Settings,
+    /// the eraGames wiki's games (`Picker::wiki`)
+    Download,
+    /// one of them (`Picker::wiki_game`): its page's facts and repositories
+    DownloadGame,
 }
 
 #[derive(Clone, PartialEq)]
@@ -149,6 +153,14 @@ enum Kind {
     AddGame,
     /// library: clone a game's git repository and add it
     CloneGame,
+    /// library: the downloader (games listed on the eraGames wiki)
+    Download,
+    /// downloader: `Picker::wiki[i]`
+    WikiGame(usize),
+    /// downloader: the selected game's `repos[i]`, to clone
+    WikiRepo(usize),
+    /// text to read, not to choose (a game's facts)
+    Info,
     OpenSettings,
     /// settings: `crate::settings::ITEMS[i]`
     Setting(usize),
@@ -188,7 +200,7 @@ enum Act {
 struct Picker {
     dir: PathBuf,
     entries: Vec<Entry>,
-    /// Maps entry index -> wrapped line index (for selection/navigation)
+    /// the entry each screen line belongs to (long entries wrap)
     entry_line: Vec<usize>,
     sel: usize, // wrapped line index (visual selection)
     top: usize, // wrapped line index (scroll position)
@@ -203,6 +215,33 @@ struct Picker {
     /// for as long as its result line is on screen
     git_log: Option<String>,
     st: crate::settings::Settings,
+    /// the downloader's games, fetched from the wiki when it first opens
+    wiki: Vec<crate::download::WikiGame>,
+    wiki_game: usize,
+    wiki_info: crate::download::Details,
+    /// whether each of the selected game's repositories answered
+    wiki_access: Vec<Access>,
+    /// logins typed in this session (never written anywhere by us)
+    logins: Vec<Login>,
+}
+
+/// Whether a repository answered `git ls-remote`.
+#[derive(Clone, Copy, PartialEq)]
+enum Access {
+    Unknown,
+    Ok,
+    /// it asked for a login: for signed-in users only, or gone
+    Login,
+    /// the repository answered, without the branch
+    NoBranch,
+}
+
+/// A user name and password (or access token) for a git host.
+#[derive(Clone)]
+struct Login {
+    host: String,
+    user: String,
+    pass: String,
 }
 
 /// The launcher: the game library, with adding games and settings. Returns
@@ -248,6 +287,11 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> 
         adding: false,
         git_log: None,
         st: crate::settings::Settings::load(),
+        wiki: Vec::new(),
+        wiki_game: 0,
+        wiki_info: Default::default(),
+        wiki_access: Vec::new(),
+        logins: Vec::new(),
     };
     p.load();
     if let Some(url) = clone {
@@ -452,11 +496,12 @@ impl Picker {
                 }
                 self.entries.push(Entry { label: "＋ Add a game (folder or archive)…".into(), wrapped: Vec::new(), kind: Kind::AddGame });
                 self.entries.push(Entry { label: "↓ Clone a game from a git repository…".into(), wrapped: Vec::new(), kind: Kind::CloneGame });
+                self.entries.push(Entry { label: "⇩ Download a game (from the eraGames wiki)…".into(), wrapped: Vec::new(), kind: Kind::Download });
                 self.entries.push(Entry { label: "⚙ Settings".into(), wrapped: Vec::new(), kind: Kind::OpenSettings });
                 self.rebuild_entry_line();
                 let entry_sel =
                     self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if self.st.last.as_ref() == Some(path))).unwrap_or(0);
-                self.sel = self.entry_line[entry_sel];
+                self.sel = self.first_line(entry_sel);
                 self.top = 0;
                 return;
             }
@@ -469,6 +514,48 @@ impl Picker {
                 self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
                 self.rebuild_entry_line();
                 self.sel = self.sel.min(self.entry_line.len().saturating_sub(1));
+                return;
+            }
+            Mode::Download => {
+                for (i, g) in self.wiki.iter().enumerate() {
+                    let more = match g.repos.len() {
+                        1 => String::new(),
+                        n => format!(" (+{} more)", n - 1),
+                    };
+                    let first = g.repos.first().map_or(String::new(), repo_label);
+                    self.entries.push(Entry { label: format!("⇩ {}   {}{}", g.title, first, more), wrapped: Vec::new(), kind: Kind::WikiGame(i) });
+                }
+                self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
+                self.rebuild_entry_line();
+                self.sel = self.first_line(self.wiki_game.min(self.entries.len().saturating_sub(1)));
+                self.top = 0;
+                return;
+            }
+            Mode::DownloadGame => {
+                let info = |label: String| Entry { label, wrapped: Vec::new(), kind: Kind::Info };
+                for (k, v) in &self.wiki_info.facts {
+                    self.entries.push(info(format!("  {}: {}", k, v)));
+                }
+                if !self.wiki_info.about.is_empty() {
+                    self.entries.push(info(format!("  {}", self.wiki_info.about)));
+                }
+                if let Some(g) = self.wiki.get(self.wiki_game) {
+                    self.entries.push(info(format!("  {}", crate::download::page_link(&g.title))));
+                    self.entries.push(info(String::new()));
+                    for (i, r) in g.repos.iter().enumerate() {
+                        let note = match self.wiki_access.get(i) {
+                            Some(Access::Login) => "  (asks for a gitgud.io login, or is gone)",
+                            Some(Access::NoBranch) => "  (this branch is gone)",
+                            _ => "",
+                        };
+                        self.entries.push(Entry { label: format!("⇩ Download {}{}", repo_label(r), note), wrapped: Vec::new(), kind: Kind::WikiRepo(i) });
+                    }
+                }
+                self.entries.push(Entry { label: "← Back".into(), wrapped: Vec::new(), kind: Kind::Back });
+                self.rebuild_entry_line();
+                let first = self.entries.iter().position(|e| e.kind != Kind::Info).unwrap_or(0);
+                self.sel = self.first_line(first);
+                self.top = 0;
                 return;
             }
             Mode::Browse => {}
@@ -502,7 +589,7 @@ impl Picker {
         // start on "Play" or the first folder rather than on ../
         let entry_sel = self.entries.iter().position(|e| e.kind != Kind::Up).unwrap_or(0);
         self.rebuild_entry_line();
-        self.sel = self.entry_line[entry_sel];
+        self.sel = self.first_line(entry_sel);
         self.top = 0;
     }
 
@@ -511,13 +598,39 @@ impl Picker {
         self.entry_line.clear();
         let (cols, _) = term_size();
         let width = cols.saturating_sub(1);
-        for e in &mut self.entries {
-            let start = self.entry_line.len();
+        for (i, e) in self.entries.iter_mut().enumerate() {
             e.wrap(width);
             for _ in 0..e.wrapped.len() {
-                self.entry_line.push(start);
+                self.entry_line.push(i);
             }
         }
+    }
+
+    /// The first screen line of entry `i`.
+    fn first_line(&self, i: usize) -> usize {
+        self.entry_line.iter().position(|&e| e == i).unwrap_or(0)
+    }
+
+    /// Select `d` entries further on (back when negative), passing over
+    /// those that are only text.
+    fn move_sel(&mut self, d: isize) {
+        let Some(&cur) = self.entry_line.get(self.sel) else { return };
+        let mut at = cur;
+        let mut left = d.unsigned_abs();
+        let mut i = cur as isize;
+        while left > 0 {
+            i += d.signum();
+            match self.entries.get(i as usize) {
+                Some(e) if i >= 0 => {
+                    if e.kind != Kind::Info {
+                        at = i as usize;
+                        left -= 1;
+                    }
+                }
+                _ => break,
+            }
+        }
+        self.sel = self.first_line(at);
     }
 
     fn cd(&mut self, to: PathBuf) {
@@ -526,7 +639,7 @@ impl Picker {
         self.load();
         // coming back up: keep the folder we came from selected
         if let Some(i) = self.entries.iter().position(|e| matches!(&e.kind, Kind::Dir { path, .. } if *path == from)) {
-            self.sel = i;
+            self.sel = self.first_line(i);
         }
     }
 
@@ -563,11 +676,27 @@ impl Picker {
                     fit(&self.dir.display().to_string(), cols)
                 )
             }
+            Mode::Download => {
+                s += &format!(
+                    "\x1b[1mDownload a game\x1b[0m  (the games of the eraGames wiki)\r\n\x1b[2m{}\x1b[0m\r\n",
+                    fit(&format!("{} · each is cloned from its git repository, latest version only", crate::download::WIKI), cols)
+                )
+            }
+            Mode::DownloadGame => {
+                let title = self.wiki.get(self.wiki_game).map_or("", |g| g.title.as_str());
+                s += &format!(
+                    "\x1b[1m{}\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
+                    fit(title, cols),
+                    fit(&format!("cloned into {} (latest version only; u updates it)", self.clone_parent().display()), cols)
+                )
+            }
         }
 
         // Render wrapped lines
         let mut line_idx = 0;
-        for e in &self.entries {
+        let sel_entry = self.entry_line.get(self.sel).copied();
+        for (ei, e) in self.entries.iter().enumerate() {
+            let selected = sel_entry == Some(ei);
             for wrapped_line in &e.wrapped {
                 if line_idx < self.top {
                     line_idx += 1;
@@ -581,14 +710,15 @@ impl Picker {
                 let color = match e.kind {
                     Kind::Game { ok: false, .. } => "\x1b[2m",
                     Kind::PlayHere | Kind::Dir { game: true, .. } | Kind::Game { .. } => "\x1b[33m",
-                    Kind::AddGame | Kind::CloneGame | Kind::OpenSettings => "\x1b[36m",
+                    Kind::AddGame | Kind::CloneGame | Kind::Download | Kind::OpenSettings => "\x1b[36m",
+                    Kind::WikiGame(_) | Kind::WikiRepo(_) => "\x1b[33m",
                     Kind::Archive { .. } => "\x1b[36m",
                     _ => "",
                 };
 
                 // Apply special coloring for game entries
                 let line = if matches!(e.kind, Kind::Game { .. }) {
-                    let back = format!("\x1b[0m{}{}", color, if line_idx == self.sel { "\x1b[7m" } else { "" });
+                    let back = format!("\x1b[0m{}{}", color, if selected { "\x1b[7m" } else { "" });
                     let tint = |l: String, tag: &str, code: &str| match l.rfind(tag) {
                         Some(at) => format!("{}{}{}{}{}", &l[..at], code, tag, back, &l[at + tag.len()..]),
                         None => l,
@@ -606,7 +736,7 @@ impl Picker {
                     wrapped_line.clone()
                 };
 
-                if line_idx == self.sel {
+                if selected {
                     s += &format!("{}\x1b[7m {}{}\x1b[0m\r\n", color, line, " ".repeat(pad));
                 } else {
                     s += &format!("{} {}\x1b[0m\r\n", color, line);
@@ -625,6 +755,8 @@ impl Picker {
             Mode::Library if self.git_log.is_some() => "g git output  ↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit",
             Mode::Library => "↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit",
             Mode::Settings => "↑↓ move  ←/→ or Enter change  Esc back",
+            Mode::Download => "↑↓ move  Enter details  Esc back",
+            Mode::DownloadGame => "↑↓ move  Enter download  Esc back",
             Mode::Browse if self.adding => "↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back",
             Mode::Browse => "↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit",
         };
@@ -649,7 +781,7 @@ impl Picker {
             // (a timeout only redraws: keep the message)
             // `g` on the update result opens the full git output and leaves the
             // result line (and the output) where they are
-            let keep = self.mode == Mode::Library && self.git_log.is_some() && matches!(act, Act::Letter('g'));
+            let keep = matches!(self.mode, Mode::Library | Mode::DownloadGame) && self.git_log.is_some() && matches!(act, Act::Letter('g'));
             if !matches!(act, Act::None) && !keep {
                 self.note.clear();
                 self.git_log = None;
@@ -665,20 +797,29 @@ impl Picker {
             };
             let total_lines = self.entry_line.len();
             match act {
-                Act::Move(d) => self.sel = (self.sel as isize + d).clamp(0, total_lines.saturating_sub(1) as isize) as usize,
+                Act::Move(d) => self.move_sel(d),
                 Act::Page(d) => {
                     let r = self.list_rows() as isize;
-                    self.sel = (self.sel as isize + d * r).clamp(0, total_lines.saturating_sub(1) as isize) as usize;
+                    let line = (self.sel as isize + d * r).clamp(0, total_lines.saturating_sub(1) as isize) as usize;
+                    self.sel = self.first_line(self.entry_line.get(line).copied().unwrap_or(0));
+                    if self.entries.get(self.entry_line.get(self.sel).copied().unwrap_or(0)).is_some_and(|e| e.kind == Kind::Info) {
+                        self.move_sel(1);
+                    }
                 }
-                Act::Top => self.sel = 0,
-                Act::Bottom => self.sel = total_lines.saturating_sub(1),
-                Act::Click(i) if i < total_lines => {
-                    if i == self.sel {
+                Act::Top => {
+                    self.sel = 0;
+                    if self.entries.first().is_some_and(|e| e.kind == Kind::Info) {
+                        self.move_sel(1);
+                    }
+                }
+                Act::Bottom => self.sel = self.first_line(self.entries.len().saturating_sub(1)),
+                Act::Click(i) if i < total_lines && self.entries.get(self.entry_line[i]).is_some_and(|e| e.kind != Kind::Info) => {
+                    if self.entry_line[i] == self.entry_line.get(self.sel).copied().unwrap_or(usize::MAX) {
                         if let Some(p) = self.activate() {
                             return Some(p);
                         }
                     } else {
-                        self.sel = i;
+                        self.sel = self.first_line(self.entry_line[i]);
                     }
                 }
                 Act::Activate => {
@@ -716,10 +857,7 @@ impl Picker {
                     self.mode = Mode::Library;
                     self.load();
                 }
-                Act::Cancel if self.mode == Mode::Settings => {
-                    self.mode = Mode::Library;
-                    self.load();
-                }
+                Act::Cancel if matches!(self.mode, Mode::Settings | Mode::Download | Mode::DownloadGame) => self.back(),
                 Act::Cancel => return None,
                 _ => {}
             }
@@ -762,8 +900,19 @@ impl Picker {
                         let (note, log) = match git_root(&p) {
                             None => ("This game isn't a git checkout: nothing to update from.".to_string(), None),
                             Some(root) => {
+                                let origin = git_origin(&root).unwrap_or_default();
                                 let mut g = Gauge::new(&format!("Updating {}", repo_title(&root)), "");
-                                let (res, log) = git_pull(&root, &mut |s| g.step(s));
+                                let (mut res, mut log) = git_pull(&root, self.login_for(&origin).as_ref(), &mut |s| g.step(s));
+                                // a repository for signed-in users: ask, and try again
+                                if res.as_ref().is_err_and(|e| e.contains(LOGIN_WANTED)) {
+                                    if let Some(l) = self.ask_login(&origin) {
+                                        let mut g = Gauge::new(&format!("Updating {}", repo_title(&root)), "");
+                                        (res, log) = git_pull(&root, Some(&l), &mut |s| g.step(s));
+                                        if res.is_ok() {
+                                            remember_login(&l);
+                                        }
+                                    }
+                                }
                                 (
                                     match res {
                                         Ok(m) => m,
@@ -802,7 +951,8 @@ impl Picker {
                 for (i, root) in roots.iter().enumerate() {
                     let name = repo_title(root);
                     g.job(i, roots.len(), &format!("Updating {} of {}: {}", i + 1, roots.len(), name));
-                    let (res, text) = git_pull(root, &mut |s| g.step(s));
+                    let login = git_origin(root).and_then(|o| self.login_for(&o));
+                    let (res, text) = git_pull(root, login.as_ref(), &mut |s| g.step(s));
                     log += &format!("== {} ==\n{}\n", root.display(), text);
                     match res {
                         Ok(m) if m.starts_with("Already") => current += 1,
@@ -828,7 +978,7 @@ impl Picker {
                 Err(None)
             }
             // `g`: the full git output of the update just done, else "top" as usual
-            (Mode::Library, Act::Letter('g')) => match self.git_log.clone() {
+            (Mode::Library | Mode::DownloadGame, Act::Letter('g')) => match self.git_log.clone() {
                 Some(log) => {
                     self.view_text("Full git output", &log);
                     Err(None)
@@ -907,6 +1057,11 @@ impl Picker {
     /// to edit (an answer emptied after that stays empty), Esc / Ctrl-C cancel,
     /// Ctrl-U clears. Mouse reports and other escape sequences are ignored.
     fn prompt(&mut self, question: &str, default: &str) -> Option<String> {
+        self.prompt_with(question, default, false)
+    }
+
+    /// `prompt`, its answer shown as dots when `secret` (a password).
+    fn prompt_with(&mut self, question: &str, default: &str, secret: bool) -> Option<String> {
         let question = if default.is_empty() { format!("{}: ", question) } else { format!("{} [{}]: ", question, default) };
         let width = |s: &str| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
         let mut text = String::new();
@@ -990,7 +1145,8 @@ impl Picker {
             let q = fit(&question, cols.saturating_sub(24).max(cols / 2));
             let room = cols.saturating_sub(width(&q) + 2).max(1);
             let (mut shown, mut used) = (Vec::new(), 0);
-            for c in text.chars().rev() {
+            let typed = if secret { "•".repeat(text.chars().count()) } else { text.clone() };
+            for c in typed.chars().rev() {
                 let cw = UnicodeWidthChar::width(c).unwrap_or(0);
                 if used + cw > room {
                     break;
@@ -1098,20 +1254,131 @@ impl Picker {
             self.note = format!("\x1b[31mCan't tell a folder name from \"{}\".\x1b[0m", url);
             return;
         };
-        let parent = match self.st.get("clone_dir") {
-            "" => browse_start(&self.st),
-            d => expand_home(d),
-        };
+        let parent = self.clone_parent();
         // (offered by "Clone a game…" next time)
         self.st.set("clone_url", url);
         self.st.save();
         self.clone_into(url, &name, &parent, "", None);
     }
 
+    /// Where clones go without asking: the folder "Clone a game…" was given
+    /// last, else next to the last game.
+    fn clone_parent(&self) -> PathBuf {
+        match self.st.get("clone_dir") {
+            "" => browse_start(&self.st),
+            d => expand_home(d),
+        }
+    }
+
+    /// Esc / "← Back": a downloader's game goes back to the list, the other
+    /// pages to the library.
+    fn back(&mut self) {
+        self.mode = if self.mode == Mode::DownloadGame { Mode::Download } else { Mode::Library };
+        self.load();
+    }
+
+    /// The downloader: the games of the eraGames wiki that link a git
+    /// repository (the list is fetched once per launcher session).
+    fn open_downloader(&mut self) {
+        if self.wiki.is_empty() {
+            let mut g = Gauge::new("Download a game", "Esc / Ctrl-C: cancel");
+            g.step(Step::Start("Fetching the game list from the eraGames wiki…"));
+            let mut games = Vec::new();
+            let mut more = String::new();
+            // (the API pages its answers; a few requests at most)
+            for _ in 0..10 {
+                let got = fetch(&crate::download::list_url(&more), &mut g, &mut || self.cancel_pressed());
+                match got.and_then(|json| crate::download::add_list(&json, &mut games)) {
+                    Ok(m) if m.is_empty() => break,
+                    Ok(m) => more = m,
+                    Err(e) => {
+                        self.note = if e == CANCELLED { e } else { format!("\x1b[31m{}\x1b[0m", e) };
+                        return;
+                    }
+                }
+            }
+            games.retain(|g| !g.repos.is_empty());
+            games.sort_by_key(|g| g.title.to_lowercase());
+            if games.is_empty() {
+                self.note = "The wiki lists no game with a git repository right now.".into();
+                return;
+            }
+            self.wiki = games;
+            self.wiki_game = 0;
+        }
+        self.mode = Mode::Download;
+        self.load();
+    }
+
+    /// A downloader's game: its wiki page's facts, then its repositories.
+    fn open_wiki_game(&mut self, i: usize) {
+        let Some(title) = self.wiki.get(i).map(|g| g.title.clone()) else { return };
+        let mut g = Gauge::new(&title, "Esc / Ctrl-C: cancel");
+        g.step(Step::Start("Reading its page on the eraGames wiki…"));
+        let got = fetch(&crate::download::page_url(&title), &mut g, &mut || self.cancel_pressed());
+        // without the page the repositories are still there to clone
+        self.wiki_info = match got.and_then(|json| crate::download::details(&json)) {
+            Ok(d) => d,
+            Err(e) if e == CANCELLED => return,
+            Err(e) => {
+                self.note = format!("\x1b[31mCan't read its page: {}\x1b[0m", e);
+                Default::default()
+            }
+        };
+        // which repositories answer (and have the branch the wiki names)
+        let repos = self.wiki[i].repos.clone();
+        g.step(Step::Start("Asking its repositories…"));
+        let mut heads: Vec<(String, Option<String>)> = Vec::new();
+        self.wiki_access = vec![Access::Unknown; repos.len()];
+        'ask: for (k, r) in repos.iter().enumerate() {
+            if !heads.iter().any(|(u, _)| *u == r.url) {
+                let login = self.login_for(&r.url);
+                let mut c = git_cmd(login.as_ref());
+                c.args(["ls-remote", "--heads", &r.url]);
+                let got = match run_watched(&mut c, &mut |s| g.step(s), &mut || self.cancel_pressed()) {
+                    Ok((RunEnd::Ok, out, _)) => Some(out),
+                    Ok((RunEnd::Cancelled, ..)) => break 'ask,
+                    _ => None,
+                };
+                heads.push((r.url.clone(), got));
+            }
+            let h = heads.iter().find(|(u, _)| *u == r.url).and_then(|(_, h)| h.as_deref());
+            self.wiki_access[k] = match h {
+                None => Access::Login,
+                Some(h) if r.branch.is_empty() || h.lines().any(|l| l.ends_with(&format!("refs/heads/{}", r.branch))) => Access::Ok,
+                Some(_) => Access::NoBranch,
+            };
+        }
+        self.wiki_game = i;
+        self.mode = Mode::DownloadGame;
+        self.load();
+    }
+
+    /// The login typed for `url`'s host in this session.
+    fn login_for(&self, url: &str) -> Option<Login> {
+        let host = url_host(url)?;
+        self.logins.iter().find(|l| l.host == host).cloned()
+    }
+
+    /// Ask for a login to `url`'s host, after git said the repository wants
+    /// one. It is kept for this launcher session and offered to git's
+    /// credential helper, if one is set up (then updates find it too).
+    fn ask_login(&mut self, url: &str) -> Option<Login> {
+        let host = url_host(url)?;
+        self.draw();
+        let user = self.prompt(&format!("{} asks for a login. Your {} user name", host, host), "").filter(|u| !u.is_empty())?;
+        let pass = self.prompt_with(&format!("{}'s password or access token on {}", user, host), "", true).filter(|p| !p.is_empty())?;
+        let l = Login { host: host.clone(), user, pass };
+        self.logins.retain(|o| o.host != host);
+        self.logins.push(l.clone());
+        Some(l)
+    }
+
     /// Select game `g` in the library, adding it if it isn't there.
     fn select_game(&mut self, g: &Path) -> PathBuf {
         let g = self.st.add_game(g);
         self.st.save();
+        self.mode = Mode::Library;
         self.load();
         // (the first screen line of its entry: long ones wrap)
         let idx = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == g));
@@ -1145,12 +1412,31 @@ impl Picker {
         }
         // (the launcher again behind the gauge, without the prompts)
         self.draw();
-        let mut g = Gauge::new(&format!("Cloning {}", name), "Esc / Ctrl-C: cancel the clone");
-        let (end, mut log) = git_clone(url, branch, depth, &target, &mut |s| g.step(s), &mut || self.cancel_pressed());
+        let mut login = self.login_for(url);
+        let mut asked = false;
+        let (end, mut log, mut g) = loop {
+            let mut g = Gauge::new(&format!("Cloning {}", name), "Esc / Ctrl-C: cancel the clone");
+            let (end, log) = git_clone(url, branch, depth, &target, login.as_ref(), &mut |s| g.step(s), &mut || self.cancel_pressed());
+            // a repository for signed-in users: ask once, then again with it
+            if matches!(end, CloneEnd::Failed(_)) && needs_login(&log) && !asked {
+                asked = true;
+                if let Some(l) = self.ask_login(url) {
+                    login = Some(l);
+                    self.draw();
+                    continue;
+                }
+            }
+            break (end, log, g);
+        };
         let mut pics = String::new();
         if matches!(end, CloneEnd::Done) {
             g.hint.clear();
-            pics = lfs_pull(&target, &mut log, &mut |s| g.step(s));
+            pics = lfs_pull(&target, &mut log, login.as_ref(), &mut |s| g.step(s));
+            if asked {
+                if let Some(l) = &login {
+                    remember_login(l);
+                }
+            }
         }
         self.git_log = Some(log);
         match end {
@@ -1286,6 +1572,19 @@ impl Picker {
             Kind::Game { path, ok: false } => self.note = format!("\x1b[31m{} is gone (d removes it from the list)\x1b[0m", path.display()),
             Kind::AddGame => self.start_adding(),
             Kind::CloneGame => self.clone_game(),
+            Kind::Download => self.open_downloader(),
+            Kind::WikiGame(i) => self.open_wiki_game(i),
+            Kind::WikiRepo(i) => {
+                if let Some(r) = self.wiki.get(self.wiki_game).and_then(|g| g.repos.get(i)).cloned() {
+                    if which("git").is_none() {
+                        self.note = "\x1b[31mgit isn't installed (or isn't on PATH): can't download.\x1b[0m".into();
+                    } else {
+                        let parent = self.clone_parent();
+                        self.clone_into(&r.url, &r.folder(), &parent, &r.branch, Some(1));
+                    }
+                }
+            }
+            Kind::Info => {}
             Kind::OpenSettings => {
                 self.mode = Mode::Settings;
                 self.sel = 0;
@@ -1296,10 +1595,7 @@ impl Picker {
                 self.st.save();
                 self.load();
             }
-            Kind::Back => {
-                self.mode = Mode::Library;
-                self.load();
-            }
+            Kind::Back => self.back(),
             Kind::PlayHere => {
                 let d = self.dir.clone();
                 return self.chosen(d);
@@ -1693,6 +1989,82 @@ fn git_root(game: &Path) -> Option<PathBuf> {
     game.ancestors().take(3).find(|d| d.join(".git").exists()).map(Path::to_path_buf)
 }
 
+/// Why git couldn't reach a repository that asks for a login.
+const LOGIN_WANTED: &str = "the repository asks for a login (it is for signed-in users, or isn't at this address any more)";
+
+/// Did git fail for want of a login? (its own words; GitLab answers so for
+/// a repository that doesn't exist, too)
+fn needs_login(git_said: &str) -> bool {
+    ["could not read Username", "could not read Password", "Authentication failed", "HTTP Basic: Access denied"].iter().any(|m| git_said.contains(m))
+}
+
+/// The host of an https:// address.
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let host = rest.split(['/', '?', '#']).next()?;
+    let host = host.rsplit('@').next()?;
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+}
+
+/// `git`, with `login` when there is one: handed over by a credential
+/// helper of our own that reads it from the environment of this one
+/// command (not its command line, where other users could see it), in
+/// place of the user's helpers.
+fn git_cmd(login: Option<&Login>) -> std::process::Command {
+    let mut c = std::process::Command::new("git");
+    if let Some(l) = login {
+        c.args(["-c", "credential.helper=", "-c"]);
+        c.arg(r#"credential.helper=!f() { test "$1" = get && printf 'username=%s\npassword=%s\n' "$EMUERA_GIT_USER" "$EMUERA_GIT_PASS"; }; f"#);
+        c.env("EMUERA_GIT_USER", &l.user).env("EMUERA_GIT_PASS", &l.pass);
+    }
+    c
+}
+
+/// Offer a login that worked to the user's git credential helper (`git
+/// credential approve`); without one configured git keeps nothing.
+fn remember_login(l: &Login) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let child = Command::new("git").args(["credential", "approve"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    if let Ok(mut ch) = child {
+        if let Some(mut i) = ch.stdin.take() {
+            let _ = write!(i, "protocol=https\nhost={}\nusername={}\npassword={}\n\n", l.host, l.user, l.pass);
+        }
+        let _ = ch.wait();
+    }
+}
+
+/// A repository as the downloader lists it.
+fn repo_label(r: &crate::download::Repo) -> String {
+    if r.branch.is_empty() {
+        r.path.clone()
+    } else {
+        format!("{} · branch {}", r.path, r.branch)
+    }
+}
+
+/// What `fetch` says when Esc stopped it.
+const CANCELLED: &str = "Cancelled.";
+
+/// GET `url` with curl (the downloader's wiki requests), `g` turning
+/// meanwhile; `cancel` stops it.
+fn fetch(url: &str, g: &mut Gauge, cancel: &mut dyn FnMut() -> bool) -> Result<String, String> {
+    if which("curl").is_none() {
+        return Err("curl isn't installed (or isn't on PATH): can't reach the wiki.".into());
+    }
+    let mut c = std::process::Command::new("curl");
+    c.args(["--silent", "--show-error", "--location", "--fail", "--connect-timeout", "20", "--max-time", "90"]);
+    c.args(["--user-agent", concat!("emuera-tty/", env!("CARGO_PKG_VERSION")), url]);
+    match run_watched(&mut c, &mut |s| g.step(s), cancel)? {
+        (RunEnd::Ok, out, _) => Ok(out),
+        (RunEnd::Cancelled, ..) => Err(CANCELLED.into()),
+        (RunEnd::Failed, _, err) => {
+            let why = settled(&err).lines().map(str::trim).rev().find(|l| !l.is_empty()).unwrap_or("curl failed").to_string();
+            Err(format!("Can't reach the wiki: {}", why.trim_start_matches("curl: ")))
+        }
+    }
+}
+
 /// The address `root` was cloned from (its `origin`), if any.
 fn git_origin(root: &Path) -> Option<String> {
     let o = std::process::Command::new("git")
@@ -1803,29 +2175,31 @@ fn settled(s: &str) -> String {
     s.split('\n').map(|l| l.trim_end_matches('\r').rsplit('\r').next().unwrap_or("")).collect::<Vec<_>>().join("\n")
 }
 
-/// How a git command run by `git_run` ended.
-enum GitEnd {
+/// How a command run by `run_watched` ended.
+enum RunEnd {
     Ok,
     Failed,
     /// stopped by the user (`cancel` said so)
     Cancelled,
 }
 
-/// Run the git command `c` without prompts, its progress shown: git's stderr
-/// is read as it comes and its latest line handed to `progress` (`Quiet`
-/// after 100 ms of silence); `cancel` is asked about every 100 ms and stops
-/// git when it says true. Returns how it ended, its stdout and its stderr;
-/// Err when git can't be started.
-fn git_run(c: &mut std::process::Command, progress: &mut dyn FnMut(Step), cancel: &mut dyn FnMut() -> bool) -> Result<(GitEnd, String, String), String> {
+/// Run `c` (git, or curl for the downloader) without prompts, its progress
+/// shown: its stderr is read as it comes and the latest line handed to
+/// `progress` (`Quiet` after 100 ms of silence); `cancel` is asked about
+/// every 100 ms and stops it when it says true. Returns how it ended, its
+/// stdout and its stderr; Err when it can't be started.
+fn run_watched(c: &mut std::process::Command, progress: &mut dyn FnMut(Step), cancel: &mut dyn FnMut() -> bool) -> Result<(RunEnd, String, String), String> {
     use std::io::Read;
     use std::process::Stdio;
     use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
     use std::time::Duration;
-    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0");
+    // (no password window either: GIT_ASKPASS set but empty stops git from
+    // trying core.askPass and SSH_ASKPASS; the launcher asks itself)
+    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "");
     if std::env::var_os("GIT_SSH_COMMAND").is_none() {
         c.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
     }
-    let mut child = c.spawn().map_err(|e| format!("git: {}", e))?;
+    let mut child = c.spawn().map_err(|e| format!("{}: {}", c.get_program().to_string_lossy(), e))?;
     // the pipes are read on threads of their own, so the keyboard can be
     // watched meanwhile. (Git's helpers may keep them open after git itself
     // is gone, so the threads are never waited for.)
@@ -1881,28 +2255,29 @@ fn git_run(c: &mut std::process::Command, progress: &mut dyn FnMut(Step), cancel
     }
     let end = if cancelled {
         stop_git(&mut child);
-        GitEnd::Cancelled
+        RunEnd::Cancelled
     } else if child.wait().is_ok_and(|s| s.success()) {
-        GitEnd::Ok
+        RunEnd::Ok
     } else {
-        GitEnd::Failed
+        RunEnd::Failed
     };
     Ok((end, String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned()))
 }
 
 /// `git clone` of `url` into `target` (on `branch` and with only the last
 /// `depth` commits, when given), without prompts, its progress handed to
-/// `progress`; `cancel` stops it (see `git_run`). Returns the outcome and
+/// `progress`; `cancel` stops it (see `run_watched`). Returns the outcome and
 /// everything git said (for the launcher's `g`).
 fn git_clone(
     url: &str,
     branch: &str,
     depth: Option<u32>,
     target: &Path,
+    login: Option<&Login>,
     progress: &mut dyn FnMut(Step),
     cancel: &mut dyn FnMut() -> bool,
 ) -> (CloneEnd, String) {
-    let mut c = std::process::Command::new("git");
+    let mut c = git_cmd(login);
     c.args(["clone", "--progress"]);
     if !branch.is_empty() {
         c.args(["--branch", branch]);
@@ -1918,19 +2293,20 @@ fn git_clone(
         url
     );
     progress(Step::Start("Downloading (git clone)…"));
-    let (end, _, err) = match git_run(&mut c, progress, cancel) {
+    let (end, _, err) = match run_watched(&mut c, progress, cancel) {
         Ok(r) => r,
         Err(e) => return (CloneEnd::Failed(e), log),
     };
     let text = settled(&err);
     log += &text;
     match end {
-        GitEnd::Ok => (CloneEnd::Done, log),
-        GitEnd::Cancelled => {
+        RunEnd::Ok => (CloneEnd::Done, log),
+        RunEnd::Cancelled => {
             log += "\n(cancelled)\n";
             (CloneEnd::Cancelled, log)
         }
-        GitEnd::Failed => {
+        RunEnd::Failed if needs_login(&text) => (CloneEnd::Failed(format!("Clone failed: {}", LOGIN_WANTED)), log),
+        RunEnd::Failed => {
             let why = text
                 .lines()
                 .map(str::trim)
@@ -1969,9 +2345,9 @@ fn git_head(root: &Path) -> Option<String> {
 /// can be asked for here). The result is Ok: what changed (with the
 /// "(<previous hash> -> <new hash>)" of an update); Err: why it didn't. The
 /// second part is git's full output, for the launcher's `g`.
-fn git_pull(root: &Path, progress: &mut dyn FnMut(Step)) -> (Result<String, String>, String) {
+fn git_pull(root: &Path, login: Option<&Login>, progress: &mut dyn FnMut(Step)) -> (Result<String, String>, String) {
     let mut log = String::new();
-    let res = git_pull_logged(root, &mut log, progress);
+    let res = git_pull_logged(root, &mut log, login, progress);
     if log.is_empty() {
         if let Err(e) = &res {
             log = e.clone();
@@ -1985,16 +2361,16 @@ fn git_pull(root: &Path, progress: &mut dyn FnMut(Step)) -> (Result<String, Stri
 /// (SPRITEWIDTH 0, a division by zero). Fetches them in the checkout at
 /// `root` when its .gitattributes uses LFS; returns "" or a sentence on what
 /// went wrong (to append to the launcher's note).
-fn lfs_pull(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)) -> String {
+fn lfs_pull(root: &Path, log: &mut String, login: Option<&Login>, progress: &mut dyn FnMut(Step)) -> String {
     let lfs = std::fs::read_to_string(root.join(".gitattributes")).is_ok_and(|a| a.contains("filter=lfs"));
     if !lfs {
         return String::new();
     }
     progress(Step::Start("Fetching its pictures (git lfs pull)…"));
-    let mut c = std::process::Command::new("git");
+    let mut c = git_cmd(login);
     // (git-lfs shows progress only on a terminal unless told to)
     c.arg("-C").arg(root).args(["lfs", "pull"]).env("GIT_LFS_FORCE_PROGRESS", "1");
-    let (end, out, err) = match git_run(&mut c, progress, &mut || false) {
+    let (end, out, err) = match run_watched(&mut c, progress, &mut || false) {
         Ok(r) => r,
         Err(e) => return format!(" Pictures (git lfs pull) failed: {}", e),
     };
@@ -2002,7 +2378,7 @@ fn lfs_pull(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)) -> St
     log.push_str("$ git lfs pull\n");
     log.push_str(&err);
     log.push_str(&out);
-    if matches!(end, GitEnd::Ok) {
+    if matches!(end, RunEnd::Ok) {
         return String::new();
     }
     if err.contains("not a git command") {
@@ -2012,7 +2388,7 @@ fn lfs_pull(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)) -> St
     }
 }
 
-fn git_pull_logged(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)) -> Result<String, String> {
+fn git_pull_logged(root: &Path, log: &mut String, login: Option<&Login>, progress: &mut dyn FnMut(Step)) -> Result<String, String> {
     use std::process::{Command, Stdio};
     let git = |args: &[&str]| {
         let mut c = Command::new("git");
@@ -2025,14 +2401,17 @@ fn git_pull_logged(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)
     let head = |o: std::process::Output| String::from_utf8_lossy(&o.stdout).trim().to_string();
     let before = head(git(&["rev-parse", "HEAD"])?);
     progress(Step::Start("Downloading the changes (git pull)…"));
-    let (end, out, err) = git_run(Command::new("git").arg("-C").arg(root).args(["pull", "--ff-only", "--progress"]), progress, &mut || false)?;
+    let (end, out, err) = run_watched(git_cmd(login).arg("-C").arg(root).args(["pull", "--ff-only", "--progress"]), progress, &mut || false)?;
     // everything git said (fetch's "From …" and ref lines come on stderr,
     // the merge summary on stdout)
     let err = settled(&err);
     log.push_str("$ git pull --ff-only\n");
     log.push_str(&err);
     log.push_str(&out);
-    if !matches!(end, GitEnd::Ok) {
+    if !matches!(end, RunEnd::Ok) && needs_login(&err) {
+        return Err(format!("Update failed: {}", LOGIN_WANTED));
+    }
+    if !matches!(end, RunEnd::Ok) {
         // git's own explanation (its error: / fatal: line and the files
         // listed under it), not the fetch progress or hints
         let lines: Vec<&str> = err.lines().collect();
@@ -2049,7 +2428,7 @@ fn git_pull_logged(root: &Path, log: &mut String, progress: &mut dyn FnMut(Step)
         };
         return Err(format!("Update failed: {}", if why.is_empty() { "git pull didn't work".to_string() } else { why }));
     }
-    let pics = lfs_pull(root, log, progress);
+    let pics = lfs_pull(root, log, login, progress);
     let after = head(git(&["rev-parse", "HEAD"])?);
     if before == after {
         return Ok(format!("Already up to date.{}", pics));
@@ -2093,6 +2472,26 @@ mod tests {
         for p in ["eraTW", "/home/me/games/eraTW", "C:\\games\\eraTW", "https://example.org/eraTW.zip", "./a@b:c/d"] {
             assert!(!is_git_url(p), "{}", p);
         }
+    }
+
+    #[test]
+    fn logins_reach_git() {
+        assert_eq!(url_host("https://gitgud.io/era-games/eraAS.git").as_deref(), Some("gitgud.io"));
+        assert_eq!(url_host("https://me@GitGud.io/x").as_deref(), Some("gitgud.io"));
+        assert_eq!(url_host("git@gitgud.io:x/y.git"), None);
+        assert!(needs_login("fatal: could not read Username for 'https://gitgud.io': terminal prompts disabled"));
+        assert!(!needs_login("fatal: repository 'x' not found"));
+        if which("git").is_none() {
+            return;
+        }
+        // git asks our helper, which answers from the environment
+        let l = Login { host: "example.org".into(), user: "me".into(), pass: "p a'ss\"$x".into() };
+        let mut c = git_cmd(Some(&l));
+        c.args(["credential", "fill"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).env("GIT_TERMINAL_PROMPT", "0");
+        let mut ch = c.spawn().unwrap();
+        std::io::Write::write_all(ch.stdin.as_mut().unwrap(), b"protocol=https\nhost=example.org\n\n").unwrap();
+        let out = String::from_utf8(ch.wait_with_output().unwrap().stdout).unwrap();
+        assert!(out.contains("username=me\n") && out.contains("password=p a'ss\"$x\n"), "{}", out);
     }
 
     #[test]
