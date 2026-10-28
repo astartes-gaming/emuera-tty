@@ -1,5 +1,8 @@
 ;=== save files and text files: what goes in comes back ===
 @TEST_MAIN
+; eraFL: ENUMFILES gives Windows paths, which LOADTEXT takes (any letter case)
+CALL CHECK, "SAVETEXT into a folder", SAVETEXT("hello", "TXTDIR\\T1.txt") == 1
+CALL CHECK, "ENUMFILES then LOADTEXT", ENUMFILES("txtdir") == 1 && LOADTEXT(RESULTS:0) == "hello" && LOADTEXT("txtdir/t1.TXT") == "hello"
 ;--- SAVEDATA / CHKDATA / DELDATA (CHKDATA: 0 loadable, 1 no file)
 DELDATA 7
 CHKDATA 7

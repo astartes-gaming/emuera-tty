@@ -578,10 +578,17 @@ fn run(o: Opts) -> i32 {
         eprintln!("timing: {:<12} {:>8.2?}{} (resources, terminal, data init)", "vm ready", lap.elapsed(), rss());
     }
     if let Some(px) = emuconfig::load(&game, &csv_dir, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
-        // no real terminal to fit: use Emuera's width (half-width cells are font_size/2 px)
+        // no real terminal to fit: Emuera's width, the half-width cells
+        // (font_size/2 px) that fit in its drawable width, the window less
+        // max(2, font_size/6) px (Config.DrawableWidth, getStBar: 940 px at
+        // 16 is 117, which eratohoreverse's title checks for)
         if o.headless {
-            vm.fe.set_cols((px / (vm.con.font_size / 2.0).max(1.0)) as usize);
-            vm.con.width = vm.fe.cols().saturating_sub(1).max(20);
+            let fs = vm.con.font_size;
+            let shift = ((fs as i64) / 6).max(2) as f32;
+            let n = ((px - shift) / (fs / 2.0).max(1.0)) as usize;
+            // (cols less one is the width, as on a terminal)
+            vm.fe.set_cols(n + 1);
+            vm.con.width = n.max(20);
         }
     }
     vm.strict = o.strict;

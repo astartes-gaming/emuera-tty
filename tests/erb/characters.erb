@@ -3,6 +3,10 @@
 CALL CHECK, "no characters at first", CHARANUM == 0
 ADDCHARA 1
 ADDCHARA 2
+; erarl: CDFLAG's indices take CDFLAG1.csv's and CDFLAG2.csv's names
+; (each name is in one file only, and the sample's CDFLAG is 1x1)
+CDFLAG:1:装備欄:一番目 = 7
+CALL CHECK, "CDFLAG names per index", CDFLAG:1:0:0 == 7
 CALL CHECK, "addchara", CHARANUM == 2 && NO:0 == 1 && NO:1 == 2
 CALL CHECK, "csv data on add", BASE:0:体力 == 2000 && MAXBASE:0:体力 == 2000 && ABL:1:技巧 == 5
 CALL CHECK, "findchara", FINDCHARA(NO, 2) == 1 && FINDCHARA(NO, 9) == -1

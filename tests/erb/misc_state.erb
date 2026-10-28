@@ -3,6 +3,10 @@
 #DIM NUMS, 4
 #DIMS NAMES, 4
 #DIMS ALONG, 1 = "NAMES"
+; eraAWT: SAVENOS / PRINTCPERLINE as statements store into their variable
+SAVENOS LOCAL:1
+PRINTCPERLINE LOCAL:2
+CALL CHECK, "SAVENOS X, PRINTCPERLINE X", LOCAL:1 == SAVENOS() && LOCAL:1 > 0 && LOCAL:2 == PRINTCPERLINE()
 ;--- CSV data functions
 CALL CHECK, "csv getters", CSVEXP(1, 0) == 0 && CSVMARK(1, 0) == 0 && CSVJUEL(1, 0) == 0 && CSVEQUIP(1, 0) == 0 && CSVRELATION(1, 0) == 0
 CALL CHECKS, "csvcstr csvmastername", CSVCSTR(1, 0) + CSVMASTERNAME(1), ""

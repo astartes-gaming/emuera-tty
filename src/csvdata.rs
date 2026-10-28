@@ -277,22 +277,41 @@ impl GameCsv {
         g.warnings.append(&mut g.tr.warnings);
         let w = crate::translate::apply_trchara(csv_dir, &mut g.charas);
         g.warnings.extend(w);
-        // EmueraEE: *.ERD name tables for user variables.
-        if let Some(erb) = erb_dir {
-            for p in walk(erb, &["erd"]) {
-                let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
-                let mut t = NameTable::default();
-                if let Ok(text) = read_text(&p) {
-                    for line in crate::loader::emuera_lines(&text) {
-                        let f = csv_fields(line);
-                        if f.len() >= 2 {
-                            if let Some(i) = parse_i64(&f[0]) {
-                                t.insert(i, &f[1]);
-                            }
+        // EmueraEE: name tables for user variables: *.ERD files anywhere
+        // under ERB, and any CSV directly in the CSV folder named after one
+        // (ErhLoader.PrepareERDFileNames: erablue_resort's RFLAG.csv for
+        // `#DIM RFLAG`, eraFL's FLconfig.CSV for FLCONFIG)
+        let builtin: std::collections::HashSet<String> = g.tables.keys().cloned().collect();
+        let read_names = |p: &Path, t: &mut NameTable| {
+            if let Ok(text) = read_text(p) {
+                for line in crate::loader::emuera_lines(&text) {
+                    let f = csv_fields(line);
+                    if f.len() >= 2 {
+                        if let Some(i) = parse_i64(&f[0]) {
+                            t.insert(i, &f[1]);
                         }
                     }
                 }
-                g.tables.insert(stem, t);
+            }
+        };
+        let mut csvs: Vec<std::path::PathBuf> = std::fs::read_dir(csv_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("csv")))
+            .collect();
+        csvs.sort();
+        for p in csvs {
+            let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
+            if !builtin.contains(&stem) && !stem.starts_with("CHARA") && !stem.starts_with("TRCHARA") && !stem.ends_with("_TR") {
+                read_names(&p, g.tables.entry(stem).or_default());
+            }
+        }
+        if let Some(erb) = erb_dir {
+            for p in walk(erb, &["erd"]) {
+                let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
+                read_names(&p, g.tables.entry(stem).or_default());
             }
         }
         g

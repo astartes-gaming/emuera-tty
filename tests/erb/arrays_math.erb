@@ -1,5 +1,9 @@
 ;=== arrays and arithmetic ===
 @TEST_MAIN
+; eraSekaQ: TIMES's variable may hold a comma in brackets
+FLAG:(GETNUM(FLAG, "周回数")) = 10
+TIMES FLAG:(GETNUM(FLAG, "周回数")), 1.5
+CALL CHECK, "TIMES var(a, b), x", FLAG:5 == 15
 CALL CHECK, "precedence", 1 + 2 * 3 == 7 && (1 + 2) * 3 == 9
 CALL CHECK, "integer division truncates", 7 / 2 == 3 && -7 / 2 == -3 && 7 % 3 == 1 && -7 % 3 == -1
 CALL CHECK, "bit operators", (5 & 3) == 1 && (5 | 3) == 7 && (5 ^ 3) == 6 && (1 << 4) == 16 && (256 >> 4) == 16

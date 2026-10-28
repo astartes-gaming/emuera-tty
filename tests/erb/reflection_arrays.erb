@@ -13,6 +13,9 @@ CALL CHECKS, "getvars", GETVARS("SAVESTR:1"), "abc"
 CALL CHECK, "existvar", EXISTVAR("FLAG") != 0 && EXISTVAR("NO_SUCH_VAR") == 0
 CALL CHECK, "isdefined", ISDEFINED("NO_SUCH_MACRO") == 0
 CALL CHECK, "varsize", VARSIZE("ARR") == 5 && VARSIZE("FLAG") == 10000
+; eraSekaQ, eraTohoLoA: the statement takes a variable, sizes into RESULT:0, :1…
+CALL VS_GRID
+CALL CHECK, "VARSIZE statement", RESULT == 34
 CALL CHECKS, "getdoingfunction", GETDOINGFUNCTION(), "TEST_MAIN"
 ;--- array copies and removals
 FOR LOCAL, 0, 5
@@ -44,3 +47,8 @@ CALL CHECK, "unicode charatu", UNICODE(65) == "A" && CHARATU("abc", 1) == "b"
 LOCAL = 100
 TIMES LOCAL, 1.5
 CALL CHECK, "times", LOCAL == 150
+
+@VS_GRID
+#DIM GRID, 3, 4
+VARSIZE GRID
+RETURN RESULT:0 * 10 + RESULT:1

@@ -780,8 +780,15 @@ impl Vm {
             let i = match e {
                 Expr::Int(i) => *i,
                 _ => {
-                    // CSV names apply to the last index (and to every index of ERD vars)
-                    let t = if k + 1 == n { table } else { None };
+                    // CSV names apply to the last index (and to every index of
+                    // ERD vars); CDFLAG's two take CDFLAG1's and CDFLAG2's
+                    // (ConstantData.GetKeywordDictionary: erarl)
+                    let t = match (&*v.name, k - from) {
+                        ("CDFLAG", 0) => Some("CDFLAG1"),
+                        ("CDFLAG", _) => Some("CDFLAG2"),
+                        _ if k + 1 == n => table,
+                        _ => None,
+                    };
                     let dim = (n - from > 1).then_some(k - from + 1);
                     self.eval_index_dim(e, t, &v.name, dim)?
                 }
@@ -1575,10 +1582,13 @@ impl Vm {
     }
 
     /// Call a function or event by name. Returns Ok(false) if it doesn't exist.
+    /// Only the event functions run every definition; any other name defined
+    /// twice runs its first (Emuera's LabelDictionary.SortLabels: eraAL-K
+    /// has two files defining the same skill's functions).
     pub fn call_name(&mut self, name: &str, args: Vec<Option<Value>>) -> VmResult<bool> {
         let fs = match self.prog.funcs.get(name) {
             None => return Ok(false),
-            Some(fs) if fs.len() == 1 => {
+            Some(fs) if fs.len() == 1 || !is_event_name(name) => {
                 let f = fs[0].clone();
                 self.call_func(f, args)?;
                 return Ok(true);
@@ -3161,4 +3171,10 @@ mod nameinfo_tests {
             assert!(std::ptr::eq(u.system.unwrap(), d) && matches!(u.table, Tbl::Own) && u.pseudo);
         }
     }
+}
+
+/// Emuera's event functions (IdentifierDictionary.IsEventLabelName): every
+/// definition of one runs, by #ONLY / #PRI / #LATER / #SINGLE.
+pub fn is_event_name(name: &str) -> bool {
+    matches!(name, "EVENTFIRST" | "EVENTTRAIN" | "EVENTSHOP" | "EVENTBUY" | "EVENTCOM" | "EVENTTURNEND" | "EVENTCOMEND" | "EVENTEND" | "EVENTLOAD")
 }

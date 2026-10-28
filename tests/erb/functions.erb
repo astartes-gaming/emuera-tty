@@ -71,6 +71,15 @@ FONTEDGE_COLOR 229, 107, 0
 RESET_FONTEDGE_COLOR
 FONTEDGE 0
 CALL CHECK, "a variable named SHAKE", OWN_SHAKE() == 7
+; eraAL-K: a function defined twice (not an event) runs its first definition only
+LOCAL = 0
+CALL DUP_PROC
+CALL CHECK, "CALL runs the first of two definitions", LOCAL == 0 && RESULT == 1
+TRYCCALLFORM DUP_%"PROC"%
+	CALL CHECK, "TRYCCALLFORM too", RESULT == 1
+CATCH
+ENDCATCH
+CALL CHECK, "and a #FUNCTION", DUP_FN() == 1
 ;--- private #DIMs keep their value between calls unless DYNAMIC
 CALL COUNTER
 CALL COUNTER
@@ -158,3 +167,17 @@ VARS L_MES
 #DIM SHAKE
 SHAKE = 7
 RETURNF SHAKE
+
+@DUP_PROC
+RETURN 1
+
+@DUP_PROC
+RETURN 2
+
+@DUP_FN
+#FUNCTION
+RETURNF 1
+
+@DUP_FN
+#FUNCTION
+RETURNF 2

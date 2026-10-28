@@ -533,6 +533,35 @@ impl Vm {
         }
     }
 
+    /// The sizes of variable `n`'s dimensions (VARSIZE), one at least.
+    fn var_dims(&mut self, mut n: String) -> VmResult<Vec<usize>> {
+        // (Emuera-Anchor: VARSIZE("PARAM") is PALAM's)
+        if n == "PARAM" && crate::translate::param_renamed(&n).is_some() {
+            n = "PALAM".into();
+        }
+        let dims = match super::vars::system_var(&n) {
+            // character variables have a size even when no character exists
+            Some(def) if def.chara => super::sized_dims(&self.csv.varsize, &n, def),
+            // user CHARADATA arrays too: the declared size, no
+            // character needed
+            _ if self.user_dims.get(&n).is_some_and(|d| d.is_chara) => {
+                let exprs = self.user_dims[&n].dims.clone();
+                let mut v = Vec::with_capacity(exprs.len());
+                for e in &exprs {
+                    v.push(self.eval(e)?.as_int().max(0) as usize);
+                }
+                v
+            }
+            _ => {
+                let vr = VarRef::new(n.into(), vec![]);
+                let p = self.locate(&vr)?;
+                let arr = self.arr_at(&p.loc);
+                arr.map(|a| a.dims.clone()).unwrap_or_default()
+            }
+        };
+        Ok(if dims.is_empty() { vec![1] } else { dims })
+    }
+
     // =============================================================== commands
     /// Run a statement-style built-in. Unknown names fall through to
     /// `builtin_fn`; if that doesn't know them either, they are warned
@@ -549,6 +578,24 @@ impl Vm {
             // stays readable)
             "FADE" | "SHAKE" | "FONTEDGE" | "FONTEDGE_COLOR" | "RESET_FONTEDGE_COLOR" => {}
             "OUTPUTHINTS" => self.output_hints(),
+            // statements that store into their variable (Emuera's SP_GETINT):
+            // `SAVENOS X` is the save slots, `PRINTCPERLINE X` (eraAWT's
+            // autosave counted from SAVENOS)
+            "SAVENOS" | "PRINTCPERLINE" if !a.is_empty() => {
+                let v = self.avar(a, 0)?;
+                let n = if name == "SAVENOS" { self.save_opts.slots } else { self.con.printc_per_line as i64 };
+                self.set_var(&v, Value::Int(n))?;
+            }
+            // the statement takes a variable and puts each dimension's size
+            // in RESULT:0, :1… (VariableEvaluator.VarSize); VARSIZE("NAME", d)
+            // is the function
+            "VARSIZE" => {
+                let Some(Expr::Var(v)) = a.first() else { return err("VARSIZE: the argument isn't a variable") };
+                let dims = self.var_dims(v.name.to_uppercase())?;
+                for (k, n) in dims.iter().enumerate() {
+                    self.set_global_i("RESULT", k, *n as i64);
+                }
+            }
             "DRAWLINE" => self.con.drawline(),
             "CUSTOMDRAWLINE" => {
                 if let Args::Raw(s) = args {
@@ -1243,7 +1290,9 @@ impl Vm {
             }
             "TIMES" => {
                 if let Args::Raw(s) = args {
-                    let parts: Vec<&str> = s.splitn(2, ',').collect();
+                    // (at the comma outside brackets: eraSekaQ's
+                    // `TIMES CUP:X:GETNUM(PALAM, "反感"), 70`)
+                    let parts = crate::expr::split_top(s, ',');
                     let v = crate::expr::parse_expr(parts[0].trim(), &self.prog.defines).map_err(|e| Ctrl::Error(e, false))?;
                     let v = crate::parser::upper_expr(v);
                     let f: f64 = parts.get(1).map(|x| x.trim().parse().unwrap_or(1.0)).unwrap_or(1.0);
@@ -1498,6 +1547,14 @@ impl Vm {
                     Args::Raw(s) => s.trim().to_uppercase(),
                     _ => self.as_(a, 0, "")?.to_uppercase(),
                 };
+                // (CalledFunction.CallEventFunction: another function is an
+                // error, an unknown name nothing)
+                if !super::is_event_name(&n) {
+                    if self.prog.funcs.contains_key(&n) {
+                        return err(format!("CALLEVENT: @{} isn't an event function", n));
+                    }
+                    return Ok(());
+                }
                 self.call_name(&n, vec![])?;
             }
             "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG" | "UPDATECHECK" | "FORCEKANA"
@@ -2748,12 +2805,15 @@ impl Vm {
         match target {
             Value::Int(n) => (0..=i32::MAX as i64).contains(n).then(|| self.save_dir().join(format!("txt{:02}.txt", n))),
             Value::Str(p) => {
-                let rel = std::path::Path::new(p);
+                // a Windows path as ENUMFILES gives it (`XML\SKILL.xml`), its
+                // folders matched whatever their letter case (eraFL)
+                let p = p.replace('\\', "/");
+                let rel = std::path::Path::new(&p);
                 if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
                     return None;
                 }
                 let ext = rel.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-                let mut path = self.game_dir.join(rel);
+                let mut path = crate::resources::find_ci(&self.game_dir, &p);
                 if !self.text_exts.contains(&ext) {
                     if !saving {
                         return None;
@@ -3051,33 +3111,9 @@ impl Vm {
                 i(r as i64)
             }
             "VARSIZE" => {
-                let mut n = self.as_(a, 0, "")?.to_uppercase();
-                // (Emuera-Anchor: VARSIZE("PARAM") is PALAM's)
-                if n == "PARAM" && crate::translate::param_renamed(&n).is_some() {
-                    n = "PALAM".into();
-                }
+                let n = self.as_(a, 0, "")?.to_uppercase();
                 let d = self.ai(a, 1, -1)?;
-                let dims = match super::vars::system_var(&n) {
-                    // character variables have a size even when no character exists
-                    Some(def) if def.chara => super::sized_dims(&self.csv.varsize, &n, def),
-                    // user CHARADATA arrays too: the declared size, no
-                    // character needed
-                    _ if self.user_dims.get(&n).is_some_and(|d| d.is_chara) => {
-                        let exprs = self.user_dims[&n].dims.clone();
-                        let mut v = Vec::with_capacity(exprs.len());
-                        for e in &exprs {
-                            v.push(self.eval(e)?.as_int().max(0) as usize);
-                        }
-                        v
-                    }
-                    _ => {
-                        let vr = VarRef::new(n.into(), vec![]);
-                        let p = self.locate(&vr)?;
-                        let arr = self.arr_at(&p.loc);
-                        arr.map(|a| a.dims.clone()).unwrap_or_default()
-                    }
-                };
-                let dims = if dims.is_empty() { vec![1] } else { dims };
+                let dims = self.var_dims(n)?;
                 let k = if d < 0 { dims.len() - 1 } else { (d as usize).min(dims.len() - 1) };
                 i(dims[k] as i64)
             }
