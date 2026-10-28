@@ -1454,7 +1454,10 @@ impl Vm {
                     idx.push(self.ai(a, k, 0)?);
                 }
                 idx.sort_unstable();
-                idx.dedup();
+                // (the same character twice is an error in Emuera: DuplicateDelChara)
+                if let Some(w) = idx.windows(2).find(|w| w[0] == w[1]) {
+                    return err(format!("DELCHARA: character {} is listed twice", w[0]));
+                }
                 for i in idx.into_iter().rev() {
                     if i >= 0 && (i as usize) < self.charas.len() {
                         self.charas.remove(i as usize);
@@ -1465,14 +1468,30 @@ impl Vm {
             }
             "DELALLCHARA" => self.charas.clear(),
             "PICKUPCHARA" => {
-                let mut keep = Vec::new();
-                for k in 0..a.len() {
-                    let i = self.ai(a, k, 0)?;
-                    if i >= 0 && (i as usize) < self.charas.len() {
-                        keep.push(self.charas[i as usize].clone());
+                // the listed characters, each once, in that order, moved;
+                // TARGET, ASSI and MASTER follow theirs or become -1 (Emuera's
+                // VariableEvaluator.PickUpChara). A number that is no
+                // character is an error, unless it is one of those three
+                // variables (-1 when no one is chosen)
+                let len = self.charas.len() as i64;
+                let mut pick: Vec<usize> = Vec::new();
+                for (k, e) in a.iter().enumerate() {
+                    let n = self.ai(a, k, 0)?;
+                    let index_var = matches!(e, Expr::Var(v) if v.idx.is_empty() && matches!(&*v.name, "MASTER" | "ASSI" | "TARGET"));
+                    if !index_var && !(0..len).contains(&n) {
+                        return err(format!("PICKUPCHARA: argument {} ({}) is no character", k + 1, n));
+                    }
+                    if (0..len).contains(&n) && !pick.contains(&(n as usize)) {
+                        pick.push(n as usize);
                     }
                 }
-                self.charas = keep;
+                let mut old: Vec<Option<Chara>> = std::mem::take(&mut self.charas).into_iter().map(Some).collect();
+                self.charas = pick.iter().map(|&i| old[i].take().unwrap_or_default()).collect();
+                for v in ["TARGET", "ASSI", "MASTER"] {
+                    let was = self.get_global_i(v, 0);
+                    let now = pick.iter().position(|&i| i as i64 == was).map_or(-1, |p| p as i64);
+                    self.set_global_i(v, 0, now);
+                }
             }
             "SWAPCHARA" => {
                 let x = self.ai(a, 0, 0)? as usize;
