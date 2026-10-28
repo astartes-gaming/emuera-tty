@@ -1160,7 +1160,8 @@ mod tests {
 
     #[test]
     fn loaded_translations_need_no_translator() {
-        let dir = std::env::temp_dir().join(format!("emuera-tty-mt-{}", std::process::id()));
+        // (a folder of its own: tests run at once, and another one removes its)
+        let dir = std::env::temp_dir().join(format!("emuera-tty-mtload-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("translations.tsv");
         std::fs::write(&file, "ERB/x.ERB:1\tja>en\t「おはよう」\t「Good morning.」\nERB/x.ERB:2\tja>en\t「元気?」\t「How are you?」\nERB/x.ERB:3\tja>en\t「一 二」\t「One Two」\n").unwrap();
