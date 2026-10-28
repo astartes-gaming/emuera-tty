@@ -148,6 +148,8 @@ impl<'a> ExprParser<'a> {
             self.skip_ws();
             if self.peek() == Some(',') || self.peek().is_none() || self.peek() == Some(')') {
                 out.push(Expr::Empty);
+            } else if let Some(list) = self.define_list()? {
+                out.extend(list);
             } else {
                 out.push(self.expr()?);
             }
@@ -162,6 +164,32 @@ impl<'a> ExprParser<'a> {
             }
         }
         Ok(out)
+    }
+
+    /// An argument that is just the name of a #DEFINE whose body is a list
+    /// (`#DEFINE ＃X＃ FLAG:A,3`, then `GETBIT(＃X＃)` or `SETBIT ＃X＃`):
+    /// its values, each an argument, as Emuera puts the body's tokens in
+    /// place of the name. None (and nothing read) for anything else.
+    fn define_list(&mut self) -> PResult<Option<Vec<Expr>>> {
+        let save = self.pos;
+        let Some(name) = self.ident() else { return Ok(None) };
+        self.skip_ws();
+        let body = self.defs.get(&name).or_else(|| self.defs.get(&name.to_uppercase()));
+        let ends = matches!(self.peek(), None | Some(',') | Some(')'));
+        match body {
+            Some(body) if ends && split_top(body, ',').len() > 1 && self.depth <= 32 => {
+                let mut sub = ExprParser::with_depth(body, self.defs, self.depth + 1);
+                let list = sub.expr_list()?;
+                if !sub.at_end() {
+                    return Err(format!("bad #DEFINE body for {}", name));
+                }
+                Ok(Some(list))
+            }
+            _ => {
+                self.pos = save;
+                Ok(None)
+            }
+        }
     }
 
     /// A full expression, including the lowest-precedence `c ? a # b`.
@@ -307,7 +335,11 @@ impl<'a> ExprParser<'a> {
             }
         }
         let digits: String = self.s[ds..self.pos].iter().collect();
-        let mut v = i64::from_str_radix(&digits, radix).map_err(|_| format!("bad number '{}'", self.s[start..self.pos].iter().collect::<String>()))?;
+        let bad = || format!("bad number '{}'", self.s[start..self.pos].iter().collect::<String>());
+        // hex and binary fill all 64 bits, as C#'s Convert.ToInt64(s, 16):
+        // `0xffffffffffffffff` is -1 (erarl's bit arrays)
+        let mut v =
+            if radix == 10 { i64::from_str_radix(&digits, radix).map_err(|_| bad())? } else { u64::from_str_radix(&digits, radix).map_err(|_| bad())? as i64 };
         // Emuera: 1p3 == 1<<3, 1e3 == 1000
         if radix == 10 {
             if let Some(c @ ('p' | 'P' | 'e' | 'E')) = self.peek() {
@@ -536,6 +568,15 @@ fn skip_plain_str(ch: &[char], mut i: usize) -> Option<usize> {
         }
     }
     None
+}
+
+/// The length in bytes of the FORM string `s` starts with (at its opening
+/// `"`, the `@` before it not included) up to and with its closing `"`;
+/// None when it isn't closed.
+pub fn form_string_len(s: &str) -> Option<usize> {
+    let ch: Vec<char> = s.chars().collect();
+    let end = scan_form(&ch, 1, FormEnd::Quote)?;
+    Some(ch[..=end].iter().map(|c| c.len_utf8()).sum())
 }
 
 /// Split FORM text at `sep` outside its `%…%`, `{…}` and `\@…\@` parts

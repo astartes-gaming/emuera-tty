@@ -8,6 +8,69 @@ CALL INCREMENT(NUMS)
 CALL CHECK, "REF array argument", NUMS:1 == 2
 CALL CHECK, "recursion", FACT(10) == 3628800
 CALL CHECKS, "a private VARS is assigned, not declared again", OWN_VARS(), "Turn 3+"
+; Era4X: a comma before the closing bracket (or the line's end) adds no argument
+CALL CHECK, "trailing comma, function", TRAIL(1, 2,) == 3
+CALL TRAIL_CALL(4, 5,)
+CALL CHECK, "trailing comma, CALL (...)", RESULT == 9
+CALL TRAIL_CALL, 6, 7,
+CALL CHECK, "trailing comma, CALL a, b,", RESULT == 13
+; Era4X, eraFL: a comma at the end of a statement's arguments
+LOCAL = 0
+REPEAT 3,
+	LOCAL += 1
+REND
+CALL CHECK, "trailing comma, REPEAT", LOCAL == 3
+; eraMegaten: a comma between the variable and the operator
+LOCAL = 10
+LOCAL:0,-= 4
+CALL CHECK, "comma before -=", LOCAL == 6
+; eraMaouEX, eraQueen: `==` as a statement assigns (Emuera warns)
+LOCAL == 5
+CALL CHECK, "== assigns", LOCAL == 5
+; erarl: 16 hex digits fill the 64 bits
+CALL CHECK, "0xffffffffffffffff is -1", 0xffffffffffffffff == -1 && 0x8000000000000000 < 0
+; eraFL: a string in a FORM string's %…% may hold a ;
+LOCALS '= @"[%TOSTR(-7, " 000;-000")%]"
+CALL CHECKS, "; in a string in @\"%…%\"", LOCALS, "[-007]"
+; AnonTW: a % in a FORM string's \@ … \@ is the modulo, and the ; after it a comment
+LOCALS '= @"<\@ 3 % 2 ?odd#even\@>" ;a comment
+CALL CHECKS, "; after @\"\\@ a % b ?…\\@\"", LOCALS, "<odd>"
+; eraMakaiRanch: list #DEFINEs as arguments
+FLAG:7 = 0
+SETBIT BIT_THREE
+CALL CHECK, "list #DEFINE, SETBIT and GETBIT", FLAG:7 == 8 && GETBIT(BIT_THREE)
+CALL CHECK, "list #DEFINE, GROUPMATCH", GROUPMATCH("desk", WORK_LIST) == 1 && GROUPMATCH("x", WORK_LIST) == 0
+; erablue_resort: a { } block whose first line is a comment is commented out
+LOCAL = 1
+{
+	;taken out for now
+	LOCAL = 2
+}
+CALL CHECK, "commented-out { } block", LOCAL == 1
+; eTC: a full-width space around TO
+SELECTCASE 7
+	CASE 1　TO 14
+		LOCAL = 3
+	CASEELSE
+		LOCAL = 4
+ENDSELECT
+CALL CHECK, "CASE 1　TO 14", LOCAL == 3
+; eraSDMprotoNTR: FUNC takes FORM text, whose strings may hold brackets
+TRYCALLLIST
+	FUNC %"NO_SUCH_" + "FUNC(" + "1)"%
+	FUNC %"TRAIL_" + "CALL"%(1, 2)
+ENDFUNC
+CALL CHECK, "FUNC %…%", RESULT == 3
+CALL CHECKS, "a VARS string set above its VARS line", VARS_LATER(), "Name"
+; eraSumireTeru (PuchiEmuera): its screen effects are skipped, and a
+; variable of the same name still assigns
+FADE "0", -1, 420, 2
+SHAKE "1", 20, 0, 100
+FONTEDGE 1
+FONTEDGE_COLOR 229, 107, 0
+RESET_FONTEDGE_COLOR
+FONTEDGE 0
+CALL CHECK, "a variable named SHAKE", OWN_SHAKE() == 7
 ;--- private #DIMs keep their value between calls unless DYNAMIC
 CALL COUNTER
 CALL COUNTER
@@ -69,3 +132,29 @@ RETURN 22
 VARS = Turn {1 + 2}
 VARS += "+"
 RETURNF VARS
+
+@TRAIL(A, B,)
+#FUNCTION
+#DIM A
+#DIM B
+RETURNF A + B
+
+@TRAIL_CALL, X, Y,
+#DIM X
+#DIM Y
+RETURN X + Y
+
+; eraMegatenP: a VARS string is one on lines above its VARS too
+@VARS_LATER
+#FUNCTIONS
+IF 1
+	L_MES = Na%"me"%
+	RETURNF L_MES
+ENDIF
+VARS L_MES
+
+@OWN_SHAKE
+#FUNCTION
+#DIM SHAKE
+SHAKE = 7
+RETURNF SHAKE

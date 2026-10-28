@@ -107,8 +107,14 @@ pub const NOT_IN_FUNCTION: &[&str] = &[
 /// every statement while parsing)
 pub fn is_builtin_command(c: &str) -> bool {
     static SET: std::sync::OnceLock<crate::fxhash::HashSet<&'static str>> = std::sync::OnceLock::new();
-    SET.get_or_init(|| COMMANDS.iter().copied().collect()).contains(c)
+    SET.get_or_init(|| COMMANDS.iter().chain(PUCHI_COMMANDS).copied().collect()).contains(c)
 }
+
+/// PuchiEmuera's commands (the engine eraSumireTeru comes with, documented
+/// in its `PuchiEmuEra_説明書.pdf`), not Emuera-EM/EE's or Anchor's: screen
+/// effects, ignored here, and OUTPUTHINTS. A line assigning to one of these
+/// names stays an assignment (a game's own `FADE`). See doc/differences.md.
+pub const PUCHI_COMMANDS: &[&str] = &["FADE", "SHAKE", "FONTEDGE", "FONTEDGE_COLOR", "RESET_FONTEDGE_COLOR", "OUTPUTHINTS"];
 /// Is `c` (upper-case) a built-in function (also usable as a statement)?
 pub fn is_builtin_function(c: &str) -> bool {
     static SET: std::sync::OnceLock<crate::fxhash::HashSet<&'static str>> = std::sync::OnceLock::new();
@@ -509,6 +515,24 @@ impl Vm {
         Ok(c)
     }
 
+    /// PuchiEmuera's OUTPUTHINTS: each `resources/HINT/<name>.dat` copied
+    /// next to the game as `<name>.txt` (where its exe would be).
+    fn output_hints(&mut self) {
+        let Some(dir) = crate::loader::find_dir_ci(&self.game_dir, "resources").and_then(|r| crate::loader::find_dir_ci(&r, "HINT")) else {
+            self.warn("OUTPUTHINTS: no resources/HINT folder");
+            return;
+        };
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("dat")) {
+                let to = self.game_dir.join(p.with_extension("txt").file_name().unwrap_or_default());
+                if let Err(err) = std::fs::copy(&p, &to) {
+                    self.warn(&format!("OUTPUTHINTS: {}: {}", to.display(), err));
+                }
+            }
+        }
+    }
+
     // =============================================================== commands
     /// Run a statement-style built-in. Unknown names fall through to
     /// `builtin_fn`; if that doesn't know them either, they are warned
@@ -520,6 +544,11 @@ impl Vm {
         };
         let a = &ex[..];
         match name {
+            // PuchiEmuera's fades, shakes and outlined text: nothing a
+            // terminal shows (a fade out to nothing included, so the text
+            // stays readable)
+            "FADE" | "SHAKE" | "FONTEDGE" | "FONTEDGE_COLOR" | "RESET_FONTEDGE_COLOR" => {}
+            "OUTPUTHINTS" => self.output_hints(),
             "DRAWLINE" => self.con.drawline(),
             "CUSTOMDRAWLINE" => {
                 if let Args::Raw(s) = args {

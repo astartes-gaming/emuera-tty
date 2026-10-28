@@ -13,6 +13,26 @@ pub fn read_text(path: &Path) -> io::Result<String> {
     Ok(decode(&bytes))
 }
 
+/// `s`'s lines as Emuera reads them (C#'s ReadAllLines): a line ends at
+/// "\r\n", "\n" or a lone "\r" (eraMaouEX has `\rDRAWLINE\rCALL …`).
+pub fn emuera_lines(s: &str) -> impl Iterator<Item = &str> {
+    let mut rest = s;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let b = rest.as_bytes();
+        Some(match b.iter().position(|&c| c == b'\n' || c == b'\r') {
+            Some(i) => {
+                let line = &rest[..i];
+                rest = &rest[i + if b[i] == b'\r' && b.get(i + 1) == Some(&b'\n') { 2 } else { 1 }..];
+                line
+            }
+            None => std::mem::take(&mut rest),
+        })
+    })
+}
+
 pub fn decode(bytes: &[u8]) -> String {
     decode_detect(bytes).0
 }
@@ -257,6 +277,14 @@ pub fn sjis_len(s: &str) -> usize {
 
 #[cfg(test)]
 mod order_tests {
+    #[test]
+    fn lines_as_emuera_reads_them() {
+        let v: Vec<&str> = super::emuera_lines("a\r\nb\rc\n\rd\n").collect();
+        assert_eq!(v, ["a", "b", "c", "", "d"]);
+        assert_eq!(super::emuera_lines("x").collect::<Vec<_>>(), ["x"]);
+        assert_eq!(super::emuera_lines("").count(), 0);
+    }
+
     use super::name_order;
 
     #[test]

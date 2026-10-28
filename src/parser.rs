@@ -280,15 +280,42 @@ fn failed_body(f: &Function, msg: String) -> Body {
     Body { code: vec![Instr::BadLine(msg.into(), true)], lines: vec![(f.file, f.line)], ..Body::default() }
 }
 
-/// Byte offsets of the starts of `lines` (1-based, ascending) in `raw`.
+/// Declare EE's VARI / VARS variable `decl` (`sizes`: its dimensions, none
+/// for a single value) in the function being built, once.
+fn declare_scoped(b: &mut FuncBuilder, decl: &str, sizes: &[i64], is_str: bool) {
+    let name = decl.to_uppercase();
+    if b.body.dims.iter().any(|d| d.name == name) {
+        return;
+    }
+    if is_str {
+        b.str_locals.insert(name.clone());
+    }
+    b.body.dims.push(DimDecl {
+        name,
+        decl_name: decl.to_string(),
+        is_str,
+        dims: if sizes.is_empty() { vec![Expr::Int(1)] } else { sizes.iter().map(|&n| Expr::Int(n)).collect() },
+        init: vec![],
+        is_const: false,
+        is_static: false,
+        is_global: false,
+        is_savedata: false,
+        is_chara: false,
+        is_ref: false,
+        is_dynamic: true,
+    });
+}
+
+/// Byte offsets of the starts of `lines` (1-based, ascending) in `raw`,
+/// counted as `loader::emuera_lines` counts them (a lone `\r` ends a line).
 fn line_offsets(raw: &[u8], lines: impl Iterator<Item = u32>) -> Vec<u32> {
     let mut out = Vec::new();
     let (mut line, mut pos) = (1u32, 0usize);
     for want in lines {
         while line < want {
-            match raw[pos..].iter().position(|&c| c == b'\n') {
+            match raw[pos..].iter().position(|&c| c == b'\n' || c == b'\r') {
                 Some(i) => {
-                    pos += i + 1;
+                    pos += i + if raw[pos + i] == b'\r' && raw.get(pos + i + 1) == Some(&b'\n') { 2 } else { 1 };
                     line += 1;
                 }
                 None => {
@@ -390,7 +417,22 @@ impl LazySrc {
 fn strip_comment(s: &str) -> &str {
     let mut in_str = false;
     let mut prev = '\0';
+    // the end of a FORM string (`@"…"`) we are in: its `%…%`, `{…}` and
+    // `\@…\@` parts may hold strings of their own, which don't end it
+    // (`@"%TOSTR(X, " 000;-000")%"`)
+    let mut form_end = 0;
     for (i, c) in s.char_indices() {
+        if i < form_end {
+            prev = c;
+            continue;
+        }
+        if c == '"' && prev == '@' && !in_str {
+            if let Some(n) = crate::expr::form_string_len(&s[i..]) {
+                form_end = i + n;
+                prev = c;
+                continue;
+            }
+        }
         if c == '"' && prev != '\\' {
             in_str = !in_str;
         }
@@ -603,7 +645,7 @@ impl Parser {
         // per open [IF]: (this branch is active, a branch was taken)
         let mut cond_stack: Vec<(bool, bool)> = vec![(true, true); open_ifs];
         let mut join: Option<(u32, String)> = None;
-        for (no, raw) in text.lines().enumerate() {
+        for (no, raw) in crate::loader::emuera_lines(text).enumerate() {
             let no = no as u32 + first_no;
             let trimmed = raw.trim();
             // most lines are plain code: skip blanks / comments before
@@ -691,6 +733,11 @@ impl Parser {
             }
             if line == "}" {
                 if let Some((n, s)) = join.take() {
+                    // a block whose first line is a comment is one comment
+                    // line as a whole: games take code out that way
+                    if s.starts_with(';') {
+                        continue;
+                    }
                     if s.starts_with('@') {
                         depths.push(cond_stack.len() as u16);
                     }
@@ -941,6 +988,21 @@ impl Parser {
                 if let Err(e) = self.directive(b, line) {
                     self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
                 }
+            } else if line.get(..3).is_some_and(|c| c.eq_ignore_ascii_case("VAR")) {
+                // EE's `VARI X` / `VARS S`: the function's on every line, also
+                // above it (EE declares while reading the lines, and builds
+                // statements after: eraMegatenP sets a VARS string above its VARS)
+                let (cmd, rest) = split_cmd(line);
+                let text = strip_comment(rest);
+                let left = text.split('=').next().unwrap_or("");
+                let mut parts = left.split(',').map(str::trim);
+                let decl = parts.next().unwrap_or("");
+                let sizes: Option<Vec<i64>> = parts.map(|x| x.parse().ok()).collect();
+                if let (true, true, Some(sizes)) =
+                    (matches!(cmd.as_str(), "VARI" | "VARS"), decl.starts_with(|c: char| c.is_alphanumeric() || c == '_' || !c.is_ascii()), sizes)
+                {
+                    declare_scoped(b, decl, &sizes, cmd == "VARS");
+                }
             }
         }
         for (no, line) in lines {
@@ -978,7 +1040,13 @@ impl Parser {
         }
         let mut params = Vec::new();
         if !rest.trim().is_empty() {
-            for part in split_top(rest, ',') {
+            let mut parts = split_top(rest, ',');
+            // `@F(A, B,)`: a comma before the end adds nothing (Emuera's
+            // ReduceArguments stops at the bracket or the line's end)
+            if parts.len() > 1 && parts.last().is_some_and(|p| p.trim().is_empty()) {
+                parts.pop();
+            }
+            for part in parts {
                 let mut p = ExprParser::new(&part, &self.prog.defines);
                 let mut v = p.var_ref()?;
                 upper_var(&mut v);
@@ -1119,7 +1187,9 @@ impl Parser {
         if let Some(Ctl::CallList { .. }) = b.ctl.last() {
             let (cmd, rest) = split_cmd(line);
             if cmd == "FUNC" {
-                let (t, args) = self.call_target(strip_comment(rest), false)?;
+                // FORM text, as CALLFORM's (Emuera: SP_CALLFORM): eraSDMprotoNTR
+                // builds `FUNC %"KOJO_" + … + "(" + … + ")"%`
+                let (t, args) = self.call_target(strip_comment(rest), true)?;
                 if let Some(Ctl::CallList { entries, .. }) = b.ctl.last_mut() {
                     entries.push((t, args));
                 }
@@ -1165,7 +1235,14 @@ impl Parser {
             return Err(format!("{} instruction cannot be used in #FUNCTION(S)", cmd));
         }
         let defs = &self.prog.defines;
-        let arg_c = strip_comment(rest).trim();
+        let mut arg_c = strip_comment(rest).trim();
+        // `REPEAT X,`: a comma at the end adds no argument, as Emuera's
+        // ReduceArguments stops at the line's end (not for text arguments)
+        if !raw_arg_cmd(&cmd) && !form_arg_cmd(&cmd) && !matches!(cmd.as_str(), "INPUTS" | "ONEINPUTS" | "TINPUTS" | "TONEINPUTS") {
+            if let Some(a) = arg_c.strip_suffix(',') {
+                arg_c = a.trim_end();
+            }
+        }
 
         // PRINT family
         if let Some(fl) = print_data_flags(&cmd) {
@@ -1480,25 +1557,7 @@ impl Parser {
                 let sizes: Vec<i64> = parts.map(|x| x.parse::<i64>().map_err(|_| format!("{}: bad size '{}'", cmd, x))).collect::<Result<_, _>>()?;
                 let name = decl.to_uppercase();
                 let is_array = !sizes.is_empty();
-                if !b.body.dims.iter().any(|d| d.name == name) {
-                    if is_str {
-                        b.str_locals.insert(name.clone());
-                    }
-                    b.body.dims.push(DimDecl {
-                        name: name.clone(),
-                        decl_name: decl,
-                        is_str,
-                        dims: if is_array { sizes.iter().map(|&n| Expr::Int(n)).collect() } else { vec![Expr::Int(1)] },
-                        init: vec![],
-                        is_const: false,
-                        is_static: false,
-                        is_global: false,
-                        is_savedata: false,
-                        is_chara: false,
-                        is_ref: false,
-                        is_dynamic: true,
-                    });
-                }
+                declare_scoped(b, &decl, &sizes, is_str);
                 let var = Rc::new(VarRef::new(name.into(), vec![]));
                 if is_array {
                     // a fresh, empty array each time the line runs
@@ -1549,7 +1608,10 @@ impl Parser {
                 Self::after_stmt(b);
             }
             _ => {
-                if is_command(&cmd) {
+                // (PuchiEmuera's names are commands only when not assigned to)
+                let assigned =
+                    crate::vm::builtins::PUCHI_COMMANDS.contains(&cmd.as_str()) && rest.trim_start().starts_with(|c: char| "=+-*/%&|^<>'".contains(c));
+                if is_command(&cmd) && !assigned {
                     let args = if raw_arg_cmd(&cmd) {
                         Args::Raw(arg_c.to_string())
                     } else if form_arg_cmd(&cmd) {
@@ -1577,6 +1639,11 @@ impl Parser {
         let mut v = p.var_ref()?;
         upper_var(&mut v);
         p.skip_ws();
+        // `FLAG:X,-= 1`: Emuera reads the left side as an argument list,
+        // where a comma at its end adds nothing (eraMegaten)
+        if p.eat(",") {
+            p.skip_ws();
+        }
         let ops: &[(&str, AsgOp)] = &[
             ("'=", AsgOp::SetExpr),
             ("+=", AsgOp::Add),
@@ -1608,7 +1675,9 @@ impl Parser {
         let op = match op {
             Some(o) => o,
             None => {
-                if p.eat("=") {
+                // `X == 1` assigns: "used a lot, so it is the rule" in Emuera
+                // (LogicalLineParser, with a warning)
+                if p.eat("==") || p.eat("=") {
                     AsgOp::Set
                 } else {
                     return Err(format!("unknown command or bad assignment: '{}'", line));
@@ -1799,7 +1868,6 @@ impl Parser {
 /// (`CASE 1 TO 5`), so names containing TO aren't split.
 fn find_word(up: &str, w: &str) -> Option<usize> {
     let mut in_str = false;
-    let b = up.as_bytes();
     for (i, c) in up.char_indices() {
         if c == '"' {
             in_str = !in_str;
@@ -1807,9 +1875,10 @@ fn find_word(up: &str, w: &str) -> Option<usize> {
         if in_str || !up[i..].starts_with(w) {
             continue;
         }
-        let before = if i == 0 { b' ' } else { b[i - 1] };
-        let after = b.get(i + w.len()).copied().unwrap_or(b' ');
-        if (before == b' ' || before == b'\t') && (after == b' ' || after == b'\t') {
+        // (a full-width space is one too, as Emuera's SystemAllowFullSpace
+        // has it by default: eTC's `CASE 1　TO 14`)
+        let space = |c: Option<char>| c.is_none_or(|c| c == ' ' || c == '\t' || c == '\u{3000}');
+        if space(up[..i].chars().next_back()) && space(up[i + w.len()..].chars().next()) {
             return Some(i);
         }
     }
@@ -1921,4 +1990,16 @@ fn upper_form_in(f: Form) -> Form {
 /// Known statement-style commands (everything that is not an assignment).
 pub fn is_command(c: &str) -> bool {
     crate::vm::builtins::is_builtin_command(c) || crate::vm::builtins::is_builtin_function(c)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn line_offsets_count_lone_cr() {
+        // lines 1 "a", 2 "", 3 "b", 4 "c": the lazy compiler reads from these
+        let raw = b"a\r\rb\r\nc";
+        assert_eq!(super::line_offsets(raw, [1, 2, 3, 4].into_iter()), [0, 2, 3, 6]);
+        let text = std::str::from_utf8(raw).unwrap();
+        assert_eq!(crate::loader::emuera_lines(text).nth(3), Some("c"));
+    }
 }

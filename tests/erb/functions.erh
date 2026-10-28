@@ -1,0 +1,3 @@
+; eraMakaiRanch: a #DEFINE whose body is a list stands for several arguments
+#DEFINE BIT_THREE FLAG:7,3
+#DEFINE WORK_LIST "milk","desk","bath",

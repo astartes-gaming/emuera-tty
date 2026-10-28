@@ -173,7 +173,7 @@ impl GameCsv {
             let file = if *key == "PALAM" && g.param_csv { "PARAM.CSV" } else { file };
             if let Some(p) = find_file_ci(csv_dir, file) {
                 if let Ok(text) = read_text(&p) {
-                    for line in text.lines() {
+                    for line in crate::loader::emuera_lines(&text) {
                         let f = csv_fields(line);
                         if f.len() < 2 {
                             continue;
@@ -194,7 +194,7 @@ impl GameCsv {
             let als_name = format!("{}.ALS", file.trim_end_matches(".CSV"));
             if let Some(p) = als_dir.as_deref().and_then(|d| find_file_ci(d, &als_name)) {
                 if let Ok(text) = read_text(&p) {
-                    for line in text.lines() {
+                    for line in crate::loader::emuera_lines(&text) {
                         let f = csv_fields(line);
                         if let (Some(idx), Some(name)) = (f.first().and_then(|s| parse_i64(s)), f.get(1)) {
                             t.add_alias(idx, name);
@@ -206,7 +206,7 @@ impl GameCsv {
         }
         if let Some(p) = find_file_ci(csv_dir, "STR.CSV") {
             if let Ok(text) = read_text(&p) {
-                for line in text.lines() {
+                for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
                     if f.len() >= 2 {
                         if let Some(i) = parse_i64(&f[0]) {
@@ -218,7 +218,7 @@ impl GameCsv {
         }
         if let Some(p) = find_file_ci(csv_dir, "GAMEBASE.CSV") {
             if let Ok(text) = read_text(&p) {
-                for line in text.lines() {
+                for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
                     if f.len() >= 2 {
                         g.gamebase.insert(f[0].clone(), f[1..].join(","));
@@ -228,7 +228,7 @@ impl GameCsv {
         }
         if let Some(p) = find_file_ci(csv_dir, "VariableSize.CSV") {
             if let Ok(text) = read_text(&p) {
-                for line in text.lines() {
+                for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
                     if f.len() >= 2 {
                         let dims: Vec<usize> = f[1..].iter().filter_map(|s| s.parse::<i64>().ok()).map(|v| v.max(0) as usize).collect();
@@ -239,7 +239,7 @@ impl GameCsv {
         }
         if let Some(p) = find_file_ci(csv_dir, "_Replace.CSV") {
             if let Ok(text) = read_text(&p) {
-                for line in text.lines() {
+                for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
                     if f.len() >= 2 {
                         // keys in Japanese or English, spaces around them
@@ -251,7 +251,7 @@ impl GameCsv {
         }
         if let Some(p) = find_file_ci(csv_dir, "_Rename.CSV") {
             if let Ok(text) = read_text(&p) {
-                for line in text.lines() {
+                for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
                     if f.len() >= 2 {
                         // format: replacement,[[name]]
@@ -283,7 +283,7 @@ impl GameCsv {
                 let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
                 let mut t = NameTable::default();
                 if let Ok(text) = read_text(&p) {
-                    for line in text.lines() {
+                    for line in crate::loader::emuera_lines(&text) {
                         let f = csv_fields(line);
                         if f.len() >= 2 {
                             if let Some(i) = parse_i64(&f[0]) {
@@ -332,12 +332,15 @@ impl GameCsv {
     /// One character file: `番号,1` / `名前,…` / `能力,技巧,3` style rows.
     fn parse_chara(&mut self, text: &str, file: &Path) -> CharaTemplate {
         let mut c = CharaTemplate::default();
-        for line in text.lines() {
+        for (line, joined) in joined_lines(text) {
+            let line = line.as_str();
             let f = csv_fields(line);
             if f.is_empty() {
                 continue;
             }
-            let key = f[0].as_str();
+            // (Emuera upper-cases the key: eraMegaten writes `cstr`)
+            let key = f[0].to_uppercase();
+            let key = key.as_str();
             let a1 = f.get(1).map(|s| s.as_str()).unwrap_or("");
             let a2 = f.get(2).map(|s| s.as_str());
             let ival = |s: Option<&str>, d: i64| s.and_then(parse_i64).unwrap_or(d);
@@ -350,7 +353,10 @@ impl GameCsv {
                 "助手" | "ISASSI" => c.ints.push(("ISASSI".into(), 0, ival(Some(a1), 1))),
                 "CSTR" => {
                     if let Some(i) = self.idx("CSTR", a1, file) {
-                        c.strs.push(("CSTR".into(), i, a2.unwrap_or("").to_string()));
+                        // a joined value as Emuera keeps it: its third field
+                        // whole, spaces and all (`strArray[index] = tokens[2]`)
+                        let v = if joined { line.trim_start().split(',').nth(2).unwrap_or("") } else { a2.unwrap_or("") };
+                        c.strs.push(("CSTR".into(), i, v.to_string()));
                     }
                 }
                 "相性" | "RELATION" => {
@@ -389,5 +395,57 @@ impl GameCsv {
             c.callname = c.name.clone();
         }
         c
+    }
+}
+
+/// A character file's lines, with Emuera's `{` … `}` joining
+/// (`EraStreamReader.ReadEnabledLine`, which its CSV loading goes through
+/// as ERB does): the lines between become one, each followed by a space
+/// (`ReplaceContinuationBR`'s default). Each line comes with whether it was
+/// joined; a block left open runs to the end of the file.
+fn joined_lines(text: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let mut block: Option<String> = None;
+    for raw in crate::loader::emuera_lines(text) {
+        let t = raw.trim();
+        match block.as_mut() {
+            None if t == "{" => block = Some(String::new()),
+            None => out.push((raw.to_string(), false)),
+            Some(b) if t == "}" => {
+                out.push((std::mem::take(b), true));
+                block = None;
+            }
+            Some(b) => {
+                b.push_str(raw);
+                b.push(' ');
+            }
+        }
+    }
+    if let Some(b) = block {
+        out.push((b, true));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brace_blocks_join() {
+        let text = "番号,1\n{\nCSTR,性癖,\n精飲Lv0\n同性愛Lv1\n}\n名前,A\n{\nopen";
+        let lines = joined_lines(text);
+        let got: Vec<(&str, bool)> = lines.iter().map(|(l, j)| (l.as_str(), *j)).collect();
+        assert_eq!(got, [("番号,1", false), ("CSTR,性癖, 精飲Lv0 同性愛Lv1 ", true), ("名前,A", false), ("open ", true)]);
+    }
+
+    #[test]
+    fn chara_keys_and_joined_cstr() {
+        // lower-case keys (eraMegaten's `cstr`), a joined CSTR kept whole
+        let mut g = GameCsv::default();
+        let t = g.parse_chara("番号,5\ncstr,0,abc\n{\nCSTR,1,\nx\ny\n}\n", Path::new("Chara5.csv"));
+        assert_eq!(t.no, 5);
+        assert_eq!(t.strs, [("CSTR".to_string(), 0, "abc".to_string()), ("CSTR".to_string(), 1, " x y ".to_string())]);
+        assert!(g.warnings.is_empty(), "{:?}", g.warnings);
     }
 }
