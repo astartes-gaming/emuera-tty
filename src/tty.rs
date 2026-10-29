@@ -1039,7 +1039,8 @@ impl Tty {
         // KMSCON: warn about known limitations
         if term == "kmscon" || term.starts_with("kmscon-") {
             if t.gfx.name() == "kmscon" {
-                t.notice = Some("KMSCON: framebuffer graphics unlikely to work (KMSCON controls /dev/fb0); mouse hover unsupported (KMSCON draws own cursor)".into());
+                t.notice =
+                    Some("KMSCON: framebuffer graphics unlikely to work (KMSCON controls /dev/fb0); mouse hover unsupported (KMSCON draws own cursor)".into());
             } else {
                 t.notice = Some("KMSCON: mouse hover unsupported (KMSCON draws own cursor)".into());
             }
