@@ -749,6 +749,8 @@ impl Mt {
 
     /// Export the translation cache to a file, formatted like a translation log.
     /// Only includes successful translations (from `memory` and `seen`).
+    /// Batch translations (multiple lines) are split into individual rows,
+    /// like --translate-log does.
     /// Returns the number of lines written, or an error.
     pub fn export_cache(&self, path: &std::path::Path) -> Result<usize, String> {
         use std::io::Write;
@@ -756,15 +758,33 @@ impl Mt {
         let header = log_header(&self.lang, &self.engine_desc);
         writeln!(file, "{}", header).map_err(|e| e.to_string())?;
         let mut count = 0;
+        // Helper to write an entry, splitting batch translations into individual rows
+        let mut write_entry = |orig: &str, tr: &str, pair: &str| -> Result<(), String> {
+            let src_lines: Vec<&str> = orig.split('\n').collect();
+            let dst_lines: Vec<&str> = tr.split('\n').collect();
+            if src_lines.len() > 1 && src_lines.len() == dst_lines.len() {
+                // Batch whose lines came back as lines: a row for each
+                for (s, d) in src_lines.iter().zip(&dst_lines) {
+                    if s.trim().is_empty() {
+                        continue;
+                    }
+                    let _ = writeln!(file, "-\t{}\t{}\t{}\t{}", pair, self.engine_desc, flat(s), flat(d));
+                    count += 1;
+                }
+            } else {
+                // One line, or a translation that merged/split the lines: one row
+                let _ = writeln!(file, "-\t{}\t{}\t{}\t{}", pair, self.engine_desc, flat(orig), flat(tr));
+                count += 1;
+            }
+            Ok(())
+        };
         // First: translations from --translate-load files (memory)
         for (orig, tr) in &self.memory {
             if orig.is_empty() || tr.is_empty() {
                 continue;
             }
-            // We don't have a place for these, so use "-"
             let pair = format!("{}>{}", if orig.chars().any(|c| is_japanese(c)) { "ja" } else { "en" }, self.lang);
-            let _ = writeln!(file, "-\t{}\t{}\t{}\t{}", pair, self.engine_desc, flat(orig), flat(tr));
-            count += 1;
+            write_entry(orig, tr, &pair)?;
         }
         // Then: translations from this session (seen)
         for (orig, state) in &self.seen {
@@ -772,10 +792,8 @@ impl Mt {
                 if orig.is_empty() || tr.is_empty() {
                     continue;
                 }
-                // We don't track the place in seen, so use "-"
                 let pair = format!("{}>{}", if orig.chars().any(|c| is_japanese(c)) { "ja" } else { "en" }, self.lang);
-                let _ = writeln!(file, "-\t{}\t{}\t{}\t{}", pair, self.engine_desc, flat(orig), flat(tr));
-                count += 1;
+                write_entry(orig, tr, &pair)?;
             }
         }
         Ok(count)
