@@ -370,7 +370,14 @@ mod tests {
         let d = std::env::temp_dir().join(format!("emuera-tty-sound-{}", std::process::id()));
         std::fs::create_dir_all(d.join("Sound/SE")).unwrap();
         std::fs::write(d.join("Sound/SE/Ok.wav"), b"RIFF").unwrap();
-        assert_eq!(find_file(&d, "se\\ok.WAV"), Some(d.join("Sound/SE/Ok.wav")));
+        let got = find_file(&d, "se\\ok.WAV").expect("found");
+        if d.join("sound").exists() {
+            // a case-insensitive file system (macOS, Windows): the name as
+            // written already opens the file
+            assert_eq!(std::fs::read(&got).unwrap(), b"RIFF");
+        } else {
+            assert_eq!(got, d.join("Sound/SE/Ok.wav"));
+        }
         assert_eq!(find_file(&d, "se/../../x"), None);
         assert_eq!(find_file(&d, "se/none.wav"), None);
         let _ = std::fs::remove_dir_all(&d);

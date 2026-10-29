@@ -30,7 +30,7 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt --check
       - name: Tests
-        run: cargo test --release
+        run: cargo test --release --no-fail-fast
 
   build:
     name: ${{ matrix.name }}

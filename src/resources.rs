@@ -1788,7 +1788,8 @@ mod tests {
         let mut r = Resources::default();
         let img = || Some(Rc::new(RgbaImage::new(10, 10))); // 400 bytes each
         r.file_budget = 800;
-        let (a, b, c) = (PathBuf::from("/x/a.png"), PathBuf::from("/x/b.png"), PathBuf::from("/x/c.png"));
+        // keyed as file() keys them ("/x" has no drive on Windows)
+        let (a, b, c) = (file_key(Path::new("/x/a.png")), file_key(Path::new("/x/b.png")), file_key(Path::new("/x/c.png")));
         r.insert_file(a.clone(), img());
         r.insert_file(b.clone(), img());
         r.touch(&a); // a used after b
