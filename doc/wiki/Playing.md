@@ -10,9 +10,9 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   bottom): Enter, any key, or a click.
 - **Skip to the next choice**: right-click (or Tab) where the game waits:
   the text that follows runs by without stopping until the game asks for
-  a number or a choice, as Emuera's right click does. Right-clicking a
-  choice picks it and skips the text after it. (A `FORCEWAIT` still
-  stops, and the EE `INPUT default, mouse, canskip` takes its default.)
+  a number or a choice, as Emuera's right click does. A right click never
+  picks a choice: only a left click does, as in Emuera. (A `FORCEWAIT`
+  still stops, and the EE `INPUT default, mouse, canskip` takes its default.)
 - **Typing**: ← / → move in the line being typed, Home / End go to its
   start and end, Delete and Backspace erase, Ctrl-U or Esc clear it.
   ↑ / ↓ go through your last 100 inputs, as in Emuera: typed ones and
