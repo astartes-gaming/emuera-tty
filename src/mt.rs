@@ -783,7 +783,7 @@ impl Mt {
             if orig.is_empty() || tr.is_empty() {
                 continue;
             }
-            let pair = format!("{}>{}", if orig.chars().any(|c| is_japanese(c)) { "ja" } else { "en" }, self.lang);
+            let pair = format!("{}>{}", if orig.chars().any(is_japanese) { "ja" } else { "en" }, self.lang);
             write_entry(orig, tr, &pair)?;
         }
         // Then: translations from this session (seen)
@@ -792,7 +792,7 @@ impl Mt {
                 if orig.is_empty() || tr.is_empty() {
                     continue;
                 }
-                let pair = format!("{}>{}", if orig.chars().any(|c| is_japanese(c)) { "ja" } else { "en" }, self.lang);
+                let pair = format!("{}>{}", if orig.chars().any(is_japanese) { "ja" } else { "en" }, self.lang);
                 write_entry(orig, tr, &pair)?;
             }
         }

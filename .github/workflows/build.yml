@@ -13,15 +13,21 @@ env:
 jobs:
   # unit tests, the sample game's self-test and the ERB suite (tests/erb,
   # tests/golden, tests/save: see tests/erb_suite.rs)
+  # on Linux, and on macOS and Windows, which no VM here can run
   test:
-    name: tests
-    runs-on: ubuntu-24.04
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
         with:
           key: test
       - name: Formatting
+        if: runner.os == 'Linux'
         run: cargo fmt --check
       - name: Tests
         run: cargo test --release

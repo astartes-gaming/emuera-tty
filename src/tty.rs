@@ -1036,10 +1036,10 @@ impl Tty {
             t.rows,
             t.mice.as_ref().map_or_else(|| t.notice.clone().unwrap_or_else(|| "none".into()), |m| m.describe().to_string())
         ));
-        // KMSCON: warn about known limitations
+        // KMSCON (only when its TERM is set to kmscon: its default is
+        // xterm-256color): no image protocol, and no hover reports
         if term == "kmscon" || term.starts_with("kmscon-") {
-            t.notice =
-                Some("KMSCON: framebuffer graphics unlikely to work (KMSCON controls /dev/fb0); mouse hover also unsupported (KMSCON draws own cursor)".into());
+            t.notice = Some("KMSCON: no pictures (it has no image protocol), no mouse hover".into());
         }
         Ok(t)
     }

@@ -13,11 +13,20 @@
 
 ### KMSCON limitations
 
-KMSCON (the Linux KMS/DRM userspace console) does not currently support any terminal graphics protocol (sixel, kitty graphics, iTerm2 images). The framebuffer blitting approach used by the `fb` backend does not work with KMSCON because KMSCON itself controls `/dev/fb0` (or the DRM device) as a userspace process; applications running inside KMSCON cannot write to the framebuffer without conflicting with KMSCON's own rendering.
+KMSCON (the Linux KMS/DRM userspace console) has no terminal image
+protocol (sixel, kitty graphics, iTerm2 images), so pictures show as
+placeholders. The `fb` backend can't draw there either: KMSCON itself owns
+the framebuffer (or the DRM device), and writing to it would fight with
+KMSCON's own rendering.
 
-Additionally, KMSCON draws its own mouse cursor and does not report hover (motion) events to applications — only clicks are delivered. This means tooltips, button highlighting, and picture menus that rely on hover will not function in KMSCON.
+KMSCON also draws its own mouse pointer and reports only clicks, not
+motion, so tooltips, button highlighting and picture menus that rely on
+hover don't work. Both would need KMSCON to implement an image protocol
+(in libtsm and its renderers) and mouse motion reports (DECSET 1003).
 
-For graphics and full mouse support to work in KMSCON, KMSCON would need to implement a terminal graphics protocol in libtsm and its renderers, and emit standard mouse motion escape sequences (DECSET 1003).
+KMSCON sets `TERM=xterm-256color` by default, so emuera-tty can't tell it
+apart from xterm; with `TERM=kmscon` (its `--term` option) the prompt line
+shows a reminder of these limits.
 
 ### Canvas games and speed
 
