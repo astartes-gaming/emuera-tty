@@ -47,6 +47,8 @@ Expect rough edges in parts of the games nobody has played through yet
   - [1. What you need](#1-what-you-need)
   - [2. Install](#2-install)
     - [Build and install](#build-and-install)
+    - [Installing on your distribution](#installing-on-your-distribution)
+      - [SteamOS (Steam Deck)](#steamos-steam-deck)
     - [Build status](#build-status)
     - [Other systems](#other-systems)
     - [Other CPUs](#other-cpus)
@@ -174,6 +176,56 @@ and tell you to add that to `PATH`, with this line in `~/.bashrc` (or
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+### Installing on your distribution
+
+Building needs **git**, a **C linker** (gcc) and **Rust 1.88 or newer**
+(`rustc --version` shows yours). Where the distribution's own Rust is
+older, get Rust from rustup instead. After the packages, run the four
+commands under [Build and install](#build-and-install).
+
+| Distribution | Packages |
+|---|---|
+| **Debian** 13+, **Ubuntu** 24.04+, Linux Mint 22+, Pop!_OS, Raspberry Pi OS | `sudo apt install git gcc rustup`, then `rustup default stable` (their packaged `rustc` is too old) |
+| Older Debian / Ubuntu | `sudo apt install git gcc curl`, then the rustup line under [What you need](#1-what-you-need) |
+| **Fedora** | `sudo dnf install git gcc rust cargo` |
+| **Arch**, Manjaro, EndeavourOS | `sudo pacman -S --needed git gcc rust` |
+| **openSUSE** Tumbleweed | `sudo zypper install git gcc rust cargo` |
+| openSUSE Leap | `sudo zypper install git gcc rustup`, then `rustup default stable` |
+| **Alpine** 3.23+ | `doas apk add git build-base rust cargo` |
+| **Void** | `sudo xbps-install -S git gcc rust cargo` |
+| **Gentoo** | `sudo emerge --ask dev-vcs/git dev-lang/rust-bin` |
+| **NixOS** | `nix-shell -p git gcc rustc cargo`, then build inside that shell |
+| Fedora Silverblue, Bazzite, other read-only systems | build in a Distrobox, as for SteamOS below |
+
+The Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine and Void lines are
+tested by building in their containers (October 2026); the Gentoo and
+NixOS ones aren't yet.
+
+#### SteamOS (Steam Deck)
+
+SteamOS has no compiler and its system folders are read-only, so build in
+a **Distrobox** container (SteamOS 3.5 and later have `distrobox`; the
+container shares your home folder). In **Desktop Mode** (Steam button →
+Power → Switch to Desktop), open Konsole:
+
+```sh
+distrobox create -n build -i archlinux:latest
+distrobox enter build
+sudo pacman -S --needed git gcc rust
+git clone https://github.com/astartes-gaming/emuera-tty.git
+cd emuera-tty && cargo build --release
+./target/release/emuera-tty --install
+exit
+```
+
+The program lands in `~/.local/bin`, outside the container, and runs on
+SteamOS itself: `emuera-tty` in Konsole. `emuera-tty --upgrade` needs the
+container too (`distrobox enter build -- emuera-tty --upgrade`).
+Alternatively, copy a **static build** made on another Linux PC (the
+recipe under [Other CPUs](#other-cpus) with `x86_64-unknown-linux-musl`)
+into `~/.local/bin` and `chmod +x` it. To play from Game Mode with the
+controller, see [Gamepads and the Steam Deck](#gamepads-and-the-steam-deck).
 
 ### Build status
 
@@ -1077,27 +1129,10 @@ they aren't yours to read, and nothing happens.
 
 1. **Desktop Mode** (Steam button → Power → Switch to Desktop) for setting
    up.
-2. **Get the program.** SteamOS has no C compiler, which building needs, so
-   either:
-   - copy a **static build** from another Linux PC: build it there with the
-     recipe under [Other CPUs](#other-cpus) for `x86_64-unknown-linux-musl`
-     (or take the `emuera-tty-linux-x86_64-static` artifact of the *Build
-     all platforms* workflow on GitHub), put it in `~/.local/bin` on the
-     Deck and `chmod +x` it; or
-   - build it on the Deck in a **Distrobox** container (SteamOS 3.5 and
-     later have `distrobox`; the container shares your home folder):
-
-     ```sh
-     distrobox create -n build -i archlinux:latest
-     distrobox enter build
-     sudo pacman -S --needed git rust gcc
-     git clone https://github.com/astartes-gaming/emuera-tty.git
-     cd emuera-tty && cargo build --release
-     ./target/release/emuera-tty --install
-     ```
-
-     The program lands in `~/.local/bin`, outside the container, and runs
-     on SteamOS itself.
+2. **Get the program**, as under [SteamOS](#steamos-steam-deck) (a
+   Distrobox build, or a static build copied from another PC; the
+   `emuera-tty-linux-x86_64-static` artifact of the *Build all platforms*
+   workflow on GitHub is one).
 3. **Copy your game** somewhere in your home folder (`~/Games/…`), with
    its saves if you have some.
 4. **Add it to Steam**, so Steam hands the controller over as a gamepad:
