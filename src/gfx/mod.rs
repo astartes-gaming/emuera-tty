@@ -12,6 +12,11 @@ pub mod fb;
 pub mod fb;
 pub mod iterm;
 pub mod kitty;
+#[cfg(target_os = "linux")]
+pub mod kmscon;
+#[cfg(not(target_os = "linux"))]
+#[path = "fb_none.rs"]
+pub mod kmscon;
 pub mod sixel;
 
 use image::RgbaImage;

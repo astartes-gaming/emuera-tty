@@ -1189,7 +1189,7 @@ terminal:
 - Make the window **wide**: many games lay out menus for ~150 columns.
   If a game warns that the window is too narrow, shrink the font or
   widen the window.
-- `--gfx none` turns images off; `--gfx kitty|iterm|sixel|fb` forces a backend
+- `--gfx none` turns images off; `--gfx kitty|iterm|sixel|fb|kmscon` forces a backend
   if auto-detection guesses wrong.
 - **tmux**: with kitty or Ghostty outside it, put `set -g allow-passthrough
   all` in `~/.tmux.conf` (then `tmux source ~/.tmux.conf`). (`on` works
@@ -1330,7 +1330,7 @@ emuera-tty [GAME_DIR | GIT_URL] [options]
 |---|---|
 | `--choose` | open the game picker even if a game is remembered |
 | `--clone URL` | clone a game's git repository in the launcher and select it (a URL as `GAME_DIR` does the same) |
-| `--gfx auto\|kitty\|iterm\|sixel\|fb\|none` | image backend (also `EMUERA_GFX`) |
+| `--gfx auto\|kitty\|iterm\|sixel\|fb\|kmscon\|none` | image backend (also `EMUERA_GFX`) |
 | `--check` | parse the game, list errors, exit |
 | `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input |
 | `--strict` | unimplemented commands are errors instead of warnings |
@@ -1503,6 +1503,7 @@ functions run in, and the order variables are saved in.
 | Environment | Backend | How |
 |---|---|---|
 | `TERM=linux` / `fbterm*` (VT) | **fb** | mmaps `/dev/fb0`, alpha-blends sprites onto the console after each frame. Needs read/write access to the device (`video` group). Cell size = fb resolution ÷ cols/rows. |
+| `TERM=kmscon*` (KMSCON with fbdev) | **kmscon** | *experimental*; KMSCON controls `/dev/fb0` so direct blitting conflicts with KMSCON's own rendering. Images likely won't appear. For graphics to work, KMSCON would need to implement a terminal graphics protocol (sixel, kitty). Mouse hover also unsupported (KMSCON draws its own cursor). |
 | `TERM_PROGRAM=iTerm.app` / `WezTerm`, `LC_TERMINAL=iTerm2` | **iterm** | PNG per sprite in `OSC 1337 File=`, sized in whole cells (padded, so never stretched), cached. |
 | kitty graphics reply `_Gi=31;OK` | **kitty** | zlib-compressed RGBA (`o=z`) transmitted once per sprite+size, `a=p` placements (a replaced picture is placed before the old one is taken off), source-rect crop at the screen edge. |
 | inside tmux with `allow-passthrough on`, and a kitty graphics reply or `GHOSTTY_RESOURCES_DIR` / `KITTY_WINDOW_ID` | **kitty-tmux** | the same through tmux's passthrough, placed with kitty's Unicode placeholders (U+10EEEE, the image id as the 256-colour foreground, row/column diacritics), which tmux handles as text. |
@@ -1597,7 +1598,7 @@ src/
   translate.rs         Emuera-Anchor *_TR.csv / ALL_TR.csv / TRCHARA / PARAM.CSV / TR_NAME
   tty.rs               raw-mode TUI, layout/wrapping/alignment, mouse, colour downgrade (24-bit/256/16)
   xml.rs               XML documents, XPath subset (Emuera-EM/EE XML_* functions)
-  gfx/{fb,fb_none,iterm,kitty,mod,sixel}.rs
+  gfx/{fb,fb_none,iterm,kitty,kmscon,mod,sixel}.rs
   tty/envvars.rs       environment-variable overrides for settings
   tty/gamecfg.rs       Emuera's settings window (tabs, fields, emuera.config r/w)
   tty/lineedit.rs      input line editor with history, macros, key bindings

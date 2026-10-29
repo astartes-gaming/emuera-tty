@@ -1036,6 +1036,14 @@ impl Tty {
             t.rows,
             t.mice.as_ref().map_or_else(|| t.notice.clone().unwrap_or_else(|| "none".into()), |m| m.describe().to_string())
         ));
+        // KMSCON: warn about known limitations
+        if term == "kmscon" || term.starts_with("kmscon-") {
+            if t.gfx.name() == "kmscon" {
+                t.notice = Some("KMSCON: framebuffer graphics unlikely to work (KMSCON controls /dev/fb0); mouse hover unsupported (KMSCON draws own cursor)".into());
+            } else {
+                t.notice = Some("KMSCON: mouse hover unsupported (KMSCON draws own cursor)".into());
+            }
+        }
         Ok(t)
     }
 
@@ -1216,10 +1224,10 @@ impl Tty {
         }
     }
 
-    /// Choose the image backend: framebuffer on a VT, otherwise probe for
-    /// kitty graphics, then sixel (DA1 attribute 4); also learn the cell
-    /// size in pixels so images can be scaled. Returns what was chosen (and
-    /// why the framebuffer wasn't), for stderr at start or the settings
+    /// Choose the image backend: framebuffer on a VT or KMSCON (fbdev), otherwise
+    /// probe for kitty graphics, then sixel (DA1 attribute 4); also learn the
+    /// cell size in pixels so images can be scaled. Returns what was chosen
+    /// (and why the framebuffer wasn't), for stderr at start or the settings
     /// page later: printed while the game is on screen it would land on it.
     fn setup_gfx(&mut self, pref: &str, term: &str) -> String {
         let is_vt = text_console(term);
@@ -1248,13 +1256,51 @@ impl Tty {
             "fb" => {
                 try_fb(self);
             }
+            "kmscon" => {
+                // KMSCON with fbdev video backend uses /dev/fb0
+                let mut try_kmscon = |t: &mut Tty| -> bool {
+                    match gfx::kmscon::Kmscon::open() {
+                        Ok(kmscon) => {
+                            t.cell = ((kmscon.xres / t.cols as u32).max(1), (kmscon.yres / t.rows as u32).max(1));
+                            t.fb_cell_fixed = true;
+                            t.gfx = Box::new(kmscon);
+                            true
+                        }
+                        Err(e) => {
+                            let hint = if e.contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
+                            why = format!("; kmscon framebuffer unavailable: {}{}", e, hint);
+                            false
+                        }
+                    }
+                };
+                try_kmscon(self);
+            }
             _ => {
                 // iTerm2 says who it is (and has no kitty graphics)
                 // (WezTerm too: its kitty pictures flash as they are
                 // replaced, its iTerm ones don't)
                 let iterm = matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("iTerm.app") | Ok("WezTerm"))
                     || std::env::var("LC_TERMINAL").as_deref() == Ok("iTerm2");
-                if is_vt {
+                // KMSCON with fbdev video backend: try framebuffer
+                let is_kmscon = term == "kmscon" || term.starts_with("kmscon-");
+                if is_kmscon {
+                    let mut try_kmscon = |t: &mut Tty| -> bool {
+                        match gfx::kmscon::Kmscon::open() {
+                            Ok(kmscon) => {
+                                t.cell = ((kmscon.xres / t.cols as u32).max(1), (kmscon.yres / t.rows as u32).max(1));
+                                t.fb_cell_fixed = true;
+                                t.gfx = Box::new(kmscon);
+                                true
+                            }
+                            Err(e) => {
+                                let hint = if e.contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
+                                why = format!("; kmscon framebuffer unavailable: {}{}", e, hint);
+                                false
+                            }
+                        }
+                    };
+                    try_kmscon(self);
+                } else if is_vt {
                     try_fb(self);
                 } else if iterm {
                     self.gfx = Box::new(gfx::iterm::Iterm::new());

@@ -38,7 +38,7 @@ pub const ITEMS: &[Item] = &[
     Item {
         key: "images",
         label: "Images",
-        choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"],
+        choices: &["auto", "kitty", "iterm", "sixel", "fb", "kmscon", "none"],
         live: true,
         help: "how pictures are drawn (auto: whatever the terminal supports)",
     },
@@ -151,7 +151,7 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_INFINITE_LOOP_ALERT_TIME", "ms before infinite loop warning (0 = disabled, default: 5000)"),
     ("EMUERA_PICTURES_MB", "MB decoded picture files may take (default: 1/8 of the memory)"),
     ("EMUERA_WARMUP", "1 / 0: decode last session's pictures in the background at start (default: on, off headless)"),
-    ("EMUERA_GFX", "default for --gfx: kitty, iterm, sixel, fb or none"),
+    ("EMUERA_GFX", "default for --gfx: kitty, iterm, sixel, fb, kmscon or none"),
     ("EMUERA_GPMCTL", "path of the gpm socket (default /dev/gpmctl), for testing the Linux-console mouse"),
     ("EMUERA_GPM_VC", "the virtual console number the gpm mouse is read for (testing)"),
     ("EMUERA_GAMEPAD", "off: don't read gamepads; /dev/input/eventN: read just that device as a pad"),

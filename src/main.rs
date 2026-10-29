@@ -107,7 +107,7 @@ fn usage_exit(code: i32) -> ! {
          options:\n\
          \x20 --choose                         pick a game folder (even if one is remembered)\n\
          \x20 --clone URL                      clone a game's git repository in the launcher (as GIT_URL)\n\
-         \x20 --gfx auto|kitty|iterm|sixel|fb|none image backend (default auto)\n\
+         \x20 --gfx auto|kitty|iterm|sixel|fb|kmscon|none image backend (default auto)\n\
          \x20 --headless                       plain stdin/stdout mode (scripts, tests)\n\
          \x20 --echo                           echo inputs in headless mode\n\
          \x20 --check                          parse the game and report errors only\n\
