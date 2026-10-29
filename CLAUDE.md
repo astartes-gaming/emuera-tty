@@ -314,16 +314,18 @@ those variables Konsole opens on the user's Wayland session).
 
 ## Reference sources
 
-Two C# sources are expected as sibling checkouts of this repo (paths
-relative to its root). Neither is part of the repo; if one is missing,
+Two C# sources are expected as checkouts located in `<project root>/references`.
+The entire `references` folder is listed in the `.gitignore` as to not include
+it and it's contents in commits. Create the folder if it doesn't exist.
+Neither is part of the repo; if one is missing,
 ask before cloning it. Read them for behaviour only and don't copy code:
 the README promises none is included. Their comments are mostly Japanese.
 
-### Emuera-EM/EE: `../emuera.em`
+### Emuera-EM/EE: `references/emuera.em`
 
 Clone of https://gitlab.com/EvilMask/emuera.em, branch `master`. Check it
 before implementing or fixing a command, the save format, config handling
-or game flow. Paths are under `../emuera.em/Emuera/`; `Runtime/Script/` is
+or game flow. Paths are under `references/emuera.em/Emuera/`; `Runtime/Script/` is
 shortened to `Script/`.
 
 | Topic | C# | here |
@@ -359,16 +361,16 @@ shortened to `Script/`.
 | Emuera's own UI / error message strings in several languages | `Runtime/Utils/EvilMask/Lang.cs`, `LangManager.cs` | — |
 
 Feature docs and changelogs for Emuera, EM, EE and Anchor are in
-`../emuera.em/Readme/` (`Emuera.EM_readme.txt`, `EmueraEE_readme*.txt`,
+`references/emuera.em/Readme/` (`Emuera.EM_readme.txt`, `EmueraEE_readme*.txt`,
 `readme_Translation(Anchor).txt`). `QuickStart/` is an alternative
 fast-start loader and `PluginSystem/` a .NET plugin API; neither applies
 here. Emuera-Anchor's translation system isn't in this tree.
 
-### Emuera-Anchor: `../emuEra`
+### Emuera-Anchor: `references/emuEra`
 
 Clone of https://gitgud.io/Bepsi/emuEra. It is vanilla Emuera 1821 plus
 Anchor's translation system, so use it for translation only and
-`../emuera.em` for everything else.
+`references/emuera.em` for everything else.
 
 **`doc/anchor.md`** records what Anchor does that EM/EE don't, with
 file:line references, and what emuera-tty does about each. Read it before
@@ -376,7 +378,7 @@ touching `translate.rs` or anything translation-related. It also notes a
 trap: Anchor's main loop runs with translation *on* (`Process.cs:252`), so
 string assignments store translated text.
 
-Key files, under `../emuEra/Emuera/`:
+Key files, under `references/emuEra/Emuera/`:
 
 | Topic | C# |
 |---|---|

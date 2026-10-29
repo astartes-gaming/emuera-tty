@@ -2,3 +2,7 @@
 /sample/*.sav
 /sample/sav/
 /sample/dat/
+
+# local copies of code references, games and anything else
+# that shouldn't be committed (Emuera-EM, Anchor, different Era games for sample testing, etc...)
+/reference
