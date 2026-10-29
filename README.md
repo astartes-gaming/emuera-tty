@@ -1783,6 +1783,9 @@ output that differs and saves that aren't byte-identical.
 `tools/erb_coverage.py` lists which of Emuera's 558 built-in functions and
 statements no test uses yet (about 90% are used).
 
+`tools/game_smoke.sh GAME_DIR [STEPS] [SEED]` plays a real game with random
+menu choices in a throwaway copy and reports script errors.
+
 ### Compatibility suite
 
 `compat/` is the [eraBasic compatibility suite](https://gitgud.io/era-games/erabasic-compat)
