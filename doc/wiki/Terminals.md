@@ -118,6 +118,7 @@ computer's own screen; the game quits when the line hangs up.
 | older terminals | legacy X10 reports |
 | Linux console / fbterm with **gpm** running | connects to gpm (`/dev/gpmctl`) as a client (the console's own mouse reports stay off, or gpm would send them clicks only), draws its own pointer |
 | Linux console / fbterm **without** gpm | reads `/dev/input/mice` directly (wheel included), draws its own pointer |
+| **KMSCON** | draws its own mouse cursor; clicks work, but only reports motion while a mouse button is held (left/right/middle) — no hover/motion reports otherwise, so tooltips, button highlighting, and picture menus relying on hover will not function |
 
 Modifier keys held during a click are ignored. On the console, gpm needs
 nothing else; the `/dev/input/mice` fallback needs read access to the

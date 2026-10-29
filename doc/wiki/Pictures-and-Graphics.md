@@ -19,14 +19,11 @@ placeholders. The `fb` backend can't draw there either: KMSCON itself owns
 the framebuffer (or the DRM device), and writing to it would fight with
 KMSCON's own rendering.
 
-KMSCON also draws its own mouse pointer and reports only clicks, not
-motion, so tooltips, button highlighting and picture menus that rely on
-hover don't work. Both would need KMSCON to implement an image protocol
-(in libtsm and its renderers) and mouse motion reports (DECSET 1003).
-
 KMSCON sets `TERM=xterm-256color` by default, so emuera-tty can't tell it
 apart from xterm; with `TERM=kmscon` (its `--term` option) the prompt line
 shows a reminder of these limits.
+
+Mouse limitations for KMSCON are documented in [Terminals.md#mouse](Terminals.md#mouse).
 
 ### Canvas games and speed
 
