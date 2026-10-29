@@ -1,24 +1,15 @@
 # emuera-tty
 
-> **⚠️ Read this first: this is a vibecoded proof of concept.**
->
-> This project was made by a self-described dumbass who doesn't really know
-> what they're doing, by asking an AI (Claude) to write it. Nearly all of the
-> code was AI-generated, reviewed only by running the game and seeing what
-> breaks. It is not a serious or complete Emuera port, nobody has audited it,
-> and it will mis-render, misbehave or crash on plenty of scripts.
->
-> - Expect bugs. emuera-tty keeps a history of every save it overwrites
->   (see *Managing saves*), but keep your own copy of saves you care about.
+> - Written with an AI (Claude) and tested by playing games, not audited.
+>   Some scripts will still mis-render or misbehave. emuera-tty keeps a history
+>   of every save it overwrites (see *Managing saves*), but keep your own copy
+>   of saves you care about.
 > - It is not affiliated with Emuera, Emuera-EM/EE, eratohoTW or AnonTW.
 >   Where behaviour was copied, it was by reading
 >   [EvilMask's emuera.em](https://gitlab.com/EvilMask/emuera.em) source for
 >   reference; no code from it is included.
 > - No game files are included. You need your own copy of the game.
 > - MIT licensed (see [LICENSE](LICENSE)).
->
-> If it works for you anyway: nice. If it doesn't: that's the expected
-> outcome of a proof of concept.
 
 A from-scratch reimplementation of the **Emuera** ERB engine in Rust that
 plays era games in a terminal: graphics-capable terminals (kitty, Konsole,
@@ -26,9 +17,8 @@ WezTerm, Ghostty, foot, iTerm2, xterm with sixel…), plain ones (pictures are
 left out, text and colours stay), the Linux framebuffer console, and even old
 serial terminals.
 
-Status: **proof of concept**, but it plays. Tested mostly with **AnonTW**
-(eratohoTW in English), **pops-tw** (eraNAS) and **eraTohoK**: new games,
-days, training, shops, maps and saves work, and automated play runs
+Tested mostly with **AnonTW** (eratohoTW in English), **pops-tw** (eraNAS)
+and **eraTohoK**: new games, days, training, shops, maps and saves work, and automated play runs
 thousands of random choices through them without errors. What it has
 (details under *Implemented*):
 
@@ -1264,7 +1254,7 @@ start fresh. Games extracted from archives (and their saves) are in
 
 ## 7. When something goes wrong
 
-This is a proof of concept, so it will happen.
+Some games will hit something emuera-tty doesn't handle yet.
 
 - **A red `*** script error ***` screen** means the game hit something
   emuera-tty doesn't support yet (or a bug of the game's). As in Emuera
