@@ -38,7 +38,7 @@ pub const ITEMS: &[Item] = &[
     Item {
         key: "images",
         label: "Images",
-        choices: &["auto", "kitty", "iterm", "sixel", "fb", "kmscon", "none"],
+        choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"],
         live: true,
         help: "how pictures are drawn (auto: whatever the terminal supports)",
     },
