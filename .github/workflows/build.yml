@@ -46,7 +46,7 @@ jobs:
             rustflags: ""
             ext: ""
           # static musl program: runs on any amd64 Linux, whatever its libc
-          # (the recipe from the README's "Other CPUs" section)
+          # (the recipe from the wiki's "Other CPUs" section)
           - name: linux-amd64-static
             os: ubuntu-24.04
             target: x86_64-unknown-linux-musl

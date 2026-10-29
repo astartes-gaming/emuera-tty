@@ -10,7 +10,7 @@ game not work, or not work as expected, because the games are written
 against it. Differ to fix a bug or do the right thing, as long as saves
 stay compatible both ways and nothing the games rely on in Emuera breaks.
 Things that differ only because they aren't implemented yet aren't
-listed here; they're gaps (README, *Implemented* and *Roadmap*).
+listed here; they're gaps (the wiki's *Implemented* and *Roadmap* pages, `doc/wiki/`).
 
 Each entry: what, what Emuera does (with the C# file and line), what
 emuera-tty does (with the Rust function), and why.

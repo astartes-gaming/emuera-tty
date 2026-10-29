@@ -112,8 +112,8 @@ parser probably split wrongly, string `>=` / `<=`), `EMUERA_MOUSE_LOG=<file>`,
 `EMUERA_MOUSE=mice|off|term`. `--strict` makes unimplemented commands
 errors instead of warnings. The translation log is set with
 `--translate-log FILE` (append), `--translate-load FILE` (read) and
-`--translate-storage FILE` (both), not with variables. The full list is in the README's *Reference*
-section.
+`--translate-storage FILE` (both), not with variables. The full list is in the wiki's
+*Command line and environment* page (`doc/wiki/Command-Line-and-Environment.md`).
 
 For trustworthy native profiles use a release-equivalent build:
 `CARGO_TARGET_DIR=target/prof CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo build --release --features profile`
@@ -237,12 +237,15 @@ with a very large stack.
   No CPU-specific code. Runnable builds: a musl target with
   `RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"`,
   then `qemu-<arch> ./emuera-tty …` (without an address-space cap, or qemu
-  can't map the guest). The README's "Other CPUs" section has the list.
-- **Docs track behaviour.** User-visible changes update `README.md` and the
+  can't map the guest). The wiki's "Other CPUs" section
+  (`doc/wiki/Other-Systems-and-CPUs.md`) has the list.
+- **Docs track behaviour.** User-visible changes update the wiki's source in
+  `doc/wiki/` (published with `tools/wiki_sync.sh`; `README.md` is only an
+  overview with links into it) and the
   man page `doc/emuera-tty.1` (`--manual` prints it; it is compiled into
   the binary from `src/picker.rs`).
 - **The maintainer's round:** fix, look for optimisations, update the
-  README, test, `cargo fmt`, commit, push to `origin master`, then
+  docs (`doc/wiki/`, then `tools/wiki_sync.sh`), test, `cargo fmt`, commit, push to `origin master`, then
   `./target/release/emuera-tty --install`. Commit messages: a one-line
   summary of the user-visible result (often prefixed by area, e.g.
   `Linux console: …`), then a short paragraph on why.

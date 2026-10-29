@@ -1,11 +1,11 @@
 name: Build-check all platforms (manual)
 
 # Only starts when asked for (Actions → "Build-check all platforms (manual)" → Run
-# workflow). It covers what the README lists under "Other systems" and
+# workflow). It covers what the wiki lists under "Other systems" and
 # "Other CPUs":
-#   - builds:  x86-64 Linux, Windows, macOS, and the CPUs the README ran
+#   - builds:  x86-64 Linux, Windows, macOS, and the CPUs the wiki lists as run
 #              under emulation (static musl programs); binaries are uploaded
-#   - checks:  the systems and CPUs the README only compile-checks
+#   - checks:  the systems and CPUs the wiki only compile-checks
 #              (`cargo check`, nightly + build-std); nothing is uploaded
 #
 # Choosing what runs: each input takes `all`, `none`, or a comma-separated
@@ -45,7 +45,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # the README's recipe for static musl programs with Rust's own linker
+  # the wiki's recipe for static musl programs with Rust's own linker
   MUSL_FLAGS: "-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"
 
 jobs:
@@ -190,7 +190,7 @@ jobs:
           path: dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
           if-no-files-found: error
 
-  # What the README only compile-checks: there is no C library to link
+  # What the wiki only compile-checks: there is no C library to link
   # against here, and most of these have no prebuilt standard library, so
   # it is built from source (nightly, `-Z build-std`).
   check:
