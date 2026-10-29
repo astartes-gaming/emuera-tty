@@ -323,10 +323,14 @@ pub fn set_stack_bytes(n: usize) {
     STACK_BYTES.store(n, std::sync::atomic::Ordering::Relaxed);
 }
 
+pub fn stack_bytes() -> usize {
+    STACK_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Nested user calls allowed before reporting a stack overflow: 4000, or
 /// fewer on a smaller stack.
 fn max_depth() -> usize {
-    (STACK_BYTES.load(std::sync::atomic::Ordering::Relaxed) / CALL_STACK_BYTES).clamp(16, 4000)
+    (stack_bytes() / CALL_STACK_BYTES).clamp(16, 4000)
 }
 
 /// A built-in variable's dimensions with VariableSize.csv applied.

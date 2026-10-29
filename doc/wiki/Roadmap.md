@@ -1,8 +1,7 @@
 1. Play on macOS and on a real Raspberry Pi Zero: the test suite passes
    on macOS (CI) and the Pi build runs under emulation, but nobody has
    played on them yet. Windows and Android have had some testing and need
-   more feedback. On Redox, make the full-screen mode show on its console
-   (headless play and the tests work).
+   more feedback.
 2. A good way to play on Android phones, through Termux: players keep
    asking for an up-to-date eraBASIC player there, and saves would move
    between phone and PC. Nothing is known to be missing, and it has had

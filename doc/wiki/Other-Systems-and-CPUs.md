@@ -36,17 +36,20 @@ Oracle account.
   detection), else placeholders.
 - **Haiku**, **Redox**, **illumos / Solaris**, **GNU/Hurd**, **NetBSD /
   OpenBSD / DragonFly**: the Unix code path (termios, `poll`), as on Linux minus the
-  Linux-console extras. Haiku's Terminal shows text only. On Redox, games
-  play headless (`--headless`), but the full-screen mode shows nothing on
-  Redox's own console and stops reading keys (not solved yet: the same
-  output printed with `cat` shows fine there); Redox's test harness also
-  needs `--test-threads=1`, as tests run in parallel hang there. On Haiku the fastest serial speeds (460800, 921600) aren't
+  Linux-console extras. Haiku's Terminal shows text only. Redox's own
+  console plays in full screen, with its limits: it sends nothing for
+  F1–F12 or Esc (Ctrl-O opens the settings, `q` closes menus), has no
+  mouse and no pictures, and its font has no Japanese, so translated
+  games read best there. (`tcdrain`, called after each frame on other
+  systems, isn't used on Redox: its pty daemon answers it by sleeping,
+  which froze every console.) Redox's test harness needs
+  `--test-threads=1`, as tests run in parallel hang there. On Haiku the fastest serial speeds (460800, 921600) aren't
   offered, on Redox there is no RTS/CTS flow control. Haiku gives a thread
   at most 16 MB of stack (Linux: the 512 MB emuera-tty asks for), so there
   scripts may nest about 1,000 calls instead of 4,000 before "call stack
   overflow". `GETMEMORYUSAGE` and the memory counter read the memory in
   use everywhere (Redox: the process's private memory, as its `ps`
-  shows). A terminal that doesn't take UTF-8
+  shows, less the stack reserved for scripts). A terminal that doesn't take UTF-8
   (NetBSD's console, xterm in Latin-1 mode) is detected at startup and
   gets ASCII lookalikes or `?` in each character's cells, so layouts stay
   aligned; FreeBSD's console takes UTF-8 but its default font has no
@@ -143,7 +146,7 @@ What GitHub Actions builds, and what has been run where.
 | Haiku x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with Haiku's own gcc: the test suite passes in a Haiku R1/beta5 VM, game output identical to Linux |
 | GNU/Hurd x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own gcc: the test suite passes in a Debian GNU/Hurd 2026-03-14 VM, game output identical to Linux; played on its console |
 | GNU/Hurd i686 | Build failed (under actions), check passed | Compile-checked only |
-| Redox x86-64 | Build failed (under actions), check passed | Built with Redox's own toolchain: the test suite passes in a Redox VM (2026-10-14 image, one test thread), game output identical to Linux; the full-screen mode doesn't show on its console yet |
+| Redox x86-64 | Build failed (under actions), check passed | Built with Redox's own toolchain: the test suite passes in a Redox VM (2026-10-14 image, one test thread), game output identical to Linux; full-screen play works on its console |
 | Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)... somehow |
 | Linux RISC-V 32 | Build failed (under actions), check failed | Rust's own standard library doesn't build there at the moment (`SYS_futex` missing from libc for that target), nothing in emuera-tty |
 | Linux PowerPC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |

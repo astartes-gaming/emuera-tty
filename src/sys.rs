@@ -272,7 +272,8 @@ fn memory_in_use_raw() -> Option<u64> {
     }
     // Redox: this process's private memory from the kernel's context list,
     // the PRIVATE column ps shows ("7.48 MB": number and unit); its
-    // getrusage leaves ru_maxrss at 0
+    // getrusage leaves ru_maxrss at 0. That column counts address space,
+    // so the VM thread's stack (512 MB reserved, a few touched) is left out
     #[cfg(target_os = "redox")]
     {
         let pid = std::process::id().to_string();
@@ -293,6 +294,7 @@ fn memory_in_use_raw() -> Option<u64> {
                 Some((f[8].parse::<f64>().ok()? * unit) as u64)
             })
             .max()
+            .map(|b| b.saturating_sub(crate::vm::stack_bytes() as u64))
             .filter(|&b| b > 0)
     }
     // other Unixes: the peak resident size (KB), the nearest a portable call
@@ -532,9 +534,20 @@ mod imp {
     /// Wait until everything written to stdout has gone out (so the next
     /// frame doesn't queue behind it on a slow terminal).
     pub fn drain_stdout() {
+        drain(1);
+    }
+
+    /// `tcdrain`, except on Redox: there relibc sends it to ptyd as a
+    /// break, which ptyd (one thread for every terminal) answers by
+    /// sleeping 0.4 s, so after each frame every console stalled and the
+    /// full-screen mode looked frozen. Its ptys have no slow line to drain.
+    pub fn drain(fd: i32) {
+        #[cfg(not(target_os = "redox"))]
         unsafe {
-            libc::tcdrain(1);
+            libc::tcdrain(fd);
         }
+        #[cfg(target_os = "redox")]
+        let _ = fd;
     }
 
     pub fn now() -> DateTime {

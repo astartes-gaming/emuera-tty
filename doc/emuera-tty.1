@@ -613,10 +613,11 @@ stored).
 Developed and played on Linux. The test suite also passes on macOS and
 Windows (CI) and, in virtual machines, on FreeBSD, NetBSD, OpenBSD,
 DragonFly, illumos, Haiku, GNU/Hurd and Redox, with game output identical
-to Linux; Solaris is compile-checked only. On Redox the full-screen mode
-does not show on its own console yet (headless play works). Windows and
-Android (Termux, and even a custom Android recovery environment) have had
-some play-testing, but still need further feedback. Small boards
+to Linux; Solaris is compile-checked only. Redox's console sends nothing
+for F1 to F12 or Esc: Ctrl-O opens the settings and q closes menus there.
+Windows and Android (Termux, and even a custom Android recovery
+environment) have had some play-testing, but still need further
+feedback. Small boards
 such as the Raspberry Pi Zero (512 MB) have enough memory for big games;
 the ARM builds are tried under emulation only, as are those for RISC-V,
 PowerPC (both byte orders) and LoongArch; MIPS, SPARC, s390x, m68k and

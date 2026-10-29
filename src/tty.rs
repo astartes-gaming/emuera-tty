@@ -3617,8 +3617,10 @@ impl Tty {
                 parts.insert(0, (m, "\x1b[0;1m"));
             }
         }
-        // (F3 is a macro key once a macro is stored on it)
-        parts.push((if self.f_key_free(3) { "F3 settings" } else { "Ctrl-O settings" }.to_string(), "\x1b[0;2m"));
+        // (F3 is a macro key once a macro is stored on it; Redox's console
+        // sends nothing for F1…F12, and its TERM says xterm-256color)
+        let f3 = self.f_key_free(3) && !cfg!(target_os = "redox");
+        parts.push((if f3 { "F3 settings" } else { "Ctrl-O settings" }.to_string(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
             let k = parts

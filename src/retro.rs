@@ -223,7 +223,7 @@ impl Port {
     fn restore(&mut self) {
         if let Some(o) = self.orig.take() {
             unsafe {
-                libc::tcdrain(self.out_fd);
+                crate::sys::drain(self.out_fd);
                 libc::tcsetattr(self.in_fd, libc::TCSANOW, &o);
             }
         }
