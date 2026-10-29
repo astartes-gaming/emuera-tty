@@ -1,11 +1,15 @@
 ## Other systems
 
-emuera-tty is developed and played on Linux. **Windows** and **Android**
-have had some testing but need more feedback (Android on Termux, and it
-even runs under a custom recovery environment, TWRP). **FreeBSD, NetBSD,
-OpenBSD, illumos (OmniOS), Haiku and GNU/Hurd** pass the test suite in
-virtual machines, with the same game output as Linux. **macOS, DragonFly,
-Solaris and Redox** are only compile-checked (`cargo check --target …`).
+emuera-tty is developed and played on Linux. The whole test suite also
+runs on **macOS and Windows** (GitHub's runners, on every push), and in
+virtual machines on **FreeBSD 15.1, NetBSD 11.0, OpenBSD 8.0, DragonFly
+6.4, illumos (OmniOS r151058), Haiku R1/beta5, GNU/Hurd (Debian
+2026-03-14) and Redox (2026-10-14)**, where two long AnonTW sessions also
+give output identical to Linux (October 2026). **Windows** and **Android**
+have had some play-testing but need more feedback (Android on Termux, and
+it even runs under a custom recovery environment, TWRP). **Solaris** is
+only compile-checked (`cargo check --target …`): its installer needs an
+Oracle account.
 
 - **macOS / BSD**: the same steps. On macOS, `~/.local/bin` is usually not on
   PATH, so `--install` picks a writable PATH folder (Homebrew's
@@ -32,13 +36,17 @@ Solaris and Redox** are only compile-checked (`cargo check --target …`).
   detection), else placeholders.
 - **Haiku**, **Redox**, **illumos / Solaris**, **GNU/Hurd**, **NetBSD /
   OpenBSD / DragonFly**: the Unix code path (termios, `poll`), as on Linux minus the
-  Linux-console extras. Haiku's Terminal and Redox's console show text
-  only; on Haiku the fastest serial speeds (460800, 921600) aren't
+  Linux-console extras. Haiku's Terminal shows text only. On Redox, games
+  play headless (`--headless`), but the full-screen mode shows nothing on
+  Redox's own console and stops reading keys (not solved yet: the same
+  output printed with `cat` shows fine there); Redox's test harness also
+  needs `--test-threads=1`, as tests run in parallel hang there. On Haiku the fastest serial speeds (460800, 921600) aren't
   offered, on Redox there is no RTS/CTS flow control. Haiku gives a thread
   at most 16 MB of stack (Linux: the 512 MB emuera-tty asks for), so there
   scripts may nest about 1,000 calls instead of 4,000 before "call stack
   overflow". `GETMEMORYUSAGE` and the memory counter read the memory in
-  use everywhere (Redox: the peak). A terminal that doesn't take UTF-8
+  use everywhere (Redox: the process's private memory, as its `ps`
+  shows). A terminal that doesn't take UTF-8
   (NetBSD's console, xterm in Latin-1 mode) is detected at startup and
   gets ASCII lookalikes or `?` in each character's cells, so layouts stay
   aligned; FreeBSD's console takes UTF-8 but its default font has no
@@ -113,9 +121,9 @@ What GitHub Actions builds, and what has been run where.
 |---|---|---|
 | Linux x86-64 | Build passed | Most common platform, under constant testing |
 | Linux x86-64 (static) | Build passed | Untested, but should work the same as above |
-| Windows x86-64 | Build passed | Tested launching and basic playthrough, but nothing further than that yet |
+| Windows x86-64 | Build passed | Test suite passes on GitHub's runners; tested launching and basic playthrough |
 | Windows ARM64 | Build passed | Untested |
-| macOS ARM64 (Apple silicon) | Build passed | Untested |
+| macOS ARM64 (Apple silicon) | Build passed | Test suite passes on GitHub's runners; not played yet |
 | macOS x86-64 | Build passed | Untested |
 | Linux i586 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
 | Linux ARMv5 (static) | Build passed | Test suite passes under qemu-user; game output identical to x86-64 |
@@ -129,13 +137,13 @@ What GitHub Actions builds, and what has been run where.
 | FreeBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a FreeBSD 15.1 VM, game output identical to Linux |
 | NetBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a NetBSD 11.0 VM, game output identical to Linux |
 | OpenBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OpenBSD 8.0 VM, game output identical to Linux |
-| DragonFly BSD x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| DragonFly BSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a DragonFly 6.4.2 VM, game output identical to Linux |
 | illumos x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OmniOS r151058 VM, game output identical to Linux |
-| Solaris x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Solaris x86-64 | Build failed (under actions), check passed | Compile-checked only (Solaris needs an Oracle account to download); illumos, its open relative, passes |
 | Haiku x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with Haiku's own gcc: the test suite passes in a Haiku R1/beta5 VM, game output identical to Linux |
 | GNU/Hurd x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own gcc: the test suite passes in a Debian GNU/Hurd 2026-03-14 VM, game output identical to Linux; played on its console |
 | GNU/Hurd i686 | Build failed (under actions), check passed | Compile-checked only |
-| Redox x86-64 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
+| Redox x86-64 | Build failed (under actions), check passed | Built with Redox's own toolchain: the test suite passes in a Redox VM (2026-10-14 image, one test thread), game output identical to Linux; the full-screen mode doesn't show on its console yet |
 | Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)... somehow |
 | Linux RISC-V 32 | Build failed (under actions), check failed | Rust's own standard library doesn't build there at the moment (`SYS_futex` missing from libc for that target), nothing in emuera-tty |
 | Linux PowerPC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |

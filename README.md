@@ -35,8 +35,10 @@ thousands of random choices through them without errors. What it has
   management, and readable script errors with the call stack.
 - **Gamepads** on Linux, the **Steam Deck** included (see
   [Gamepads and the Steam Deck](https://github.com/astartes-gaming/emuera-tty/wiki/Gamepads-and-Steam-Deck)).
-- Linux, and builds for macOS, Windows, the BSDs, Termux and more, down to a
-  Raspberry Pi Zero.
+- Linux first; its test suite also passes on macOS, Windows, FreeBSD,
+  NetBSD, OpenBSD, DragonFly, illumos, Haiku, GNU/Hurd and Redox, and on
+  ARM, RISC-V, PowerPC and LoongArch (emulated). It runs on Termux
+  (Android) and fits a Raspberry Pi Zero.
 
 Expect rough edges in parts of the games nobody has played through yet
 (see the [Roadmap](https://github.com/astartes-gaming/emuera-tty/wiki/Roadmap)).
