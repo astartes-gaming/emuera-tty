@@ -1256,51 +1256,13 @@ impl Tty {
             "fb" => {
                 try_fb(self);
             }
-            "kmscon" => {
-                // KMSCON with fbdev video backend uses /dev/fb0
-                let mut try_kmscon = |t: &mut Tty| -> bool {
-                    match gfx::kmscon::Kmscon::open() {
-                        Ok(kmscon) => {
-                            t.cell = ((kmscon.xres / t.cols as u32).max(1), (kmscon.yres / t.rows as u32).max(1));
-                            t.fb_cell_fixed = true;
-                            t.gfx = Box::new(kmscon);
-                            true
-                        }
-                        Err(e) => {
-                            let hint = if e.contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
-                            why = format!("; kmscon framebuffer unavailable: {}{}", e, hint);
-                            false
-                        }
-                    }
-                };
-                try_kmscon(self);
-            }
             _ => {
                 // iTerm2 says who it is (and has no kitty graphics)
                 // (WezTerm too: its kitty pictures flash as they are
                 // replaced, its iTerm ones don't)
                 let iterm = matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("iTerm.app") | Ok("WezTerm"))
                     || std::env::var("LC_TERMINAL").as_deref() == Ok("iTerm2");
-                // KMSCON with fbdev video backend: try framebuffer
-                let is_kmscon = term == "kmscon" || term.starts_with("kmscon-");
-                if is_kmscon {
-                    let mut try_kmscon = |t: &mut Tty| -> bool {
-                        match gfx::kmscon::Kmscon::open() {
-                            Ok(kmscon) => {
-                                t.cell = ((kmscon.xres / t.cols as u32).max(1), (kmscon.yres / t.rows as u32).max(1));
-                                t.fb_cell_fixed = true;
-                                t.gfx = Box::new(kmscon);
-                                true
-                            }
-                            Err(e) => {
-                                let hint = if e.contains("ermission") { " (/dev/fb0 needs the video group)" } else { "" };
-                                why = format!("; kmscon framebuffer unavailable: {}{}", e, hint);
-                                false
-                            }
-                        }
-                    };
-                    try_kmscon(self);
-                } else if is_vt {
+                if is_vt {
                     try_fb(self);
                 } else if iterm {
                     self.gfx = Box::new(gfx::iterm::Iterm::new());
