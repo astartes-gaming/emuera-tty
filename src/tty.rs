@@ -466,6 +466,39 @@ fn is_greek_cyrillic(ch: char) -> bool {
     matches!(ch as u32, 0x370..=0x4FF)
 }
 
+/// How many columns Greek and Cyrillic letters take on this screen (the
+/// "Greek and Cyrillic" setting and the game's font).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Letters {
+    /// two each, as MS Gothic draws them
+    Wide,
+    /// one each
+    Narrow,
+    /// the font draws them wide, but only a letter on its own keeps two
+    /// columns (the `Д` of `(´Д｀)`, a `Σ` in a stat line: Japanese games
+    /// line those up as MS Gothic draws them); letters in a run are text
+    /// written in those scripts, which spaced out (`П р и в е т`) can't be
+    /// read, so they take one
+    ByWord,
+}
+
+/// The characters of `s`, each with whether a Greek or Cyrillic letter
+/// there takes two columns (for [`char_cells`]).
+fn letter_widths(s: &str, letters: Letters) -> impl Iterator<Item = (char, bool)> + '_ {
+    let mut it = s.chars().peekable();
+    let mut prev = false;
+    std::iter::from_fn(move || {
+        let ch = it.next()?;
+        let wide = match letters {
+            Letters::Wide => true,
+            Letters::Narrow => false,
+            Letters::ByWord => !prev && !it.peek().is_some_and(|&c| is_greek_cyrillic(c)),
+        };
+        prev = is_greek_cyrillic(ch);
+        Some((ch, wide))
+    })
+}
+
 /// The column in a cursor position report (`ESC [ row ; col R`).
 fn cpr_column(s: &str) -> Option<u32> {
     let mut rest = s;
@@ -600,8 +633,8 @@ pub struct Tty {
     yen: bool,
     /// the "Greek and Cyrillic" setting: auto, wide, narrow
     pub letters_mode: String,
-    /// Greek and Cyrillic two columns wide on this screen (see `letters_are_wide`)
-    letters_wide: bool,
+    /// Greek and Cyrillic letters' columns on this screen
+    letters: Letters,
     /// show the hovered button's value, memory and the running function
     /// in the bottom row
     pub status_info: bool,
@@ -765,9 +798,10 @@ fn console_lookalike(ch: char, has: &std::collections::HashSet<char>) -> char {
 /// With [`Ambi::Osc66`] such a character is instead drawn as one 2-cell
 /// glyph (no filler); with [`Ambi::Wide`] the terminal already draws it wide.
 /// `measured`: the width this terminal was seen to draw `ch` at (see
-/// `Tty::measure_widths`), which beats any table. `wide_letters`: Greek and
-/// Cyrillic get two columns too (the game's font draws them so, see
-/// [`letters_are_wide`]); else one, as the terminal draws them.
+/// `Tty::measure_widths`), which beats any table. `wide_letters`: a Greek or
+/// Cyrillic letter gets two columns too (the game's font draws it so, see
+/// [`letters_are_wide`] and [`letter_widths`]); else one, as the terminal
+/// draws it.
 fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>, wide_letters: bool) -> (usize, usize, char) {
     let tw = match measured {
         Some(w) => w as usize,
@@ -951,7 +985,7 @@ impl Tty {
             yen_mode: "auto".into(),
             yen: false,
             letters_mode: "auto".into(),
-            letters_wide: true,
+            letters: Letters::ByWord,
             status_info: true,
             kbd_ptr: false,
             pad_enabled: false,
@@ -1695,11 +1729,10 @@ impl Tty {
                         for s2 in &line.segs[si..] {
                             match s2 {
                                 Seg::Text { text: t2, button: b2, .. } if b2 == button => {
-                                    w += t2
-                                        .chars()
-                                        .map(|c| {
+                                    w += letter_widths(t2, self.letters)
+                                        .map(|(c, wl)| {
                                             let (tw, extra, _) =
-                                                if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), self.letters_wide) };
+                                                if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), wl) };
                                             tw + extra
                                         })
                                         .sum::<usize>();
@@ -1713,10 +1746,9 @@ impl Tty {
                         }
                     }
                     let bid = push_btn(button, &mut self.buttons);
-                    for ch in text.chars() {
+                    for (ch, wl) in letter_widths(text, self.letters) {
                         let ch = if self.yen && ch == '\\' { '¥' } else { ch };
-                        let (tw, extra, fill) =
-                            if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied(), self.letters_wide) };
+                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl) };
                         let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
                         let w = tw + extra;
                         if tw == 0 {
@@ -1926,10 +1958,11 @@ impl Tty {
             "off" => false,
             _ => backslash_is_yen(&con.default_font),
         };
-        self.letters_wide = match self.letters_mode.as_str() {
-            "wide" => true,
-            "narrow" => false,
-            _ => letters_are_wide(&con.default_font),
+        self.letters = match self.letters_mode.as_str() {
+            "wide" => Letters::Wide,
+            "narrow" => Letters::Narrow,
+            _ if letters_are_wide(&con.default_font) => Letters::ByWord,
+            _ => Letters::Narrow,
         };
         let scale = self.cell.1 as f32 / con.line_height.max(1.0);
         let view_h = self.rows - 1;
@@ -2481,9 +2514,9 @@ impl Tty {
     /// Cells for a run of text in one style (for text painted over rows).
     fn text_cells(&self, text: &str, st: &Style) -> Vec<Cell> {
         let mut v = Vec::new();
-        for ch in text.chars() {
+        for (ch, wl) in letter_widths(text, self.letters) {
             let ch = if self.yen && ch == '\\' { '¥' } else { ch };
-            let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied(), self.letters_wide);
+            let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl);
             let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
             if tw == 0 {
                 continue;
@@ -3291,9 +3324,9 @@ impl Tty {
 
     /// Display columns of `s`, as the screen lays it out.
     fn text_width(&self, s: &str) -> usize {
-        s.chars()
-            .map(|c| {
-                let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), self.letters_wide) };
+        letter_widths(s, self.letters)
+            .map(|(c, wl)| {
+                let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), wl) };
                 tw + extra
             })
             .sum()
@@ -3388,11 +3421,11 @@ impl Tty {
             // keeps its width — padded if shorter, taking the gap's spaces
             // (one stays) if longer, cut with … past that. At the end of a
             // line, or before ordinary text, it just takes the room it needs.
-            let (ambi, widths, letters) = (self.ambi, self.widths.clone(), self.letters_wide);
+            let (ambi, widths, letters) = (self.ambi, self.widths.clone(), self.letters);
             let width = |s: &str| -> usize {
-                s.chars()
-                    .map(|c| {
-                        let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, ambi, widths.get(&c).copied(), letters) };
+                letter_widths(s, letters)
+                    .map(|(c, wl)| {
+                        let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, ambi, widths.get(&c).copied(), wl) };
                         tw + extra
                     })
                     .sum()
@@ -4945,6 +4978,21 @@ mod tests {
         // the rest of Shift-JIS keeps Emuera's two columns
         assert_eq!(char_cells('※', Ambi::Pad, None, false), (1, 1, ' '));
         assert_eq!(char_cells('林', Ambi::Pad, None, false), (2, 0, ' '));
+    }
+
+    #[test]
+    fn letters_in_words_are_narrow() {
+        use super::{letter_widths, Letters};
+        let wide = |s: &str, l| letter_widths(s, l).filter(|&(c, _)| super::is_greek_cyrillic(c)).map(|(_, w)| w).collect::<Vec<_>>();
+        // a letter on its own keeps MS Gothic's two columns
+        assert_eq!(wide("(´Д｀)", Letters::ByWord), [true]);
+        assert_eq!(wide("(・ω・)ノ", Letters::ByWord), [true]);
+        assert_eq!(wide("Σ：12 α", Letters::ByWord), [true, true]);
+        // a word written in those scripts takes one each
+        assert_eq!(wide("「Привет, Ω」", Letters::ByWord), [false, false, false, false, false, false, true]);
+        assert_eq!(wide("αβ", Letters::ByWord), [false, false]);
+        assert_eq!(wide("Привет", Letters::Wide), [true; 6]);
+        assert_eq!(wide("Д", Letters::Narrow), [false]);
     }
 
     /// The fonts that draw a backslash as ¥ (Emuera's default among them)

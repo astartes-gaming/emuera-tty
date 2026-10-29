@@ -12,7 +12,7 @@ where marked, apply to the running game:
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
 | Wide symbols | auto, wide, narrow, single, osc66 | how symbols get Emuera's two columns |
 | Backslash as ¥ | auto, on, off | draw `\` in game text as ¥, as Japanese fonts do; `auto`: when the game's font is one (MS Gothic, Emuera's default, MS Mincho, Meiryo), so eraTW's `\0` money shows `¥0` |
-| Greek and Cyrillic | auto, wide, narrow | how many columns Greek and Cyrillic letters in game text take: Emuera's default font, MS Gothic (and MS Mincho), draws them full-width, two columns each, and games written for it line up that way; other fonts draw them narrow. `auto`: as the game's font (two columns when it sets none); `narrow` reads better for text written in those scripts |
+| Greek and Cyrillic | auto, wide, narrow | how many columns Greek and Cyrillic letters in game text take: Emuera's default font, MS Gothic (and MS Mincho), draws them full-width, two columns each, and games written for it line up that way; other fonts draw them narrow. `auto`: as the game's font (two columns when it sets none), except that letters next to each other, words written in those scripts, take one each; `wide`: always two, as Emuera |
 | Copy to clipboard | game, on, off | printed text to the clipboard (see [Copying text to the clipboard](Playing#copying-text-to-the-clipboard)); `game`: as emuera.config says |
 | Bottom bar details | on, off | hovered button's value, running function |
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
