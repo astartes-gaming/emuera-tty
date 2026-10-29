@@ -1,13 +1,15 @@
 ## Translating the game
 
-In the settings, *Translate to* picks the language to
-show the game in (en, es, pt, fr, de, it, ru, ja, zh, ko), *Translate
-from* the game's own (auto: Japanese lines from Japanese, English ones from
-English, so an English translation like AnonTW can be read in Spanish), and
-*Translate what* either the characters' **dialog** or **all** text (menus,
-buttons, labels too); *auto* (the default) is dialog when the game is shown
-in English and all text in any other language. Text is translated as it
-appears. Translation is off while *Translator* is *off* (the default). While it is off, *Translate to / from / what* and *Test the translator…* are hidden from the settings.
+In the settings, *Translate to* picks the language to show the game in (en,
+es, pt, fr, de, it, ru, ja, zh, ko), *Translate from* the game's own (auto:
+Japanese lines from Japanese, English ones from English, so an English
+translation like AnonTW can be read in Spanish), and *Translate what*
+either the characters' **dialog** or **all** text (menus, buttons, labels
+too); *auto* (the default) is dialog when the game is shown in English and
+all text in any other language. Text is translated as it appears.
+Translation is off while *Translator* is *off* (the default). While it is
+off, *Translate to / from / what* and *Test the translator…* are hidden
+from the settings.
 
 ### Choosing a translator
 

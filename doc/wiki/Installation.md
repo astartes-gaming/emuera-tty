@@ -4,8 +4,9 @@
   **Android** (Termux), **macOS**, the **BSDs**, **illumos / Solaris**,
   **Haiku**, **GNU/Hurd** and **Redox**, with different amounts of testing
   (see [Other systems](Other-Systems-and-CPUs#other-systems)), on most CPUs
-  ([Other CPUs](Other-Systems-and-CPUs#other-cpus)) and on 512 MB boards like
-  the Raspberry Pi Zero ([Small machines](Other-Systems-and-CPUs#small-machines-raspberry-pi-zero-and-the-like)).
+  ([Other CPUs](Other-Systems-and-CPUs#other-cpus)) and on 512 MB boards
+  like the Raspberry Pi Zero ([Small
+  machines](Other-Systems-and-CPUs#small-machines-raspberry-pi-zero-and-the-like)).
   Reports from any of them are welcome.
 - A **terminal**. Any modern one works for text; see
   [Picking a terminal](Terminals) for pictures and Japanese text.

@@ -1,4 +1,6 @@
-Some games will hit something emuera-tty doesn't handle yet.
+Some games will hit something emuera-tty doesn't handle yet. Your saves
+are safe either way: emuera-tty keeps a history of every save it
+overwrites (see [Save history](Playing#save-history)).
 
 - **A red `*** script error ***` screen** means the game hit something
   emuera-tty doesn't support yet (or a bug of the game's). As in Emuera
@@ -15,14 +17,15 @@ Some games will hit something emuera-tty doesn't handle yet.
 - **Infinite loop detection:** if a script runs too long without input
   (default 5 s), a prompt appears (TUI); headless runs go on, with a note
   on stderr (no one is there to answer, and on a slow machine a big game's
-  day change takes that long);
-  configure via `Milliseconds for infinite loop warning` in *Game settings → Environment* or the game's `emuera.config` (`無限ループ警告までのミリ秒数`).
-- **Silent misparsing:** this fork could potentially parse or handle parts
-  of a script incorrectly, leading to unintended behavior without an error
-  message. If something feels off (wrong branch taken, variable not set,
-  event not firing), compare with the original `Emuera.exe` the game comes
-  with — run both on the same save and check for divergence.
-  **These discrepancies can be very minor/almost unnoticeable, so keep a close eye on mishaps you might see.**
+  day change takes that long). Set the time with *Milliseconds for
+  infinite loop warning* in *Game settings → Environment*, or the game's
+  `emuera.config` (`無限ループ警告までのミリ秒数`).
+- **Silent misparsing:** emuera-tty may parse or run part of a script
+  differently from Emuera without any error: a wrong branch taken, a
+  variable not set, an event not firing. These can be small and easy to
+  miss. If something feels off, run the same save in the `Emuera.exe` the
+  game comes with and compare; a report with both outputs is the most
+  useful kind.
 - **Reporting a bug:** include the error text and, if you can, a trace:
   `EMUERA_TRACE=FUNCTIONNAME emuera-tty 2> trace.txt` logs every call to
   functions whose name contains `FUNCTIONNAME`, with their results.

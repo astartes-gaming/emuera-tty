@@ -21,9 +21,10 @@
 ## Interactive Debugger
 
 Enable with `--vm-debug` flag or `EMUERA_VM_DEBUG=1` environment variable.
-Game-level debug (`[IF_DEBUG]` blocks, `;#;` lines) is enabled with `--game-debug` flag or `EMUERA_GAME_DEBUG=1`.
-When the debugger stops (at a breakpoint or step), a REPL prompt appears:
-`(emu-debug)> `. Available commands:
+Game-level debug (`[IF_DEBUG]` blocks, `;#;` lines) is enabled with
+`--game-debug` flag or `EMUERA_GAME_DEBUG=1`. When the debugger stops (at a
+breakpoint or step), a REPL prompt appears: `(emu-debug)> `. Available
+commands:
 
 | Command | Aliases | Description |
 |---------|---------|-------------|

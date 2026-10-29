@@ -61,21 +61,21 @@ under emulation (`qemu-user`), not on real machines.**
 | **Compile-checked** (no C library here to link against) | RISC-V 32, PowerPC 32, IBM Z (s390x), SPARC 32 / 64, MIPS 32 / 64 (both byte orders), Motorola 68000, Hexagon, C-SKY, big-endian ARM / AArch64, x32 |
 | **Not possible**: Rust has no code generator for them | DEC Alpha, PA-RISC (HPPA), SuperH (SH-4), Itanium, OpenRISC, MicroBlaze, Xtensa |
 
-The emulated builds are static musl programs, made on a PC with Rust's
-own linker (no cross compiler needed): add the target with `rustup target
-add`, then build with
-`RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static" cargo build --release --target …`
-for `i586-unknown-linux-musl`, `arm-unknown-linux-musleabihf`,
+The emulated builds are static musl programs, made on a PC with Rust's own
+linker (no cross compiler needed): add the target with `rustup target add`,
+then build with `RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes
+-C target-feature=+crt-static" cargo build --release --target …` for
+`i586-unknown-linux-musl`, `arm-unknown-linux-musleabihf`,
 `armv5te-unknown-linux-musleabi`, `armv7-unknown-linux-musleabihf`,
 `aarch64-unknown-linux-musl`, `riscv64gc-unknown-linux-musl`,
 `powerpc64-unknown-linux-musl`, `powerpc64le-unknown-linux-musl` or
 `loongarch64-unknown-linux-musl`. The compile-checked ones need nightly
-Rust (`cargo +nightly build -Z build-std=std,panic_abort --target …`)
-for most, and the target's C library to link. RISC-V 32 is checked as
+Rust (`cargo +nightly build -Z build-std=std,panic_abort --target …`) for
+most, and the target's C library to link. RISC-V 32 is checked as
 `riscv32gc-unknown-linux-musl`: the glibc target's own standard library
 doesn't build with current nightly Rust (`SYS_futex` is missing from its
-`libc`). On the machine itself,
-`cargo build --release` works wherever Rust is installed.
+`libc`). On the machine itself, `cargo build --release` works wherever Rust
+is installed.
 
 ## Small machines (Raspberry Pi Zero and the like)
 

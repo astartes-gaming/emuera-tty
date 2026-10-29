@@ -37,7 +37,9 @@ the saved setting. A value can also be written `--colors=256`.
 
 - `FRAMEBUFFER=/dev/fbN` picks another framebuffer.
 - `EMUERA_MOUSE=mice|off|term` overrides the console-mouse choice (see [Mouse](Terminals#mouse)).
-- `EMUERA_GAMEPAD=off|/dev/input/eventN` turns gamepads off or reads just one device as a pad (see [Gamepads and the Steam Deck](Gamepads-and-Steam-Deck)).
+- `EMUERA_GAMEPAD=off|/dev/input/eventN` turns gamepads off or reads just
+  one device as a pad (see [Gamepads and the Steam
+  Deck](Gamepads-and-Steam-Deck)).
 - `EMUERA_AMBIGUOUS=wide|narrow|osc66` (or `--ambiguous`) overrides how box-drawing and symbol
   characters are fitted to Emuera's two columns (detected at startup:
   terminals that draw them wide need nothing, others are padded; `osc66`

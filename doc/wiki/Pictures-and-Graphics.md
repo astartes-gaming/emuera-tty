@@ -23,7 +23,7 @@ KMSCON sets `TERM=xterm-256color` by default, so emuera-tty can't tell it
 apart from xterm; with `TERM=kmscon` (its `--term` option) the prompt line
 shows a reminder of these limits.
 
-Mouse limitations for KMSCON are documented in [Terminals.md#mouse](Terminals.md#mouse).
+For its mouse, see [Mouse](Terminals#mouse) on the Terminals page.
 
 ### Canvas games and speed
 

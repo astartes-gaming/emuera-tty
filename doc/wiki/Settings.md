@@ -1,9 +1,9 @@
 ## emuera-tty's settings (F3)
 
-F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙ Settings* in the launcher. ↑ / ↓ choose,
-← / → or Enter change, Esc closes; changes are saved at once in
-`~/.config/emuera-tty/config` and, except where marked, apply to the
-running game:
+F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙
+Settings* in the launcher. ↑ / ↓ choose, ← / → or Enter change, Esc closes;
+changes are saved at once in `~/.config/emuera-tty/config` and, except
+where marked, apply to the running game:
 
 | Setting | Values | |
 |---|---|---|
@@ -28,14 +28,16 @@ running game:
 
 The overlay shows the *Random seed* in use: selectable for its description,
 but read-only (start with `EMUERA_SEED=N` to choose it; the game's
-`RANDOMIZE` / `INITRAND` change it). *Environment variables…* (shown only when one is
-set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (● set, ○ not
-set; Enter says what one does; read-only, as they are read at start). It also
-has *Game settings…* and *Manage saves…* (see [Game settings](#game-settings-emueras-settings-window) and [Managing saves](Playing#managing-saves)),
-*Clear the picture cache* (frees the decoded sprites whatever *Images* says;
-they load again when shown), *Recolor…* (draws a colour of the game's as another,
-written `from:to` in hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop
-navy into a softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
+`RANDOMIZE` / `INITRAND` change it). *Environment variables…* (shown only
+when one is set) lists every `EMUERA_*` variable emuera-tty reads with the
+value it sees (● set, ○ not set; Enter says what one does; read-only, as
+they are read at start). It also has *Game settings…* and *Manage saves…*
+(see [Game settings](#game-settings-emueras-settings-window) and [Managing
+saves](Playing#managing-saves)), *Clear the picture cache* (frees the
+decoded sprites whatever *Images* says; they load again when shown),
+*Recolor…* (draws a colour of the game's as another, written `from:to` in
+hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop navy into a
+softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
 *Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
 override saved settings.
 
