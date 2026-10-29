@@ -337,6 +337,24 @@ impl Settings {
         }
     }
 
+    /// Replace a game's path in the library (and last/fresh) with a new path.
+    pub fn update_game(&mut self, old: &Path, new: &Path) {
+        let new_canon = new.canonicalize().unwrap_or_else(|_| new.to_path_buf());
+        for g in &mut self.library {
+            if *g == old {
+                *g = new_canon.clone();
+            }
+        }
+        for g in &mut self.fresh {
+            if *g == old {
+                *g = new_canon.clone();
+            }
+        }
+        if self.last.as_deref() == Some(old) {
+            self.last = Some(new_canon);
+        }
+    }
+
     /// The contrast `console::readable` should reach.
     pub fn contrast_ratio(&self) -> f32 {
         match self.get("contrast") {
