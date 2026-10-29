@@ -27,8 +27,9 @@ fn game_for(erb: &Path) -> PathBuf {
         std::fs::copy(e.path(), dir.join("CSV").join(e.file_name())).unwrap();
     }
     let helpers = Path::new(ROOT).join("tests/erb");
-    let text = std::fs::read_to_string(erb).unwrap();
-    let mut h = std::fs::read_to_string(helpers.join("_helpers.erb")).unwrap();
+    // (a Windows checkout may have CRLF line ends)
+    let text = std::fs::read_to_string(erb).unwrap().replace("\r\n", "\n");
+    let mut h = std::fs::read_to_string(helpers.join("_helpers.erb")).unwrap().replace("\r\n", "\n");
     if text.lines().any(|l| l.trim_start().starts_with("@SYSTEM_TITLE")) {
         // the file runs the system flow itself: keep only the helpers
         h = h.replacen("@SYSTEM_TITLE\nCALL TEST_MAIN\nCALL TEST_DONE\nQUIT\n", "", 1);
@@ -134,7 +135,7 @@ fn golden_output() {
         if update {
             std::fs::write(&want_path, &got).unwrap();
         } else {
-            let want = std::fs::read_to_string(&want_path).unwrap_or_default();
+            let want = std::fs::read_to_string(&want_path).unwrap_or_default().replace("\r\n", "\n");
             if got != want {
                 let line = got.lines().zip(want.lines()).position(|(a, b)| a != b).unwrap_or(got.lines().count().min(want.lines().count()));
                 failures.push(format!(

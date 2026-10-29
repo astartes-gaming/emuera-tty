@@ -88,7 +88,9 @@ RETURN
     let output = run_debugger_test(&dir, b"", &bp_spec);
 
     assert!(output.contains("Debugger stopped"), "Expected debugger stop, got: {}", output);
-    assert!(output.contains(&format!("ERB/TEST.ERB:{}", line_num)), "Expected breakpoint location in output: {}", output);
+    // the location as the program names the file (`\` on Windows)
+    let at = format!("ERB{}TEST.ERB:{}", std::path::MAIN_SEPARATOR, line_num);
+    assert!(output.contains(&at), "Expected breakpoint location in output: {}", output);
 
     let _ = fs::remove_dir_all(&dir);
 }

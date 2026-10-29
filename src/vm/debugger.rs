@@ -192,7 +192,7 @@ impl Debugger {
 
         // Check explicit breakpoints
         if let (Some(file), Some(line)) = (file_name, line) {
-            let bp = Breakpoint::FileLine(file.to_string(), line);
+            let bp = Breakpoint::FileLine(bp_file(file), line);
             if self.breakpoints.contains(&bp) {
                 return Some(StopReason::Breakpoint(bp));
             }
@@ -435,7 +435,7 @@ impl Debugger {
             let looks_like_file = before_colon.contains('/') || before_colon.contains('\\') || before_colon.contains('.');
             if looks_like_file {
                 if let Ok(line) = parts[1].parse::<u32>() {
-                    return Breakpoint::FileLine(parts[0].to_string(), line);
+                    return Breakpoint::FileLine(bp_file(parts[0]), line);
                 }
             }
         }
@@ -487,6 +487,13 @@ impl Default for Debugger {
     }
 }
 
+/// A breakpoint's file, as typed or as the program names it, with `/` for
+/// either separator: `ERB/TEST.ERB:8` stops on Windows too, where the
+/// program's file names have `\`.
+fn bp_file(f: &str) -> String {
+    f.replace('\\', "/")
+}
+
 impl fmt::Debug for Debugger {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Debugger")
@@ -506,6 +513,8 @@ mod tests {
     fn parse_breakpoint_file_line() {
         let bp = Debugger::parse_breakpoint_spec("ERB/TEST.ERB:42");
         assert_eq!(bp, Breakpoint::FileLine("ERB/TEST.ERB".to_string(), 42));
+        // either separator names the same file
+        assert_eq!(Debugger::parse_breakpoint_spec("ERB\\TEST.ERB:42"), bp);
     }
 
     #[test]

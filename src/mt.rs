@@ -1138,7 +1138,7 @@ mod tests {
         // curl: answers DeepL's way, the request's last header and target
         // language in the text
         let p = bin.join("curl");
-        let script = "#!/bin/sh\nfor a; do case \"$a\" in https://*) url=\"$a\";; esac; done\nbody=$(cat)\nlang=$(printf '%s' \"$body\" | sed 's/.*target_lang\":\"\\([^\"]*\\).*/\\1/')\nprintf '{\"translations\":[{\"text\":\"%s %s\"}]}\\n200' \"$url\" \"$lang\"\n";
+        let script = "#!/bin/sh\nfor a; do case \"$a\" in https://*) url=\"$a\";; esac; done\nbody=$(cat)\nlang=${body#*target_lang\\\":\\\"}\nlang=${lang%%\\\"*}\nprintf '{\"translations\":[{\"text\":\"%s %s\"}]}\\n200' \"$url\" \"$lang\"\n";
         std::fs::write(&p, script).unwrap();
         crate::sys::set_executable(&p).unwrap();
         let old = std::env::var_os("PATH").unwrap_or_default();

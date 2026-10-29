@@ -232,24 +232,27 @@ fn memory_in_use_raw() -> Option<u64> {
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly", target_os = "netbsd", target_os = "openbsd"))]
     unsafe {
         let page = libc::sysconf(libc::_SC_PAGESIZE).max(4096) as u64;
+        // filled by the kernel and read one field at a time: DragonFly's
+        // kinfo_proc has fields that may not be zero, so mem::zeroed panics
         #[cfg(target_os = "netbsd")]
-        let (mut kp, mib) = (std::mem::zeroed::<libc::kinfo_proc2>(), libc::KERN_PROC2);
+        let (mut kp, mib) = (std::mem::MaybeUninit::<libc::kinfo_proc2>::zeroed(), libc::KERN_PROC2);
         #[cfg(not(target_os = "netbsd"))]
-        let (mut kp, mib) = (std::mem::zeroed::<libc::kinfo_proc>(), libc::KERN_PROC);
+        let (mut kp, mib) = (std::mem::MaybeUninit::<libc::kinfo_proc>::zeroed(), libc::KERN_PROC);
         let size = std::mem::size_of_val(&kp);
         let mut len = size;
         // NetBSD and OpenBSD take the record size and count in the name
         let mib = [libc::CTL_KERN, mib, libc::KERN_PROC_PID, libc::getpid(), size as libc::c_int, 1];
         let n = if cfg!(any(target_os = "netbsd", target_os = "openbsd")) { 6 } else { 4 };
-        if libc::sysctl(mib.as_ptr(), n, &mut kp as *mut _ as *mut libc::c_void, &mut len, std::ptr::null_mut(), 0) != 0 || len == 0 {
+        if libc::sysctl(mib.as_ptr(), n, kp.as_mut_ptr() as *mut libc::c_void, &mut len, std::ptr::null_mut(), 0) != 0 || len == 0 {
             return None;
         }
+        let kp = kp.as_ptr();
         #[cfg(target_os = "freebsd")]
-        let pages = kp.ki_rssize as u64;
+        let pages = (*kp).ki_rssize as u64;
         #[cfg(target_os = "dragonfly")]
-        let pages = kp.kp_vm_rssize as u64;
+        let pages = (*kp).kp_vm_rssize as u64;
         #[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
-        let pages = kp.p_vm_rssize as u64;
+        let pages = (*kp).p_vm_rssize as u64;
         (pages > 0).then_some(pages * page)
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -267,6 +270,31 @@ fn memory_in_use_raw() -> Option<u64> {
         let kb = usize::from_ne_bytes(b.get(at..at + std::mem::size_of::<usize>())?.try_into().ok()?);
         (kb > 0).then_some(kb as u64 * 1024)
     }
+    // Redox: this process's private memory from the kernel's context list,
+    // the PRIVATE column ps shows ("7.48 MB": number and unit); its
+    // getrusage leaves ru_maxrss at 0
+    #[cfg(target_os = "redox")]
+    {
+        let pid = std::process::id().to_string();
+        let list = std::fs::read_to_string("/scheme/sys/context").ok()?;
+        list.lines()
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() < 10 || f[0] != pid {
+                    return None;
+                }
+                let unit = match f[9] {
+                    "B" => 1.0,
+                    "KB" => 1024.0,
+                    "MB" => 1024.0 * 1024.0,
+                    "GB" => 1024.0 * 1024.0 * 1024.0,
+                    _ => return None,
+                };
+                Some((f[8].parse::<f64>().ok()? * unit) as u64)
+            })
+            .max()
+            .filter(|&b| b > 0)
+    }
     // other Unixes: the peak resident size (KB), the nearest a portable call
     // gives
     #[cfg(all(
@@ -283,7 +311,8 @@ fn memory_in_use_raw() -> Option<u64> {
             target_os = "macos",
             target_os = "ios",
             target_os = "illumos",
-            target_os = "solaris"
+            target_os = "solaris",
+            target_os = "redox"
         ))
     ))]
     unsafe {
