@@ -123,6 +123,7 @@ Expect rough edges in parts of the games nobody has played through yet
     - [Game data and config files](#game-data-and-config-files)
     - [Emuera-EM, EE and Anchor](#emuera-em-ee-and-anchor)
     - [Debugging](#debugging)
+      - [Interactive Debugger](#interactive-debugger)
   - [Tests](#tests)
     - [Development builds](#development-builds)
   - [Roadmap](#roadmap)
@@ -1783,7 +1784,9 @@ a git submodule (clone with `--recurse-submodules`, or run
 `git submodule update --init`): one game of checks, meant for every
 eraBasic interpreter, whose expected values are Emuera-EM/EE's.
 `cargo test --release --test compat_suite -- --ignored` runs it; it is
-ignored by default until emuera-tty passes it.
+ignored by default but **now passes** (since 679ba6dd). Note that even
+though the compat suite passes, there could still be other bugs — see
+[When something goes wrong](#7-when-something-goes-wrong).
 
 `tools/game_smoke.sh GAME_DIR [STEPS] [SEED]` plays a real game with random
 menu choices in a throwaway copy and reports script errors.
