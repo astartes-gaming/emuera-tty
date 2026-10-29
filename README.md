@@ -86,6 +86,7 @@ Expect rough edges in parts of the games nobody has played through yet
       - [What gets translated](#what-gets-translated)
       - [Original, forced translation and quotes](#original-forced-translation-and-quotes)
       - [Testing and the cache](#testing-and-the-cache)
+        - [Export translation cache](#export-translation-cache)
       - [A log for translators](#a-log-for-translators)
       - [Reusing a log as translations](#reusing-a-log-as-translations)
       - [Keeping files and lines untranslated](#keeping-files-and-lines-untranslated)
@@ -126,6 +127,7 @@ Expect rough edges in parts of the games nobody has played through yet
       - [Interactive Debugger](#interactive-debugger)
   - [Tests](#tests)
     - [Development builds](#development-builds)
+    - [Compatibility suite](#compatibility-suite)
   - [Roadmap](#roadmap)
 
 # Guide
@@ -876,6 +878,9 @@ translator and shows the result and how long it took, or why it failed.
 **Clear the translation cache** forgets every translation made this
 session (they are kept in memory only), so what is on screen is
 translated again: after changing translator or fixing one that failed.
+
+##### Export translation cache
+
 **Export translation cache…** writes the current translation cache to a file
 (formatted like a translation log, see [A log for translators](#a-log-for-translators)),
 so it can be reused with `--translate-load` later. This option only appears
@@ -1778,6 +1783,8 @@ output that differs and saves that aren't byte-identical.
 `tools/erb_coverage.py` lists which of Emuera's 558 built-in functions and
 statements no test uses yet (about 90% are used).
 
+### Compatibility suite
+
 `compat/` is the [eraBasic compatibility suite](https://gitgud.io/era-games/erabasic-compat)
 (mirror: https://github.com/vinumsabbathi789/erabasic-compat),
 a git submodule (clone with `--recurse-submodules`, or run
@@ -1787,9 +1794,6 @@ eraBasic interpreter, whose expected values are Emuera-EM/EE's.
 ignored by default but **now passes** (since 679ba6dd). Note that even
 though the compat suite passes, there could still be other bugs — see
 [When something goes wrong](#7-when-something-goes-wrong).
-
-`tools/game_smoke.sh GAME_DIR [STEPS] [SEED]` plays a real game with random
-menu choices in a throwaway copy and reports script errors.
 
 ### Development builds
 
