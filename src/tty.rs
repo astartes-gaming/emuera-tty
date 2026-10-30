@@ -1812,7 +1812,7 @@ impl Tty {
                     // to start with, the previous run's last (a mark printed
                     // in another colour than its base)
                     let mut base: Option<usize> = rows.last().and_then(|r| r.cells.len().checked_sub(1));
-                    for ch in text.chars() {
+                    for (ch, wl) in letter_widths(text, self.letters) {
                         let ch = if self.yen && ch == '\\' { '¥' } else { ch };
                         let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl) };
                         let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
@@ -2585,9 +2585,9 @@ impl Tty {
 
     /// Cells for a run of text in one style (for text painted over rows).
     fn text_cells(&self, text: &str, st: &Style) -> Vec<Cell> {
-        let mut v: Vec<Cell> = Vec::new();
-        let mut base: Option<usize> = None;
-        for ch in text.chars() {
+        let mut v = Vec::new();
+        let mut base: Option<usize> = None; 
+        for (ch, wl) in letter_widths(text, self.letters) {
             let ch = if self.yen && ch == '\\' { '¥' } else { ch };
             let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl);
             let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
