@@ -3011,6 +3011,7 @@ mod render_tests {
                 pending: Vec::new(),
                 mode: Mode::Library,
                 adding: false,
+                updating: None,
                 git_log: None,
                 st,
                 wiki: Vec::new(),
