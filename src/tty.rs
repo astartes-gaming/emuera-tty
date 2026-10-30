@@ -378,8 +378,9 @@ pub(crate) fn shape_cells(col: usize, frac: &mut Option<f32>, w: f32, rect: bool
 
 /// A function key from a CSI sequence's parameters and final byte, with
 /// whether Shift was held: xterm's `ESC [ 15 ; 2 ~` and `ESC [ 1 ; 2 P`,
-/// VT220's `ESC [ 11 ~` (F1), and the Linux console's and rxvt's F13–F20,
-/// which are Shift+F3…F10 there (their Shift+F1 / F2 are F11 / F12).
+/// VT220's `ESC [ 11 ~` (F1), the Linux console's and rxvt's F13–F20,
+/// which are Shift+F3…F10 there (their Shift+F1 / F2 are F11 / F12), and
+/// the illumos / Solaris console's `ESC [ 224 z` … `ESC [ 235 z`.
 fn fkey(p: &[u8], fin: u8) -> Option<(u8, bool)> {
     let s = std::str::from_utf8(p).ok()?;
     let mut it = s.split(';');
@@ -403,6 +404,7 @@ fn fkey(p: &[u8], fin: u8) -> Option<(u8, bool)> {
         (b'~', 25 | 26) => (a - 22, true),
         (b'~', 28 | 29) => (a - 23, true),
         (b'~', 31..=34) => (a - 24, true),
+        (b'z', 224..=235) => (a - 223, false),
         _ => return None,
     };
     Some((n, shift || f13))
@@ -1272,8 +1274,10 @@ impl Tty {
             let s = String::from_utf8_lossy(&r).to_string();
             s.rfind("\x1b[").and_then(|i| s[i + 2..].trim_end_matches('R').split(';').nth(1).and_then(|c| c.parse::<u32>().ok()))
         };
-        // a kanji that moves the cursor one cell: no double-width at all
-        if cursor_col(self, "漢") == Some(2) {
+        // a kanji that moves the cursor one cell: no double-width at all;
+        // so does the illumos / Solaris console, which doesn't answer
+        let kanji = cursor_col(self, "漢");
+        if kanji == Some(2) || (kanji.is_none() && sun_console(&self.term)) {
             return Ambi::Narrow;
         }
         if cursor_col(self, "■") == Some(3) {
@@ -1595,6 +1599,12 @@ impl Tty {
                                     (p, b'~') if p == b"6" => Key::PageDown,
                                     (p, b'~') if p == b"1" || p == b"7" => Key::Home,
                                     (p, b'~') if p == b"4" || p == b"8" => Key::End,
+                                    // the illumos / Solaris console's (sun-color)
+                                    (p, b'z') if p == b"214" => Key::Home,
+                                    (p, b'z') if p == b"216" => Key::PageUp,
+                                    (p, b'z') if p == b"220" => Key::End,
+                                    (p, b'z') if p == b"222" => Key::PageDown,
+                                    (p, b'z') if p == b"247" => Key::Click,
                                     _ => Key::Other,
                                 };
                                 (k, e + 1)
@@ -2693,8 +2703,8 @@ impl Tty {
 
     /// Copy the printed text to the clipboard if `t` is a trigger for it.
     fn copy_text(&mut self, con: &Console, t: crate::clipboard::Trigger) {
-        // (the Hurd's console would print the OSC 52 string)
-        if self.term == "hurd" {
+        // (the Hurd's and illumos' consoles would print the OSC 52 string)
+        if self.term == "hurd" || sun_console(&self.term) {
             return;
         }
         let cfg = self.clip_config(con);
@@ -3680,8 +3690,8 @@ impl Tty {
                 parts.push((format!("@{}", running), "\x1b[0;2m"));
             }
             // on the Linux console: is the mouse there, and are its events
-            // coming in?
-            if text_console(&self.term) {
+            // coming in? (no console mouse elsewhere)
+            if text_console(&self.term) && cfg!(target_os = "linux") {
                 let m = match &self.mice {
                     Some(m) => format!("mouse:{} {}", m.describe().split(' ').next().unwrap_or(""), self.mouse_events),
                     None => "mouse:none".to_string(),
@@ -3969,9 +3979,17 @@ fn rgb256(c: Rgb) -> u8 {
 
 /// A text console: no answers to terminal queries, no pictures beyond its
 /// own framebuffer, a pointer of our own for the mouse. The Linux console,
-/// fbterm and the Hurd's console (which prints OSC strings as text).
+/// fbterm, the Hurd's console (which prints OSC strings as text) and the
+/// illumos / Solaris one.
 pub(crate) fn text_console(term: &str) -> bool {
-    term == "linux" || term.starts_with("fbterm") || term == "hurd"
+    term == "linux" || term.starts_with("fbterm") || term == "hurd" || sun_console(term)
+}
+
+/// The illumos / Solaris console (`tem`; its logins get `sun-color`): no
+/// alternate screen, every character one cell, no answer to any query
+/// (and its kernel can crash replying to `CSI 14 t` / `18 t`).
+fn sun_console(term: &str) -> bool {
+    term == "sun" || term.starts_with("sun-")
 }
 
 /// One of the 8 ANSI colours for an RGB colour, and whether it should be
@@ -5036,6 +5054,10 @@ mod tests {
         // the Linux console's F13 / F20: Shift+F3 / F10
         assert_eq!(f("25", b'~'), Some((3, true)));
         assert_eq!(f("34", b'~'), Some((10, true)));
+        // the illumos console's F1 / F12
+        assert_eq!(f("224", b'z'), Some((1, false)));
+        assert_eq!(f("235", b'z'), Some((12, false)));
+        assert_eq!(f("214", b'z'), None);
         // not function keys: Insert, Home, arrows, Shift+Enter
         for (p, fin) in [("2", b'~'), ("1", b'~'), ("1;2", b'A'), ("27;2;13", b'~'), ("16", b'~')] {
             assert_eq!(f(p, fin), None, "{} {}", p, fin as char);

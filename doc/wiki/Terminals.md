@@ -11,6 +11,7 @@ terminal:
 | macOS Terminal.app, GNOME Terminal, Alacritty, others | `░` placeholders | fine for playing |
 | Linux console under **fbterm** | yes (framebuffer) | needs the `video` group |
 | bare Linux console (no fbterm) | yes (framebuffer) | can't show Japanese/Chinese text |
+| illumos / Solaris console (`sun-color`) | no | can't show Japanese/Chinese text (padded to Emuera's columns), no mouse |
 | real VT100 / VT220 / VT52 / ADM-3A / Wyse…, local or on a **serial line** | no | ASCII, see below |
 | **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough all` |
 | **tmux** inside a sixel terminal | yes (tmux draws the sixel) | tmux built with sixel |

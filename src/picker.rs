@@ -2077,6 +2077,11 @@ impl Picker {
             (b'~', "6") => Act::Page(1),
             (b'~', "1") | (b'~', "7") => Act::Top,
             (b'~', "4") | (b'~', "8") => Act::Bottom,
+            // the illumos / Solaris console's Home, PgUp, End, PgDn
+            (b'z', "214") => Act::Top,
+            (b'z', "216") => Act::Page(-1),
+            (b'z', "220") => Act::Bottom,
+            (b'z', "222") => Act::Page(1),
             // SGR mouse ESC [ < b ; x ; y M/m, urxvt ESC [ b ; x ; y M
             (b'M' | b'm', p) => {
                 let sgr = p.starts_with('<');
