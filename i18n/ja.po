@@ -1,0 +1,7 @@
+# emuera-tty interface messages: Japanese.
+# Start from emuera-tty.pot (Poedit: "Update from POT file"); see the README,
+# "Translating emuera-tty".
+msgid ""
+msgstr ""
+"Language: ja\n"
+"Content-Type: text/plain; charset=UTF-8\n"

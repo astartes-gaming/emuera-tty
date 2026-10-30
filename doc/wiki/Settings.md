@@ -7,6 +7,7 @@ where marked, apply to the running game:
 
 | Setting | Values | |
 |---|---|---|
+| Language | auto, English, 日本語, 简体中文, 繁體中文, 한국어 | the language of emuera-tty's own menus and messages, not the game's; `auto` follows the system (`LC_ALL`, `LC_MESSAGES`, `LANG`; on Windows the user's locale). Untranslated messages show in English: only the framework is in place so far |
 | Images | auto, kitty, iterm, sixel, fb, none | how pictures are drawn; `none`: pictures are never decoded or scaled (and those already held are freed) until another choice is made |
 | Colours | auto, truecolor, 256, 16 | colour depth sent to the terminal |
 | Readable colours | normal, high, off | lighten coloured text that is too dark for its background |
