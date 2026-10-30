@@ -24,6 +24,8 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   Alt+↑ / ↓) a line at a time, or the mouse wheel. ↑ / ↓ scroll too
   where the game waits (`▼`), and Home / End while nothing is typed. A
   `[scroll -N]` tag shows you're looking at history; End jumps back.
+  **Click either the left/right mouse buttons or press Enter while scrolled back to jump
+  immediately to the end** (as in Emuera).
 - **Settings**: F3 or Ctrl-O opens them over the game (see [Settings](Settings#emuera-ttys-settings-f3)); F3
   not while a keyboard macro is stored on it.
 - **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask

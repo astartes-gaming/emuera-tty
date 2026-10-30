@@ -636,6 +636,8 @@ pub struct Tty {
     pub recolor: Vec<(Rgb, Rgb)>,
     /// lines per mouse-wheel step
     pub wheel: usize,
+    /// "Scroll to end on keyboard input": any key press while scrolled back jumps to the end
+    scroll_end_on_key: bool,
     /// the "Backslash as ¥" setting: auto, on, off
     pub yen_mode: String,
     /// draw `\` in game text as ¥ on this screen (see `backslash_is_yen`)
@@ -1004,6 +1006,7 @@ impl Tty {
             contrast: 3.0,
             recolor: Vec::new(),
             wheel: 3,
+            scroll_end_on_key: false,
             yen_mode: "auto".into(),
             yen: false,
             letters_mode: "auto".into(),
@@ -2845,9 +2848,9 @@ impl Tty {
         let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
         if toggle_debug {
             if debug_run() {
-                args.retain(|a| a != "--debug");
+                args.retain(|a| a != "--game-debug");
             } else {
-                args.push("--debug".into());
+                args.push("--game-debug".into());
             }
         }
         self.shutdown();
@@ -3308,6 +3311,7 @@ impl Tty {
             }
             "contrast" => self.contrast = st.contrast_ratio(),
             "wheel" => self.wheel = v.parse().unwrap_or(3),
+            "scroll_end_on_key" => self.scroll_end_on_key = v == "on",
             "yen" => {
                 self.yen_mode = v.to_string();
                 self.redraw_all.set(true);
@@ -4344,6 +4348,12 @@ impl Frontend for Tty {
                     redraw = true;
                 }
                 Key::Mouse { btn, x, y, press } => {
+                    // Only left (0) and right (2) click jump to end; middle (1) does not
+                    let button = btn & !(4 | 8 | 16);
+                    if press && self.scroll > 0 && (button == 0 || button == 2) {
+                        self.scroll = 0;
+                        redraw = true;
+                    }
                     if press {
                         self.click_copies(con, btn, x, y);
                     }
@@ -4431,10 +4441,29 @@ impl Frontend for Tty {
                     self.macro_group(g);
                     redraw = true;
                 }
-                _ if req.kind == InputKind::Wait => {
-                    if !matches!(k, Key::Other | Key::Left | Key::Right) {
-                        return InputResult::Text(String::new());
-                    }
+                // "Scroll to end on keyboard input": any key while scrolled back jumps to end
+                _ if self.scroll > 0
+                    && self.scroll_end_on_key
+                    && !matches!(
+                        k,
+                        Key::CtrlC
+                            | Key::CtrlL
+                            | Key::Title
+                            | Key::Restart
+                            | Key::Reload
+                            | Key::Settings
+                            | Key::F(..)
+                            | Key::Group(_)
+                            | Key::Pad(_)
+                            | Key::Other
+                    ) =>
+                {
+                    self.scroll = 0;
+                    redraw = true;
+                }
+                Key::Enter if self.scroll > 0 => {
+                    self.scroll = 0;
+                    redraw = true;
                 }
                 Key::Enter => {
                     let s = self.line.take();

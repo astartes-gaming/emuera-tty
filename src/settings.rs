@@ -138,6 +138,13 @@ pub const ITEMS: &[Item] = &[
     },
     Item { key: "wheel", label: n!("Wheel scrolls"), choices: &["3", "1", "5", "10"], live: true, help: n!("lines per mouse-wheel step") },
     Item {
+        key: "scroll_end_on_key",
+        label: n!("Scroll to end on keyboard input"),
+        choices: &["off", "on"],
+        live: true,
+        help: n!("any key press while scrolled back jumps to the end (off: only mouse clicks and Enter do)"),
+    },
+    Item {
         key: "warmup",
         label: n!("Decode last used pictures"),
         choices: &["auto", "on", "off"],

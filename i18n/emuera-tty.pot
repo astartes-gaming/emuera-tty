@@ -909,6 +909,14 @@ msgid "lines per mouse-wheel step"
 msgstr ""
 
 #: src/settings.rs
+msgid "Scroll to end on keyboard input"
+msgstr ""
+
+#: src/settings.rs
+msgid "any key press while scrolled back jumps to the end (off: only mouse clicks and Enter do)"
+msgstr ""
+
+#: src/settings.rs
 msgid "Decode last used pictures"
 msgstr ""
 
