@@ -173,6 +173,10 @@ enum Kind {
     Archive {
         path: PathBuf,
     },
+    /// library: game debugging enabled indicator (non-selectable)
+    GameDebug,
+    /// library: VM debugging enabled indicator (selectable, shows breakpoints)
+    VmDebug,
 }
 
 /// What a key or click asks for.
@@ -222,6 +226,10 @@ struct Picker {
     wiki_opts: Vec<crate::download::Opt>,
     /// logins typed in this session (never written anywhere by us)
     logins: Vec<Login>,
+    /// whether --game-debug / EMUERA_GAME_DEBUG is enabled
+    game_debug: bool,
+    /// whether --vm-debug / EMUERA_VM_DEBUG is enabled
+    vm_debug: bool,
 }
 
 /// A user name and password (or access token) for a git host.
@@ -241,10 +249,12 @@ const GITGUD: &str = "gitgud.io";
 /// The launcher: the game library, with adding games and settings. Returns
 /// the game to play (already remembered as the last one), or None.
 /// `clone`: a git repository to clone into the library first (`--clone`).
-pub fn launcher(clone: Option<&str>) -> Option<PathBuf> {
+/// `game_debug`: whether --game-debug / EMUERA_GAME_DEBUG is enabled.
+/// `vm_debug`: whether --vm-debug / EMUERA_VM_DEBUG is enabled.
+pub fn launcher(clone: Option<&str>, game_debug: bool, vm_debug: bool) -> Option<PathBuf> {
     let st = crate::settings::Settings::load();
     let start = browse_start(&st);
-    run_screen(Mode::Library, &start, clone)
+    run_screen(Mode::Library, &start, clone, game_debug, vm_debug)
 }
 
 /// Is `s` a git repository's address rather than a folder: a URL git
@@ -261,7 +271,7 @@ fn browse_start(st: &crate::settings::Settings) -> PathBuf {
     st.last.as_ref().and_then(|g| g.parent().map(|p| p.to_path_buf())).or_else(crate::sys::home_dir).unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> {
+fn run_screen(mode: Mode, start: &Path, clone: Option<&str>, game_debug: bool, vm_debug: bool) -> Option<PathBuf> {
     let raw_mode = crate::sys::RawMode::enter().ok()?;
     let term = std::env::var("TERM").unwrap_or_default();
     let is_vt = term == "linux" || term.starts_with("fbterm");
@@ -287,6 +297,8 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> 
         wiki_info: Default::default(),
         wiki_opts: Vec::new(),
         logins: load_logins(),
+        game_debug,
+        vm_debug,
     };
     p.load();
     if let Some(url) = clone {
@@ -489,6 +501,24 @@ impl Picker {
         self.entry_line.clear();
         match self.mode {
             Mode::Library => {
+                // Debug indicators at the top
+                if self.game_debug {
+                    self.entries.push(Entry {
+                        label: format!("⚠ {}", t!("Game debugging enabled; [IF_DEBUG] blocks and ;#; lines WILL run")),
+                        wrapped: Vec::new(),
+                        kind: Kind::GameDebug,
+                    });
+                }
+                if self.vm_debug {
+                    self.entries.push(Entry {
+                        label: format!(
+                            "⚠ {}",
+                            t!("VM-level debugging/breakpoints enabled; select this option to show a list of what files/functions have an attached breakpoint")
+                        ),
+                        wrapped: Vec::new(),
+                        kind: Kind::VmDebug,
+                    });
+                }
                 for g in self.st.library.clone() {
                     let ok = is_game_dir(&g);
                     let title = if ok { game_title(&g).unwrap_or_else(|| t!("Emuera game")) } else { t!("(folder missing)") };
@@ -756,6 +786,8 @@ impl Picker {
                     Kind::WikiGame(_) | Kind::WikiRepo(_) => "\x1b[33m",
                     Kind::Login => "\x1b[36m",
                     Kind::Archive { .. } => "\x1b[36m",
+                    // debug indicators: orange
+                    Kind::GameDebug | Kind::VmDebug => "\x1b[38;5;208m",
                     _ => "",
                 };
 
@@ -1952,8 +1984,60 @@ impl Picker {
                     self.note = t!("Nothing here: no folders or archives.");
                 }
             }
+            Kind::GameDebug => {
+                // Non-selectable indicator, do nothing
+            }
+            Kind::VmDebug => {
+                // Show breakpoint dialog
+                self.show_breakpoint_dialog();
+            }
         }
         None
+    }
+
+    /// Show a dialog with the list of breakpoints from EMUERA_BREAKPOINTS.
+    fn show_breakpoint_dialog(&mut self) {
+        // Parse EMUERA_BREAKPOINTS like the debugger does
+        let mut breakpoints = Vec::new();
+        if let Ok(val) = std::env::var("EMUERA_BREAKPOINTS") {
+            for spec in val.split(',') {
+                let spec = spec.trim();
+                if spec.is_empty() {
+                    continue;
+                }
+                // Parse like Debugger::parse_breakpoint_spec
+                let bp = if spec.contains(':') && !spec.starts_with('@') {
+                    let parts: Vec<&str> = spec.splitn(2, ':').collect();
+                    let before_colon = parts[0];
+                    let looks_like_file = before_colon.contains('/') || before_colon.contains('\\') || before_colon.contains('.');
+                    if looks_like_file {
+                        if let Ok(line) = parts[1].parse::<u32>() {
+                            format!("File: {}:{}", before_colon.replace('\\', "/"), line)
+                        } else {
+                            format!("Function@PC: {}:{}", parts[0].to_uppercase(), parts[1])
+                        }
+                    } else {
+                        if let Ok(pc) = parts[1].parse::<usize>() {
+                            format!("Function@PC: {}:{}", parts[0].to_uppercase(), pc)
+                        } else {
+                            format!("Function: {}", parts[0].to_uppercase())
+                        }
+                    }
+                } else {
+                    let name = spec.trim_start_matches('@').to_uppercase();
+                    format!("Function: {}", name)
+                };
+                breakpoints.push(bp);
+            }
+        }
+
+        let message = if breakpoints.is_empty() {
+            "No breakpoints set. Set EMUERA_BREAKPOINTS to configure them (e.g., \"ERB/TEST.ERB:42,@EVENT_SHOP,EVENT_SHOP:10\").".to_string()
+        } else {
+            format!("Breakpoints:\n\n{}", breakpoints.join("\n"))
+        };
+
+        self.dialog("VM Debugger Breakpoints", &message, &["OK"], 0);
     }
 
     /// Extract an archive, showing progress in a gauge.
@@ -3019,6 +3103,8 @@ mod render_tests {
                 wiki_info: Default::default(),
                 wiki_opts: Vec::new(),
                 logins: Vec::new(),
+                game_debug: false,
+                vm_debug: false,
             };
             for mode in [Mode::Library, Mode::Settings] {
                 p.mode = mode;

@@ -32,6 +32,14 @@ straight away.
 you play or add goes into your **library**. Once there are two or more,
 `emuera-tty` opens the launcher instead:
 
+When run with `--game-debug` (or `EMUERA_GAME_DEBUG=1`), an orange line
+appears at the top: **Game debugging enabled; [IF_DEBUG] blocks and ;#; lines WILL run**.
+
+When run with `--vm-debug` (or `EMUERA_VM_DEBUG=1`), an orange line appears
+at the top: **VM-level debugging/breakpoints enabled; select this option to show a list of what files/functions have an attached breakpoint**.
+Press Enter on that line to open a dialog listing the breakpoints from
+`EMUERA_BREAKPOINTS` (format: `ERB/FILE.ERB:42`, `@FUNCTION`, `FUNCTION:10`).
+
 | Key | Action |
 |---|---|
 | Enter (or click twice) | play the selected game |

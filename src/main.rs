@@ -736,7 +736,7 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
             eprintln!("emuera-tty: cloning {} needs a terminal (the launcher does it)", url);
             return None;
         }
-        let g = picker::launcher(Some(url))?;
+        let g = picker::launcher(Some(url), o.game_debug, o.vm_debug)?;
         picker::remember(&g);
         return Some(g);
     }
@@ -783,7 +783,7 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
         eprintln!("emuera-tty: {}", t!("no game folder given (pass GAME_DIR, or run in a terminal to pick one)"));
         return None;
     }
-    let g = picker::launcher(None)?;
+    let g = picker::launcher(None, o.game_debug, o.vm_debug)?;
     picker::remember(&g);
     Some(g)
 }

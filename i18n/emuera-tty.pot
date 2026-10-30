@@ -370,6 +370,14 @@ msgid "({n} for other languages)"
 msgstr ""
 
 #: src/picker.rs
+msgid "Game debugging enabled; [IF_DEBUG] blocks and ;#; lines WILL run"
+msgstr ""
+
+#: src/picker.rs
+msgid "VM-level debugging/breakpoints enabled; select this option to show a list of what files/functions have an attached breakpoint"
+msgstr ""
+
+#: src/picker.rs
 msgid "Emuera game"
 msgstr ""
 
