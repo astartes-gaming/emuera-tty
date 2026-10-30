@@ -2586,7 +2586,7 @@ impl Tty {
     /// Cells for a run of text in one style (for text painted over rows).
     fn text_cells(&self, text: &str, st: &Style) -> Vec<Cell> {
         let mut v = Vec::new();
-        let mut base: Option<usize> = None; 
+        let mut base: Option<usize> = None;
         for (ch, wl) in letter_widths(text, self.letters) {
             let ch = if self.yen && ch == '\\' { '¥' } else { ch };
             let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl);
