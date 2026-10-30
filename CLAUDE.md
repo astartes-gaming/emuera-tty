@@ -157,6 +157,15 @@ with a very large stack.
   also goes in `NOT_IN_FUNCTION`: a `#FUNCTION(S)` can't use it.
   The EM families have their own functions: `map_fn`, `dt_fn`
   (`vm/datatable.rs`), XML (`xml.rs`), .NET-style regex (`regex.rs`).
+- **Interface text is translatable.** emuera-tty's own messages
+  (settings, launcher, save manager, prompts, its errors; never game
+  text) go through `t!("English text", name = value)` or
+  `tc!("context", "…")` (`i18n.rs`): the English text is the key and
+  `{name}` placeholders are filled by name. The first argument must be a
+  literal: a test reads them from `src/` into `i18n/emuera-tty.pot` and
+  fails when the template is out of date; `UPDATE_POT=1 cargo test`
+  rewrites it. Catalogues are `i18n/<lang>.po`, compiled in. Measure
+  interface text with display widths, never `chars().count()`.
 - **Saves.** `vm/erasav.rs` is Emuera's binary format (reader/writer);
   `vm/save.rs` decides what goes in, in Emuera's order (system variables,
   then the game's `#DIM SAVEDATA` in Emuera's creation order via
