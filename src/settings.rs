@@ -36,40 +36,33 @@ pub struct Item {
 
 pub const ITEMS: &[Item] = &[
     Item {
-        key: "language",
-        label: n!("Language"),
-        choices: &["auto", "en", "ja", "zh-Hans", "zh-Hant", "ko"],
-        live: true,
-        help: n!("the language of emuera-tty's own menus and messages, not the game's (auto: the system's)"),
-    },
-    Item {
         key: "images",
-        label: n!("Images"),
+        label: "Images",
         choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"],
         live: true,
-        help: n!("how pictures are drawn (auto: whatever the terminal supports)"),
+        help: "how pictures are drawn (auto: whatever the terminal supports)",
     },
-    Item { key: "colors", label: n!("Colours"), choices: &["auto", "truecolor", "256", "16"], live: true, help: n!("colour depth sent to the terminal") },
+    Item { key: "colors", label: "Colours", choices: &["auto", "truecolor", "256", "16"], live: true, help: "colour depth sent to the terminal" },
     Item {
         key: "contrast",
-        label: n!("Readable colours"),
+        label: "Readable colours",
         choices: &["normal", "high", "off"],
         live: true,
-        help: n!("lighten coloured text too dark to read (e.g. blue in time stop)"),
+        help: "lighten coloured text too dark to read (e.g. blue in time stop)",
     },
     Item {
         key: "wide",
-        label: n!("Wide symbols"),
+        label: "Wide symbols",
         choices: &["auto", "wide", "narrow", "single", "osc66"],
         live: true,
-        help: n!("how box drawing / symbols get Emuera's two columns (auto: measured)"),
+        help: "how box drawing / symbols get Emuera's two columns (auto: measured)",
     },
     Item {
         key: "yen",
-        label: n!("Backslash as ¥"),
+        label: "Backslash as ¥",
         choices: &["auto", "on", "off"],
         live: true,
-        help: n!("draw \\ as ¥ as Japanese fonts do (auto: when the game's font is one, as Emuera's default MS Gothic)"),
+        help: "draw \\ as ¥ as Japanese fonts do (auto: when the game's font is one, as Emuera's default MS Gothic)",
     },
     Item {
         key: "letters",
@@ -80,121 +73,117 @@ pub const ITEMS: &[Item] = &[
     },
     Item {
         key: "clipboard",
-        label: n!("Copy to clipboard"),
+        label: "Copy to clipboard",
         choices: &["game", "on", "off"],
         live: true,
-        help: n!("put printed text on the clipboard (OSC 52); game: as emuera.config says"),
+        help: "put printed text on the clipboard (OSC 52); game: as emuera.config says",
     },
-    Item { key: "statusbar", label: n!("Bottom bar details"), choices: &["on", "off"], live: true, help: n!("the hovered button's value and the running function") },
+    Item { key: "statusbar", label: "Bottom bar details", choices: &["on", "off"], live: true, help: "the hovered button's value and the running function" },
     Item {
         key: "memory",
-        label: n!("Show memory"),
+        label: "Show memory",
         choices: &["off", "on"],
         live: true,
-        help: n!("show the memory in use in the bottom row (it is always on this page's title)"),
+        help: "show the memory in use in the bottom row (it is always on this page's title)",
     },
     Item {
         key: "translator",
-        label: n!("Translator"),
+        label: "Translator",
         choices: &["off", "auto", "local", "argos", "translate-shell", "deepl", "file"],
         live: true,
-        help: n!("off: the game shows as it prints itself; auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online; file: only the translations read with --translate-load"),
+        help: "off: the game shows as it prints itself; auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online; file: only the translations read with --translate-load",
     },
     Item {
         key: "translate",
-        label: n!("Translate to"),
+        label: "Translate to",
         choices: &["en", "es", "pt", "fr", "de", "it", "ru", "ja", "zh", "ko"],
         live: true,
-        help: n!("the language to show the game in (needs a Translator other than off)"),
+        help: "the language to show the game in (needs a Translator other than off)",
     },
     Item {
         key: "translate_from",
-        label: n!("Translate from"),
+        label: "Translate from",
         choices: &["auto", "ja", "en"],
         live: true,
-        help: n!("the game's language: auto takes Japanese lines from Japanese and English ones from English"),
+        help: "the game's language: auto takes Japanese lines from Japanese and English ones from English",
     },
     Item {
         key: "translate_what",
-        label: n!("Translate what"),
+        label: "Translate what",
         choices: &["auto", "dialog", "all"],
         live: true,
-        help: n!("dialog: what characters say; all: menus and labels too (never maps); auto: all unless into English"),
+        help: "dialog: what characters say; all: menus and labels too (never maps); auto: all unless into English",
     },
-    Item { key: "sound", label: n!("Sound"), choices: &["auto", "on", "off"], live: true, help: n!("PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)") },
+    Item { key: "sound", label: "Sound", choices: &["auto", "on", "off"], live: true, help: "PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)" },
     Item {
         key: "kbdpointer",
-        label: n!("Keyboard pointer"),
+        label: "Keyboard pointer",
         choices: &["auto", "on", "off"],
         live: true,
-        help: n!("cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on a text console (Linux, Hurd) without a mouse"),
+        help: "cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on a text console (Linux, Hurd) without a mouse",
     },
     Item {
         key: "gamepad",
-        label: n!("Gamepad"),
+        label: "Gamepad",
         choices: &["auto", "off"],
         live: true,
-        help: n!("Steam Deck, Xbox, PlayStation… pads: d-pad between buttons, stick moves, A click, B skip, X/Y Enter, Start settings, LB/RB page"),
+        help: "Steam Deck, Xbox, PlayStation… pads: d-pad between buttons, stick moves, A click, B skip, X/Y Enter, Start settings, LB/RB page",
     },
-    Item { key: "wheel", label: n!("Wheel scrolls"), choices: &["3", "1", "5", "10"], live: true, help: n!("lines per mouse-wheel step") },
+    Item { key: "wheel", label: "Wheel scrolls", choices: &["3", "1", "5", "10"], live: true, help: "lines per mouse-wheel step" },
     Item {
         key: "warmup",
-        label: n!("Decode last used pictures"),
+        label: "Decode last used pictures",
         choices: &["auto", "on", "off"],
         live: false,
-        help: n!("decode pictures the game used last time in the background at start (auto: on unless headless)"),
+        help: "decode pictures the game used last time in the background at start (auto: on unless headless)",
     },
-    Item { key: "mouse", label: n!("Console mouse"), choices: &["auto", "off"], live: false, help: n!("gpm / /dev/input/mice on the Linux console") },
+    Item { key: "mouse", label: "Console mouse", choices: &["auto", "off"], live: false, help: "gpm / /dev/input/mice on the Linux console" },
     Item {
         key: "frontend",
-        label: n!("Display"),
+        label: "Display",
         choices: &["auto", "ansi", "retro"],
         live: false,
-        help: n!("retro: ASCII through terminfo, for old or dumb terminals"),
+        help: "retro: ASCII through terminfo, for old or dumb terminals",
     },
 ];
 
 /// Every `EMUERA_*` environment variable emuera-tty reads, with what it
 /// does (alphabetical), for the settings overlay's variables page.
 pub const ENV_VARS: &[(&str, &str)] = &[
-    ("EMUERA_AMBIGUOUS", n!("wide, narrow, single or osc66: how box drawing and symbols get Emuera's two columns")),
-    ("EMUERA_CODE_MB", n!("MB compiled functions may take (default: 1/16 of the memory); the least recently called are dropped")),
-    ("EMUERA_COLORS", n!("truecolor, 256 or 16: the colour depth, when detection guesses wrong")),
-    ("EMUERA_DEBUG_FRAMES", n!("any value: print each frame drawn (size and picture keys) to stderr (debugging)")),
-    ("EMUERA_GBUF_MB", n!("MB graphics buffers may take unpacked (default: 1/8 of the memory)")),
-    ("EMUERA_INFINITE_LOOP_ALERT_TIME", n!("ms before infinite loop warning (0 = disabled, default: 5000)")),
-    ("EMUERA_PICTURES_MB", n!("MB decoded picture files may take (default: 1/8 of the memory)")),
-    ("EMUERA_WARMUP", n!("1 / 0: decode last session's pictures in the background at start (default: on, off headless)")),
-    ("EMUERA_GFX", n!("default for --gfx: kitty, iterm, sixel, fb or none")),
-    ("EMUERA_GPMCTL", n!("path of the gpm socket (default /dev/gpmctl), for testing the Linux-console mouse")),
-    ("EMUERA_GPM_VC", n!("the virtual console number the gpm mouse is read for (testing)")),
-    ("EMUERA_GAMEPAD", n!("off: don't read gamepads; /dev/input/eventN: read just that device as a pad")),
-    ("EMUERA_INJECT", n!("STMT||STMT: statements run just before the EMUERA_INJECT_AT-th input (debugging)")),
-    ("EMUERA_INJECT_AT", n!("the input number EMUERA_INJECT runs before")),
-    (
-        "EMUERA_LANG",
-        n!("ja, zh-Hans, zh-Hant, ko or en: the interface language; x-cjk, x-arab, x-cyrl, x-deva, x-avst: every message in that script, to check the layout"),
-    ),
-    ("EMUERA_LIBRETRANSLATE", n!("host:port of the LibreTranslate server (default 127.0.0.1:5000)")),
-    ("EMUERA_LINT", n!("any value, with --check: point at statements the parser may have split wrongly, and string >= / <= (Emuera evaluates them as <)")),
-    ("EMUERA_LIST_BUTTONS", n!("1, with --headless: print the values of the buttons on screen before each input")),
-    ("EMUERA_MEASURE", n!("0 skips measuring how wide the terminal draws ambiguous characters")),
-    ("EMUERA_MEMSTATS", n!("file the report of what the memory holds is written to, at every input")),
-    ("EMUERA_MOUSE", n!("off or term: no console mouse; mice: read /dev/input/mice even outside the Linux console")),
-    ("EMUERA_MOUSE_LOG", n!("file the mouse events are logged to (finding out why a pointer misbehaves)")),
-    ("EMUERA_PARSE", n!("all: compile every function at load instead of on its first call")),
-    ("EMUERA_PPROF", n!("file for the native profile (builds with --features profile; written on a clean exit)")),
-    ("EMUERA_PROFILE", n!("file kept updated with which ERB function runs, sampled every millisecond")),
-    ("EMUERA_SEED", n!("number the random generator starts from (reproducible runs)")),
-    ("EMUERA_SOUND", n!("on or off: play the game's sounds (default: yes, except over SSH)")),
-    ("EMUERA_SOUND_PLAYER", n!("the sound player: mpv, ffplay, mplayer, afplay, pw-play, paplay, aplay or powershell")),
-    ("EMUERA_STACK_MB", n!("stack of the script thread in MB (default 512, or the most the system allows)")),
-    ("EMUERA_THREADS", n!("cap on the threads used for loading and picture decoding")),
-    ("EMUERA_TIMING", n!("1: print how long each loading phase takes and the memory in use")),
-    ("EMUERA_TRACE", n!("log calls to functions whose name contains this, with timestamps, to stderr")),
-    ("EMUERA_TRANSLATE_CMD", n!("a command that reads a line on stdin and prints its translation (instead of the built-in translators)")),
-    ("EMUERA_TRANSLATE_MODEL", n!("the Ollama or translateLocally model used for translating")),
-    ("EMUERA_TRANS_ENGINE", n!("the engine translate-shell (trans) uses (default: Google)")),
+    ("EMUERA_AMBIGUOUS", "wide, narrow, single or osc66: how box drawing and symbols get Emuera's two columns"),
+    ("EMUERA_CODE_MB", "MB compiled functions may take (default: 1/16 of the memory); the least recently called are dropped"),
+    ("EMUERA_COLORS", "truecolor, 256 or 16: the colour depth, when detection guesses wrong"),
+    ("EMUERA_DEBUG_FRAMES", "any value: print each frame drawn (size and picture keys) to stderr (debugging)"),
+    ("EMUERA_GBUF_MB", "MB graphics buffers may take unpacked (default: 1/8 of the memory)"),
+    ("EMUERA_INFINITE_LOOP_ALERT_TIME", "ms before infinite loop warning (0 = disabled, default: 5000)"),
+    ("EMUERA_PICTURES_MB", "MB decoded picture files may take (default: 1/8 of the memory)"),
+    ("EMUERA_WARMUP", "1 / 0: decode last session's pictures in the background at start (default: on, off headless)"),
+    ("EMUERA_GFX", "default for --gfx: kitty, iterm, sixel, fb or none"),
+    ("EMUERA_GPMCTL", "path of the gpm socket (default /dev/gpmctl), for testing the Linux-console mouse"),
+    ("EMUERA_GPM_VC", "the virtual console number the gpm mouse is read for (testing)"),
+    ("EMUERA_GAMEPAD", "off: don't read gamepads; /dev/input/eventN: read just that device as a pad"),
+    ("EMUERA_INJECT", "STMT||STMT: statements run just before the EMUERA_INJECT_AT-th input (debugging)"),
+    ("EMUERA_INJECT_AT", "the input number EMUERA_INJECT runs before"),
+    ("EMUERA_LIBRETRANSLATE", "host:port of the LibreTranslate server (default 127.0.0.1:5000)"),
+    ("EMUERA_LINT", "any value, with --check: point at statements the parser may have split wrongly, and string >= / <= (Emuera evaluates them as <)"),
+    ("EMUERA_LIST_BUTTONS", "1, with --headless: print the values of the buttons on screen before each input"),
+    ("EMUERA_MEASURE", "0 skips measuring how wide the terminal draws ambiguous characters"),
+    ("EMUERA_MEMSTATS", "file the report of what the memory holds is written to, at every input"),
+    ("EMUERA_MOUSE", "off or term: no console mouse; mice: read /dev/input/mice even outside the Linux console"),
+    ("EMUERA_MOUSE_LOG", "file the mouse events are logged to (finding out why a pointer misbehaves)"),
+    ("EMUERA_PARSE", "all: compile every function at load instead of on its first call"),
+    ("EMUERA_PPROF", "file for the native profile (builds with --features profile; written on a clean exit)"),
+    ("EMUERA_PROFILE", "file kept updated with which ERB function runs, sampled every millisecond"),
+    ("EMUERA_SEED", "number the random generator starts from (reproducible runs)"),
+    ("EMUERA_SOUND", "on or off: play the game's sounds (default: yes, except over SSH)"),
+    ("EMUERA_SOUND_PLAYER", "the sound player: mpv, ffplay, mplayer, afplay, pw-play, paplay, aplay or powershell"),
+    ("EMUERA_STACK_MB", "stack of the script thread in MB (default 512, or the most the system allows)"),
+    ("EMUERA_THREADS", "cap on the threads used for loading and picture decoding"),
+    ("EMUERA_TIMING", "1: print how long each loading phase takes and the memory in use"),
+    ("EMUERA_TRACE", "log calls to functions whose name contains this, with timestamps, to stderr"),
+    ("EMUERA_TRANSLATE_CMD", "a command that reads a line on stdin and prints its translation (instead of the built-in translators)"),
+    ("EMUERA_TRANSLATE_MODEL", "the Ollama or translateLocally model used for translating"),
+    ("EMUERA_TRANS_ENGINE", "the engine translate-shell (trans) uses (default: Google)"),
 ];
 
 #[derive(Clone, Default)]
@@ -216,12 +205,8 @@ pub fn config_path() -> Option<PathBuf> {
 
 impl Settings {
     pub fn load() -> Settings {
-        config_path().and_then(|p| std::fs::read_to_string(p).ok()).map_or_else(Settings::default, |t| Settings::from_text(&t))
-    }
-
-    /// Settings from the config file's text.
-    fn from_text(text: &str) -> Settings {
         let mut s = Settings::default();
+        let Some(text) = config_path().and_then(|p| std::fs::read_to_string(p).ok()) else { return s };
         for line in text.lines() {
             let Some((k, v)) = line.split_once('=') else { continue };
             let (k, v) = (k.trim(), v.trim());
@@ -266,14 +251,6 @@ impl Settings {
 
     pub fn save(&self) {
         let Some(p) = config_path() else { return };
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        let _ = std::fs::write(p, self.to_text());
-    }
-
-    /// The config file's text for these settings.
-    fn to_text(&self) -> String {
         let mut out = String::new();
         if let Some(g) = &self.last {
             out += &format!("game={}\n", g.display());
@@ -287,7 +264,10 @@ impl Settings {
         for (k, v) in &self.values {
             out += &format!("{}={}\n", k, v);
         }
-        out
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(p, out);
     }
 
     /// A setting's value (its default if unset or not a known choice).
@@ -298,15 +278,6 @@ impl Settings {
             (_, Some(i)) => i.choices[0],
             (Some(v), None) => v.as_str(),
             (None, None) => "",
-        }
-    }
-
-    /// A setting's value as the menus show it: a language by its own name.
-    pub fn shown_value(&self, key: &str) -> String {
-        let v = self.get(key);
-        match key {
-            "language" => crate::i18n::LANGUAGES.iter().find(|l| l.0 == v).map_or(v, |l| l.1).to_string(),
-            _ => v.to_string(),
         }
     }
 
@@ -413,20 +384,6 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The language is saved as its code and shown by its own name
-    #[test]
-    fn language_setting() {
-        let mut s = Settings::default();
-        assert_eq!(s.get("language"), "auto");
-        s.set("language", "zh-Hant");
-        let back = Settings::from_text(&s.to_text());
-        assert_eq!(back.get("language"), "zh-Hant");
-        assert_eq!(back.shown_value("language"), "繁體中文");
-        assert_eq!(back.shown_value("images"), "auto");
-        s.set("language", "x-cjk");
-        assert_eq!(Settings::from_text(&s.to_text()).get("language"), "auto");
-    }
 
     #[test]
     fn defaults_and_cycling() {

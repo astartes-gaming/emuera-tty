@@ -21,7 +21,6 @@ not variables: `--translate-log`, `--translate-load` and
 | `EMUERA_GPM_VC` | number | The virtual console the gpm mouse is read for (testing). |
 | `EMUERA_INJECT` | `STMT\|\|STMT` | Statements run just before the `EMUERA_INJECT_AT`-th input. |
 | `EMUERA_INJECT_AT` | number | The input number `EMUERA_INJECT` runs before. |
-| `EMUERA_LANG` | `ja`, `zh-Hans`, `zh-Hant`, `ko`, `en`; `x-cjk`, `x-arab`, `x-cyrl`, `x-deva`, `x-avst` | The interface language, over the *Language* setting and the system locale. The `x-` values rewrite every message in that script, made longer, to check the layout. |
 | `EMUERA_LIBRETRANSLATE` | `host:port` | The LibreTranslate server (default `127.0.0.1:5000`; option: `--libretranslate`). |
 | `EMUERA_LINT` | any value | With `--check`: list statements the parser may have split wrongly, and every `>=` / `<=` between strings (Emuera evaluates both as `<`). |
 | `EMUERA_LIST_BUTTONS` | `1` | With `--headless`: print the values of the buttons on screen before each input. |
