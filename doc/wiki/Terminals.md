@@ -29,6 +29,13 @@ terminal:
   *Preferences → profile → Compatibility → Ambiguous-width characters:
   Wide* (WezTerm: `treat_east_asian_ambiguous_width_as_wide = true`).
   Other terminals get padding, which keeps maps aligned but less solid.
+- **Other scripts:** combining marks (Hindi vowel signs and virama, accents
+  written as separate characters, emoji variation selectors and joiners)
+  are sent with the character they belong to, and the terminal composes
+  them. Right-to-left text (Arabic, Hebrew) is sent in the order it was
+  written: terminals with bidirectional support (mlterm, recent VTE-based
+  ones with it turned on, partly Konsole) show it right to left, and others
+  show its letters left to right.
 - Make the window **wide**: many games lay out menus for ~150 columns.
   If a game warns that the window is too narrow, shrink the font or
   widen the window.

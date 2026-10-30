@@ -54,10 +54,10 @@ impl Engine {
                 .or_else(|| which("trans").then_some(Engine::Trans))
                 .or_else(|| Engine::choose("deepl").ok())
                 .ok_or_else(|| {
-                    "no translator found: install Ollama, LibreTranslate, translateLocally, Argos Translate or translate-shell (or curl, for DeepL)".into()
+                    t!("no translator found: install Ollama, LibreTranslate, translateLocally, Argos Translate or translate-shell (or curl, for DeepL)")
                 }),
             "translate-shell" if which("trans") => Ok(Engine::Trans),
-            "translate-shell" => Err("translate-shell (trans) isn't installed: get it from your package manager or translate-shell's site".into()),
+            "translate-shell" => Err(t!("translate-shell (trans) isn't installed: get it from your package manager or translate-shell's site")),
             // the API key first; without one DeepL's free keyless endpoint
             "deepl" => {
                 let key = std::env::var("DEEPL_AUTH_KEY").ok().filter(|k| !k.trim().is_empty());
@@ -66,13 +66,13 @@ impl Engine {
                 } else if key.is_some() && which("deepl") {
                     Ok(Engine::DeeplCli)
                 } else {
-                    Err("DeepL needs curl (or DeepL's deepl tool and DEEPL_AUTH_KEY)".into())
+                    Err(t!("DeepL needs curl (or DeepL's deepl tool and DEEPL_AUTH_KEY)"))
                 }
             }
             "argos" if which("argos-translate") || Argos::python().is_some() => Ok(Engine::Argos),
-            "argos" => Err("Argos Translate isn't installed: pipx install argostranslate, then argospm install translate-ja_en".into()),
+            "argos" => Err(t!("Argos Translate isn't installed: pipx install argostranslate, then argospm install translate-ja_en")),
             _ => Engine::find().ok_or_else(|| {
-                "no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL".into()
+                t!("no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL")
             }),
         }
     }
@@ -116,12 +116,12 @@ impl Engine {
             // (the program's name: a path won't fit on the settings page)
             Engine::Command(c) => {
                 let prog = c.split_whitespace().next().unwrap_or("");
-                format!("your command ({})", prog.rsplit(['/', '\\']).next().unwrap_or(prog))
+                t!("your command ({program})", program = prog.rsplit(['/', '\\']).next().unwrap_or(prog))
             }
-            Engine::Trans => "translate-shell (online)".into(),
+            Engine::Trans => t!("translate-shell (online)"),
             Engine::Deepl { key: Some(_) } => "DeepL API (online)".into(),
-            Engine::Deepl { key: None } => "DeepL, no key (online, unofficial)".into(),
-            Engine::DeeplCli => "DeepL's tool (online)".into(),
+            Engine::Deepl { key: None } => t!("DeepL, no key (online, unofficial)"),
+            Engine::DeeplCli => t!("DeepL's tool (online)"),
         }
     }
 
@@ -148,13 +148,13 @@ impl Engine {
                     text
                 );
                 let body = format!("{{\"model\":{},\"prompt\":{},\"stream\":false,\"options\":{{\"temperature\":0.2}}}}", json_str(model), json_str(&prompt));
-                let r = http("127.0.0.1:11434", "POST", "/api/generate", &body, Duration::from_secs(120)).ok_or("Ollama didn't answer")?;
-                json_field(&r, "response").ok_or("Ollama gave no translation")?
+                let r = http("127.0.0.1:11434", "POST", "/api/generate", &body, Duration::from_secs(120)).ok_or_else(|| t!("Ollama didn't answer"))?;
+                json_field(&r, "response").ok_or_else(|| t!("Ollama gave no translation"))?
             }
             Engine::Libre { url } => {
                 let body = format!("{{\"q\":{},\"source\":{},\"target\":{},\"format\":\"text\"}}", json_str(text), json_str(from), json_str(to));
-                let r = http(url, "POST", "/translate", &body, Duration::from_secs(60)).ok_or("LibreTranslate didn't answer")?;
-                json_field(&r, "translatedText").ok_or("LibreTranslate gave no translation")?
+                let r = http(url, "POST", "/translate", &body, Duration::from_secs(60)).ok_or_else(|| t!("LibreTranslate didn't answer"))?;
+                json_field(&r, "translatedText").ok_or_else(|| t!("LibreTranslate gave no translation"))?
             }
             Engine::Bergamot { model } => {
                 // (no model given: Bergamot's names, `ja-en-tiny`)
@@ -195,7 +195,7 @@ impl Engine {
         let sep = if text.contains('\n') { "\n" } else { " " };
         let out = out.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(sep);
         if out.is_empty() {
-            Err("empty translation".into())
+            Err(t!("empty translation"))
         } else {
             Ok(out)
         }
@@ -235,11 +235,11 @@ fn deepl(text: &str, from: &str, to: &str, key: Option<&str>) -> Result<String, 
     let (resp, status) = out.trim_end().rsplit_once('\n').unwrap_or(("", out.trim()));
     match status.trim() {
         "200" => {}
-        "429" if key.is_none() => return Err("DeepL is limiting requests without a key: wait a while, or set DEEPL_AUTH_KEY".into()),
-        "429" => return Err("DeepL is limiting requests: wait a while".into()),
-        "403" if key.is_some() => return Err("DeepL refused the key in DEEPL_AUTH_KEY".into()),
-        "456" => return Err("DeepL: this key's character quota is used up".into()),
-        s => return Err(format!("DeepL answered HTTP {}", s)),
+        "429" if key.is_none() => return Err(t!("DeepL is limiting requests without a key: wait a while, or set DEEPL_AUTH_KEY")),
+        "429" => return Err(t!("DeepL is limiting requests: wait a while")),
+        "403" if key.is_some() => return Err(t!("DeepL refused the key in DEEPL_AUTH_KEY")),
+        "456" => return Err(t!("DeepL: this key's character quota is used up")),
+        s => return Err(t!("DeepL answered HTTP {status}", status = s)),
     }
     // {"translations":[{"detected_source_language":"JA","text":"…"}]}
     json_field(resp, "text").ok_or_else(|| "DeepL gave no translation".into())
@@ -283,7 +283,7 @@ fn run(cmd: &mut Command, input: &str) -> Result<String, String> {
     }
     let o = child.wait_with_output().map_err(|e| e.to_string())?;
     if !o.status.success() {
-        return Err(format!("translator failed ({})", o.status));
+        return Err(t!("translator failed ({status})", status = o.status));
     }
     Ok(String::from_utf8_lossy(&o.stdout).into_owned())
 }
@@ -427,7 +427,7 @@ impl Argos {
         self.input.flush().map_err(|e| e.to_string())?;
         let mut out = String::new();
         if self.output.read_line(&mut out).map_err(|e| e.to_string())? == 0 {
-            return Err("Argos stopped (is argostranslate installed for that Python?)".into());
+            return Err(t!("Argos stopped (is argostranslate installed for that Python?)"));
         }
         Ok(out.trim_end().to_string())
     }
@@ -591,7 +591,12 @@ impl Mt {
             match std::fs::read(p) {
                 Ok(b) => {
                     let (n, skipped) = load_memory(&String::from_utf8_lossy(&b), lang, &mut memory);
-                    notes.push(format!("{}: {} lines{}", name, n, if skipped > 0 { format!(" ({} for other languages)", skipped) } else { String::new() }));
+                    notes.push(format!(
+                        "{}: {}{}",
+                        name,
+                        t!("{n} lines", n = n),
+                        if skipped > 0 { format!(" {}", t!("({n} for other languages)", n = skipped)) } else { String::new() }
+                    ));
                 }
                 Err(e) => notes.push(format!("{}: {}", name, e)),
             }

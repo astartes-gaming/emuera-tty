@@ -24,8 +24,8 @@ impl SaveFile {
     /// "slot 03" / "global".
     pub fn label(&self) -> String {
         match self.slot {
-            Some(n) => format!("slot {:02}", n),
-            None => "global".into(),
+            Some(n) => t!("slot {n}", n = format!("{:02}", n)),
+            None => t!("global"),
         }
     }
 }
@@ -123,7 +123,7 @@ pub fn backup_root(game: &Path) -> Option<PathBuf> {
 pub fn backup_all(dir: &Path, root: &Path, tag: &str) -> Result<(PathBuf, usize), String> {
     let saves = list(dir);
     if saves.is_empty() {
-        return Err(format!("no saves in {}", dir.display()));
+        return Err(t!("no saves in {dir}", dir = dir.display()));
     }
     let dest = root.join(if tag.is_empty() { stamp() } else { format!("{}-{}", stamp(), tag) });
     std::fs::create_dir_all(&dest).map_err(|e| format!("{}: {}", dest.display(), e))?;
@@ -184,7 +184,7 @@ fn keep(path: &Path, root: &Path, why: &str) -> Result<(), String> {
 pub fn copy_to_slot(src: &Path, dir: &Path, to: u32, root: &Path, remove: bool) -> Result<PathBuf, String> {
     let dest = dir.join(slot_name(to));
     if dest.canonicalize().ok() == src.canonicalize().ok() {
-        return Err("that is the same slot".into());
+        return Err(t!("that is the same slot"));
     }
     keep(&dest, root, "overwritten")?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
@@ -227,7 +227,7 @@ pub fn default_export(game: &Path, s: &SaveFile) -> PathBuf {
 /// file is one). It must be an Emuera binary save.
 pub fn import(src: &Path, dir: &Path, to: Option<u32>, root: &Path) -> Result<PathBuf, String> {
     if comment_of(src).is_none() {
-        return Err(format!("{} is not an Emuera save", src.display()));
+        return Err(t!("{file} is not an Emuera save", file = src.display()));
     }
     match to {
         Some(n) => copy_to_slot(src, dir, n, root, false),
