@@ -42,7 +42,13 @@ Oracle account.
   mouse and no pictures, and its font has no Japanese, so translated
   games read best there. (`tcdrain`, called after each frame on other
   systems, isn't used on Redox: its pty daemon answers it by sleeping,
-  which froze every console.) Redox's test harness needs
+  which froze every console.) illumos' own console (OpenSolaris'
+  descendants: OmniOS, OpenIndiana, SmartOS; `TERM=sun-color`) plays in
+  full screen too, F1–F12 and the paging keys included, in 24-bit colour.
+  It draws Japanese as boxes (its font has none) one cell wide, so
+  emuera-tty pads each character to Emuera's two columns and the layout
+  stays put. It has no mouse and no pictures, and it doesn't answer
+  terminal queries, so the clipboard copy is off there. Redox's test harness needs
   `--test-threads=1`, as tests run in parallel hang there. On Haiku the fastest serial speeds (460800, 921600) aren't
   offered, on Redox there is no RTS/CTS flow control. Haiku gives a thread
   at most 16 MB of stack (Linux: the 512 MB emuera-tty asks for), so there
@@ -141,7 +147,7 @@ What GitHub Actions builds, and what has been run where.
 | NetBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a NetBSD 11.0 VM, game output identical to Linux |
 | OpenBSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OpenBSD 8.0 VM, game output identical to Linux |
 | DragonFly BSD x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a DragonFly 6.4.2 VM, game output identical to Linux |
-| illumos x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OmniOS r151058 VM, game output identical to Linux |
+| illumos x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own cc: the test suite passes in a OmniOS r151058 VM, game output identical to Linux; full-screen play works on its console and over SSH |
 | Solaris x86-64 | Build failed (under actions), check passed | Compile-checked only (Solaris needs an Oracle account to download); illumos, its open relative, passes |
 | Haiku x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with Haiku's own gcc: the test suite passes in a Haiku R1/beta5 VM, game output identical to Linux |
 | GNU/Hurd x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own gcc: the test suite passes in a Debian GNU/Hurd 2026-03-14 VM, game output identical to Linux; played on its console |

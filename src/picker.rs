@@ -187,7 +187,7 @@ enum Act {
     Home,
     ToggleHidden,
     Cancel,
-    Click(usize),
+    Click(usize, usize), // (x, y) screen coordinates
     /// a letter with no meaning in the browser (library / settings keys)
     Letter(char),
     Delete,
@@ -208,6 +208,8 @@ struct Picker {
     mode: Mode,
     /// the browser was opened from the library to add a game
     adding: bool,
+    /// the browser was opened from the library to update a missing game's folder
+    updating: Option<PathBuf>,
     /// the full git output of the last update (`u` / `U`), shown with `g`
     /// for as long as its result line is on screen
     git_log: Option<String>,
@@ -277,6 +279,7 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>) -> Option<PathBuf> 
         pending: Vec::new(),
         mode,
         adding: false,
+        updating: None,
         git_log: None,
         st: crate::settings::Settings::load(),
         wiki: Vec::new(),
@@ -821,7 +824,7 @@ impl Picker {
     fn run(&mut self) -> Option<PathBuf> {
         loop {
             self.draw();
-            let act = self.next_act();
+            let act = self.next_act(false);
             // (a timeout only redraws: keep the message)
             // `g` on the update result opens the full git output and leaves the
             // result line (and the output) where they are
@@ -857,7 +860,7 @@ impl Picker {
                     }
                 }
                 Act::Bottom => self.sel = self.first_line(self.entries.len().saturating_sub(1)),
-                Act::Click(i) if i < total_lines && self.entries.get(self.entry_line[i]).is_some_and(|e| e.kind != Kind::Info) => {
+                Act::Click(_, i) if i < total_lines && self.entries.get(self.entry_line[i]).is_some_and(|e| e.kind != Kind::Info) => {
                     if self.entry_line[i] == self.entry_line.get(self.sel).copied().unwrap_or(usize::MAX) {
                         if let Some(p) = self.activate() {
                             return Some(p);
@@ -898,6 +901,11 @@ impl Picker {
                 }
                 Act::Cancel if self.mode == Mode::Browse && self.adding => {
                     self.adding = false;
+                    self.mode = Mode::Library;
+                    self.load();
+                }
+                Act::Cancel if self.mode == Mode::Browse && self.updating.is_some() => {
+                    self.updating = None;
                     self.mode = Mode::Library;
                     self.load();
                 }
@@ -1084,12 +1092,159 @@ impl Picker {
             }
             s += &format!("\x1b[{};1H\x1b[2m{}\x1b[0m", trows, fit(&t!("↑↓ PgUp PgDn Home End scroll  q / Esc / Enter / g close"), cols));
             out(s.as_bytes());
-            match self.next_act() {
+            match self.next_act(false) {
                 Act::Move(d) => top = top.saturating_add_signed(d),
                 Act::Page(d) => top = top.saturating_add_signed(d * rows as isize),
                 Act::Top => top = 0,
                 Act::Bottom => top = wrapped_lines.len().saturating_sub(1),
                 Act::Cancel | Act::Activate | Act::Letter('g') => return,
+                _ => {}
+            }
+        }
+    }
+
+    /// Show a Debian-style dialog box with buttons. Returns the index of the
+    /// selected button, or None if cancelled.
+    fn dialog(&mut self, title: &str, message: &str, buttons: &[&str], default: usize) -> Option<usize> {
+        let (cols, rows) = term_size();
+        // Wrap message to fit in dialog
+        let mut wrapped_lines: Vec<String> = Vec::new();
+        for line in message.lines() {
+            wrapped_lines.extend(wrap_text(line, cols.saturating_sub(10).min(60)));
+        }
+        // Dialog dimensions
+        let inner_w = cols.saturating_sub(12).clamp(30, 72);
+        let inner_h = wrapped_lines.len() + 4; // message + blank + buttons + blank
+        let h = inner_h + 2; // borders
+        let w = inner_w + 2;
+        if w < 30 || rows < h + 2 {
+            // Terminal too small, fall back to prompt
+            return self.prompt(message, "").and_then(|a| {
+                let al = a.to_lowercase();
+                buttons.iter().position(|b| b.to_lowercase().starts_with(&al))
+            });
+        }
+        let (x, y) = ((cols - w - 2) / 2 + 1, (rows - h - 1) / 2 + 1);
+        let face = "\x1b[0;30;47m";
+        let shadow = "\x1b[0;40m  ";
+        let mut sel = default.min(buttons.len().saturating_sub(1));
+        loop {
+            let mut s = String::new();
+            let mut row = |r: usize, body: &str, shade: bool| {
+                s += &format!("\x1b[{};{}H{}{}", y + r, x, face, body);
+                if shade {
+                    s += shadow;
+                }
+            };
+            // Title bar
+            let title_f = fit(title, inner_w);
+            let tw: usize = title_f.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+            let left = (inner_w - tw - 2) / 2;
+            row(0, &format!("┌{} {} {}┐", "─".repeat(left), title_f, "─".repeat(inner_w - tw - 2 - left)), false);
+            // Blank line
+            row(1, &format!("│{}│", " ".repeat(inner_w)), true);
+            // Message lines
+            for (i, line) in wrapped_lines.iter().enumerate() {
+                row(
+                    2 + i,
+                    &format!(
+                        "│ {}{} │",
+                        line,
+                        " ".repeat(inner_w.saturating_sub(2) - line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>())
+                    ),
+                    true,
+                );
+            }
+            // Blank line before buttons
+            let btn_y = 2 + wrapped_lines.len();
+            row(btn_y, &format!("│{}│", " ".repeat(inner_w)), true);
+            // Buttons - build row with proper width padding, track button positions for mouse
+            let mut btn_row = String::from("│");
+            let mut visual_width = 0;
+            let mut btn_starts: Vec<usize> = Vec::new(); // visual column where each button starts (relative to dialog left edge)
+            for (i, btn) in buttons.iter().enumerate() {
+                btn_starts.push(visual_width + 1); // +1 for left border "│"
+                let btn_text = format!("[ {} ]", btn);
+                let btn_w: usize = btn_text.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+                if i == sel {
+                    btn_row += &format!("\x1b[7m{}\x1b[0m{}", btn_text, face);
+                } else {
+                    btn_row += &format!("{}{}", btn_text, face);
+                }
+                visual_width += btn_w;
+                if i < buttons.len() - 1 {
+                    btn_row += "  ";
+                    visual_width += 2;
+                }
+            }
+            // Pad to fill inner_w
+            if visual_width < inner_w {
+                btn_row += &" ".repeat(inner_w - visual_width);
+            }
+            btn_row += "│";
+            row(btn_y + 1, &btn_row, true);
+            // Bottom border
+            row(btn_y + 2, &format!("└{}┘", "─".repeat(inner_w)), true);
+            // Shadow
+            s += &format!("\x1b[{};{}H{}{}\x1b[0m", y + h, x + 2, shadow, " ".repeat(w - 2));
+            out(s.as_bytes());
+            // Handle input
+            match self.next_act(true) {
+                Act::Up => {
+                    // Left arrow - previous button
+                    sel = sel.saturating_sub(1);
+                }
+                Act::Open => {
+                    // Right arrow - next button
+                    sel = (sel + 1).min(buttons.len().saturating_sub(1));
+                }
+                Act::Move(d) => {
+                    // Up/Down arrows - wrap around since single row
+                    if d < 0 {
+                        sel = 0;
+                    } else {
+                        sel = buttons.len().saturating_sub(1);
+                    }
+                }
+                Act::Page(d) => {
+                    // PgUp/PgDn - first/last
+                    if d < 0 {
+                        sel = 0;
+                    } else {
+                        sel = buttons.len().saturating_sub(1);
+                    }
+                }
+                Act::Activate => return Some(sel),
+                Act::Cancel => return None,
+                Act::Click(screen_x, screen_y) => {
+                    // Check if click is on button row
+                    if screen_y == y + btn_y + 1 {
+                        // Click is on button row, check which button
+                        // btn_starts has visual column of each button start (relative to dialog left edge)
+                        // Dialog starts at screen column x, so dialog column 0 = screen column x
+                        // The button row content starts at dialog column 1 (after "│")
+                        // So screen_x - x - 1 gives us the column within the button row
+                        let rel_x = screen_x as isize - (x + 1) as isize;
+                        if rel_x >= 0 {
+                            for (i, &start) in btn_starts.iter().enumerate() {
+                                let btn_text = format!("[ {} ]", buttons[i]);
+                                let btn_w: usize = btn_text.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+                                let rx = rel_x as usize;
+                                if rx >= start && rx < start + btn_w {
+                                    return Some(i);
+                                }
+                            }
+                        }
+                    }
+                }
+                Act::Letter(c) => {
+                    let cl = c.to_lowercase().to_string();
+                    for (i, btn) in buttons.iter().enumerate() {
+                        if btn.to_lowercase().starts_with(&cl) {
+                            return Some(i);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1675,8 +1830,23 @@ impl Picker {
     }
 
     /// A game folder was chosen in the browser: add it to the library (when
-    /// adding), or play it.
+    /// adding), update a missing game's reference (when updating), or play it.
     fn chosen(&mut self, game: PathBuf) -> Option<PathBuf> {
+        // Handle updating a missing game's folder reference
+        if let Some(old) = self.updating.take() {
+            if is_game_dir(&game) {
+                self.st.update_game(&old, &game);
+                self.st.save();
+                self.mode = Mode::Library;
+                self.load();
+                self.sel = self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if *path == game)).unwrap_or(0);
+                self.note = format!("Updated {} to {} — Enter to play.", game_title(&game).unwrap_or_else(|| game.display().to_string()), game.display());
+            } else {
+                self.note = "\x1b[31mThe selected folder is not a valid Emuera game (needs CSV/ and ERB/).\x1b[0m".into();
+                self.updating = Some(old); // keep it for retry
+            }
+            return None;
+        }
         if !self.adding {
             return Some(game);
         }
@@ -1708,7 +1878,32 @@ impl Picker {
         match kind {
             Kind::Game { path, ok: true } => return Some(path),
             Kind::Game { path, ok: false } => {
-                self.note = format!("\x1b[31m{}\x1b[0m", t!("{folder} is gone (d removes it from the list)", folder = path.display()))
+                // Show Debian-style dialog to update or remove
+                let title = game_title(&path).unwrap_or_else(|| "Emuera game".into());
+                let msg = format!("{} ({}) is missing.\n\nRemove it from the list or update the folder?", title, path.display());
+                match self.dialog("Missing Game", &msg, &["Remove", "Update", "Cancel"], 1) {
+                    Some(0) => {
+                        // Remove
+                        self.st.remove_game(&path);
+                        self.st.save();
+                        let line_sel = self.sel;
+                        self.load();
+                        self.sel = line_sel.min(self.entry_line.len().saturating_sub(1));
+                        self.note = format!("Removed {} from the list (its files are still there).", path.display());
+                    }
+                    Some(1) => {
+                        // Update: enter browse mode to pick new folder
+                        self.updating = Some(path);
+                        self.mode = Mode::Browse;
+                        self.dir = browse_start(&self.st);
+                        self.load();
+                    }
+                    None => {
+                        // Cancelled - show original message
+                        self.note = format!("\x1b[31m{}\x1b[0m", t!("{folder} is gone (d removes it from the list)", folder = path.display()))
+                    }
+                    Some(_) => {}
+                }
             }
             Kind::AddGame => self.start_adding(),
             Kind::CloneGame => self.clone_game(),
@@ -1768,8 +1963,10 @@ impl Picker {
         crate::archive::extract_game(archive, &mut |n| g.show(&t!("{n} files", n = n), None))
     }
 
-    /// Wait for input and turn it into an action.
-    fn next_act(&mut self) -> Act {
+    /// Wait for input and turn it into an action. If `dialog` is true, mouse
+    /// coordinates are raw screen cells (for dialogs); otherwise they are
+    /// converted to list-relative coordinates.
+    fn next_act(&mut self, dialog: bool) -> Act {
         loop {
             if let Some((a, used)) = self.parse() {
                 self.pending.drain(..used);
@@ -1812,8 +2009,12 @@ impl Picker {
             if r.extra {
                 let (cols, rows) = term_size();
                 let evs = self.mice.as_mut().map(|m| m.read((8, 16), cols, rows)).unwrap_or_default();
-                for (btn, _x, y, press) in evs {
-                    if let Some(a) = self.mouse(btn, y, press) {
+                for (btn, x, y, press) in evs {
+                    if dialog {
+                        // In dialog mode: return raw screen coordinates
+                        return Act::Click(x as usize, y as usize);
+                    }
+                    if let Some(a) = self.mouse(btn, x, y, press) {
                         return a;
                     }
                 }
@@ -1829,14 +2030,14 @@ impl Picker {
         }
     }
 
-    /// A mouse event at 1-based row `y`.
-    fn mouse(&self, btn: u16, y: u16, press: bool) -> Option<Act> {
+    /// A mouse event at 1-based (x, y) screen coordinates.
+    fn mouse(&self, btn: u16, x: u16, y: u16, press: bool) -> Option<Act> {
         match btn & !(4 | 8 | 16) {
             64 => Some(Act::Move(-3)),
             65 => Some(Act::Move(3)),
             0 if press => {
                 let row = (y as usize).checked_sub(3)?; // list starts on screen row 3
-                (row < self.list_rows()).then_some(Act::Click(self.top + row))
+                (row < self.list_rows()).then_some(Act::Click(x as usize, self.top + row))
             }
             _ => None,
         }
@@ -1879,9 +2080,9 @@ impl Picker {
             if b.len() < 6 {
                 return None;
             }
-            let (cb, y) = (b[3].wrapping_sub(32) as u16, b[5].wrapping_sub(32) as u16);
+            let (cb, x, y) = (b[3].wrapping_sub(32) as u16, b[4].wrapping_sub(32) as u16, b[5].wrapping_sub(32) as u16);
             let release = cb & 3 == 3 && cb & (32 | 64) == 0;
-            return Some((self.mouse(if release { 3 } else { cb }, y, !release).unwrap_or(Act::None), 6));
+            return Some((self.mouse(if release { 3 } else { cb }, x, y, !release).unwrap_or(Act::None), 6));
         }
         let end = b[2..].iter().position(|c| (0x40..=0x7e).contains(c))? + 2;
         let params = String::from_utf8_lossy(&b[2..end]).to_string();
@@ -1897,16 +2098,21 @@ impl Picker {
             (b'~', "6") => Act::Page(1),
             (b'~', "1") | (b'~', "7") => Act::Top,
             (b'~', "4") | (b'~', "8") => Act::Bottom,
+            // the illumos / Solaris console's Home, PgUp, End, PgDn
+            (b'z', "214") => Act::Top,
+            (b'z', "216") => Act::Page(-1),
+            (b'z', "220") => Act::Bottom,
+            (b'z', "222") => Act::Page(1),
             // SGR mouse ESC [ < b ; x ; y M/m, urxvt ESC [ b ; x ; y M
             (b'M' | b'm', p) => {
                 let sgr = p.starts_with('<');
                 let v: Vec<u16> = p.trim_start_matches('<').split(';').filter_map(|x| x.parse().ok()).collect();
                 match v.as_slice() {
-                    [cb, _x, y] if sgr => self.mouse(*cb, *y, b[end] == b'M').unwrap_or(Act::None),
-                    [cb, _x, y] => {
+                    [cb, x, y] if sgr => self.mouse(*cb, *x, *y, b[end] == b'M').unwrap_or(Act::None),
+                    [cb, x, y] => {
                         let cb = cb.saturating_sub(32);
                         let release = cb & 3 == 3 && cb & (32 | 64) == 0;
-                        self.mouse(cb, *y, !release).unwrap_or(Act::None)
+                        self.mouse(cb, *x, *y, !release).unwrap_or(Act::None)
                     }
                     _ => Act::None,
                 }

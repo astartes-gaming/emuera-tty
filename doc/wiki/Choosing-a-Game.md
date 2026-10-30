@@ -42,6 +42,7 @@ you play or add goes into your **library**. Once there are two or more,
 | `U` (Shift-U) | update all of them, each checkout once, then sum up what changed |
 | `g` | right after an update (`u` / `U`): show git's full output in a scrollable view (`g` is "go to top" otherwise) |
 | `d` / Delete | take the game off the list (its files and saves stay) |
+| (Enter on a missing game) | if the game's folder no longer exists, a dialog opens: **Remove it from the list** or **Update the folder** to point to the new location (← / → or mouse to pick a button, Enter or click to confirm, Esc to cancel) |
 | `s` / **⚙ Settings** | the settings page (see [Settings](Settings#emuera-ttys-settings-f3)) |
 | `q` / Esc | quit |
 

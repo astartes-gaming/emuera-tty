@@ -385,8 +385,9 @@ pub(crate) fn shape_cells(col: usize, frac: &mut Option<f32>, w: f32, rect: bool
 
 /// A function key from a CSI sequence's parameters and final byte, with
 /// whether Shift was held: xterm's `ESC [ 15 ; 2 ~` and `ESC [ 1 ; 2 P`,
-/// VT220's `ESC [ 11 ~` (F1), and the Linux console's and rxvt's F13–F20,
-/// which are Shift+F3…F10 there (their Shift+F1 / F2 are F11 / F12).
+/// VT220's `ESC [ 11 ~` (F1), the Linux console's and rxvt's F13–F20,
+/// which are Shift+F3…F10 there (their Shift+F1 / F2 are F11 / F12), and
+/// the illumos / Solaris console's `ESC [ 224 z` … `ESC [ 235 z`.
 fn fkey(p: &[u8], fin: u8) -> Option<(u8, bool)> {
     let s = std::str::from_utf8(p).ok()?;
     let mut it = s.split(';');
@@ -410,6 +411,7 @@ fn fkey(p: &[u8], fin: u8) -> Option<(u8, bool)> {
         (b'~', 25 | 26) => (a - 22, true),
         (b'~', 28 | 29) => (a - 23, true),
         (b'~', 31..=34) => (a - 24, true),
+        (b'z', 224..=235) => (a - 223, false),
         _ => return None,
     };
     Some((n, shift || f13))
@@ -436,21 +438,74 @@ fn digit_group(p: &[u8], fin: u8) -> Option<u8> {
 /// Its MS Gothic / Mincho family and Meiryo do; Yu Gothic and others don't.
 /// No font set means Emuera's default, MS Gothic.
 fn backslash_is_yen(font: &str) -> bool {
-    // full-width letters (ＭＳ) as ASCII, no spaces, any case
-    let f: String = font
-        .chars()
+    let f = font_key(font);
+    if f.is_empty() {
+        return true;
+    }
+    let ms = f.starts_with("ms") && ["ゴシック", "明朝", "gothic", "mincho"].iter().any(|k| f.contains(k));
+    ms || f.contains("meiryo") || f.contains("メイリオ")
+}
+
+/// A font name to compare: full-width letters (ＭＳ) as ASCII, no spaces,
+/// any case.
+fn font_key(font: &str) -> String {
+    font.chars()
         .filter(|c| !c.is_whitespace() && *c != '\u{3000}')
         .map(|c| match c {
             '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
             c => c,
         })
         .collect::<String>()
-        .to_lowercase();
-    if f.is_empty() {
-        return true;
-    }
-    let ms = f.starts_with("ms") && ["ゴシック", "明朝", "gothic", "mincho"].iter().any(|k| f.contains(k));
-    ms || f.contains("meiryo") || f.contains("メイリオ")
+        .to_lowercase()
+}
+
+/// Does the game's font draw Greek and Cyrillic letters two columns wide?
+/// They are double-byte in Shift-JIS, and the fixed-pitch Japanese fonts
+/// (MS Gothic, Emuera's default, and MS Mincho) draw them full-width;
+/// Emuera draws text by its measured glyphs, so with any other font (the
+/// proportional MS PGothic and MS UI Gothic included) they are narrow.
+fn letters_are_wide(font: &str) -> bool {
+    let f = font_key(font);
+    f.is_empty()
+        || (f.starts_with("ms") && !f.starts_with("msp") && !f.contains("ui") && ["ゴシック", "明朝", "gothic", "mincho"].iter().any(|k| f.contains(k)))
+}
+
+/// A Greek or Cyrillic letter (those in Shift-JIS are double-byte there).
+fn is_greek_cyrillic(ch: char) -> bool {
+    matches!(ch as u32, 0x370..=0x4FF)
+}
+
+/// How many columns Greek and Cyrillic letters take on this screen (the
+/// "Greek and Cyrillic" setting and the game's font).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Letters {
+    /// two each, as MS Gothic draws them
+    Wide,
+    /// one each
+    Narrow,
+    /// the font draws them wide, but only a letter on its own keeps two
+    /// columns (the `Д` of `(´Д｀)`, a `Σ` in a stat line: Japanese games
+    /// line those up as MS Gothic draws them); letters in a run are text
+    /// written in those scripts, which spaced out (`П р и в е т`) can't be
+    /// read, so they take one
+    ByWord,
+}
+
+/// The characters of `s`, each with whether a Greek or Cyrillic letter
+/// there takes two columns (for [`char_cells`]).
+fn letter_widths(s: &str, letters: Letters) -> impl Iterator<Item = (char, bool)> + '_ {
+    let mut it = s.chars().peekable();
+    let mut prev = false;
+    std::iter::from_fn(move || {
+        let ch = it.next()?;
+        let wide = match letters {
+            Letters::Wide => true,
+            Letters::Narrow => false,
+            Letters::ByWord => !prev && !it.peek().is_some_and(|&c| is_greek_cyrillic(c)),
+        };
+        prev = is_greek_cyrillic(ch);
+        Some((ch, wide))
+    })
 }
 
 /// The column in a cursor position report (`ESC [ row ; col R`).
@@ -585,6 +640,10 @@ pub struct Tty {
     pub yen_mode: String,
     /// draw `\` in game text as ¥ on this screen (see `backslash_is_yen`)
     yen: bool,
+    /// the "Greek and Cyrillic" setting: auto, wide, narrow
+    pub letters_mode: String,
+    /// Greek and Cyrillic letters' columns on this screen
+    letters: Letters,
     /// show the hovered button's value, memory and the running function
     /// in the bottom row
     pub status_info: bool,
@@ -763,8 +822,11 @@ fn add_mark(cell: &mut Cell, ch: char) {
 /// With [`Ambi::Osc66`] such a character is instead drawn as one 2-cell
 /// glyph (no filler); with [`Ambi::Wide`] the terminal already draws it wide.
 /// `measured`: the width this terminal was seen to draw `ch` at (see
-/// `Tty::measure_widths`), which beats any table.
-fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>) -> (usize, usize, char) {
+/// `Tty::measure_widths`), which beats any table. `wide_letters`: a Greek or
+/// Cyrillic letter gets two columns too (the game's font draws it so, see
+/// [`letters_are_wide`] and [`letter_widths`]); else one, as the terminal
+/// draws it.
+fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>, wide_letters: bool) -> (usize, usize, char) {
     let tw = match measured {
         Some(w) => w as usize,
         None => if ambi == Ambi::Wide { UnicodeWidthChar::width_cjk(ch) } else { UnicodeWidthChar::width(ch) }.unwrap_or(0),
@@ -772,7 +834,7 @@ fn char_cells(ch: char, ambi: Ambi, measured: Option<u8>) -> (usize, usize, char
     // a terminal with no double-width cells (the Linux console before
     // 6.15) draws every character in one cell
     let tw = if ambi == Ambi::Narrow { tw.min(1) } else { tw };
-    if tw == 0 || ch.is_ascii() {
+    if tw == 0 || ch.is_ascii() || (!wide_letters && is_greek_cyrillic(ch)) {
         return (tw, 0, ' ');
     }
     let mut buf = [0u8; 4];
@@ -944,6 +1006,8 @@ impl Tty {
             wheel: 3,
             yen_mode: "auto".into(),
             yen: false,
+            letters_mode: "auto".into(),
+            letters: Letters::ByWord,
             status_info: true,
             kbd_ptr: false,
             pad_enabled: false,
@@ -1262,8 +1326,10 @@ impl Tty {
             let s = String::from_utf8_lossy(&r).to_string();
             s.rfind("\x1b[").and_then(|i| s[i + 2..].trim_end_matches('R').split(';').nth(1).and_then(|c| c.parse::<u32>().ok()))
         };
-        // a kanji that moves the cursor one cell: no double-width at all
-        if cursor_col(self, "漢") == Some(2) {
+        // a kanji that moves the cursor one cell: no double-width at all;
+        // so does the illumos / Solaris console, which doesn't answer
+        let kanji = cursor_col(self, "漢");
+        if kanji == Some(2) || (kanji.is_none() && sun_console(&self.term)) {
             return Ambi::Narrow;
         }
         if cursor_col(self, "■") == Some(3) {
@@ -1585,6 +1651,12 @@ impl Tty {
                                     (p, b'~') if p == b"6" => Key::PageDown,
                                     (p, b'~') if p == b"1" || p == b"7" => Key::Home,
                                     (p, b'~') if p == b"4" || p == b"8" => Key::End,
+                                    // the illumos / Solaris console's (sun-color)
+                                    (p, b'z') if p == b"214" => Key::Home,
+                                    (p, b'z') if p == b"216" => Key::PageUp,
+                                    (p, b'z') if p == b"220" => Key::End,
+                                    (p, b'z') if p == b"222" => Key::PageDown,
+                                    (p, b'z') if p == b"247" => Key::Click,
                                     _ => Key::Other,
                                 };
                                 (k, e + 1)
@@ -1719,10 +1791,10 @@ impl Tty {
                         for s2 in &line.segs[si..] {
                             match s2 {
                                 Seg::Text { text: t2, button: b2, .. } if b2 == button => {
-                                    w += t2
-                                        .chars()
-                                        .map(|c| {
-                                            let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied()) };
+                                    w += letter_widths(t2, self.letters)
+                                        .map(|(c, wl)| {
+                                            let (tw, extra, _) =
+                                                if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), wl) };
                                             tw + extra
                                         })
                                         .sum::<usize>();
@@ -1742,7 +1814,7 @@ impl Tty {
                     let mut base: Option<usize> = rows.last().and_then(|r| r.cells.len().checked_sub(1));
                     for ch in text.chars() {
                         let ch = if self.yen && ch == '\\' { '¥' } else { ch };
-                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied()) };
+                        let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl) };
                         let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
                         let w = tw + extra;
                         if tw == 0 {
@@ -1955,6 +2027,12 @@ impl Tty {
             "on" => true,
             "off" => false,
             _ => backslash_is_yen(&con.default_font),
+        };
+        self.letters = match self.letters_mode.as_str() {
+            "wide" => Letters::Wide,
+            "narrow" => Letters::Narrow,
+            _ if letters_are_wide(&con.default_font) => Letters::ByWord,
+            _ => Letters::Narrow,
         };
         let scale = self.cell.1 as f32 / con.line_height.max(1.0);
         let view_h = self.rows - 1;
@@ -2511,7 +2589,7 @@ impl Tty {
         let mut base: Option<usize> = None;
         for ch in text.chars() {
             let ch = if self.yen && ch == '\\' { '¥' } else { ch };
-            let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied());
+            let (tw, extra, fill) = char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl);
             let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
             if tw == 0 {
                 if let (Some(i), true) = (base, is_mark(ch)) {
@@ -2692,8 +2770,8 @@ impl Tty {
 
     /// Copy the printed text to the clipboard if `t` is a trigger for it.
     fn copy_text(&mut self, con: &Console, t: crate::clipboard::Trigger) {
-        // (the Hurd's console would print the OSC 52 string)
-        if self.term == "hurd" {
+        // (the Hurd's and illumos' consoles would print the OSC 52 string)
+        if self.term == "hurd" || sun_console(&self.term) {
             return;
         }
         let cfg = self.clip_config(con);
@@ -3234,6 +3312,10 @@ impl Tty {
                 self.yen_mode = v.to_string();
                 self.redraw_all.set(true);
             }
+            "letters" => {
+                self.letters_mode = v.to_string();
+                self.redraw_all.set(true);
+            }
             "statusbar" => self.status_info = v == "on",
             "kbdpointer" => self.set_kbd_pointer(v),
             "gamepad" => self.set_gamepad(v),
@@ -3342,9 +3424,9 @@ impl Tty {
 
     /// Display columns of `s`, as the screen lays it out.
     fn text_width(&self, s: &str) -> usize {
-        s.chars()
-            .map(|c| {
-                let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied()) };
+        letter_widths(s, self.letters)
+            .map(|(c, wl)| {
+                let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), wl) };
                 tw + extra
             })
             .sum()
@@ -3439,11 +3521,11 @@ impl Tty {
             // keeps its width — padded if shorter, taking the gap's spaces
             // (one stays) if longer, cut with … past that. At the end of a
             // line, or before ordinary text, it just takes the room it needs.
-            let (ambi, widths) = (self.ambi, self.widths.clone());
+            let (ambi, widths, letters) = (self.ambi, self.widths.clone(), self.letters);
             let width = |s: &str| -> usize {
-                s.chars()
-                    .map(|c| {
-                        let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, ambi, widths.get(&c).copied()) };
+                letter_widths(s, letters)
+                    .map(|(c, wl)| {
+                        let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, ambi, widths.get(&c).copied(), wl) };
                         tw + extra
                     })
                     .sum()
@@ -3699,8 +3781,8 @@ impl Tty {
                 parts.push((format!("@{}", running), "\x1b[0;2m"));
             }
             // on the Linux console: is the mouse there, and are its events
-            // coming in?
-            if text_console(&self.term) {
+            // coming in? (no console mouse elsewhere)
+            if text_console(&self.term) && cfg!(target_os = "linux") {
                 let m = match &self.mice {
                     Some(m) => format!("mouse:{} {}", m.describe().split(' ').next().unwrap_or(""), self.mouse_events),
                     None => "mouse:none".to_string(),
@@ -3989,9 +4071,17 @@ fn rgb256(c: Rgb) -> u8 {
 
 /// A text console: no answers to terminal queries, no pictures beyond its
 /// own framebuffer, a pointer of our own for the mouse. The Linux console,
-/// fbterm and the Hurd's console (which prints OSC strings as text).
+/// fbterm, the Hurd's console (which prints OSC strings as text) and the
+/// illumos / Solaris one.
 pub(crate) fn text_console(term: &str) -> bool {
-    term == "linux" || term.starts_with("fbterm") || term == "hurd"
+    term == "linux" || term.starts_with("fbterm") || term == "hurd" || sun_console(term)
+}
+
+/// The illumos / Solaris console (`tem`; its logins get `sun-color`): no
+/// alternate screen, every character one cell, no answer to any query
+/// (and its kernel can crash replying to `CSI 14 t` / `18 t`).
+fn sun_console(term: &str) -> bool {
+    term == "sun" || term.starts_with("sun-")
 }
 
 /// One of the 8 ANSI colours for an RGB colour, and whether it should be
@@ -4299,27 +4389,16 @@ impl Frontend for Tty {
                         // between the original and the translation (also at
                         // a WAIT)
                         1 if press => redraw |= self.toggle_translation(y),
-                        // a right click: as Emuera, continue and skip the
-                        // following waits up to the next choice; on a
-                        // button, choose it and skip after it
-                        2 if press => {
-                            if req.kind == InputKind::Wait {
-                                self.scroll = 0;
-                                con.reset_style();
-                                con.print_ex("[skip]", false);
-                                con.newline();
-                                return InputResult::Skip(String::new());
-                            }
-                            if let Some(b) = self.click_at(x, y) {
-                                let v = self.buttons[b].to_string();
-                                self.line.remember(&v);
-                                if !v.is_empty() {
-                                    con.reset_style();
-                                    con.print_ex(&v, false);
-                                    con.newline();
-                                }
-                                return InputResult::Skip(v);
-                            }
+                        // a right click: as Emuera, at a WAIT continue and
+                        // skip the following waits up to the next choice;
+                        // it never chooses a button (Emuera's MainWindow
+                        // selects on a left or middle click only)
+                        2 if press && req.kind == InputKind::Wait => {
+                            self.scroll = 0;
+                            con.reset_style();
+                            con.print_ex("[skip]", false);
+                            con.newline();
+                            return InputResult::Skip(String::new());
                         }
                         _ => {}
                     }
@@ -4989,6 +5068,40 @@ mod tests {
         }
     }
 
+    /// Greek and Cyrillic: two columns in MS Gothic / MS Mincho (Emuera's
+    /// default), one in other fonts, the proportional MS ones included
+    #[test]
+    fn letters_follow_the_font() {
+        for f in ["", "ＭＳ ゴシック", "MS Gothic", "ＭＳ 明朝", "MS Mincho"] {
+            assert!(super::letters_are_wide(f), "{:?}", f);
+        }
+        for f in ["ＭＳ Ｐゴシック", "MS PGothic", "MS UI Gothic", "メイリオ", "Yu Gothic", "Consolas", "Noto Sans CJK JP"] {
+            assert!(!super::letters_are_wide(f), "{:?}", f);
+        }
+        use super::{char_cells, Ambi};
+        assert_eq!(char_cells('Ж', Ambi::Pad, None, true), (1, 1, ' '));
+        assert_eq!(char_cells('Ж', Ambi::Pad, None, false), (1, 0, ' '));
+        assert_eq!(char_cells('Ω', Ambi::Pad, None, false), (1, 0, ' '));
+        // the rest of Shift-JIS keeps Emuera's two columns
+        assert_eq!(char_cells('※', Ambi::Pad, None, false), (1, 1, ' '));
+        assert_eq!(char_cells('林', Ambi::Pad, None, false), (2, 0, ' '));
+    }
+
+    #[test]
+    fn letters_in_words_are_narrow() {
+        use super::{letter_widths, Letters};
+        let wide = |s: &str, l| letter_widths(s, l).filter(|&(c, _)| super::is_greek_cyrillic(c)).map(|(_, w)| w).collect::<Vec<_>>();
+        // a letter on its own keeps MS Gothic's two columns
+        assert_eq!(wide("(´Д｀)", Letters::ByWord), [true]);
+        assert_eq!(wide("(・ω・)ノ", Letters::ByWord), [true]);
+        assert_eq!(wide("Σ：12 α", Letters::ByWord), [true, true]);
+        // a word written in those scripts takes one each
+        assert_eq!(wide("「Привет, Ω」", Letters::ByWord), [false, false, false, false, false, false, true]);
+        assert_eq!(wide("αβ", Letters::ByWord), [false, false]);
+        assert_eq!(wide("Привет", Letters::Wide), [true; 6]);
+        assert_eq!(wide("Д", Letters::Narrow), [false]);
+    }
+
     /// The fonts that draw a backslash as ¥ (Emuera's default among them)
     #[test]
     fn yen_fonts() {
@@ -5039,6 +5152,10 @@ mod tests {
         // the Linux console's F13 / F20: Shift+F3 / F10
         assert_eq!(f("25", b'~'), Some((3, true)));
         assert_eq!(f("34", b'~'), Some((10, true)));
+        // the illumos console's F1 / F12
+        assert_eq!(f("224", b'z'), Some((1, false)));
+        assert_eq!(f("235", b'z'), Some((12, false)));
+        assert_eq!(f("214", b'z'), None);
         // not function keys: Insert, Home, arrows, Shift+Enter
         for (p, fin) in [("2", b'~'), ("1", b'~'), ("1;2", b'A'), ("27;2;13", b'~'), ("16", b'~')] {
             assert_eq!(f(p, fin), None, "{} {}", p, fin as char);
@@ -5064,30 +5181,30 @@ mod tests {
 
     #[test]
     fn osc66_draws_one_two_cell_glyph() {
-        assert_eq!(char_cells('━', Ambi::Osc66, None), (2, 0, ' '));
-        assert_eq!(char_cells('林', Ambi::Osc66, None), (2, 0, ' '));
-        assert_eq!(char_cells('a', Ambi::Osc66, None), (1, 0, ' '));
+        assert_eq!(char_cells('━', Ambi::Osc66, None, true), (2, 0, ' '));
+        assert_eq!(char_cells('林', Ambi::Osc66, None, true), (2, 0, ' '));
+        assert_eq!(char_cells('a', Ambi::Osc66, None, true), (1, 0, ' '));
     }
 
     #[test]
     fn emuera_widths_on_a_narrow_terminal() {
-        assert_eq!(char_cells('a', Ambi::Pad, None), (1, 0, ' '));
-        assert_eq!(char_cells('林', Ambi::Pad, None), (2, 0, ' ')); // already wide
-        assert_eq!(char_cells('━', Ambi::Pad, None), (1, 1, '━')); // line continues
-        assert_eq!(char_cells('┏', Ambi::Pad, None), (1, 1, '━'));
-        assert_eq!(char_cells('┃', Ambi::Pad, None), (1, 1, ' ')); // no rightward stroke
-        assert_eq!(char_cells('■', Ambi::Pad, None), (1, 1, '■'));
-        assert_eq!(char_cells('※', Ambi::Pad, None), (1, 1, ' '));
-        assert_eq!(char_cells('―', Ambi::Pad, None), (1, 1, '―')); // horizontal bar continues
-        assert_eq!(char_cells('ｱ', Ambi::Pad, None), (1, 0, ' ')); // half-width kana: 1 in Emuera too
+        assert_eq!(char_cells('a', Ambi::Pad, None, true), (1, 0, ' '));
+        assert_eq!(char_cells('林', Ambi::Pad, None, true), (2, 0, ' ')); // already wide
+        assert_eq!(char_cells('━', Ambi::Pad, None, true), (1, 1, '━')); // line continues
+        assert_eq!(char_cells('┏', Ambi::Pad, None, true), (1, 1, '━'));
+        assert_eq!(char_cells('┃', Ambi::Pad, None, true), (1, 1, ' ')); // no rightward stroke
+        assert_eq!(char_cells('■', Ambi::Pad, None, true), (1, 1, '■'));
+        assert_eq!(char_cells('※', Ambi::Pad, None, true), (1, 1, ' '));
+        assert_eq!(char_cells('―', Ambi::Pad, None, true), (1, 1, '―')); // horizontal bar continues
+        assert_eq!(char_cells('ｱ', Ambi::Pad, None, true), (1, 0, ' ')); // half-width kana: 1 in Emuera too
     }
 
     #[test]
     fn measured_width_wins() {
         // a terminal seen drawing ━ two cells wide needs no filler
-        assert_eq!(char_cells('━', Ambi::Pad, Some(2)), (2, 0, '━'));
+        assert_eq!(char_cells('━', Ambi::Pad, Some(2), true), (2, 0, '━'));
         // one that draws ￤ narrow (tables say 2) gets a filler instead
-        assert_eq!(char_cells('￤', Ambi::Pad, Some(1)), (1, 1, ' '));
+        assert_eq!(char_cells('￤', Ambi::Pad, Some(1), true), (1, 1, ' '));
     }
 
     #[test]
@@ -5102,17 +5219,17 @@ mod tests {
         assert_eq!(console_lookalike('・', &has), '·');
         assert_eq!(console_lookalike('●', &has), 'o');
         assert_eq!(console_lookalike('漢', &has), '漢');
-        assert_eq!(char_cells('漢', Ambi::Narrow, None), (1, 1, ' '));
-        assert_eq!(char_cells('　', Ambi::Narrow, None), (1, 1, ' '));
-        assert_eq!(char_cells('Ａ', Ambi::Narrow, None), (1, 1, ' '));
-        assert_eq!(char_cells('━', Ambi::Narrow, None), (1, 1, '━'));
-        assert_eq!(char_cells('a', Ambi::Narrow, None), (1, 0, ' '));
+        assert_eq!(char_cells('漢', Ambi::Narrow, None, true), (1, 1, ' '));
+        assert_eq!(char_cells('　', Ambi::Narrow, None, true), (1, 1, ' '));
+        assert_eq!(char_cells('Ａ', Ambi::Narrow, None, true), (1, 1, ' '));
+        assert_eq!(char_cells('━', Ambi::Narrow, None, true), (1, 1, '━'));
+        assert_eq!(char_cells('a', Ambi::Narrow, None, true), (1, 0, ' '));
     }
 
     #[test]
     fn no_filler_when_terminal_draws_ambiguous_wide() {
-        assert_eq!(char_cells('━', Ambi::Wide, None), (2, 0, '━'));
-        assert_eq!(char_cells('■', Ambi::Wide, None), (2, 0, '■'));
+        assert_eq!(char_cells('━', Ambi::Wide, None, true), (2, 0, '━'));
+        assert_eq!(char_cells('■', Ambi::Wide, None, true), (2, 0, '■'));
     }
 }
 

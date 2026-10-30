@@ -66,7 +66,7 @@ Continue where the game waits
 .TP
 .BR "Right click" ", " Tab
 Continue and skip the text that follows until the game asks for a choice
-(Emuera's message skip). On a choice: pick it and skip after it.
+(Emuera's message skip). It never picks a choice; a left click does.
 .TP
 .BR \(<- ", " \(-> ", " Home ", " End ", " Delete ", " Backspace
 Edit the line being typed.
@@ -621,6 +621,8 @@ Windows (CI) and, in virtual machines, on FreeBSD, NetBSD, OpenBSD,
 DragonFly, illumos, Haiku, GNU/Hurd and Redox, with game output identical
 to Linux; Solaris is compile-checked only. Redox's console sends nothing
 for F1 to F12 or Esc: Ctrl-O opens the settings and q closes menus there.
+The illumos console (sun-color) plays in full screen, without mouse or
+pictures; its font has no Japanese.
 Windows and Android (Termux, and even a custom Android recovery
 environment) have had some play-testing, but still need further
 feedback. Small boards

@@ -72,6 +72,13 @@ pub const ITEMS: &[Item] = &[
         help: n!("draw \\ as ¥ as Japanese fonts do (auto: when the game's font is one, as Emuera's default MS Gothic)"),
     },
     Item {
+        key: "letters",
+        label: "Greek and Cyrillic",
+        choices: &["auto", "wide", "narrow"],
+        live: true,
+        help: "two columns each, as Emuera's MS Gothic draws them, or one (auto: as the game's font, but words in those scripts narrow)",
+    },
+    Item {
         key: "clipboard",
         label: n!("Copy to clipboard"),
         choices: &["game", "on", "off"],
@@ -356,6 +363,24 @@ impl Settings {
         self.fresh.retain(|g| g != game);
         if self.last.as_deref() == Some(game) {
             self.last = None;
+        }
+    }
+
+    /// Replace a game's path in the library (and last/fresh) with a new path.
+    pub fn update_game(&mut self, old: &Path, new: &Path) {
+        let new_canon = new.canonicalize().unwrap_or_else(|_| new.to_path_buf());
+        for g in &mut self.library {
+            if *g == old {
+                *g = new_canon.clone();
+            }
+        }
+        for g in &mut self.fresh {
+            if *g == old {
+                *g = new_canon.clone();
+            }
+        }
+        if self.last.as_deref() == Some(old) {
+            self.last = Some(new_canon);
         }
     }
 
