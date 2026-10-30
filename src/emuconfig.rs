@@ -136,7 +136,7 @@ const fn item(tab: &'static str, jp: &'static str, label: &'static str, kind: Ki
 }
 
 /// The tabs, in the order of Emuera's settings window.
-pub const TABS: &[&str] = &[n!("Environment"), n!("Display"), n!("Font"), n!("System2"), n!("Clipboard")];
+pub const TABS: &[&str] = &["Environment", "Display", "Font", "System2", "Clipboard"];
 
 /// The settings on the page: those of Emuera's settings window that do
 /// something in emuera-tty and can't break a game. Left out: what only
@@ -146,31 +146,31 @@ pub const TABS: &[&str] = &[n!("Environment"), n!("Display"), n!("Font"), n!("Sy
 /// them), the save folder (existing saves would seem to vanish) and the
 /// background and history colours (the terminal's own are used).
 pub const ITEMS: &[Item] = &[
-    item("Environment", "オートセーブを行なう", n!("Make autosaves"), Kind::Bool, "YES"),
-    item("Environment", "キーボードマクロを使用する", n!("Use keyboard macros (F1…F12; off: other Fn keys take over)"), Kind::Bool, "YES"),
-    item("Environment", "履歴ログの行数", n!("Lines in history log"), Kind::Int(100, 1000000), "5000"),
-    item("Environment", "表示するセーブデータ数", n!("Number of save slots"), Kind::Int(20, 80), "20"),
-    item("Environment", "無限ループ警告までのミリ秒数", n!("Milliseconds for infinite loop warning"), Kind::Int(0, 60000), "5000"),
-    item("Display", "PRINTCを並べる数", n!("PRINTC items per line"), Kind::Int(1, 100), "3"),
-    item("Display", "PRINTCの文字数", n!("PRINTC item width"), Kind::Int(1, 400), "25"),
-    item("Display", "ボタンの途中で行を折りかえさない", n!("Don't break lines inside a button"), Kind::Bool, "NO"),
-    item("Font", "文字色", n!("Text colour"), Kind::Color, "192,192,192"),
-    item("Font", "選択中文字色", n!("Selected button colour"), Kind::Color, "255,255,0"),
-    item("Font", "フォント名", n!("Font (for text drawn into pictures)"), Kind::Text, "ＭＳ ゴシック"),
-    item("System2", "セーブデータを圧縮して保存する", n!("Compress save data"), Kind::Bool, "NO"),
-    item("Clipboard", "表示したテキストをクリップボードにコピーする", n!("Copy printed text to the clipboard"), Kind::Bool, "NO"),
-    item("Clipboard", "新しい行のみコピーする", n!("Only new lines"), Kind::Bool, "YES"),
-    item("Clipboard", "クリップボードに貼り付ける行数", n!("Lines copied (when not only new ones)"), Kind::Int(1, 10000), "25"),
-    item("Clipboard", "総バッファサイズ", n!("Lines remembered"), Kind::Int(1, 100000), "300"),
-    item("Clipboard", "クリップボードの更新間隔(ミリ秒)", n!("Minimum time between copies (ms)"), Kind::Int(0, 60000), "800"),
-    item("Clipboard", "テキスト中の<>タグを無視する", n!("Replace pictures (<> tags) …"), Kind::Bool, "NO"),
-    item("Clipboard", "<>を次の文で置き換える", n!("… with this text"), Kind::Text, "."),
-    item("Clipboard", "画面のリフレッシュ時にクリップボードとバッファを消去する", n!("Forget lines when the game clears the screen"), Kind::Bool, "NO"),
-    item("Clipboard", "左クリックをトリガーにする", n!("Copy on a left click"), Kind::Bool, "YES"),
-    item("Clipboard", "ホイールクリックをトリガーにする", n!("Copy on a middle click"), Kind::Bool, "NO"),
-    item("Clipboard", "ダブルクリックをトリガーにする", n!("Copy on a double click"), Kind::Bool, "NO"),
-    item("Clipboard", "WAITをトリガーにする", n!("Copy at a WAIT"), Kind::Bool, "NO"),
-    item("Clipboard", "INPUTをトリガーにする", n!("Copy at an input"), Kind::Bool, "YES"),
+    item("Environment", "オートセーブを行なう", "Make autosaves", Kind::Bool, "YES"),
+    item("Environment", "キーボードマクロを使用する", "Use keyboard macros (F1…F12; off: other Fn keys take over)", Kind::Bool, "YES"),
+    item("Environment", "履歴ログの行数", "Lines in history log", Kind::Int(100, 1000000), "5000"),
+    item("Environment", "表示するセーブデータ数", "Number of save slots", Kind::Int(20, 80), "20"),
+    item("Environment", "無限ループ警告までのミリ秒数", "Milliseconds for infinite loop warning", Kind::Int(0, 60000), "5000"),
+    item("Display", "PRINTCを並べる数", "PRINTC items per line", Kind::Int(1, 100), "3"),
+    item("Display", "PRINTCの文字数", "PRINTC item width", Kind::Int(1, 400), "25"),
+    item("Display", "ボタンの途中で行を折りかえさない", "Don't break lines inside a button", Kind::Bool, "NO"),
+    item("Font", "文字色", "Text colour", Kind::Color, "192,192,192"),
+    item("Font", "選択中文字色", "Selected button colour", Kind::Color, "255,255,0"),
+    item("Font", "フォント名", "Font (for text drawn into pictures)", Kind::Text, "ＭＳ ゴシック"),
+    item("System2", "セーブデータを圧縮して保存する", "Compress save data", Kind::Bool, "NO"),
+    item("Clipboard", "表示したテキストをクリップボードにコピーする", "Copy printed text to the clipboard", Kind::Bool, "NO"),
+    item("Clipboard", "新しい行のみコピーする", "Only new lines", Kind::Bool, "YES"),
+    item("Clipboard", "クリップボードに貼り付ける行数", "Lines copied (when not only new ones)", Kind::Int(1, 10000), "25"),
+    item("Clipboard", "総バッファサイズ", "Lines remembered", Kind::Int(1, 100000), "300"),
+    item("Clipboard", "クリップボードの更新間隔(ミリ秒)", "Minimum time between copies (ms)", Kind::Int(0, 60000), "800"),
+    item("Clipboard", "テキスト中の<>タグを無視する", "Replace pictures (<> tags) …", Kind::Bool, "NO"),
+    item("Clipboard", "<>を次の文で置き換える", "… with this text", Kind::Text, "."),
+    item("Clipboard", "画面のリフレッシュ時にクリップボードとバッファを消去する", "Forget lines when the game clears the screen", Kind::Bool, "NO"),
+    item("Clipboard", "左クリックをトリガーにする", "Copy on a left click", Kind::Bool, "YES"),
+    item("Clipboard", "ホイールクリックをトリガーにする", "Copy on a middle click", Kind::Bool, "NO"),
+    item("Clipboard", "ダブルクリックをトリガーにする", "Copy on a double click", Kind::Bool, "NO"),
+    item("Clipboard", "WAITをトリガーにする", "Copy at a WAIT", Kind::Bool, "NO"),
+    item("Clipboard", "INPUTをトリガーにする", "Copy at an input", Kind::Bool, "YES"),
 ];
 
 /// Where a setting's value comes from.
@@ -299,11 +299,11 @@ pub fn normalize(it: &Item, s: &str) -> Result<String, String> {
         Kind::Bool => match s.to_uppercase().as_str() {
             "YES" | "Y" | "TRUE" | "ON" | "1" => Ok("YES".into()),
             "NO" | "N" | "FALSE" | "OFF" | "0" => Ok("NO".into()),
-            _ => Err(t!("YES or NO")),
+            _ => Err("YES or NO".into()),
         },
         Kind::Int(lo, hi) => match s.parse::<i64>() {
             Ok(n) if (lo..=hi).contains(&n) => Ok(n.to_string()),
-            _ => Err(t!("a number from {lo} to {hi}", lo = lo, hi = hi)),
+            _ => Err(format!("a number from {} to {}", lo, hi)),
         },
         Kind::Color => {
             // R,G,B or #RRGGBB
@@ -314,7 +314,7 @@ pub fn normalize(it: &Item, s: &str) -> Result<String, String> {
             };
             match n[..] {
                 [r, g, b] if [r, g, b].iter().all(|c| (0..=255).contains(c)) => Ok(format!("{},{},{}", r, g, b)),
-                _ => Err(t!("R,G,B (0-255 each) or #RRGGBB")),
+                _ => Err("R,G,B (0-255 each) or #RRGGBB".into()),
             }
         }
         Kind::Text => Ok(s.to_string()),

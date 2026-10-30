@@ -9,9 +9,28 @@ use crate::emuconfig::{normalize, Item, Kind, Source, Values, ITEMS, TABS};
 use crate::frontend::InputReq;
 use crate::resources::Resources;
 use std::io::Write;
+use unicode_width::UnicodeWidthChar;
 
 /// Columns `s` takes (wide characters count two).
-use crate::i18n::{fit, tr, width};
+fn width(s: &str) -> usize {
+    s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum()
+}
+
+/// `s` cut or padded to exactly `w` columns.
+fn fit(s: &str, w: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for c in s.chars().map(|c| if c.is_control() { ' ' } else { c }) {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        if used + cw > w {
+            break;
+        }
+        out.push(c);
+        used += cw;
+    }
+    out.push_str(&" ".repeat(w - used));
+    out
+}
 
 /// "R,G,B" as a colour.
 fn rgb(v: &str) -> Option<(u8, u8, u8)> {
@@ -93,7 +112,7 @@ impl Tty {
             let it = items[sel];
             let (v, src) = vals.get(it);
             if src == Source::Fixed {
-                note = t!("{setting}: the game fixes this one (CSV/_fixed.config)", setting = tr(it.label));
+                note = format!("{}: the game fixes this one (CSV/_fixed.config)", it.label);
                 continue;
             }
             let new: Option<String> = match (act, it.kind) {
@@ -103,18 +122,18 @@ impl Tty {
                 (10 | -10, _) => continue,
                 (_, kind) => {
                     let what = match kind {
-                        Kind::Int(lo, hi) => t!("A number from {lo} to {hi} (empty: the game's setting):", lo = lo, hi = hi),
-                        Kind::Color => t!("R,G,B or #RRGGBB (empty: the game's setting):"),
-                        _ => t!("Text (empty: the game's setting):"),
+                        Kind::Int(lo, hi) => format!("A number from {} to {} (empty: the game's setting):", lo, hi),
+                        Kind::Color => "R,G,B or #RRGGBB (empty: the game's setting):".to_string(),
+                        _ => "Text (empty: the game's setting):".to_string(),
                     };
-                    let Some(t) = self.prompt(con, res, req, &tr(it.label), &what, &v) else { continue };
+                    let Some(t) = self.prompt(con, res, req, it.label, &what, &v) else { continue };
                     if t.trim().is_empty() {
                         None
                     } else {
                         match normalize(it, &t) {
                             Ok(n) => Some(n),
                             Err(e) => {
-                                note = format!("{}: {}", tr(it.label), e);
+                                note = format!("{}: {}", it.label, e);
                                 continue;
                             }
                         }
@@ -124,7 +143,7 @@ impl Tty {
             match vals.set(it, new.as_deref()) {
                 Ok(()) => {
                     changed = true;
-                    note = format!("{}: {}", tr(it.label), vals.get(it).0);
+                    note = format!("{}: {}", it.label, vals.get(it).0);
                 }
                 Err(e) => note = e,
             }
@@ -157,13 +176,13 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H{}│{}{}{}│", r, left, frame, st, fit(t, inner), frame);
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
-        row(&mut out, top + 1, &format!(" {}", t!("Game settings  (Emuera's settings window)")), &title);
+        row(&mut out, top + 1, " Game settings  (Emuera's settings window)", &title);
         // the tab bar
         let mut tabs = Vec::new();
         let _ = write!(out, "\x1b[{};{}H{}│{} ", top + 2, left, frame, normal);
         let mut used = 1;
         for (i, t) in TABS.iter().enumerate() {
-            let label = format!(" {} ", tr(t));
+            let label = format!(" {} ", t);
             let lw = width(&label);
             if used + lw + 1 > inner {
                 break;
@@ -193,10 +212,10 @@ impl Tty {
             };
             let row_bg = if is_sel { hl } else { bg };
             let from = match src {
-                Source::Emuera => String::new(),
-                Source::Game => tc!("setting source", "game"),
-                Source::Player => tc!("setting source", "changed"),
-                Source::Fixed => tc!("setting source", "fixed"),
+                Source::Emuera => "",
+                Source::Game => "game",
+                Source::Player => "changed",
+                Source::Fixed => "fixed",
             };
             let _ = write!(out, "\x1b[{};{}H{}│{} ", r, left, frame, base);
             let mut used = 1;
@@ -219,41 +238,15 @@ impl Tty {
             }
             let tag_w = 8;
             let name_w = inner.saturating_sub(used + tag_w + 1);
-            let _ = write!(out, "{}{} {}{}", fit(&tr(it.label), name_w), if is_sel { "" } else { &dim }, fit(&from, tag_w), frame);
+            let _ = write!(out, "{}{} {}{}", fit(it.label, name_w), if is_sel { "" } else { &dim }, fit(from, tag_w), frame);
             let _ = write!(out, "│");
         }
         row(&mut out, top + 4 + vis, "", &normal);
-        row(&mut out, top + 5 + vis, &format!(" {}", t!("←→ tab  ↑↓ choose  Enter change  +/- step  d game's value  Esc back")), &helpc);
-        let saved_in = format!(" {}", t!("Saved in the game's emuera.config, which Emuera.exe reads too."));
-        let n = if note.is_empty() { saved_in.as_str() } else { note };
+        row(&mut out, top + 5 + vis, " ←→ tab  ↑↓ choose  Enter change  +/- step  d game's value  Esc back", &helpc);
+        let n = if note.is_empty() { " Saved in the game's emuera.config, which Emuera.exe reads too." } else { note };
         row(&mut out, top + 6 + vis, &format!(" {}", n.trim_start()), &notec);
         let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 7 + vis, left, frame, "─".repeat(inner));
         write_all(&out);
         Geo { tab_row: top + 2, tabs, items_top: top + 4, first }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::render_tests::{cases, check};
-    use super::super::{capture, ColorMode, Tty};
-    use crate::emuconfig::{Values, ITEMS, TABS};
-
-    /// The game settings page, every tab, in every pseudo-language
-    #[test]
-    fn game_settings_in_every_script() {
-        let vals = Values::read(std::path::Path::new("/nonexistent/emuera-tty-test-game"));
-        for (lang, cols, rows) in cases() {
-            crate::i18n::set_language(lang);
-            let t = Tty::blank(None, cols, rows, ColorMode::True);
-            for (tab, name) in TABS.iter().enumerate() {
-                let items: Vec<_> = ITEMS.iter().filter(|it| it.tab == *name).collect();
-                let out = capture(|| {
-                    t.draw_game_settings(&vals, tab, &items, 0, "");
-                });
-                check(&format!("game settings tab {}", name), lang, cols, rows, &out);
-            }
-        }
-        crate::i18n::set_language("en");
     }
 }

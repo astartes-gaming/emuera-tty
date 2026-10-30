@@ -94,7 +94,7 @@ Scroll back through earlier text (Home and End too while nothing is
 typed); End returns.
 .TP
 .B Ctrl\-O
-The options overlay (also F3, unless a keyboard macro is stored on it): the interface \fBLanguage\fR, display settings, \fBGame settings\fR (Emuera's
+The options overlay (also F3, unless a keyboard macro is stored on it): display settings, \fBGame settings\fR (Emuera's
 settings window: the game's
 .IR emuera.config ,
 shared with Emuera.exe), \fBManage saves\fR, \fBTest the translator\fR (when translation is on), \fBClear the translation cache\fR, \fBExport translation cache\fR (when translation is on and no
@@ -444,12 +444,6 @@ how box drawing and symbols get Emuera's two columns
 .IR host : port
 of the LibreTranslate server, default 127.0.0.1:5000
 .RB ( \-\-libretranslate ).
-.TP
-.B EMUERA_LANG
-.BR ja ", " zh\-Hans ", " zh\-Hant ", " ko " or " en :
-the interface language, over the setting and the locale;
-.BR x\-cjk ", " x\-arab ", " x\-cyrl ", " x\-deva " or " x\-avst
-rewrite every message in that script, to check the layout.
 .TP
 .B EMUERA_MEASURE=0
 Skip measuring how wide the terminal draws ambiguous characters.

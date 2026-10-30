@@ -1,7 +1,0 @@
-# emuera-tty interface messages: Traditional Chinese.
-# Start from emuera-tty.pot (Poedit: "Update from POT file"); see the README,
-# "Translating emuera-tty".
-msgid ""
-msgstr ""
-"Language: zh-Hant\n"
-"Content-Type: text/plain; charset=UTF-8\n"

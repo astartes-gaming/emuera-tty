@@ -79,7 +79,7 @@ pub fn extract_game(archive: &Path, progress: &mut dyn FnMut(usize)) -> Result<P
     if let Some(g) = already_extracted(archive) {
         return Ok(g);
     }
-    let dest = dest_for(archive).ok_or_else(|| t!("can't work out where to extract (HOME not set?)"))?;
+    let dest = dest_for(archive).ok_or("can't work out where to extract (HOME not set?)")?;
     let stamp = stamp(archive);
     let parent = dest.parent().unwrap();
     fs::create_dir_all(parent).map_err(|e| format!("{}: {}", parent.display(), e))?;
@@ -87,7 +87,7 @@ pub fn extract_game(archive: &Path, progress: &mut dyn FnMut(usize)) -> Result<P
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(&tmp).map_err(|e| format!("{}: {}", tmp.display(), e))?;
     let result = unpack(archive, &tmp, progress);
-    let game = match result.and_then(|()| find_game(&tmp).ok_or_else(|| t!("no Emuera game (a folder with CSV/ and ERB/) in this archive"))) {
+    let game = match result.and_then(|()| find_game(&tmp).ok_or_else(|| "no Emuera game (a folder with CSV/ and ERB/) in this archive".to_string())) {
         Ok(g) => g,
         Err(e) => {
             let _ = fs::remove_dir_all(&tmp);
@@ -159,7 +159,7 @@ fn unpack(archive: &Path, to: &Path, progress: &mut dyn FnMut(usize)) -> Result<
 }
 
 fn unzip(f: fs::File, to: &Path, progress: &mut dyn FnMut(usize)) -> Result<(), String> {
-    let mut z = zip::ZipArchive::new(f).map_err(|e| t!("not a readable zip: {error}", error = e))?;
+    let mut z = zip::ZipArchive::new(f).map_err(|e| format!("not a readable zip: {}", e))?;
     let mut n = 0;
     for i in 0..z.len() {
         let mut e = z.by_index(i).map_err(|e| format!("zip entry {}: {}", i, e))?;
@@ -182,7 +182,7 @@ fn unzip(f: fs::File, to: &Path, progress: &mut dyn FnMut(usize)) -> Result<(), 
 fn untar(r: impl io::Read, to: &Path, progress: &mut dyn FnMut(usize)) -> Result<(), String> {
     let mut a = tar::Archive::new(r);
     let mut n = 0;
-    for e in a.entries().map_err(|e| t!("not a readable tar: {error}", error = e))? {
+    for e in a.entries().map_err(|e| format!("not a readable tar: {}", e))? {
         let mut e = e.map_err(|e| format!("tar: {}", e))?;
         let name = decode_name(&e.path_bytes());
         let Some(path) = safe_join(to, &name) else { continue };
@@ -219,11 +219,11 @@ fn external(archive: &Path, to: &Path) -> Result<(), String> {
         c.arg("x").arg("-y").arg(format!("-o{}", to.display())).arg(archive);
         c
     } else {
-        return Err(t!("this archive type needs bsdtar, tar or 7z installed (e.g. `sudo apt install libarchive-tools p7zip-full`)"));
+        return Err("this archive type needs bsdtar, tar or 7z installed (e.g. `sudo apt install libarchive-tools p7zip-full`)".into());
     };
     let st = cmd.stdout(Stdio::null()).stderr(Stdio::null()).status().map_err(|e| e.to_string())?;
     if !st.success() {
-        return Err(t!("extracting {archive} failed ({status})", archive = archive.display(), status = st));
+        return Err(format!("extracting {} failed ({})", archive.display(), st));
     }
     remove_symlinks(to);
     Ok(())
