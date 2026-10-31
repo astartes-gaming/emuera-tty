@@ -2702,7 +2702,7 @@ impl Tty {
 
     /// Write a tooltip box; returns the screen rows (0-based) it covers.
     fn draw_tooltip(&self, out: &mut Vec<u8>, t: &TipBox, colors: Option<(Rgb, Rgb)>) -> std::ops::Range<usize> {
-        let (fg, bg) = colors.map_or(((20, 20, 20), (255, 245, 200)), |(f, b)| ((f.0, f.1, f.2), (b.0, b.1, b.2)));
+        let (fg, bg) = colors.map_or(((0, 0, 0), (255, 245, 200)), |(f, b)| ((f.0, f.1, f.2), (b.0, b.1, b.2)));
         let st = self.ov_style(fg, bg, false);
         for (i, (s, sw)) in t.lines.iter().enumerate() {
             let _ = write!(out, "\x1b[{};{}H{} {}{} \x1b[0m", t.top + i, t.left, st, s, " ".repeat(t.w - 2 - sw));
