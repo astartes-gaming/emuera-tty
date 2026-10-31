@@ -136,6 +136,10 @@ impl Vm {
     /// HTML_PRINT: render `src` as its own line(s). Style and alignment
     /// changes don't leak out: both are restored afterwards.
     pub fn html_print(&mut self, src: &str) {
+        // (Emuera's PrintHtml prints nothing for "")
+        if src.is_empty() {
+            return;
+        }
         if !self.con.cur.is_empty() {
             self.con.newline();
         }
@@ -290,7 +294,15 @@ impl Vm {
                 }
             }
         }
-        self.con.newline();
+        // As in Emuera's Html2DisplayLine, `<br>` ends a line but the end of
+        // the text adds one only if something follows the last `<br>`:
+        // `HTML_PRINT "<br>"` is one line, not two. (AnonTW's animations
+        // print a picture and nine of those, then CLEARLINE 10.)
+        if self.con.cur.is_empty() {
+            self.con.cur_align = None;
+        } else {
+            self.con.newline();
+        }
         self.con.style = saved_style;
         self.con.align = saved_align;
     }

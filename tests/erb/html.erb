@@ -11,3 +11,21 @@ LOCALS '= HTML_POPPRINTINGSTR()
 CALL CHECKS, "html_popprintingstr", HTML_TOPLAINTEXT(LOCALS), "pending text"
 HTML_PRINT "<b>printed</b>"
 CALL CHECKS, "html_getprintedstr", HTML_TOPLAINTEXT(HTML_GETPRINTEDSTR(0)), "printed"
+; a <br> ends a line, but the end adds one only after content
+; (Html2DisplayLine): AnonTW's animations print a picture, nine
+; HTML_PRINT "<br>", then CLEARLINE 10
+LOCAL = LINECOUNT
+HTML_PRINT "<br>"
+CALL CHECKS, "html_print br is one line", LINECOUNT - LOCAL, 1
+LOCAL = LINECOUNT
+HTML_PRINT "a<br>"
+CALL CHECKS, "html_print trailing br", LINECOUNT - LOCAL, 1
+LOCAL = LINECOUNT
+HTML_PRINT "a<br>b"
+CALL CHECKS, "html_print br between", LINECOUNT - LOCAL, 2
+LOCAL = LINECOUNT
+HTML_PRINT "<br><br>"
+CALL CHECKS, "html_print two br", LINECOUNT - LOCAL, 2
+LOCAL = LINECOUNT
+HTML_PRINT ""
+CALL CHECKS, "html_print empty prints nothing", LINECOUNT - LOCAL, 0
