@@ -153,7 +153,7 @@ What GitHub Actions builds, and what has been run where.
 | GNU/Hurd x86-64 | Build failed (under actions), check passed | Cross-compiled and linked with the system's own gcc: the test suite passes in a Debian GNU/Hurd 2026-03-14 VM, game output identical to Linux; played on its console |
 | GNU/Hurd i686 | Build failed (under actions), check passed | Compile-checked only |
 | Redox x86-64 | Build failed (under actions), check passed | Built with Redox's own toolchain: the test suite passes in a Redox VM (2026-10-14 image, one test thread), game output identical to Linux; full-screen play works on its console |
-| Android (Termux, AArch64) | Build success | Tested on actual devices. Sparsely tested, works under Termux, should also work in any terminal environment, and does run under Android Recovery (TWRP)... somehow |
+| Android (Termux, AArch64) | Build success | Tested on several devices with Termux (all functionality except images work), but could likely work in other terminal apps; also works under Android recovery environments like TWRP's console, but is (very, VERY) finicky  |
 | Linux RISC-V 32 | Build failed (under actions), check failed | Rust's own standard library doesn't build there at the moment (`SYS_futex` missing from libc for that target), nothing in emuera-tty |
 | Linux PowerPC 32 | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
 | Linux IBM Z (s390x) | Build failed (under actions), check passed | Fails under Github Actions, needs testing on emulated/real hardware instead |
