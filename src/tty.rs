@@ -722,6 +722,8 @@ pub struct Tty {
     /// an overlay box (list, prompt, page) closed or changed size: the
     /// next frame is drawn in full even if the game's screen is the same
     box_closed: std::cell::Cell<bool>,
+    /// the folder the save manager's file browser was last used in
+    browse_dir: Option<std::path::PathBuf>,
     /// buttons with a `srcb` hover picture (their hover needs a full redraw)
     hover_imgs: std::collections::HashSet<usize>,
     /// translated lines the player clicked back to the original text
@@ -1047,6 +1049,7 @@ impl Tty {
             hash_cols: 0,
             redraw_all: std::cell::Cell::new(true),
             box_closed: std::cell::Cell::new(false),
+            browse_dir: None,
             hover_imgs: std::collections::HashSet::new(),
             show_orig: std::collections::HashSet::new(),
             row_lines: Vec::new(),

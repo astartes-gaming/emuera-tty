@@ -156,6 +156,9 @@ pub fn backups(root: &Path) -> Vec<(PathBuf, usize)> {
 /// Put the saves of backup folder `from` back into `dir`, after backing up
 /// what is there now.
 pub fn restore(from: &Path, dir: &Path, root: &Path) -> Result<usize, String> {
+    if same_file(from, dir) {
+        return Err(t!("that is the game's own save folder"));
+    }
     if !list(dir).is_empty() {
         backup_all(dir, root, "before-restore")?;
     }
@@ -166,6 +169,12 @@ pub fn restore(from: &Path, dir: &Path, root: &Path) -> Result<usize, String> {
         std::fs::copy(&s.path, &to).map_err(|e| format!("{}: {}", to.display(), e))?;
     }
     Ok(saves.len())
+}
+
+/// `a` and `b` are the same existing file or folder (copying a file onto
+/// itself would empty it).
+fn same_file(a: &Path, b: &Path) -> bool {
+    matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
 }
 
 /// Keep a copy of `path` (about to be overwritten or removed) under `root`.
@@ -205,6 +214,9 @@ pub fn delete(path: &Path, root: &Path) -> Result<(), String> {
 /// the file written.
 pub fn export(src: &Path, dest: &Path) -> Result<PathBuf, String> {
     let to = if dest.is_dir() { dest.join(src.file_name().unwrap()) } else { dest.to_path_buf() };
+    if same_file(src, &to) {
+        return Err(t!("that is the save itself"));
+    }
     if let Some(p) = to.parent() {
         std::fs::create_dir_all(p).map_err(|e| format!("{}: {}", p.display(), e))?;
     }
@@ -233,6 +245,9 @@ pub fn import(src: &Path, dir: &Path, to: Option<u32>, root: &Path) -> Result<Pa
         Some(n) => copy_to_slot(src, dir, n, root, false),
         None => {
             let dest = dir.join("global.sav");
+            if same_file(src, &dest) {
+                return Err(t!("that is the game's own global.sav"));
+            }
             keep(&dest, root, "overwritten")?;
             std::fs::copy(src, &dest).map_err(|e| format!("{}: {}", dest.display(), e))?;
             Ok(dest)
@@ -286,6 +301,10 @@ mod tests {
         delete(&dir.join("save01.sav"), &root).unwrap();
         assert!(!dir.join("save01.sav").exists());
         assert_eq!(restore(&bk, &dir, &root).unwrap(), 2);
+        assert_eq!(std::fs::read(dir.join("save01.sav")).unwrap(), b"one");
+        // nothing is copied onto itself (which would empty it)
+        assert!(restore(&dir, &dir, &root).is_err());
+        assert!(export(&dir.join("save01.sav"), &dir).is_err());
         assert_eq!(std::fs::read(dir.join("save01.sav")).unwrap(), b"one");
         let _ = std::fs::remove_dir_all(&t);
     }

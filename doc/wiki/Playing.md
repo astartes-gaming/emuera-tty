@@ -142,10 +142,19 @@ another slot, **export** it to a file (by default
 `~/emuera-saves/<game>-saveNN-<date>.sav`) or **delete** it. For the whole
 folder: **back up all saves** (into
 `~/.local/share/emuera-tty/backups/<game>/<date>/`), **restore a backup**
-(the current saves are backed up first) and **import a save file** into a
-slot. Nothing is lost by mistake: a deleted or overwritten save is copied
-to the backups first. Load a restored or imported save from the game's
-own load menu. From a shell: `emuera-tty GAME --saves` lists the saves
+(the current saves are backed up first; *Another folder…* restores from
+any folder of saves, such as Emuera's `sav/` on another computer) and
+**import a save file** into a slot. Nothing is lost by mistake: a deleted
+or overwritten save is copied to the backups first. Load a restored or
+imported save from the game's own load menu.
+
+Export, import and *Another folder…* open a file browser, as *Add a game*
+does in the launcher: it lists the folders and the `.sav` files with
+their comments, and opens where it was last used (else `~/emuera-saves`).
+Enter opens a folder or picks a file, ← or Backspace goes up, `~` goes
+home, `.` shows hidden folders, `/` types a path instead, Esc goes back;
+the mouse works too. The first row, **▶**, picks the folder shown: export
+then asks for the file name. From a shell: `emuera-tty GAME --saves` lists the saves
 and `emuera-tty GAME --backup-saves` backs them up.
 
 ### Save history

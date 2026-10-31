@@ -772,12 +772,24 @@ msgid "no saves in {dir}"
 msgstr ""
 
 #: src/savemgr.rs
+msgid "that is the game's own save folder"
+msgstr ""
+
+#: src/savemgr.rs
 msgid "that is the same slot"
+msgstr ""
+
+#: src/savemgr.rs
+msgid "that is the save itself"
 msgstr ""
 
 #: src/savemgr.rs
 #, no-c-format
 msgid "{file} is not an Emuera save"
+msgstr ""
+
+#: src/savemgr.rs
+msgid "that is the game's own global.sav"
 msgstr ""
 
 #: src/settings.rs
@@ -1181,10 +1193,6 @@ msgid "Import a save"
 msgstr ""
 
 #: src/tty/saves.rs
-msgid "File to import:"
-msgstr ""
-
-#: src/tty/saves.rs
 msgid "Into slot:"
 msgstr ""
 
@@ -1237,7 +1245,22 @@ msgid "copied {save} to slot {n}"
 msgstr ""
 
 #: src/tty/saves.rs
-msgid "Export to:"
+#, no-c-format
+msgid "Export {save}"
+msgstr ""
+
+#: src/tty/saves.rs
+#, no-c-format
+msgid "Export {save} to {dir}"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "File name:"
+msgstr ""
+
+#: src/tty/saves.rs
+#, no-c-format
+msgid "{file} exists. Overwrite it?"
 msgstr ""
 
 #: src/tty/saves.rs
@@ -1256,7 +1279,8 @@ msgid "deleted {save} (a copy is in {dir})"
 msgstr ""
 
 #: src/tty/saves.rs
-msgid "Restore a backup"
+#, no-c-format
+msgid "({n} files)"
 msgstr ""
 
 #: src/tty/saves.rs
@@ -1270,12 +1294,32 @@ msgstr ""
 
 #: src/tty/saves.rs
 #, no-c-format
-msgid "({n} files)"
+msgid "in {dir}"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "Another folder…"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "Restore a backup"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "Restore saves from a folder"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "Enter open/pick  ← up  ~ home  . hidden  / type a path  Esc back"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "Folder or file:"
 msgstr ""
 
 #: src/tty/saves.rs
 #, no-c-format
-msgid "in {dir}"
+msgid "no such folder: {dir}"
 msgstr ""
 
 #: src/tty/saves.rs
@@ -1292,6 +1336,40 @@ msgstr ""
 
 #: src/tty/saves.rs
 msgid "Enter accept  Esc cancel  Ctrl-U clear"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "Export to this folder…"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "(nothing to restore here: no saveNN.sav or global.sav)"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "Restore the save in this folder"
+msgstr ""
+
+#: src/tty/saves.rs
+#, no-c-format
+msgid "Restore the {n} saves in this folder"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "(a new folder: made when the save is written)"
+msgstr ""
+
+#: src/tty/saves.rs
+#, no-c-format
+msgid "(can't read this folder: {error})"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "(not an Emuera save)"
+msgstr ""
+
+#: src/tty/saves.rs
+msgid "(no folders or save files here)"
 msgstr ""
 
 #: src/tty.rs
