@@ -3852,7 +3852,7 @@ impl Tty {
         if let Some(mt) = &self.mt {
             let (queued, failed, cached) = mt.stats();
             if queued > 0 || failed > 0 || cached > 0 {
-                let tr_text = format!("TR: {}/{}/{}", queued, failed, cached);
+                let tr_text = format!("{} trns, {} fail, {} cache", queued, failed, cached);
                 right_plain.push(tr_text.clone());
                 right_styled.push(tr_text);
             }

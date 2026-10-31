@@ -26,8 +26,10 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   `[scroll -N]` tag shows you're looking at history; End jumps back.
   **Click either the left/right mouse buttons or press Enter while scrolled back to jump
   immediately to the end** (as in Emuera).
-- **Settings**: F3 or Ctrl-O opens them over the game (see [Settings](Settings#emuera-ttys-settings-f3)); F3
-  not while a keyboard macro is stored on it.
+- **Settings**: F3, Ctrl-O and the `[ Settings ]` button opens them over the
+  game (see [Settings](Settings#emuera-ttys-settings-f3)); F3 is only
+  available when keyboard macros are off, or if there isn't a macro bound
+  to it.
 - **Back to the title**: Ctrl-T. **Restart** the game: Ctrl-R (both ask
   first; unsaved progress is lost). **Reload the ERB files** after editing
   them: Ctrl-E or F5 (unless a macro is stored on F5): the game carries on where it was
@@ -42,10 +44,14 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   mouse sends (`→ 105`, also for buttons that don't show it, like map
   squares) and the function asking for input. While a script computes
   for more than a moment it says `… working @FUNCTION`. (*Bottom bar
-  details* in the settings turns this off.) The memory emuera-tty uses is
-  on the settings page's title, and in the bottom row too with *Show memory*
-  (Linux, Android and Windows); both also show the highest use seen this
-  session once it is above the current one (`123 MB (peak 150 MB)`).
+  details* in the settings turns this off.).
+- **The top row** shows, on the right, the current memory usage emuera-tty
+  has, displayed as `123 MB (peak 150 MB)`, only if *Show memory* is active.
+  On the same side, translation status is also displayed, as
+  `1 trns, 2 fail, 3 cache`. `trns` counts queued translations, `fail` counts
+  queued translations that didn't return and `cache` counts translations
+  currently stored in memory. On the left, there is a `[ Settings ]` button
+  that can be clicked with a mouse, primarily for users that prefer it.
 
 ## Macros
 
