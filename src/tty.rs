@@ -2707,7 +2707,7 @@ impl Tty {
         for (i, (s, sw)) in t.lines.iter().enumerate() {
             let _ = write!(out, "\x1b[{};{}H{} {}{} \x1b[0m", t.top + i, t.left, st, s, " ".repeat(t.w - 2 - sw));
         }
-        t.top - 1..t.top - 1 + t.lines.len()
+        t.top - 2..t.top - 2 + t.lines.len()
     }
 
     /// Damage tracking: drop from `out` the rows (byte ranges `rows` within
