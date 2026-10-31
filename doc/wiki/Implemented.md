@@ -97,7 +97,9 @@ and [doc/anchor.md](https://github.com/astartes-gaming/emuera-tty/blob/master/do
   `HTML_TAGSPLIT`, `HTML_POPPRINTINGSTR`, and `AWAIT` with the window
   still live: typing goes into the input line (`GETTEXTBOX`), the button
   under the pointer is `MOUSEB()`, and clicks and keys reach
-  `GETKEY`/`GETKEYTRIGGERED` (AnonTW's dish search by name).
+  `GETKEY`/`GETKEYTRIGGERED` (AnonTW's dish search by name); so does
+  the key or click that ends a `WAIT`/`TWAIT` (AnonTW's lectures end on a
+  click).
 - Infinite loop detection (`無限ループ警告までのミリ秒数` /
   `Milliseconds for infinite loop warning`): after a configurable timeout
   (default 5 s) without input, a confirmation dialog appears (TUI); headless
