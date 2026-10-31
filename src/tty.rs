@@ -2041,7 +2041,8 @@ impl Tty {
             _ => Letters::Narrow,
         };
         let scale = self.cell.1 as f32 / con.line_height.max(1.0);
-        let view_h = self.rows - 1;
+        // Reserve 2 rows: top bar (row 1) and bottom bar (row self.rows)
+        let view_h = self.rows.saturating_sub(2).max(1);
         self.buttons.clear();
         self.hover_imgs.clear();
         // layout from the bottom up
@@ -2163,12 +2164,15 @@ impl Tty {
         // (blinking: off half the time)
         let pointer = if self.own_pointer() && self.ptr_on { self.mouse } else { None };
         let mut pointer_drawn = false;
+        // Draw the top bar at row 1
+        self.draw_top_bar(&mut out);
         // each row's bytes, for damage tracking (see `skip_unchanged_rows`)
         let mut row_bytes: Vec<(usize, usize)> = Vec::with_capacity(view_h);
         let rows_from = out.len();
         for (sr, row) in visible.iter().enumerate() {
             let row_start = out.len();
-            let _ = write!(out, "\x1b[{};1H", sr + 1);
+            // sr + 2 because row 1 is the top bar (terminal row), screen row is sr+1
+            let _ = write!(out, "\x1b[{};1H", sr + 2);
             let mut col = 0usize;
             let mut last_style: Option<(Style, Option<Rgb>)> = None;
             let mut btn_start: Option<(usize, usize)> = None;
@@ -2179,7 +2183,7 @@ impl Tty {
                 }
                 if let Some((s, b)) = btn_start {
                     if cell.button != Some(b) {
-                        self.btn_map[sr].push((s, col, b));
+                        self.btn_map[sr + 1].push((s, col, b));
                         btn_start = None;
                     }
                 }
@@ -2197,9 +2201,9 @@ impl Tty {
                     self.sgr(&mut out, &cell.style, ov);
                     last_style = Some(key);
                 }
-                self.frame[sr].push((col, cell.clone(), ov));
+                self.frame[sr + 1].push((col, cell.clone(), ov));
                 let mut tmp = [0u8; 4];
-                let at_pointer = pointer.is_some_and(|(px, py)| py == sr && px >= col && px < col + cell.w.max(1) as usize);
+                let at_pointer = pointer.is_some_and(|(px, py)| py == sr + 1 && px >= col && px < col + cell.w.max(1) as usize);
                 if at_pointer {
                     if cell.ch.is_whitespace() {
                         let blank = Style { fg: self.pointer_fg(cell.style.bg), ..cell.style.clone() };
@@ -2225,7 +2229,7 @@ impl Tty {
                 col += cell.w as usize;
             }
             if let Some((s, b)) = btn_start {
-                self.btn_map[sr].push((s, col, b));
+                self.btn_map[sr + 1].push((s, col, b));
             }
             self.clear_eol(&mut out);
             row_bytes.push((row_start, out.len()));
@@ -2233,21 +2237,25 @@ impl Tty {
         // images: placed by pixel, so a picture can start rows above or
         // below its own line (negative `ypos` stacks portrait layers, each
         // printed on the next line, back onto the first one) and is cropped
-        // to the view
+        // to the view. The top bar occupies cell row 0, so visible content
+        // starts at cell row 1 (pixel `ch`).
         let (ch, view_px) = (self.cell.1.max(1) as i32, (view_h as u32 * self.cell.1.max(1)) as i32);
+        let view_top_px = ch; // pixel coordinate of first visible cell row (row 1)
+        let view_bottom_px = ch + view_px; // pixel coordinate just past last visible cell row
         let mut pending: Vec<(String, u32, u32, i32, i32, u32, u32)> = Vec::new();
         for idx in start.saturating_sub(IMG_REACH)..all.len().min(end + IMG_REACH) {
             let sr = idx as i32 - start as i32;
             for im in all[idx].imgs.iter().filter(|im| im.col < cols) {
                 let pw = (im.w * scale).round().max(1.0) as u32;
                 let ph = (im.h * scale).round().max(1.0) as u32;
-                let top = sr * ch + (im.ypos * scale).round() as i32;
-                if top + ph as i32 <= 0 || top >= view_px {
+                // sr=0 corresponds to cell row 1 (pixel `ch`), so add `ch` to top
+                let top = sr * ch + (im.ypos * scale).round() as i32 + ch;
+                if top + ph as i32 <= view_top_px || top >= view_bottom_px {
                     continue;
                 }
-                let crop_top = (-top).max(0) as u32;
-                let top = top.max(0);
-                let crop_h = (ph - crop_top).min((view_px - top) as u32);
+                let crop_top = (view_top_px - top).max(0) as u32;
+                let top = top.max(view_top_px);
+                let crop_h = (ph - crop_top).min((view_bottom_px - top) as u32);
                 if crop_h == 0 {
                     continue;
                 }
@@ -2256,7 +2264,8 @@ impl Tty {
                 if let Some(b) = im.button {
                     let cw = self.cell.0.max(1) as usize;
                     let (c0, c1) = (im.col, (im.col + (pw as usize).div_ceil(cw)).min(cols));
-                    let (r0, r1) = (top as usize / ch as usize, (top as usize + crop_h as usize).div_ceil(ch as usize).min(view_h));
+                    // visible rows in btn_map are 1..=view_h (0 is top bar)
+                    let (r0, r1) = (top as usize / ch as usize, (top as usize + crop_h as usize).div_ceil(ch as usize).min(view_h + 1));
                     for r in r0..r1 {
                         if let Some(m) = self.btn_map.get_mut(r) {
                             m.push((c0, c1, b));
@@ -2297,14 +2306,15 @@ impl Tty {
         }
         for sr in visible.len()..view_h {
             let row_start = out.len();
-            let _ = write!(out, "\x1b[{};1H", sr + 1);
+            // sr + 2 because row 1 is the top bar
+            let _ = write!(out, "\x1b[{};1H", sr + 2);
             self.clear_eol(&mut out);
             row_bytes.push((row_start, out.len()));
         }
         let rows_to = out.len();
         if let (Some((px, py)), false) = (pointer, pointer_drawn) {
-            // pointer over blank space
-            if py < view_h {
+            // pointer over blank space (visible content is at screen rows 1..view_h, terminal rows 2..view_h+1)
+            if py >= 1 && py <= view_h {
                 let _ = write!(out, "\x1b[{};{}H", py + 1, px + 1);
                 let blank = Style { fg: self.pointer_fg(None), bg: None, bold: false, italic: false, underline: false, strike: false };
                 self.sgr(&mut out, &blank, None);
@@ -3766,23 +3776,77 @@ impl Tty {
         (top + 1,)
     }
 
+    /// The top row: dark gray background, [ Settings ] button at left,
+    /// memory at right (with colored live counter like the old bottom bar),
+    /// and translation status (queued/failed/cached).
+    fn draw_top_bar(&mut self, out: &mut Vec<u8>) {
+        let cols = self.cols;
+        // Dark gray background (237 in 256-color palette), light gray text (250)
+        let _ = write!(out, "\x1b[1;1H\x1b[48;5;237m\x1b[38;5;250m\x1b[K");
+        // Left: [ Settings ] button (keep background/foreground)
+        let settings_label = " [ Settings ] ";
+        let settings_width = settings_label.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+        let _ = write!(out, "\x1b[1;1H{}", settings_label);
+        // Register the button in btn_map for click handling
+        if self.btn_map.is_empty() {
+            self.btn_map.push(Vec::new());
+        }
+        self.btn_map[0] = vec![(0, settings_width, usize::MAX)]; // MAX = special ID for Settings
+        // Right: memory + translation stats
+        let mut right_plain: Vec<String> = Vec::new();
+        let mut right_styled: Vec<String> = Vec::new();
+        if let Some(mem) = self.memory().filter(|_| self.show_memory) {
+            // Color the live memory counter based on memory level (like old bottom bar)
+            if let Some(lvl) = self.mem_level() {
+                // memory_text format: "123 MB (peak 150 MB)" - color only the live part
+                if let Some(peak_idx) = mem.find(" (peak ") {
+                    let live_part = &mem[..peak_idx];
+                    let peak_part = &mem[peak_idx..];
+                    right_plain.push(mem.clone());
+                    let colored_mem = format!("{}{}\x1b[38;5;250m{}", self.mem_fg(lvl), live_part, peak_part);
+                    right_styled.push(colored_mem);
+                } else {
+                    right_plain.push(mem.clone());
+                    let colored_mem = format!("{}{}\x1b[38;5;250m", self.mem_fg(lvl), mem);
+                    right_styled.push(colored_mem);
+                }
+            } else {
+                right_plain.push(mem.clone());
+                right_styled.push(mem);
+            }
+        }
+        if let Some(mt) = &self.mt {
+            let (queued, failed, cached) = mt.stats();
+            if queued > 0 || failed > 0 || cached > 0 {
+                let tr_text = format!("TR: {}/{}/{}", queued, failed, cached);
+                right_plain.push(tr_text.clone());
+                right_styled.push(tr_text);
+            }
+        }
+        if !right_plain.is_empty() {
+            let right_text_plain = right_plain.join("  ");
+            let right_text_styled = right_styled.join("  ");
+            let right_width = right_text_plain.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+            let start_col = cols.saturating_sub(right_width);
+            if start_col > settings_width {
+                let _ = write!(out, "\x1b[1;{}H{}", start_col + 1, right_text_styled);
+            }
+        }
+        // Reset colors at the end
+        let _ = write!(out, "\x1b[0m");
+    }
+
     /// The right side of the bottom row: the value the hovered button
-    /// sends, memory in use, the function asking for input, the settings
-    /// key. What doesn't fit goes: the function, memory, the key, the value
-    /// last. (Redrawn on its own when the hovered button changes.)
+    /// sends, the function asking for input, the settings
+    /// key. What doesn't fit goes: the function, the key, the value last.
+    /// (Redrawn on its own when the hovered button changes.)
     fn draw_bar(&mut self, out: &mut Vec<u8>, hover: Option<usize>) {
         let Some((used, running, drawn_at)) = self.bar.clone() else { return };
         let cols = self.cols;
         let mut parts: Vec<(String, &str)> = Vec::new();
-        // the memory part's text and band, to colour its live counter
-        let mut mem_mark: Option<(String, crate::sys::MemoryLevel)> = None;
         if self.status_info {
             if let Some(v) = hover.filter(|&b| self.is_button(b)).and_then(|b| self.buttons.get(b)) {
                 parts.push((format!("→ {}", printable(&v.to_string())), "\x1b[0;1m"));
-            }
-            if let Some(m) = self.memory().filter(|_| self.show_memory) {
-                mem_mark = self.mem_level().map(|l| (m.clone(), l));
-                parts.push((m, "\x1b[0;2m"));
             }
             if !running.is_empty() {
                 parts.push((format!("@{}", running), "\x1b[0;2m"));
@@ -3804,12 +3868,7 @@ impl Tty {
         parts.push((settings_part.clone(), "\x1b[0;2m"));
         let width = |p: &[(String, &str)]| p.iter().map(|(s, _)| s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).sum::<usize>();
         while !parts.is_empty() && used + width(&parts) >= cols {
-            let k = parts
-                .iter()
-                .position(|(s, _)| s.starts_with('@'))
-                .or_else(|| parts.iter().position(|(s, _)| s.ends_with(" MB")))
-                .or_else(|| parts.iter().position(|(s, _)| *s == settings_part))
-                .unwrap_or(0);
+            let k = parts.iter().position(|(s, _)| s.starts_with('@')).or_else(|| parts.iter().position(|(s, _)| *s == settings_part)).unwrap_or(0);
             parts.remove(k);
         }
         // what was there before goes first
@@ -3823,16 +3882,7 @@ impl Tty {
             let _ = write!(out, "\x1b[{};{}H", self.rows, at);
             for (k, (s, st)) in parts.iter().enumerate() {
                 let sep = if k > 0 { "  " } else { "" };
-                match mem_mark.as_ref().filter(|(m, _)| m == s) {
-                    // only the live counter is coloured, not the peak after it
-                    Some((_, lvl)) => {
-                        let cut = s.find(" MB").map_or(s.len(), |i| i + 3);
-                        let _ = write!(out, "{}\x1b[0m{}{}{}{}\x1b[0m", sep, self.mem_fg(*lvl), &s[..cut], st, &s[cut..]);
-                    }
-                    None => {
-                        let _ = write!(out, "{}{}{}\x1b[0m", sep, st, s);
-                    }
-                }
+                let _ = write!(out, "{}{}{}\x1b[0m", sep, st, s);
             }
         }
         if let Some(b) = self.bar.as_mut() {
@@ -4384,6 +4434,18 @@ impl Frontend for Tty {
                         0 if press => {
                             if req.kind == InputKind::Wait {
                                 return InputResult::Text(String::new());
+                            }
+                            // Check for Settings button click (top bar, row 0)
+                            if y == 0 {
+                                if let Some(row) = self.btn_map.first() {
+                                    for (s, e, b) in row {
+                                        if *b == usize::MAX && x >= *s && x < *e {
+                                            let _ = self.settings_overlay(con, res, req);
+                                            redraw = true;
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                             if let Some(b) = self.click_at(x, y) {
                                 // a click goes through Emuera's input box,

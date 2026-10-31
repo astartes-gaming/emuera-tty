@@ -752,6 +752,23 @@ impl Mt {
         self.seen.values().any(|s| matches!(s, State::Waiting))
     }
 
+    /// Translation stats for the top bar: (queued, failed, cached).
+    /// queued = translations in progress (Waiting), failed = failed translations,
+    /// cached = loaded from files + successful translations in this session.
+    pub fn stats(&self) -> (usize, usize, usize) {
+        let mut queued = 0;
+        let mut failed = 0;
+        let mut cached = self.memory.len();
+        for s in self.seen.values() {
+            match s {
+                State::Waiting => queued += 1,
+                State::Failed => failed += 1,
+                State::Done(_) => cached += 1,
+            }
+        }
+        (queued, failed, cached)
+    }
+
     /// Export the translation cache to a file, formatted like a translation log.
     /// Only includes successful translations (from `memory` and `seen`).
     /// Batch translations (multiple lines) are split into individual rows,
