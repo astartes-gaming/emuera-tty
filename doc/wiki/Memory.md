@@ -43,12 +43,20 @@ used pictures* setting controls this (default: *auto* — on unless headless);
 `EMUERA_WARMUP=1` (or `0`) forces it on (or off). Disabling it can greatly
 reduce peak memory use at launch on small machines.
 
-| | before | now (PC) | with a 512 MB machine's budgets |
-|---|---|---|---|
-| AnonTW, 800-input session | 654 MB | 157 MB | 157 MB |
-| pops-tw, a new game | 1204 MB | 636 MB | 346 MB |
+| | before | now (PC) | with a 512 MB machine's budgets | lowest known recorded usage (**on idle/in background**) |
+|---|---|---|---|---|
+| AnonTW, 800-input session | 654 MB | 157 MB | 157 MB | ~2-4MB |
+| pops-tw, a new game | 1204 MB | 636 MB | 346 MB | unrecorded |
 
 `EMUERA_MEMSTATS=<file>` writes what the memory holds (functions
 compiled, the biggest variables, characters and their biggest
 variables, picture buffers…) to
 `<file>` at every input.
+
+Leaving the game on idle/in the background flushes out any
+unneeded/unused memory and uses basically no CPU; memory use in this
+state can go down to anywhere between ~2-50MB, letting you leave the game
+in the background without any detrimental effect on memory use for other
+apps. It may also drastically go down in real-time on a machine currently under
+memory stress. Note that this is tracked from an AnonTW session, and other Era
+games might have higher idle memory usage depending on their content.
