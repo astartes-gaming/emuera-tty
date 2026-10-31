@@ -3792,7 +3792,7 @@ impl Tty {
             self.btn_map.push(Vec::new());
         }
         self.btn_map[0] = vec![(0, settings_width, usize::MAX)]; // MAX = special ID for Settings
-        // Right: memory + translation stats
+                                                                 // Right: memory + translation stats
         let mut right_plain: Vec<String> = Vec::new();
         let mut right_styled: Vec<String> = Vec::new();
         if let Some(mem) = self.memory().filter(|_| self.show_memory) {
