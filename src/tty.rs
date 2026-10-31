@@ -1538,6 +1538,40 @@ impl Tty {
         })
     }
 
+    /// GETKEY / GETKEYTRIGGERED: a key or mouse button pressed (or a mouse
+    /// button released) during a wait, in Windows key codes.
+    fn note_key(&mut self, k: &Key) {
+        use crate::frontend::char_keycode;
+        let code = match *k {
+            Key::Char(c) => char_keycode(c).0,
+            Key::Backspace => 8,
+            Key::Enter => 13,
+            Key::Esc => 27,
+            Key::Left => 37,
+            Key::Up => 38,
+            Key::Right => 39,
+            Key::Down => 40,
+            Key::Delete => 46,
+            // motion reports carry 32; 1 left, 2 right, 4 middle
+            Key::Mouse { btn, press, .. } if btn & 32 == 0 => {
+                let code = match btn & !(4 | 8 | 16) {
+                    0 => 1,
+                    2 => 2,
+                    1 => 4,
+                    _ => return,
+                };
+                if !press {
+                    self.keys_down.remove(&code);
+                    return;
+                }
+                self.keys_down.insert(code);
+                code
+            }
+            _ => return,
+        };
+        self.keys_hit.insert(code);
+    }
+
     /// [`Tty::next_key`] for a game's input, with the keyboard pointer and
     /// the gamepad's pointer applied (`raw`: a picture menu's input).
     fn game_key(&mut self, timeout_ms: i32, raw: bool) -> Option<Key> {
@@ -4323,6 +4357,12 @@ impl Frontend for Tty {
                 }
                 continue;
             };
+            // a key or click that ends a WAIT / TWAIT is still held when
+            // the script asks GETKEY right after (Emuera reads the live key
+            // state: AnonTW's lectures end on GETKEY(1) after a TWAIT)
+            if req.kind == InputKind::Wait {
+                self.note_key(&k);
+            }
             let mut redraw = false;
             match k {
                 Key::CtrlC => return InputResult::Quit,
@@ -4587,7 +4627,6 @@ impl Frontend for Tty {
     }
 
     fn await_input(&mut self, con: &mut Console, res: &mut Resources, ms: u64) -> bool {
-        use crate::frontend::char_keycode;
         // the input box shows what is typed, as at an INPUTS
         let req = InputReq { kind: InputKind::Str, one: false, timeout_ms: None, stop_skip: false };
         self.render(con, res, Some(&req));
@@ -4604,58 +4643,34 @@ impl Frontend for Tty {
                 }
                 continue;
             };
-            let hit = |t: &mut Tty, code: i64| {
-                t.keys_hit.insert(code);
-            };
+            self.note_key(&k);
             match k {
                 Key::CtrlC => return true,
                 Key::Char(c) => {
                     self.line.insert(c);
-                    hit(self, char_keycode(c).0);
                     changed = true;
                 }
                 Key::Backspace => {
                     self.line.backspace();
-                    hit(self, 8);
                     changed = true;
                 }
                 Key::Delete => {
                     self.line.delete();
-                    hit(self, 46);
                     changed = true;
                 }
-                Key::Enter => hit(self, 13),
-                Key::Esc => hit(self, 27),
                 Key::Left => {
                     self.line.left();
-                    hit(self, 37);
                     changed = true;
                 }
-                Key::Up => hit(self, 38),
                 Key::Right => {
                     self.line.right();
-                    hit(self, 39);
                     changed = true;
                 }
-                Key::Down => hit(self, 40),
-                Key::Mouse { btn, x, y, press } => {
-                    let (x, y) = (x.saturating_sub(1) as usize, y.saturating_sub(1) as usize);
-                    self.mouse = Some((x, y));
-                    // Windows codes: 1 left, 2 right, 4 middle
-                    let code = match btn & !(4 | 8 | 16 | 32) {
-                        0 => 1,
-                        2 => 2,
-                        1 => 4,
-                        _ => 0,
-                    };
+                Key::Mouse { btn, x, y, .. } => {
+                    self.mouse = Some((x.saturating_sub(1) as usize, y.saturating_sub(1) as usize));
                     if btn & 32 != 0 {
                         self.show_pointer();
                         self.repaint_hover(con.focus_fg);
-                    } else if code != 0 && press {
-                        self.keys_down.insert(code);
-                        hit(self, code);
-                    } else if code != 0 {
-                        self.keys_down.remove(&code);
                     }
                 }
                 _ => {}
