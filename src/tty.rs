@@ -549,6 +549,10 @@ enum OverlayExit {
     Reload,
     SwitchGame,
     Quit,
+    /// capture game state to file
+    CaptureState(std::path::PathBuf),
+    /// restore game state from file
+    RestoreState(std::path::PathBuf),
 }
 
 /// Is this run in debug mode (`--debug`: [IF_DEBUG] blocks and ;#; lines)?
@@ -3116,6 +3120,8 @@ impl Tty {
                 (t!("Export translation cache…  (save translations to a file)"), 14),
                 (t!("Clear the picture cache  (frees decoded sprites; they load again when shown)"), 5),
                 (t!("Recolor…  (draw a colour of the game's as another)"), 12),
+                (t!("Capture game state to file…  (save entire VM state for rollback)"), 15),
+                (t!("Rollback to previous state…  (restore VM state from file)"), 16),
                 (t!("Back to the title") + &keys("Ctrl-T"), 6),
                 (t!("Restart the game") + &keys("Ctrl-R"), 7),
                 (if debug_run() { t!("Restart without debug mode") } else { t!("Restart in debug mode  ([IF_DEBUG] and ;#; lines run)") }, 13),
@@ -3341,12 +3347,78 @@ impl Tty {
                     8 => break OverlayExit::Reload,
                     9 => break OverlayExit::SwitchGame,
                     10 => break OverlayExit::Quit,
+                    15 => {
+                        // Capture game state to file
+                        if self.game.is_none() {
+                            note = t!("no game folder known here");
+                        } else {
+                            match self.capture_state(con, res, req) {
+                                Ok(path) => break OverlayExit::CaptureState(path),
+                                Err(e) => note = t!("Failed to capture state: {error}", error = e),
+                            }
+                        }
+                    }
+                    16 => {
+                        // Rollback to previous state
+                        if self.game.is_none() {
+                            note = t!("no game folder known here");
+                        } else {
+                            match self.rollback_state(con, res, req) {
+                                Ok(path) => break OverlayExit::RestoreState(path),
+                                Err(e) => note = t!("Failed to restore state: {error}", error = e),
+                            }
+                        }
+                    }
                     _ => break OverlayExit::Close,
                 }
             }
         };
         self.no_images = false;
         exit
+    }
+
+    /// Capture the entire VM state to a file. Returns the path on success.
+    fn capture_state(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> Result<std::path::PathBuf, String> {
+        let (game_dir, _) = self.game.as_ref().ok_or("no game")?;
+
+        // Prompt for file path
+        let default_path = game_dir.join("state_capture.bin");
+        let prompt = t!("Enter file path to save state (empty: cancel):");
+        let Some(path_str) = self.prompt(con, res, req, &t!("Capture Game State"), &prompt, &default_path.display().to_string()) else {
+            return Err("cancelled".into());
+        };
+        let path_str = path_str.trim();
+        if path_str.is_empty() {
+            return Err("cancelled".into());
+        }
+        let path = std::path::PathBuf::from(path_str);
+
+        // Return the path; the VM will do the actual capture via InputResult
+        Ok(path)
+    }
+
+    /// Rollback VM state from a file. Returns the path on success.
+    fn rollback_state(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> Result<std::path::PathBuf, String> {
+        let (game_dir, _) = self.game.as_ref().ok_or("no game")?;
+
+        // Prompt for file path
+        let default_path = game_dir.join("state_capture.bin");
+        let prompt = t!("Enter file path to restore state from (empty: cancel):");
+        let Some(path_str) = self.prompt(con, res, req, &t!("Rollback Game State"), &prompt, &default_path.display().to_string()) else {
+            return Err("cancelled".into());
+        };
+        let path_str = path_str.trim();
+        if path_str.is_empty() {
+            return Err("cancelled".into());
+        }
+        let path = std::path::PathBuf::from(path_str);
+
+        if !path.exists() {
+            return Err(t!("file not found: {path}", path = path.display()).to_string());
+        }
+
+        // Return the path; the VM will do the actual restore via InputResult
+        Ok(path)
     }
 
     /// Apply a changed setting to the running terminal.
@@ -4399,6 +4471,8 @@ impl Frontend for Tty {
                     OverlayExit::Reload => return InputResult::Hotkey(crate::frontend::Hotkey::Reload),
                     OverlayExit::Config => return InputResult::Hotkey(crate::frontend::Hotkey::Config),
                     OverlayExit::Quit => return InputResult::Quit,
+                    OverlayExit::CaptureState(path) => return InputResult::CaptureState(path),
+                    OverlayExit::RestoreState(path) => return InputResult::RestoreState(path),
                     OverlayExit::SwitchGame => {
                         // start over on the launcher (this game's unsaved
                         // progress goes, as the overlay warns)
@@ -4770,6 +4844,11 @@ impl Frontend for Tty {
                         if self.restart(con, res, &req, matches!(e, OverlayExit::RestartDebug)).is_some() {
                             return RawInput::Quit;
                         }
+                        self.force_frame = true;
+                        self.render(con, res, None);
+                    }
+                    OverlayExit::CaptureState(_) | OverlayExit::RestoreState(_) => {
+                        // State capture/restore not supported in INPUTMOUSEKEY mode
                         self.force_frame = true;
                         self.render(con, res, None);
                     }

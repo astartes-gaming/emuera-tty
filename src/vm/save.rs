@@ -304,10 +304,10 @@ impl Vm {
     }
 
     /// GAMEBASE's コード / バージョン / バージョン違い認める.
-    fn game_code(&self) -> i64 {
+    pub fn game_code(&self) -> i64 {
         self.csv.gamebase.get("コード").and_then(|s| tryatoi(s)).unwrap_or(0)
     }
-    fn game_version(&self) -> (i64, bool) {
+    pub fn game_version(&self) -> (i64, bool) {
         match self.csv.gamebase.get("バージョン").and_then(|s| tryatoi(s)) {
             Some(v) => (v, true),
             None => (0, false),

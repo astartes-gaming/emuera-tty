@@ -85,6 +85,10 @@ pub enum InputResult {
     Quit,
     /// the player pressed an Emuera-Anchor hotkey the VM acts on
     Hotkey(Hotkey),
+    /// capture the entire VM state to a file
+    CaptureState(std::path::PathBuf),
+    /// restore the entire VM state from a file
+    RestoreState(std::path::PathBuf),
 }
 
 /// Hotkeys handled by the VM (restarting is the frontend's own business).
@@ -146,6 +150,7 @@ pub trait Frontend {
             InputResult::Quit => RawInput::Quit,
             InputResult::Hotkey(h) => RawInput::Hotkey(h),
             InputResult::Timeout => RawInput::Timeout,
+            InputResult::CaptureState(_) | InputResult::RestoreState(_) => RawInput::Timeout,
             InputResult::Text(t) | InputResult::Line(t) | InputResult::Skip(t) => match t.trim().parse::<i64>() {
                 Ok(v) => RawInput::Click { btn: 0, cell: (0, 0), button: Some(crate::vm::value::Value::Int(v)) },
                 Err(_) => {

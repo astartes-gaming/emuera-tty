@@ -1466,6 +1466,14 @@ msgid "Recolor…  (draw a colour of the game's as another)"
 msgstr ""
 
 #: src/tty.rs
+msgid "Capture game state to file…  (save entire VM state for rollback)"
+msgstr ""
+
+#: src/tty.rs
+msgid "Rollback to previous state…  (restore VM state from file)"
+msgstr ""
+
+#: src/tty.rs
 msgid "Back to the title"
 msgstr ""
 
@@ -1589,6 +1597,37 @@ msgstr ""
 #: src/tty.rs
 #, no-c-format
 msgid "{n} colours recoloured (the game still sees its own colours)"
+msgstr ""
+
+#: src/tty.rs
+#, no-c-format
+msgid "Failed to capture state: {error}"
+msgstr ""
+
+#: src/tty.rs
+#, no-c-format
+msgid "Failed to restore state: {error}"
+msgstr ""
+
+#: src/tty.rs
+msgid "Enter file path to save state (empty: cancel):"
+msgstr ""
+
+#: src/tty.rs
+msgid "Capture Game State"
+msgstr ""
+
+#: src/tty.rs
+msgid "Enter file path to restore state from (empty: cancel):"
+msgstr ""
+
+#: src/tty.rs
+msgid "Rollback Game State"
+msgstr ""
+
+#: src/tty.rs
+#, no-c-format
+msgid "file not found: {path}"
 msgstr ""
 
 #: src/tty.rs

@@ -68,6 +68,63 @@ impl Vm {
                     self.fe.shutdown();
                     return Err(m);
                 }
+                Err(Ctrl::ResumeFromState) => {
+                    // State was restored from a file: execute the restored frames
+                    // until they return or a BEGIN/QUIT/error occurs.
+                    // Use the restored vm.state as the current state.
+                    state = self.state.clone();
+                    // Execute frames until empty or control flow changes
+                    while !self.frames.is_empty() {
+                        match self.exec() {
+                            Ok(_) => {
+                                // Frame returned normally, pop it and continue with next frame
+                                self.frames.pop();
+                            }
+                            Err(Ctrl::Begin(s)) => {
+                                state = s;
+                                break;
+                            }
+                            Err(Ctrl::Quit) => {
+                                self.flush();
+                                return Ok(());
+                            }
+                            Err(Ctrl::Error(m, _)) => {
+                                // Re-throw error to be handled by the outer match
+                                // But we need to propagate it... for now, handle inline
+                                self.frames.clear();
+                                if !self.con.cur.is_empty() {
+                                    self.con.newline();
+                                }
+                                self.con.skip_disp = false;
+                                let st = self.con.style.clone();
+                                self.con.style.fg = Rgb(255, 80, 80);
+                                let mut m = m;
+                                let mut head = m.splitn(3, ':');
+                                if let (Some(file), Some(Ok(n))) = (head.next(), head.next().map(|n| n.parse::<u32>())) {
+                                    if let Some(src) = self.source_line(file, n) {
+                                        let end = m.find('\n').unwrap_or(m.len());
+                                        m.insert_str(end, &format!("\n    {}", src.trim()));
+                                    }
+                                }
+                                for l in format!("*** script error ***\n{}", m).lines() {
+                                    self.con.print_ex(l, false);
+                                    self.con.newline();
+                                }
+                                self.con.style = st;
+                                self.con.print_ex("(press Enter to quit)", false);
+                                self.con.newline();
+                                let _ = self.wait();
+                                self.fe.shutdown();
+                                return Err(m);
+                            }
+                            Err(Ctrl::ResumeFromState) => {
+                                // Nested restore - should not happen, but handle gracefully
+                                state = self.state.clone();
+                            }
+                        }
+                    }
+                    // Frames exhausted, continue with the current state
+                }
             }
         }
     }

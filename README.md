@@ -1,3 +1,11 @@
+# WARNING: VERY UNSTABLE
+
+This is a branch featuring a testing implementation of being able to save the entire state of a running Era game to a file and being able to reload it at any time.
+
+**It is VERY broken and HIGHLY unstable. DO NOT attempt to load saves you care about in here.**
+
+Or generally speaking, **DO NOT BUILD OFF THIS BRANCH. Stay on the `master` branch.**
+
 # emuera-tty
 
 > - Written with an AI (Claude) and tested by playing games, not audited.

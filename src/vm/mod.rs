@@ -33,6 +33,7 @@ pub mod debugger;
 pub mod erasav;
 mod memstats;
 pub mod save;
+pub mod state_capture;
 pub mod system;
 pub mod textsav;
 pub mod value;
@@ -462,6 +463,27 @@ impl Vm {
         if let Some(csv) = crate::loader::find_dir_ci(&self.game_dir, "CSV") {
             crate::emuconfig::load(&self.game_dir, &csv, &mut self.con, &mut self.text_exts, &mut self.save_opts);
         }
+    }
+
+    /// Capture the entire VM state to a file.
+    pub fn capture_state_to_file(&mut self, path: &std::path::Path) -> VmResult<()> {
+        crate::vm::state_capture::capture_state(self, path, false).map_err(|e| Ctrl::Error(e, false))
+    }
+
+    /// Restore the entire VM state from a file.
+    pub fn restore_state_from_file(&mut self, path: &std::path::Path) -> VmResult<()> {
+        // Clear state like "Back to the title screen" does, before restoring
+        self.con.clear_lines(usize::MAX);
+        self.con.cur.clear();
+        self.res.dispose_all_sprites(false);
+        self.res.cbg.clear();
+        self.con.style.fg = self.con.default_fg;
+        self.con.skip_disp = false;
+        self.ctrain = None;
+
+        crate::vm::state_capture::restore_state(self, path).map_err(|e| Ctrl::Error(e, false))?;
+        // State restored successfully: unwind to the system loop and resume from restored frames
+        Err(Ctrl::ResumeFromState)
     }
 
     /// Is `name` a `#DIM CONST` without indices, here (the function's own
@@ -1880,10 +1902,16 @@ impl Vm {
     /// The instruction loop of the innermost frame.
     fn exec(&mut self) -> VmResult<Option<Value>> {
         // a frame's function never changes while it runs: take it once
-        let f = self.frames.last().unwrap().func.clone();
-        let body = self.frames.last().unwrap().body.clone();
+        let Some(frame) = self.frames.last() else {
+            return Err(Ctrl::Error("internal error: exec called with empty frame stack".into(), false));
+        };
+        let f = frame.func.clone();
+        let body = frame.body.clone();
         loop {
-            let pc = self.frames.last().unwrap().pc;
+            let Some(frame) = self.frames.last() else {
+                return Err(Ctrl::Error("internal error: frames became empty during execution".into(), false));
+            };
+            let pc = frame.pc;
             if pc >= body.code.len() {
                 return Ok(None);
             }
@@ -2293,15 +2321,33 @@ impl Vm {
                     None => 1,
                 };
                 self.set_var(var, Value::Int(s))?;
-                self.frames.last_mut().unwrap().slots[*slot] = Slot::For(e, st);
+                // Safety check: ensure slot index is valid for current frame
+                if let Some(frame) = self.frames.last_mut() {
+                    if *slot < frame.slots.len() {
+                        frame.slots[*slot] = Slot::For(e, st);
+                    } else {
+                        // Slot index out of bounds - this can happen if frame was restored
+                        // with a different function body. Extend slots vector.
+                        frame.slots.resize(*slot + 1, Slot::None);
+                        frame.slots[*slot] = Slot::For(e, st);
+                    }
+                }
                 if !for_cond(s, e, st) {
                     self.set_pc(*exit);
                 }
             }
             Instr::ForNext { var, slot, body } => {
-                let (e, st) = match self.frames.last().unwrap().slots[*slot] {
-                    Slot::For(e, st) => (e, st),
-                    _ => (0, 1),
+                let (e, st) = if let Some(frame) = self.frames.last() {
+                    if *slot < frame.slots.len() {
+                        match frame.slots[*slot] {
+                            Slot::For(e, st) => (e, st),
+                            _ => (0, 1),
+                        }
+                    } else {
+                        (0, 1)
+                    }
+                } else {
+                    (0, 1)
                 };
                 let p = self.locate(var)?;
                 let v = self.get_place(&p).as_int() + st;
@@ -2311,9 +2357,17 @@ impl Vm {
                 }
             }
             Instr::ForBreak { var, slot, exit } => {
-                let (_, st) = match self.frames.last().unwrap().slots[*slot] {
-                    Slot::For(e, st) => (e, st),
-                    _ => (0, 1),
+                let (_, st) = if let Some(frame) = self.frames.last() {
+                    if *slot < frame.slots.len() {
+                        match frame.slots[*slot] {
+                            Slot::For(e, st) => (e, st),
+                            _ => (0, 1),
+                        }
+                    } else {
+                        (0, 1)
+                    }
+                } else {
+                    (0, 1)
                 };
                 let p = self.locate(var)?;
                 let v = self.get_place(&p).as_int() + st;
@@ -2324,7 +2378,7 @@ impl Vm {
                 let v = self.eval(e)?;
                 // literal CASEs: straight to the matching one (same result as
                 // testing them in order: the first match wins)
-                let at = self.frames.last().unwrap().pc.saturating_sub(1);
+                let at = self.frames.last().map(|f| f.pc.saturating_sub(1)).unwrap_or(0);
                 let jump = table
                     .get_or_init(|| {
                         let mut lit = |e: &Expr| -> Option<Value> {
@@ -2344,7 +2398,14 @@ impl Vm {
                         Value::Int(i) if t.strs.is_empty() => Some(t.ints.get(i).copied().unwrap_or(t.default)),
                         _ => None,
                     });
-                self.frames.last_mut().unwrap().slots[*slot] = Slot::Sel(v);
+                if let Some(frame) = self.frames.last_mut() {
+                    if *slot < frame.slots.len() {
+                        frame.slots[*slot] = Slot::Sel(v);
+                    } else {
+                        frame.slots.resize(*slot + 1, Slot::None);
+                        frame.slots[*slot] = Slot::Sel(v);
+                    }
+                }
                 if let Some(pc) = jump {
                     self.set_pc(pc);
                 }
@@ -2352,7 +2413,15 @@ impl Vm {
             Instr::CaseTest(slot, conds, next) => {
                 // the selector is taken out of its slot while the CASE
                 // values are evaluated (no copy of a string selector)
-                let sel = std::mem::replace(&mut self.frames.last_mut().unwrap().slots[*slot], Slot::None);
+                let sel = if let Some(frame) = self.frames.last_mut() {
+                    if *slot < frame.slots.len() {
+                        std::mem::replace(&mut frame.slots[*slot], Slot::None)
+                    } else {
+                        Slot::None
+                    }
+                } else {
+                    Slot::None
+                };
                 let v = match &sel {
                     Slot::Sel(v) => v,
                     _ => &Value::Int(0),
@@ -2787,6 +2856,17 @@ impl Vm {
         };
         match r {
             InputResult::Line(s) | InputResult::Text(s) => {
+                // Special commands for testing state capture/restore in headless mode
+                if let Some(path) = s.strip_prefix("__CAPTURE_STATE__:") {
+                    let path = std::path::PathBuf::from(path);
+                    self.capture_state_to_file(&path)?;
+                    return self.raw_input(req);
+                }
+                if let Some(path) = s.strip_prefix("__RESTORE_STATE__:") {
+                    let path = std::path::PathBuf::from(path);
+                    self.restore_state_from_file(&path)?;
+                    return self.raw_input(req);
+                }
                 self.last_input = s.clone();
                 Ok(Some(s))
             }
@@ -2799,6 +2879,14 @@ impl Vm {
             InputResult::Quit => Err(Ctrl::Quit),
             InputResult::Hotkey(h) => {
                 self.hotkey(h)?;
+                self.raw_input(req)
+            }
+            InputResult::CaptureState(path) => {
+                self.capture_state_to_file(&path)?;
+                self.raw_input(req)
+            }
+            InputResult::RestoreState(path) => {
+                self.restore_state_from_file(&path)?;
                 self.raw_input(req)
             }
         }

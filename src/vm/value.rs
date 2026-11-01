@@ -58,6 +58,8 @@ pub enum Ctrl {
     Quit,
     /// runtime error: message, already-located flag
     Error(String, bool),
+    /// State was restored from a file: unwind to the system loop and resume from restored frames
+    ResumeFromState,
 }
 
 pub type VmResult<T> = Result<T, Ctrl>;
