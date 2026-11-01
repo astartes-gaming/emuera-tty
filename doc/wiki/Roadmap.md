@@ -21,3 +21,9 @@
    seconds of CPU (its own object system looks names up in 1000-entry
    arrays hundreds of thousands of times, through a million statements);
    compiling variables to slots ahead of time would be the next step.
+6. Feature parity with other Emuera forks: various forks of Emuera
+   (such as EM and Anchor) can have their own entirely unique features
+   and scripting logic that emuera-tty can't load unless implemented.
+   Replicating these features from their sources or thorough
+   reverse-engineering can let emuera-tty run Era games dependent on
+   those features.

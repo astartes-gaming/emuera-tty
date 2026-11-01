@@ -14,10 +14,15 @@
 ### KMSCON limitations
 
 KMSCON (the Linux KMS/DRM userspace console) has no terminal image
-protocol (sixel, kitty graphics, iTerm2 images), so pictures show as
-placeholders. The `fb` backend can't draw there either: KMSCON itself owns
-the framebuffer (or the DRM device), and writing to it would fight with
-KMSCON's own rendering.
+protocol (sixel, kitty graphics, iTerm2 images), so pictures don't render;
+nothing appears in their place. The `fb` backend can't draw there either:
+KMSCON itself owns the framebuffer (or the DRM device), and writing to it
+would fight with KMSCON's own rendering.
+
+It is worth noting that implementing image/graphics protocols is being
+[considered for KMSCON](https://github.com/kmscon/kmscon/issues/138).
+If it goes through, the sixel, kitty, and iTerm2 protocols will be
+available when running emuera-tty inside the aformentioned userspace console.
 
 KMSCON sets `TERM=xterm-256color` by default, so emuera-tty can't tell it
 apart from xterm; with `TERM=kmscon` (its `--term` option) the prompt line

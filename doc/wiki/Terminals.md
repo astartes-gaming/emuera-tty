@@ -5,7 +5,7 @@ terminal:
 
 | Terminal | Images | Notes |
 |---|---|---|
-| **kitty**, **Ghostty**, Konsole | yes (kitty graphics) | best choice |
+| **kitty**, **Ghostty**, **Konsole** | yes (kitty graphics) | best choice |
 | **iTerm2** (macOS), **WezTerm** | yes (iTerm2 inline images) | WezTerm's kitty graphics flicker, so auto uses iTerm images there |
 | **foot**, xterm (`-ti vt340`), mlterm, yaft, Windows Terminal 1.22+ | yes (sixel) | |
 | macOS Terminal.app, GNOME Terminal, Alacritty, others | `░` placeholders | fine for playing |
@@ -16,9 +16,10 @@ terminal:
 | **tmux** inside kitty or Ghostty | yes (kitty Unicode placeholders) | needs `set -g allow-passthrough all` |
 | **tmux** inside a sixel terminal | yes (tmux draws the sixel) | tmux built with sixel |
 | Termux (Android) | no | `iterm`/`sixel` floods the terminal with data, `kitty` renders nothing, Termux in general doesn't support in-terminal image rendering |
+| KMSCON | not yet (under consideration by KMSCON devs, refer to [KMSCON limitations](Pictures-and-Graphics#kmscon-limitations)) | supports full unicode glyphs, including CJK ones, but **does not support images (yet)** |
 | Android to other device (ADB) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles, has an issue that floods the input bar when moving the mouse around |
 | Android to other device (SSH) | depends on terminal used, conditions above | `fb` not supported for framebuffer consoles |
-| Android recovery shell (builtins in TWRP, OrangeFox, etc...) | no | images never supported, JP/CN text untested, very finicky in general (and why are you even running it there of all places?) |
+| Android recovery shell (builtins in TWRP, OrangeFox, etc...) | no | images never supported, Japanese/Chinese text untested, very finicky in general (and why are you even running it there of all places?) |
 
 ## Tips for any terminal
 
