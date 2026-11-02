@@ -16,13 +16,14 @@
 //! reports, or `/dev/input/mice` on the Linux console).
 
 use crate::loader::{find_dir_ci, find_file_ci, read_text};
-use std::io::Write;
+use std::fmt::Write;
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthChar;
 
 /// Wraps a string into multiple lines at `width` display columns.
 /// Handles ANSI escape codes (preserves them, doesn't count them in width).
-/// Wraps at word boundaries where possible, falls back to character boundaries.
+/// Wraps at word boundaries where possible; falls back to hard-wrapping for long words.
 fn wrap_text(s: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
@@ -31,17 +32,19 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
     let mut current_line = String::new();
     let mut current_width = 0;
 
-    // We need to track ANSI escape sequences to preserve them across wraps
-    let mut pending_ansi = String::new();
+    // Tokenize: split into words and whitespace, preserving ANSI within tokens.
+    // Each token is (text, display_width, ansi_prefix_for_continuation)
+    let mut tokens: Vec<(String, usize, String)> = Vec::new();
+    let mut current_token = String::new();
+    let mut token_width = 0;
+    let mut token_ansi = String::new();
     let mut in_ansi = false;
     let mut ansi_buffer = String::new();
 
     for c in s.chars() {
         if c == '\x1b' {
-            // Start of ANSI escape sequence
             if in_ansi && !ansi_buffer.is_empty() {
-                // Nested escape? Treat previous as literal
-                current_line.push_str(&ansi_buffer);
+                current_token.push_str(&ansi_buffer);
                 ansi_buffer.clear();
             }
             in_ansi = true;
@@ -52,14 +55,10 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
         if in_ansi {
             ansi_buffer.push(c);
             if c.is_ascii_alphabetic() {
-                // End of ANSI escape sequence
                 in_ansi = false;
-                // Preserve the ANSI code in the current line
-                current_line.push_str(&ansi_buffer);
-                // Also track it for potential re-emission on next line
+                current_token.push_str(&ansi_buffer);
                 if ansi_buffer.starts_with("\x1b[") && ansi_buffer.ends_with('m') {
-                    // This is an SGR code - track it for continuation
-                    pending_ansi = ansi_buffer.clone();
+                    token_ansi = ansi_buffer.clone();
                 }
                 ansi_buffer.clear();
             }
@@ -67,22 +66,77 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
         }
 
         let cw = UnicodeWidthChar::width(c).unwrap_or(0);
-        if current_width + cw > width && !current_line.is_empty() {
-            // Wrap: finish current line, start new one with pending ANSI
-            lines.push(current_line);
-            current_line = pending_ansi.clone();
-            current_width = 0;
-            // Recalculate width of pending ANSI (should be 0 since stripped)
-            // But we need to account for any printable chars in pending_ansi (there shouldn't be any)
+        let is_space = c.is_whitespace();
+        let is_newline = c == '\n';
+
+        // If token type changes (word <-> space), emit current token
+        let token_is_space = !current_token.is_empty() && current_token.chars().all(|ch| ch.is_whitespace() && ch != '\n');
+        if !current_token.is_empty() && (is_space != token_is_space || is_newline) {
+            tokens.push((current_token, token_width, token_ansi.clone()));
+            current_token = String::new();
+            token_width = 0;
+            token_ansi = String::new();
         }
 
-        current_line.push(c);
-        current_width += cw;
+        current_token.push(c);
+        token_width += cw;
+
+        if is_newline {
+            // Newline is its own token (width 0)
+            tokens.push((current_token, 0, token_ansi));
+            current_token = String::new();
+            token_width = 0;
+            token_ansi = String::new();
+        }
+    }
+    if !current_token.is_empty() {
+        tokens.push((current_token, token_width, token_ansi));
+    }
+    if in_ansi && !ansi_buffer.is_empty() {
+        if let Some((t, _, a)) = tokens.last_mut() {
+            t.push_str(&ansi_buffer);
+            *a = ansi_buffer;
+        }
     }
 
-    // Handle any remaining ANSI buffer
-    if in_ansi && !ansi_buffer.is_empty() {
-        current_line.push_str(&ansi_buffer);
+    // Now wrap tokens, preserving original spacing.
+    for (token, w, ansi) in tokens {
+        let is_newline = token == "\n";
+
+        if is_newline {
+            lines.push(current_line);
+            current_line = String::new();
+            current_width = 0;
+            continue;
+        }
+
+        // Check if token fits on current line
+        if current_width + w <= width {
+            current_line.push_str(&token);
+            current_width += w;
+        } else {
+            // Token doesn't fit
+            if current_width > 0 {
+                // Finish current line, start new one with this token
+                lines.push(current_line);
+                current_line = ansi + &token;
+                current_width = w;
+            } else {
+                // Current line empty but token too long: must split it
+                let mut remaining = token;
+                let mut rem_ansi = ansi;
+                while !remaining.is_empty() {
+                    let (chunk, rest) = split_at_width(&remaining, width);
+                    lines.push(rem_ansi.clone() + &chunk);
+                    remaining = rest;
+                    if !remaining.is_empty() {
+                        rem_ansi = extract_leading_ansi(&remaining);
+                    }
+                }
+                current_line = String::new();
+                current_width = 0;
+            }
+        }
     }
 
     if !current_line.is_empty() || lines.is_empty() {
@@ -90,6 +144,65 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
     }
 
     lines
+}
+
+/// Split a string at `width` display columns, respecting ANSI codes.
+/// Returns (chunk, remainder).
+fn split_at_width(s: &str, width: usize) -> (String, String) {
+    let mut chunk = String::new();
+    let mut chunk_width = 0;
+    let mut in_ansi = false;
+    let mut ansi_buf = String::new();
+    let mut chars = s.chars().peekable();
+
+    for ch in chars.by_ref() {
+        if ch == '\x1b' {
+            in_ansi = true;
+            ansi_buf.push(ch);
+            chunk.push(ch);
+            continue;
+        }
+        if in_ansi {
+            ansi_buf.push(ch);
+            chunk.push(ch);
+            if ch.is_ascii_alphabetic() {
+                in_ansi = false;
+                ansi_buf.clear();
+            }
+            continue;
+        }
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if chunk_width + cw > width {
+            break;
+        }
+        chunk.push(ch);
+        chunk_width += cw;
+    }
+
+    let remainder: String = chars.collect();
+    (chunk, remainder)
+}
+
+/// Extract leading ANSI escape codes from a string.
+fn extract_leading_ansi(s: &str) -> String {
+    let mut ansi = String::new();
+    let mut in_ansi = false;
+    for ch in s.chars() {
+        if ch == '\x1b' {
+            in_ansi = true;
+            ansi.push(ch);
+            continue;
+        }
+        if in_ansi {
+            ansi.push(ch);
+            if ch.is_ascii_alphabetic() {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    ansi
 }
 
 /// `s` cut to `w` display cells (kept for backward compatibility where truncation is needed).
@@ -177,6 +290,8 @@ enum Kind {
     GameDebug,
     /// library: VM debugging enabled indicator (selectable, shows breakpoints)
     VmDebug,
+    /// library: test dialog boxes (only when EMUERA_TTY_TESTING=1)
+    TestDialogs,
 }
 
 /// What a key or click asks for.
@@ -348,6 +463,39 @@ fn padded(s: &str, w: usize) -> String {
     crate::i18n::fit(s, w)
 }
 
+/// Colours used for dialog boxes (matching the settings dialog in tty/gamecfg.rs).
+const DLG_BG: (u8, u8, u8) = (22, 32, 58);
+const DLG_FRAME: (u8, u8, u8) = (150, 170, 210);
+const DLG_TITLE_FG: (u8, u8, u8) = (255, 255, 255);
+const DLG_NORMAL_FG: (u8, u8, u8) = (235, 235, 235);
+const DLG_HILITE_BG: (u8, u8, u8) = (230, 230, 230);
+const DLG_HILITE_FG: (u8, u8, u8) = (0, 0, 0);
+const DLG_HELP_FG: (u8, u8, u8) = (255, 220, 90);
+
+/// True-colour SGR sequence for foreground and background.
+fn sgr(fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool) -> String {
+    let b = if bold { "1;" } else { "" };
+    format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2)
+}
+
+/// Reset SGR.
+const SGR0: &str = "\x1b[0m";
+
+/// Draw a centered box frame and return (left_col, top_row, inner_width, inner_height).
+fn box_geo(cols: usize, rows: usize, inner_w: usize, inner_h: usize) -> (usize, usize, usize, usize) {
+    let w = inner_w + 2;
+    let h = inner_h + 2;
+    let left = (cols.saturating_sub(w)) / 2 + 1;
+    let top = (rows.saturating_sub(h)) / 2 + 1;
+    (left, top, inner_w, inner_h)
+}
+
+/// Write a line inside the box at the given row.
+fn box_row(out: &mut String, row: usize, left: usize, inner_w: usize, frame: &str, text: &str, style: &str) {
+    let (t, used) = crate::i18n::cut(text, inner_w);
+    let _ = write!(out, "\x1b[{};{}H{}│{}{}{}{}│", row, left, frame, style, t, " ".repeat(inner_w.saturating_sub(used)), frame);
+}
+
 /// A checkout's folder name, for the gauge's title.
 fn repo_title(root: &Path) -> String {
     root.file_name().map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned())
@@ -364,10 +512,7 @@ enum Step<'a> {
 }
 
 /// A box over the launcher's screen showing a long job (update, clone,
-/// extraction), drawn the way Debian's installer draws its gauges: grey, with
-/// a shadow, the bar filling in red. Until a percentage is known a block
-/// sweeps along the bar instead, and a spinner turns while the job works.
-/// Of several jobs (update all), the bar covers them all.
+/// extraction), drawn in the same style as the settings dialog.
 struct Gauge {
     title: String,
     /// the bottom line (how to cancel), may be empty
@@ -438,6 +583,8 @@ impl Gauge {
         let (cols, rows) = term_size();
         let w = cols.saturating_sub(12).min(72);
         let h = if self.hint.is_empty() { 7 } else { 8 };
+        let inner = w - 2;
+        let (x, y) = ((cols - w) / 2 + 1, (rows - h) / 2 + 1);
         if w < 30 || rows < h + 2 {
             // no room for a box: the status line
             let p = pct.map_or(String::new(), |p| format!(" {}%", p));
@@ -445,51 +592,75 @@ impl Gauge {
             out(format!("\x1b[{};1H\x1b[0m\x1b[2K{}", rows.saturating_sub(1).max(1), fit(&line, cols)).as_bytes());
             return;
         }
-        let inner = w - 2;
-        // centred with its shadow (2 columns right, 1 row below)
-        let (x, y) = ((cols - w - 2) / 2 + 1, (rows - h - 1) / 2 + 1);
-        let face = "\x1b[0;30;47m";
-        let shadow = "\x1b[0;40m  ";
+        let frame_style = sgr(DLG_FRAME, DLG_BG, false);
+        let title_style = sgr(DLG_TITLE_FG, DLG_BG, true);
+        let normal_style = sgr(DLG_NORMAL_FG, DLG_BG, false);
+        let hilite_style = sgr(DLG_HILITE_FG, DLG_HILITE_BG, false);
+        let help_style = sgr(DLG_HELP_FG, DLG_BG, false);
         let mut s = String::new();
-        let mut row = |r: usize, body: &str, shade: bool| {
-            s += &format!("\x1b[{};{}H{}{}", y + r, x, face, body);
-            if shade {
-                s += shadow;
-            }
+        let row = |out: &mut String, r: usize, body: &str, style: &str| {
+            let (t, used) = crate::i18n::cut(body, inner);
+            let _ = write!(out, "\x1b[{};{}H{}│{}{}{}{}│", r, x, frame_style, style, t, " ".repeat(inner.saturating_sub(used)), frame_style);
         };
+        let _ = write!(s, "\x1b[?25l\x1b[{};{}H{}┌{}┐", y, x, frame_style, "─".repeat(inner));
+        // Title
         let title = fit(&self.title, inner.saturating_sub(4));
-        let tw = crate::i18n::width(&title);
-        let left = (inner - tw - 2) / 2;
-        row(0, &format!("┌{} {} {}┐", "─".repeat(left), title, "─".repeat(inner - tw - 2 - left)), false);
-        let blank = format!("│{}│", " ".repeat(inner));
-        row(1, &blank, true);
-        row(2, &format!("│ {} {} │", spin, padded(&self.text, inner - 4)), true);
-        row(3, &blank, true);
-        let bw = inner - 7;
-        let bar = match pct {
+        row(&mut s, y + 1, &format!(" {}", title), &title_style);
+        // Spinner and text
+        row(&mut s, y + 2, &format!(" {} {}", spin, padded(&self.text, inner - 4)), &normal_style);
+        // Blank line
+        row(&mut s, y + 3, "", &normal_style);
+        // Progress bar line - write in segments to avoid ANSI-in-fit issues
+        // Content width between borders is `inner`, we use " │ <bar> │" so bar gets inner-2
+        let bar_w = inner.saturating_sub(2);
+        let _ = write!(s, "\x1b[{};{}H{}│ ", y + 4, x, frame_style);
+        match pct {
             Some(p) => {
-                let full = bw * p.min(100) as usize / 100;
-                format!("\x1b[41m{}\x1b[44m{}{} {:>3}%", " ".repeat(full), " ".repeat(bw - full), face, p.min(100))
+                let p = p.min(100) as usize;
+                // Bar spaces + " NNN%" = bar_w, so bar_spaces = bar_w - 5
+                let bar_spaces = bar_w.saturating_sub(5);
+                let full = bar_spaces * p / 100;
+                if full > 0 {
+                    let _ = write!(s, "{}{}{}", hilite_style, " ".repeat(full), SGR0);
+                }
+                if bar_spaces > full {
+                    let _ = write!(s, "{}{}{}", normal_style, " ".repeat(bar_spaces - full), SGR0);
+                }
+                let pct_str = format!(" {:>3}%", p);
+                let _ = write!(s, "{}{}{}", normal_style, pct_str, SGR0);
+                // Explicit padding to fill bar_w (in case of any width mismatch)
+                let _ = write!(s, "{}{}", normal_style, " ".repeat(bar_w.saturating_sub(bar_spaces + 5)));
             }
             None => {
                 // a block bouncing between the ends
-                let len = (bw / 5).max(2);
-                let travel = bw - len;
+                // Bouncing block + "     " = bar_w, so block width = bar_w - 5
+                let block_w = bar_w.saturating_sub(5);
+                let len = (block_w / 5).max(2);
+                let travel = block_w - len;
                 let t = frame % (2 * travel).max(1);
                 let at = if t <= travel { t } else { 2 * travel - t };
-                format!("\x1b[44m{}\x1b[41m{}\x1b[44m{}{}     ", " ".repeat(at), " ".repeat(len), " ".repeat(travel - at), face)
+                if at > 0 {
+                    let _ = write!(s, "{}{}{}", normal_style, " ".repeat(at), SGR0);
+                }
+                let _ = write!(s, "{}{}{}", hilite_style, " ".repeat(len), SGR0);
+                if travel > at {
+                    let _ = write!(s, "{}{}{}", normal_style, " ".repeat(travel - at), SGR0);
+                }
+                let _ = write!(s, "{}     {}", normal_style, SGR0);
+                // Explicit padding to fill bar_w
+                let _ = write!(s, "{}{}", normal_style, " ".repeat(bar_w.saturating_sub(block_w + 5)));
             }
-        };
-        row(4, &format!("│ {} │", bar), true);
-        row(5, &blank, true);
-        if !self.hint.is_empty() {
-            let hint = fit(&self.hint, inner - 2);
-            let hw = crate::i18n::width(&hint);
-            let l = (inner - hw) / 2;
-            row(6, &format!("│{}{}{}│", " ".repeat(l), hint, " ".repeat(inner - hw - l)), true);
         }
-        row(h - 1, &format!("└{}┘", "─".repeat(inner)), true);
-        s += &format!("\x1b[{};{}H{}{}\x1b[0m", y + h, x + 2, shadow, " ".repeat(w - 2));
+        // One space then right border
+        let _ = write!(s, " {}│{}", frame_style, SGR0);
+        // Blank line
+        row(&mut s, y + 5, "", &normal_style);
+        // Hint
+        if !self.hint.is_empty() {
+            row(&mut s, y + 6, &format!(" {}", fit(&self.hint, inner)), &help_style);
+        }
+        // Bottom border
+        let _ = write!(s, "\x1b[{};{}H{}└{}┘{}", y + h - 1, x, frame_style, "─".repeat(inner), SGR0);
         out(s.as_bytes());
     }
 }
@@ -543,6 +714,9 @@ impl Picker {
                 self.entries.push(Entry { label: format!("↓ {}", t!("Clone a game from a git repository…")), wrapped: Vec::new(), kind: Kind::CloneGame });
                 self.entries.push(Entry { label: "⇩ Download a game (from the eraGames wiki)…".into(), wrapped: Vec::new(), kind: Kind::Download });
                 self.entries.push(Entry { label: format!("⚙ {}", t!("Settings")), wrapped: Vec::new(), kind: Kind::OpenSettings });
+                if std::env::var("EMUERA_TTY_TESTING").as_deref() == Ok("1") {
+                    self.entries.push(Entry { label: format!("🧪 {}", t!("Test dialog boxes…")), wrapped: Vec::new(), kind: Kind::TestDialogs });
+                }
                 self.rebuild_entry_line();
                 let entry_sel =
                     self.entries.iter().position(|e| matches!(&e.kind, Kind::Game { path, .. } if self.st.last.as_ref() == Some(path))).unwrap_or(0);
@@ -1135,9 +1309,10 @@ impl Picker {
         }
     }
 
-    /// Show a Debian-style dialog box with buttons. Returns the index of the
-    /// selected button, or None if cancelled.
-    fn dialog(&mut self, title: &str, message: &str, buttons: &[&str], default: usize) -> Option<usize> {
+    /// Show a dialog box with buttons (matching the settings dialog style).
+    /// Returns the index of the selected button, or None if cancelled.
+    /// If `grid_cols` is Some(n), buttons are arranged in a fixed grid with n columns per row.
+    fn dialog(&mut self, title: &str, message: &str, buttons: &[&str], default: usize, grid_cols: Option<usize>) -> Option<usize> {
         let (cols, rows) = term_size();
         // Wrap message to fit in dialog
         let mut wrapped_lines: Vec<String> = Vec::new();
@@ -1147,96 +1322,143 @@ impl Picker {
         // Dialog dimensions
         let inner_w = cols.saturating_sub(12).clamp(30, 72);
         let inner_h = wrapped_lines.len() + 4; // message + blank + buttons + blank
-        let h = inner_h + 2; // borders
-        let w = inner_w + 2;
-        if w < 30 || rows < h + 2 {
+        let (left, top, _, _) = box_geo(cols, rows, inner_w, inner_h);
+        if inner_w < 30 || rows < inner_h + 4 {
             // Terminal too small, fall back to prompt
             return self.prompt(message, "").and_then(|a| {
                 let al = a.to_lowercase();
                 buttons.iter().position(|b| b.to_lowercase().starts_with(&al))
             });
         }
-        let (x, y) = ((cols - w - 2) / 2 + 1, (rows - h - 1) / 2 + 1);
-        let face = "\x1b[0;30;47m";
-        let shadow = "\x1b[0;40m  ";
+        let frame = sgr(DLG_FRAME, DLG_BG, false);
+        let title_style = sgr(DLG_TITLE_FG, DLG_BG, true);
+        let normal_style = sgr(DLG_NORMAL_FG, DLG_BG, false);
+        let hilite_style = sgr(DLG_HILITE_FG, DLG_HILITE_BG, false);
+        let help_style = sgr(DLG_HELP_FG, DLG_BG, false);
+        // Pre-compute button layout
+        let mut btn_rows: Vec<Vec<usize>> = Vec::new(); // indices of buttons in each row
+        let mut btn_pos: Vec<(usize, usize)> = Vec::new(); // (row, col_in_row) for each button
+        if let Some(cols_per_row) = grid_cols.filter(|&c| c > 0) {
+            // Fixed grid layout: exactly cols_per_row buttons per row
+            for (i, _) in buttons.iter().enumerate() {
+                let row = i / cols_per_row;
+                let col = i % cols_per_row;
+                if row >= btn_rows.len() {
+                    btn_rows.push(Vec::new());
+                }
+                btn_rows[row].push(i);
+                btn_pos.push((row, col));
+            }
+        } else {
+            // Fluid layout: group buttons into rows that fit within inner_w
+            let mut current_row: Vec<usize> = Vec::new();
+            let mut current_width = 0;
+            for (i, btn) in buttons.iter().enumerate() {
+                let btn_text = format!(" {} ", btn);
+                let btn_w = crate::i18n::width(&btn_text);
+                let spacing = if current_row.is_empty() { 0 } else { 2 }; // "  " between buttons
+                if current_width + spacing + btn_w > inner_w && !current_row.is_empty() {
+                    // Start new row
+                    for (col, &btn_idx) in current_row.iter().enumerate() {
+                        btn_pos[btn_idx] = (btn_rows.len(), col);
+                    }
+                    btn_rows.push(current_row);
+                    current_row = Vec::new();
+                    current_width = 0;
+                }
+                current_row.push(i);
+                current_width += spacing + btn_w;
+                btn_pos.push((0, 0)); // placeholder, will be updated when row is finalized
+            }
+            if !current_row.is_empty() {
+                for (col, &btn_idx) in current_row.iter().enumerate() {
+                    btn_pos[btn_idx] = (btn_rows.len(), col);
+                }
+                btn_rows.push(current_row);
+            }
+        }
         let mut sel = default.min(buttons.len().saturating_sub(1));
         loop {
             let mut s = String::new();
-            let mut row = |r: usize, body: &str, shade: bool| {
-                s += &format!("\x1b[{};{}H{}{}", y + r, x, face, body);
-                if shade {
-                    s += shadow;
-                }
-            };
-            // Title bar
-            let title_f = fit(title, inner_w);
-            let tw: usize = title_f.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
-            let left = (inner_w - tw - 2) / 2;
-            row(0, &format!("┌{} {} {}┐", "─".repeat(left), title_f, "─".repeat(inner_w - tw - 2 - left)), false);
+            // Top border
+            let _ = write!(s, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner_w));
+            // Title
+            box_row(&mut s, top + 1, left, inner_w, &frame, &format!(" {}", title), &title_style);
             // Blank line
-            row(1, &format!("│{}│", " ".repeat(inner_w)), true);
+            box_row(&mut s, top + 2, left, inner_w, &frame, "", &normal_style);
             // Message lines
             for (i, line) in wrapped_lines.iter().enumerate() {
-                row(
-                    2 + i,
-                    &format!(
-                        "│ {}{} │",
-                        line,
-                        " ".repeat(inner_w.saturating_sub(2) - line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>())
-                    ),
-                    true,
-                );
+                box_row(&mut s, top + 3 + i, left, inner_w, &frame, &format!(" {}", line), &normal_style);
             }
             // Blank line before buttons
-            let btn_y = 2 + wrapped_lines.len();
-            row(btn_y, &format!("│{}│", " ".repeat(inner_w)), true);
-            // Buttons - build row with proper width padding, track button positions for mouse
-            let mut btn_row = String::from("│");
-            let mut visual_width = 0;
-            let mut btn_starts: Vec<usize> = Vec::new(); // visual column where each button starts (relative to dialog left edge)
-            for (i, btn) in buttons.iter().enumerate() {
-                btn_starts.push(visual_width + 1); // +1 for left border "│"
-                let btn_text = format!("[ {} ]", btn);
-                let btn_w: usize = btn_text.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
-                if i == sel {
-                    btn_row += &format!("\x1b[7m{}\x1b[0m{}", btn_text, face);
-                } else {
-                    btn_row += &format!("{}{}", btn_text, face);
+            let btn_row_idx = top + 3 + wrapped_lines.len();
+            box_row(&mut s, btn_row_idx, left, inner_w, &frame, "", &normal_style);
+            // Buttons rows - left-aligned, wrapped to fit inner_w
+            for (row_idx, row) in btn_rows.iter().enumerate() {
+                let mut btn_row = String::new();
+                let mut visual_width = 0;
+                for (col, &btn_idx) in row.iter().enumerate() {
+                    let btn = buttons[btn_idx];
+                    let btn_text = format!(" {} ", btn);
+                    let btn_w = crate::i18n::width(&btn_text);
+                    if col > 0 {
+                        btn_row += &normal_style;
+                        btn_row += "  ";
+                        btn_row += SGR0;
+                        visual_width += 2;
+                    }
+                    if btn_idx == sel {
+                        btn_row += &hilite_style;
+                    } else {
+                        btn_row += &normal_style;
+                    }
+                    btn_row += &btn_text;
+                    btn_row += SGR0;
+                    visual_width += btn_w;
                 }
-                visual_width += btn_w;
-                if i < buttons.len() - 1 {
-                    btn_row += "  ";
-                    visual_width += 2;
+                // Pad the rest of the line with normal_style background
+                if visual_width < inner_w {
+                    btn_row += &normal_style;
+                    btn_row += &" ".repeat(inner_w - visual_width);
+                    btn_row += SGR0;
                 }
+                let _ = write!(s, "\x1b[{};{}H{}│{}{}│", btn_row_idx + 1 + row_idx, left, frame, btn_row, frame);
             }
-            // Pad to fill inner_w
-            if visual_width < inner_w {
-                btn_row += &" ".repeat(inner_w - visual_width);
-            }
-            btn_row += "│";
-            row(btn_y + 1, &btn_row, true);
+            // Help line
+            let help = t!("←→ choose  Enter pick  Esc cancel");
+            box_row(&mut s, btn_row_idx + 1 + btn_rows.len(), left, inner_w, &frame, &format!(" {}", help), &help_style);
             // Bottom border
-            row(btn_y + 2, &format!("└{}┘", "─".repeat(inner_w)), true);
-            // Shadow
-            s += &format!("\x1b[{};{}H{}{}\x1b[0m", y + h, x + 2, shadow, " ".repeat(w - 2));
+            let _ = write!(s, "\x1b[{};{}H{}└{}┘{}", btn_row_idx + 2 + btn_rows.len(), left, frame, "─".repeat(inner_w), SGR0);
             out(s.as_bytes());
             // Handle input
             match self.next_act(true) {
                 Act::Up => {
-                    // Left arrow - previous button
-                    sel = sel.saturating_sub(1);
+                    // Left arrow - previous button (wrap within row, or to end of prev row)
+                    let (row, col) = btn_pos[sel];
+                    if col > 0 {
+                        sel = btn_rows[row][col - 1];
+                    } else if row > 0 {
+                        // Move to end of previous row
+                        sel = btn_rows[row - 1].last().copied().unwrap_or(sel);
+                    }
                 }
                 Act::Open => {
-                    // Right arrow - next button
-                    sel = (sel + 1).min(buttons.len().saturating_sub(1));
+                    // Right arrow - next button (wrap within row, or to start of next row)
+                    let (row, col) = btn_pos[sel];
+                    if col + 1 < btn_rows[row].len() {
+                        sel = btn_rows[row][col + 1];
+                    } else if row + 1 < btn_rows.len() {
+                        // Move to start of next row
+                        sel = btn_rows[row + 1][0];
+                    }
                 }
                 Act::Move(d) => {
-                    // Up/Down arrows - wrap around since single row
-                    if d < 0 {
-                        sel = 0;
-                    } else {
-                        sel = buttons.len().saturating_sub(1);
-                    }
+                    // Up/Down arrows - move between rows, same column
+                    let (row, col) = btn_pos[sel];
+                    let target_row = if d < 0 { row.saturating_sub(1) } else { (row + 1).min(btn_rows.len().saturating_sub(1)) };
+                    // Try to keep same column, clamp to row length
+                    let target_col = col.min(btn_rows[target_row].len().saturating_sub(1));
+                    sel = btn_rows[target_row][target_col];
                 }
                 Act::Page(d) => {
                     // PgUp/PgDn - first/last
@@ -1249,21 +1471,21 @@ impl Picker {
                 Act::Activate => return Some(sel),
                 Act::Cancel => return None,
                 Act::Click(screen_x, screen_y) => {
-                    // Check if click is on button row
-                    if screen_y == y + btn_y + 1 {
-                        // Click is on button row, check which button
-                        // btn_starts has visual column of each button start (relative to dialog left edge)
-                        // Dialog starts at screen column x, so dialog column 0 = screen column x
-                        // The button row content starts at dialog column 1 (after "│")
-                        // So screen_x - x - 1 gives us the column within the button row
-                        let rel_x = screen_x as isize - (x + 1) as isize;
-                        if rel_x >= 0 {
-                            for (i, &start) in btn_starts.iter().enumerate() {
-                                let btn_text = format!("[ {} ]", buttons[i]);
-                                let btn_w: usize = btn_text.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
-                                let rx = rel_x as usize;
-                                if rx >= start && rx < start + btn_w {
-                                    return Some(i);
+                    // Check if click is on any button row
+                    for row_idx in 0..btn_rows.len() {
+                        if screen_y == btn_row_idx + 1 + row_idx {
+                            let rel_x = screen_x as isize - (left + 1) as isize;
+                            if rel_x >= 0 {
+                                let mut visual_x = 0;
+                                for (col, &btn_idx) in btn_rows[row_idx].iter().enumerate() {
+                                    let btn = buttons[btn_idx];
+                                    let btn_text = format!(" {} ", btn);
+                                    let btn_w = crate::i18n::width(&btn_text);
+                                    let spacing = if col > 0 { 2 } else { 0 };
+                                    if (rel_x as usize) >= visual_x + spacing && (rel_x as usize) < visual_x + spacing + btn_w {
+                                        return Some(btn_idx);
+                                    }
+                                    visual_x += spacing + btn_w;
                                 }
                             }
                         }
@@ -1289,51 +1511,62 @@ impl Picker {
         self.load();
     }
 
-    /// Ask for a line of text at the bottom of the screen: Enter accepts (an
-    /// untouched empty answer gives `default`), Tab puts `default` in the field
-    /// to edit (an answer emptied after that stays empty), Esc / Ctrl-C cancel,
-    /// Ctrl-U clears. Mouse reports and other escape sequences are ignored.
+    /// Ask for a line of text in a centered box (Enter accepts, Esc cancels).
     fn prompt(&mut self, question: &str, default: &str) -> Option<String> {
         self.prompt_with(question, default, false)
     }
 
     /// `prompt`, its answer shown as dots when `secret` (a password).
     fn prompt_with(&mut self, question: &str, default: &str, secret: bool) -> Option<String> {
-        let question = if default.is_empty() { format!("{}: ", question) } else { format!("{} [{}]: ", question, default) };
-        let width = crate::i18n::width;
-        let mut text = String::new();
-        let mut edited = false;
+        let mut text = default.to_string();
+        let mut fresh = true;
+        let (cols, rows) = term_size();
+        // Dialog dimensions - fixed size for prompt
+        let inner_w = cols.saturating_sub(12).clamp(40, 72);
+        let inner_h = 3; // label + input + help
+        let (left, top, _, _) = box_geo(cols, rows, inner_w, inner_h);
+        let frame = sgr(DLG_FRAME, DLG_BG, false);
+        let title_style = sgr(DLG_TITLE_FG, DLG_BG, true);
+        let field_style = sgr(DLG_HILITE_FG, DLG_HILITE_BG, false);
+        let help_style = sgr(DLG_HELP_FG, DLG_BG, false);
+        let _normal_style = sgr(DLG_NORMAL_FG, DLG_BG, false);
         loop {
-            // what has been typed so far
+            // Consume pending input
             'consume: while let Some(&b) = self.pending.first() {
                 match b {
                     b'\r' | b'\n' => {
                         self.pending.drain(..1);
                         let t = text.trim().to_string();
-                        return Some(if t.is_empty() && !edited { default.to_string() } else { t });
+                        return Some(if t.is_empty() && !fresh { default.to_string() } else { t });
                     }
                     0x09 => {
+                        // Tab
                         self.pending.drain(..1);
-                        if !edited {
+                        if !fresh {
                             text = default.to_string();
-                            edited = true;
+                            fresh = true;
                         }
                     }
                     0x03 => {
+                        // Ctrl-C
                         self.pending.drain(..1);
                         return None;
                     }
                     0x15 => {
+                        // Ctrl-U
                         self.pending.drain(..1);
                         text.clear();
+                        fresh = false;
                     }
                     0x7f | 0x08 => {
+                        // Backspace
                         self.pending.drain(..1);
                         text.pop();
+                        fresh = false;
                     }
                     0x1b => {
+                        // ESC
                         if self.pending.len() == 1 {
-                            // a lone ESC cancels unless more bytes arrive right away
                             if crate::sys::poll(30, -1).input {
                                 break 'consume;
                             }
@@ -1343,10 +1576,8 @@ impl Picker {
                         let skip = if self.pending[1] != b'[' {
                             Some(2)
                         } else if self.pending.get(2) == Some(&b'M') {
-                            // X10 mouse: ESC [ M b x y
                             (self.pending.len() >= 6).then_some(6)
                         } else {
-                            // arrows, SGR / urxvt mouse…: up to the final byte
                             self.pending[2..].iter().position(|c| (0x40..=0x7e).contains(c)).map(|p| p + 3)
                         };
                         match skip {
@@ -1370,44 +1601,43 @@ impl Picker {
                             break 'consume;
                         }
                         if let Ok(s) = std::str::from_utf8(&self.pending[..len]) {
+                            if std::mem::take(&mut fresh) {
+                                text.clear();
+                            }
                             text.push_str(s);
                         }
                         self.pending.drain(..len);
                     }
                 }
             }
-            // the question, and the end of the answer if it is longer than the line
-            let (cols, rows) = term_size();
-            // (a long question is cut so there is always room to type)
-            let q = fit(&question, cols.saturating_sub(24).max(cols / 2));
-            let room = cols.saturating_sub(width(&q) + 2).max(1);
-            let (mut shown, mut used) = (Vec::new(), 0);
+            // Draw the prompt box
+            let mut s = String::new();
+            let _ = write!(s, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner_w));
+            box_row(&mut s, top + 1, left, inner_w, &frame, &format!(" {}", question), &title_style);
+            // Input field
+            let room = inner_w.saturating_sub(3);
+            let mut shown: Vec<char> = Vec::new();
+            let mut used = 0;
             let typed = if secret { "•".repeat(text.chars().count()) } else { text.clone() };
             for c in typed.chars().rev() {
                 let cw = UnicodeWidthChar::width(c).unwrap_or(0);
                 if used + cw > room {
                     break;
                 }
-                used += cw;
                 shown.push(c);
+                used += cw;
             }
             let shown: String = shown.into_iter().rev().collect();
-            out(format!(
-                "\x1b[{};1H\x1b[0m\x1b[2K{}{}\x1b[7m \x1b[0m\x1b[{};1H\x1b[2K\x1b[2m{}\x1b[0m",
-                rows.saturating_sub(1),
-                q,
-                shown,
-                rows,
-                fit(
-                    &if default.is_empty() || edited {
-                        t!("Enter accept · Esc cancel · Ctrl-U clear")
-                    } else {
-                        t!("Enter use the [default] · Tab edit it · Esc cancel")
-                    },
-                    cols
-                )
-            )
-            .as_bytes());
+            box_row(&mut s, top + 2, left, inner_w, &frame, &format!(" {}▏", shown), &field_style);
+            // Help line
+            let help = if default.is_empty() || !fresh {
+                t!("Enter accept  Esc cancel  Ctrl-U clear")
+            } else {
+                t!("Enter use the [default]  Tab edit it  Esc cancel")
+            };
+            box_row(&mut s, top + 3, left, inner_w, &frame, &format!(" {}", help), &help_style);
+            let _ = write!(s, "\x1b[{};{}H{}└{}┘{}", top + 4, left, frame, "─".repeat(inner_w), SGR0);
+            out(s.as_bytes());
             let r = crate::sys::poll(500, -1);
             if r.hangup {
                 return None;
@@ -1910,10 +2140,14 @@ impl Picker {
         match kind {
             Kind::Game { path, ok: true } => return Some(path),
             Kind::Game { path, ok: false } => {
-                // Show Debian-style dialog to update or remove
+                // Show dialog to update or remove
                 let title = game_title(&path).unwrap_or_else(|| "Emuera game".into());
-                let msg = format!("{} ({}) is missing.\n\nRemove it from the list or update the folder?", title, path.display());
-                match self.dialog("Missing Game", &msg, &["Remove", "Update", "Cancel"], 1) {
+                let msg = format!(
+                    "{} ({}) is missing.\n\nRemove it from the list or update the folder?\nIf the game was in an external drive, reconnect it.",
+                    title,
+                    path.display()
+                );
+                match self.dialog("Missing Game", &msg, &["Remove", "Update", "Cancel"], 1, None) {
                     Some(0) => {
                         // Remove
                         self.st.remove_game(&path);
@@ -1991,6 +2225,9 @@ impl Picker {
                 // Show breakpoint dialog
                 self.show_breakpoint_dialog();
             }
+            Kind::TestDialogs => {
+                self.show_test_dialogs();
+            }
         }
         None
     }
@@ -2037,7 +2274,116 @@ impl Picker {
             format!("Breakpoints:\n\n{}", breakpoints.join("\n"))
         };
 
-        self.dialog("VM Debugger Breakpoints", &message, &["OK"], 0);
+        self.dialog("VM Debugger Breakpoints", &message, &["OK"], 0, None);
+    }
+
+    /// Show a submenu of test dialogs to verify the unified dialog style.
+    fn show_test_dialogs(&mut self) {
+        loop {
+            let choice = self.dialog(
+                "Test Dialog Boxes",
+                "Choose a dialog type to test. All use the unified settings dialog style.",
+                &[
+                    "Confirmation (Yes/No/Cancel)", "Multi-button (3 buttons)", "Text Input (with default)", "Secret Input (password)",
+                    "Progress Bar (determinate)", "Progress Bar (indeterminate)", "3x3 Options Grid", "5x5 Options Grid", "Long Word Test (word-wrapping)",
+                    "Back",
+                ],
+                9, // default to "Back"
+                None,
+            );
+            match choice {
+                Some(0) => {
+                    // Confirmation dialog
+                    self.dialog(
+                        "Confirmation Test",
+                        "This is a confirmation dialog with Yes/No/Cancel buttons.\nIt uses the unified dialog style (blue frame, dark background).",
+                        &["Yes", "No", "Cancel"],
+                        0,
+                        None,
+                    );
+                }
+                Some(1) => {
+                    // Multi-button dialog
+                    self.dialog(
+                        "Multi-Button Test",
+                        "This dialog has three buttons.\nTest left/right navigation and button highlighting.",
+                        &["Option A", "Option B", "Option C"],
+                        0,
+                        None,
+                    );
+                }
+                Some(2) => {
+                    // Text input with default
+                    let _ = self.prompt("Enter some text (default shown):", "default value");
+                }
+                Some(3) => {
+                    // Secret input (password)
+                    let _ = self.prompt_with("Enter a password (hidden):", "", true);
+                }
+                Some(4) => {
+                    // Progress bar - determinate
+                    let mut g = Gauge::new("Determinate Progress Test", "Esc cancel");
+                    for i in 0..=100 {
+                        g.step(Step::Line(&format!("Processing: {}%", i)));
+                        if self.cancel_pressed() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                    }
+                }
+                Some(5) => {
+                    // Progress bar - indeterminate
+                    let mut g = Gauge::new("Indeterminate Progress Test", "Esc cancel");
+                    for _ in 0..200 {
+                        g.step(Step::Quiet);
+                        if self.cancel_pressed() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                    }
+                }
+                Some(6) => {
+                    // 3x3 Options Grid (9 buttons)
+                    let buttons: Vec<String> = (1..=9).map(|i| format!("Btn {}", i)).collect();
+                    let btn_refs: Vec<&str> = buttons.iter().map(|s| s.as_str()).collect();
+                    self.dialog(
+                        "3x3 Grid Test",
+                        "Nine buttons arranged in a 3x3 grid.\nTest multi-row button navigation (arrows wrap between rows).",
+                        &btn_refs,
+                        0,
+                        Some(3),
+                    );
+                }
+                Some(7) => {
+                    // 5x5 Options Grid (25 buttons)
+                    let buttons: Vec<String> = (1..=25).map(|i| format!("Btn {:02}", i)).collect();
+                    let btn_refs: Vec<&str> = buttons.iter().map(|s| s.as_str()).collect();
+                    self.dialog(
+                        "5x5 Grid Test",
+                        "Twenty-five buttons arranged in a 5x5 grid.\nTest multi-row navigation with many buttons.",
+                        &btn_refs,
+                        0,
+                        Some(5),
+                    );
+                }
+                Some(8) => {
+                    // Long Word Test - word wrapping
+                    let long_word = "supercalifragilisticexpialidocious";
+                    let message = format!(
+                        "This tests word-wrapping with very long words.\n\n\
+                         Single long word (34 chars): {long_word}\n\n\
+                         Multiple long words: {long_word} {long_word} {long_word}\n\n\
+                         Mixed: normal words and {long_word} together.\n\n\
+                         The word exceeds dialog width and should be split across lines.",
+                    );
+                    self.dialog("Long Word Wrapping Test", &message, &["OK"], 0, None);
+                }
+                _ => {
+                    // Back or cancelled
+                    break;
+                }
+            }
+        }
     }
 
     /// Extract an archive, showing progress in a gauge.

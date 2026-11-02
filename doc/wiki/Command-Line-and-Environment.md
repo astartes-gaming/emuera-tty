@@ -61,6 +61,10 @@ the saved setting. A value can also be written `--colors=256`.
   in use after it.
 - `EMUERA_SEED=N` fixes the random
   number seed, so a run can be repeated exactly (tests, bug reports).
+- `EMUERA_TTY_TESTING=1` adds a **Test dialog boxes** entry to the launcher's
+  library page. It opens a submenu to try every dialog type (confirmation,
+  multi-button, text input, password input, progress bars) and verify they
+  all use the unified settings dialog style.
 
 The variables for debugging are under [Debugging](Debugging).
 

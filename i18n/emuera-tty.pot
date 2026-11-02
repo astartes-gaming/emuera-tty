@@ -405,6 +405,10 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
+#: src/picker.rs
+msgid "Test dialog boxes…"
+msgstr ""
+
 #: src/picker.rs src/tty.rs
 msgid "(next start)"
 msgstr ""
@@ -546,11 +550,15 @@ msgid "↑↓ PgUp PgDn Home End scroll  q / Esc / Enter / g close"
 msgstr ""
 
 #: src/picker.rs
-msgid "Enter accept · Esc cancel · Ctrl-U clear"
+msgid "←→ choose  Enter pick  Esc cancel"
+msgstr ""
+
+#: src/picker.rs src/tty/saves.rs
+msgid "Enter accept  Esc cancel  Ctrl-U clear"
 msgstr ""
 
 #: src/picker.rs
-msgid "Enter use the [default] · Tab edit it · Esc cancel"
+msgid "Enter use the [default]  Tab edit it  Esc cancel"
 msgstr ""
 
 #: src/picker.rs
@@ -1332,10 +1340,6 @@ msgstr ""
 
 #: src/tty/saves.rs
 msgid "↑↓ choose  Enter pick  Esc back"
-msgstr ""
-
-#: src/tty/saves.rs
-msgid "Enter accept  Esc cancel  Ctrl-U clear"
 msgstr ""
 
 #: src/tty/saves.rs
