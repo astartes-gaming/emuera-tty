@@ -24,7 +24,12 @@ terminal:
 ## Tips for any terminal
 
 - Install a font with **CJK** glyphs (e.g. Noto Sans CJK) so Japanese
-  names and symbols show up.
+  names and symbols show up. For resemblance to Emuera, install the
+  MS Gothic font.
+- Generally speaking, a terminal theme with a black background works best
+  for Era games, as with Emuera. While other background colors are fine,
+  some parts of a game may be hard to see, or images with a black background
+  fail to blend into the terminal.
 - **Maps** (box drawing, `■`, `※`…) are two columns per symbol in Emuera.
   emuera-tty pads them to two columns; in GNOME Terminal you can instead set
   *Preferences → profile → Compatibility → Ambiguous-width characters:
