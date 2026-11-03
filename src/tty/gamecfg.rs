@@ -11,7 +11,7 @@ use crate::resources::Resources;
 use std::io::Write;
 
 /// Columns `s` takes (wide characters count two).
-use crate::i18n::{fit, tr, width};
+use crate::i18n::{fit, tr, width, wrap};
 
 /// "R,G,B" as a colour.
 fn rgb(v: &str) -> Option<(u8, u8, u8)> {
@@ -134,14 +134,36 @@ impl Tty {
     /// Draw the page over the game.
     fn draw_game_settings(&self, vals: &Values, tab: usize, items: &[&Item], sel: usize, note: &str) -> Geo {
         self.redraw_all.set(true);
-        let most = TABS.iter().map(|t| ITEMS.iter().filter(|it| it.tab == *t).count()).max().unwrap_or(1);
-        let vis = most.min(self.rows.saturating_sub(10).max(3));
-        let first = sel.saturating_sub(vis - 1).min(items.len().saturating_sub(vis));
         let w = self.cols.saturating_sub(4).clamp(40, 84);
         let inner = w - 2;
-        let h = vis + 8;
         let left = self.cols.saturating_sub(w) / 2 + 1;
+
+        // Pre-calculate wrapped label lines for each item
+        let field = 20;
+        let tag_w = 8;
+        let name_w = inner.saturating_sub(field + tag_w + 2); // +2 for padding
+        let mut item_rows: Vec<Vec<String>> = Vec::with_capacity(items.len());
+        for it in items {
+            let label = tr(it.label);
+            let lines = if name_w > 0 { wrap(&label, name_w) } else { vec![label] };
+            item_rows.push(lines);
+        }
+
+        // Convert selection index to row index (accounting for multi-row items)
+        let mut row_of_item = vec![0; items.len()];
+        let mut total_rows = 0;
+        for (i, lines) in item_rows.iter().enumerate() {
+            row_of_item[i] = total_rows;
+            total_rows += lines.len().max(1);
+        }
+        let sel_row = row_of_item[sel.min(items.len() - 1)];
+
+        // Calculate visible rows
+        let max_vis_rows = self.rows.saturating_sub(10).max(3);
+        let first_row = sel_row.saturating_sub(max_vis_rows - 1).min(total_rows.saturating_sub(max_vis_rows));
+        let h = max_vis_rows + 8;
         let top = self.rows.saturating_sub(h) / 2 + 1;
+
         let bg = (22, 32, 58);
         let frame = self.ov_style((150, 170, 210), bg, false);
         let title = self.ov_style((255, 255, 255), bg, true);
@@ -174,16 +196,12 @@ impl Tty {
         }
         let _ = write!(out, "{}{}│", " ".repeat(inner - used), frame);
         let _ = write!(out, "\x1b[{};{}H{}├{}┤", top + 3, left, frame, "─".repeat(inner));
-        // the settings: a check box or a value, then the name
-        let field = 20;
-        for k in 0..vis {
-            let r = top + 4 + k;
-            let Some(it) = items.get(first + k) else {
-                row(&mut out, r, "", &normal);
-                continue;
-            };
+        // the settings: a check box or a value, then the name (word-wrapped)
+        let mut row_idx = 0;
+        for (item_idx, it) in items.iter().enumerate() {
+            let lines = &item_rows[item_idx];
             let (v, src) = vals.get(it);
-            let is_sel = first + k == sel;
+            let is_sel = item_idx == sel;
             let base = if is_sel {
                 &hilite
             } else if src == Source::Fixed {
@@ -198,38 +216,74 @@ impl Tty {
                 Source::Player => tc!("setting source", "changed"),
                 Source::Fixed => tc!("setting source", "fixed"),
             };
-            let _ = write!(out, "\x1b[{};{}H{}│{} ", r, left, frame, base);
-            let mut used = 1;
+
+            // Compute label start column (after value field) on first line
+            let mut label_start = 1; // after frame border + space
             match it.kind {
-                Kind::Bool => {
-                    let on = v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE");
-                    let _ = write!(out, "[{}] ", if on { "x" } else { " " });
-                    used += 4;
-                }
-                Kind::Color => {
-                    // a swatch of the colour
-                    let c = rgb(&v).unwrap_or((0, 0, 0));
-                    let _ = write!(out, "[{}██{}{}] ", self.ov_style(c, row_bg, false), base, fit(&format!(" {}", v), field - 5));
-                    used += field;
-                }
-                _ => {
-                    let _ = write!(out, "[{}] ", fit(&v, field - 3));
-                    used += field;
-                }
+                Kind::Bool => label_start += 4, // "[x] "
+                Kind::Color => label_start += field,
+                _ => label_start += field,
             }
-            let tag_w = 8;
-            let name_w = inner.saturating_sub(used + tag_w + 1);
-            let _ = write!(out, "{}{} {}{}", fit(&tr(it.label), name_w), if is_sel { "" } else { &dim }, fit(&from, tag_w), frame);
-            let _ = write!(out, "│");
+
+            for (line_idx, label_line) in lines.iter().enumerate() {
+                if row_idx < first_row {
+                    row_idx += 1;
+                    continue;
+                }
+                if row_idx >= first_row + max_vis_rows {
+                    break;
+                }
+                let r = top + 4 + row_idx - first_row;
+                let _ = write!(out, "\x1b[{};{}H{}│{} ", r, left, frame, base);
+                let mut used = 1;
+                if line_idx == 0 {
+                    // First line: show the value field
+                    match it.kind {
+                        Kind::Bool => {
+                            let on = v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE");
+                            let _ = write!(out, "[{}] ", if on { "x" } else { " " });
+                            used += 4;
+                        }
+                        Kind::Color => {
+                            let c = rgb(&v).unwrap_or((0, 0, 0));
+                            let _ = write!(out, "[{}██{}{}] ", self.ov_style(c, row_bg, false), base, fit(&format!(" {}", v), field - 5));
+                            used += field;
+                        }
+                        _ => {
+                            let _ = write!(out, "[{}] ", fit(&v, field - 3));
+                            used += field;
+                        }
+                    }
+                } else {
+                    // Continuation lines: indent to align with label start on first line
+                    let _ = write!(out, "{}", " ".repeat(label_start));
+                    used += label_start;
+                }
+                // Label (with source tag on first line only)
+                let label_w = inner.saturating_sub(used + tag_w + 1);
+                if line_idx == 0 {
+                    let _ = write!(out, "{}{} {}{}", fit(label_line, label_w), if is_sel { "" } else { &dim }, fit(&from, tag_w), frame);
+                } else {
+                    let _ = write!(out, "{}{}", fit(label_line, inner.saturating_sub(used)), frame);
+                }
+                let _ = write!(out, "│");
+                row_idx += 1;
+            }
         }
-        row(&mut out, top + 4 + vis, "", &normal);
-        row(&mut out, top + 5 + vis, &format!(" {}", t!("←→ tab  ↑↓ choose  Enter change  +/- step  d game's value  Esc back")), &helpc);
+        // Fill remaining visible rows
+        while row_idx < first_row + max_vis_rows {
+            let r = top + 4 + row_idx - first_row;
+            row(&mut out, r, "", &normal);
+            row_idx += 1;
+        }
+        row(&mut out, top + 4 + max_vis_rows, "", &normal);
+        row(&mut out, top + 5 + max_vis_rows, &format!(" {}", t!("←→ tab  ↑↓ choose  Enter change  +/- step  d game's value  Esc back")), &helpc);
         let saved_in = format!(" {}", t!("Saved in the game's emuera.config, which Emuera.exe reads too."));
         let n = if note.is_empty() { saved_in.as_str() } else { note };
-        row(&mut out, top + 6 + vis, &format!(" {}", n.trim_start()), &notec);
-        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 7 + vis, left, frame, "─".repeat(inner));
+        row(&mut out, top + 6 + max_vis_rows, &format!(" {}", n.trim_start()), &notec);
+        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 7 + max_vis_rows, left, frame, "─".repeat(inner));
         write_all(&out);
-        Geo { tab_row: top + 2, tabs, items_top: top + 4, first }
+        Geo { tab_row: top + 2, tabs, items_top: top + 4, first: first_row }
     }
 }
 

@@ -41,6 +41,7 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
             match crate::config_names::canonical(k) {
                 "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
                 "無限ループ警告までのミリ秒数" => con.infinite_loop_alert_time = v.parse().unwrap_or(5000),
+                "無限ループ警告を無効にする" => con.disable_infinite_loop_detection = yes(v),
                 "PRINTCを並べる数" => con.printc_per_line = v.parse().unwrap_or(con.printc_per_line),
                 "フォント名" => {
                     con.default_font = v.to_string();
@@ -104,6 +105,9 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
             con.infinite_loop_alert_time = ms;
         }
     }
+    if let Ok(v) = std::env::var("EMUERA_DISABLE_INFINITE_LOOP_DETECTION") {
+        con.disable_infinite_loop_detection = v == "1" || v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE");
+    }
 
     window_px
 }
@@ -151,6 +155,13 @@ pub const ITEMS: &[Item] = &[
     item("Environment", "履歴ログの行数", n!("Lines in history log"), Kind::Int(100, 1000000), "5000"),
     item("Environment", "表示するセーブデータ数", n!("Number of save slots"), Kind::Int(20, 80), "20"),
     item("Environment", "無限ループ警告までのミリ秒数", n!("Milliseconds for infinite loop warning"), Kind::Int(0, 60000), "5000"),
+    item(
+        "Environment",
+        "無限ループ警告を無効にする",
+        n!("Disable infinite loop detection (useful for games with intentional long-running functions)"),
+        Kind::Bool,
+        "NO",
+    ),
     item("Display", "PRINTCを並べる数", n!("PRINTC items per line"), Kind::Int(1, 100), "3"),
     item("Display", "PRINTCの文字数", n!("PRINTC item width"), Kind::Int(1, 400), "25"),
     item("Display", "ボタンの途中で行を折りかえさない", n!("Don't break lines inside a button"), Kind::Bool, "NO"),

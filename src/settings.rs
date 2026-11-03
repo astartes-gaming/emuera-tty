@@ -170,6 +170,10 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_DEBUG_FRAMES", n!("any value: print each frame drawn (size and picture keys) to stderr (debugging)")),
     ("EMUERA_GBUF_MB", n!("MB graphics buffers may take unpacked (default: 1/8 of the memory)")),
     ("EMUERA_INFINITE_LOOP_ALERT_TIME", n!("ms before infinite loop warning (0 = disabled, default: 5000)")),
+    (
+        "EMUERA_DISABLE_INFINITE_LOOP_DETECTION",
+        n!("1: completely disable infinite loop detection, ignoring the timeout (useful for games with intentional long-running functions)"),
+    ),
     ("EMUERA_PICTURES_MB", n!("MB decoded picture files may take (default: 1/8 of the memory)")),
     ("EMUERA_WARMUP", n!("1 / 0: decode last session's pictures in the background at start (default: on, off headless)")),
     ("EMUERA_GFX", n!("default for --gfx: kitty, iterm, sixel, fb or none")),

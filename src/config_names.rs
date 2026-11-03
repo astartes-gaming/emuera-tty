@@ -35,6 +35,7 @@ pub const NAMES: &[(&str, &str)] = &[
     ("最大スキップフレーム数", "Skip frames"),
     ("スクロール行数", "Lines per scroll"),
     ("無限ループ警告までのミリ秒数", "Milliseconds for infinite loop warning"),
+    ("無限ループ警告を無効にする", "Disable infinite loop detection"),
     ("表示する最低警告レベル", "Minimum warning level"),
     ("ロード時にレポートを表示する", "Display loading report"),
     ("ロード時に引数を解析する", "Reduce argument on load"),

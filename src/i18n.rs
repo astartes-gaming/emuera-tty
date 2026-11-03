@@ -336,6 +336,45 @@ pub fn cut(s: &str, w: usize) -> (String, usize) {
     (out, used)
 }
 
+/// Word-wrap `s` into lines of at most `w` columns. Splits on spaces
+/// (including full-width space) when possible; otherwise hard-breaks.
+pub fn wrap(s: &str, w: usize) -> Vec<String> {
+    if w == 0 {
+        return vec![];
+    }
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_w = 0;
+    for word in s.split_inclusive(|c: char| c.is_whitespace()) {
+        let word_w = width(word);
+        if current_w + word_w <= w {
+            current.push_str(word);
+            current_w += word_w;
+        } else if current.is_empty() {
+            // word itself is longer than w: hard-break it
+            let mut remaining = word;
+            while !remaining.is_empty() {
+                let (chunk, _) = cut(remaining, w);
+                let chunk_len = chunk.len();
+                lines.push(chunk);
+                remaining = &remaining[chunk_len..];
+            }
+        } else {
+            // flush current line, start new one with this word
+            lines.push(current.trim_end().to_string());
+            current = word.to_string();
+            current_w = word_w;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current.trim_end().to_string());
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
 /// `s` cut or padded with spaces to exactly `w` columns.
 pub fn fit(s: &str, w: usize) -> String {
     let (mut out, used) = cut(s, w);

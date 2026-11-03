@@ -2902,7 +2902,7 @@ impl Vm {
 
         // Infinite loop detection (Emuera's "InfiniteLoopAlertTime" config)
         let alert_ms = self.con.infinite_loop_alert_time;
-        if alert_ms > 0 {
+        if alert_ms > 0 && !self.con.disable_infinite_loop_detection {
             self.loop_check_count += 1;
             // Check every ~4096 instructions (0xFFF), matching the tick frequency
             if self.loop_check_count >= 1 {

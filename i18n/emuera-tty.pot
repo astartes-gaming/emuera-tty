@@ -72,6 +72,10 @@ msgid "Milliseconds for infinite loop warning"
 msgstr ""
 
 #: src/emuconfig.rs
+msgid "Disable infinite loop detection (useful for games with intentional long-running functions)"
+msgstr ""
+
+#: src/emuconfig.rs
 msgid "PRINTC items per line"
 msgstr ""
 
@@ -986,6 +990,10 @@ msgstr ""
 
 #: src/settings.rs
 msgid "ms before infinite loop warning (0 = disabled, default: 5000)"
+msgstr ""
+
+#: src/settings.rs
+msgid "1: completely disable infinite loop detection, ignoring the timeout (useful for games with intentional long-running functions)"
 msgstr ""
 
 #: src/settings.rs
