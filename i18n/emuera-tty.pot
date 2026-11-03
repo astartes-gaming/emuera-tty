@@ -973,6 +973,10 @@ msgid "wide, narrow, single or osc66: how box drawing and symbols get Emuera's t
 msgstr ""
 
 #: src/settings.rs
+msgid "comma-separated list of function:line breakpoints (debugger)"
+msgstr ""
+
+#: src/settings.rs
 msgid "MB compiled functions may take (default: 1/16 of the memory); the least recently called are dropped"
 msgstr ""
 
@@ -985,27 +989,19 @@ msgid "any value: print each frame drawn (size and picture keys) to stderr (debu
 msgstr ""
 
 #: src/settings.rs
-msgid "MB graphics buffers may take unpacked (default: 1/8 of the memory)"
-msgstr ""
-
-#: src/settings.rs
-msgid "ms before infinite loop warning (0 = disabled, default: 5000)"
-msgstr ""
-
-#: src/settings.rs
 msgid "1: completely disable infinite loop detection, ignoring the timeout (useful for games with intentional long-running functions)"
 msgstr ""
 
 #: src/settings.rs
-msgid "MB decoded picture files may take (default: 1/8 of the memory)"
+msgid "MB graphics buffers may take unpacked (default: 1/8 of the memory)"
 msgstr ""
 
 #: src/settings.rs
-msgid "1 / 0: decode last session's pictures in the background at start (default: on, off headless)"
+msgid "any value: enable game debugger at start"
 msgstr ""
 
 #: src/settings.rs
-msgid "default for --gfx: kitty, iterm, sixel, fb or none"
+msgid "off: don't read gamepads; /dev/input/eventN: read just that device as a pad"
 msgstr ""
 
 #: src/settings.rs
@@ -1017,7 +1013,7 @@ msgid "the virtual console number the gpm mouse is read for (testing)"
 msgstr ""
 
 #: src/settings.rs
-msgid "off: don't read gamepads; /dev/input/eventN: read just that device as a pad"
+msgid "ms before infinite loop warning (0 = disabled, default: 5000)"
 msgstr ""
 
 #: src/settings.rs
@@ -1045,6 +1041,10 @@ msgid "1, with --headless: print the values of the buttons on screen before each
 msgstr ""
 
 #: src/settings.rs
+msgid "emuera: format log output like Emuera.exe (for headless mode)"
+msgstr ""
+
+#: src/settings.rs
 msgid "0 skips measuring how wide the terminal draws ambiguous characters"
 msgstr ""
 
@@ -1065,11 +1065,23 @@ msgid "all: compile every function at load instead of on its first call"
 msgstr ""
 
 #: src/settings.rs
+msgid "MB decoded picture files may take (default: 1/8 of the memory)"
+msgstr ""
+
+#: src/settings.rs
 msgid "file for the native profile (builds with --features profile; written on a clean exit)"
 msgstr ""
 
 #: src/settings.rs
 msgid "file kept updated with which ERB function runs, sampled every millisecond"
+msgstr ""
+
+#: src/settings.rs
+msgid "colour override for headless mode (e.g. 'fg=255,255,255 bg=0,0,0')"
+msgstr ""
+
+#: src/settings.rs
+msgid "0: don't save history log to global.sav"
 msgstr ""
 
 #: src/settings.rs
@@ -1110,6 +1122,22 @@ msgstr ""
 
 #: src/settings.rs
 msgid "the engine translate-shell (trans) uses (default: Google)"
+msgstr ""
+
+#: src/settings.rs
+msgid "1: enable internal TTY testing hooks"
+msgstr ""
+
+#: src/settings.rs
+msgid "any value: enable VM debugger at start"
+msgstr ""
+
+#: src/settings.rs
+msgid "1 / 0: decode last session's pictures in the background at start (default: on, off headless)"
+msgstr ""
+
+#: src/settings.rs
+msgid "default for --gfx: kitty, iterm, sixel, fb or none"
 msgstr ""
 
 #: src/tty/envvars.rs
@@ -1446,6 +1474,10 @@ msgid "(read-only)"
 msgstr ""
 
 #: src/tty.rs
+msgid "Initial seed"
+msgstr ""
+
+#: src/tty.rs
 msgid "Environment variables…  (the EMUERA_* ones emuera-tty reads)"
 msgstr ""
 
@@ -1657,6 +1689,10 @@ msgstr ""
 
 #: src/tty.rs
 msgid "the number the random generator started from (read-only); set EMUERA_SEED=N before starting for repeatable runs; RANDOMIZE / INITRAND in the game change it"
+msgstr ""
+
+#: src/tty.rs
+msgid "the seed at startup (read-only); never changes even when the game calls RANDOMIZE or INITRAND"
 msgstr ""
 
 #: src/tty.rs
