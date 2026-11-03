@@ -2283,9 +2283,17 @@ impl Picker {
                 "Test Dialog Boxes",
                 "Choose a dialog type to test. All use the unified settings dialog style.",
                 &[
-                    "Confirmation (Yes/No/Cancel)", "Multi-button (3 buttons)", "Text Input (with default)", "Secret Input (password)",
-                    "Progress Bar (determinate)", "Progress Bar (indeterminate)", "3x3 Options Grid", "5x5 Options Grid", "Long Word Test (word-wrapping)",
-                    "Full-Length Options (long text)", "Many Short Options (long list)",
+                    "Confirmation (Yes/No/Cancel)",
+                    "Multi-button (3 buttons)",
+                    "Text Input (with default)",
+                    "Secret Input (password)",
+                    "Progress Bar (determinate)",
+                    "Progress Bar (indeterminate)",
+                    "3x3 Options Grid",
+                    "5x5 Options Grid",
+                    "Long Word Test (word-wrapping)",
+                    "Full-Length Options (long text)",
+                    "Many Short Options (long list)",
                     "Back",
                 ],
                 11, // default to "Back"
@@ -2383,9 +2391,7 @@ impl Picker {
                     // inner_w is 30-72, button format is " {} " so max ~28-70 chars
                     // Use text that fits even at min width (30)
                     let long_text = "Very long option filling the dialog width";
-                    let buttons: Vec<String> = (1..=5).map(|i| {
-                        format!("Option {}: {}", i, long_text)
-                    }).collect();
+                    let buttons: Vec<String> = (1..=5).map(|i| format!("Option {}: {}", i, long_text)).collect();
                     let btn_refs: Vec<&str> = buttons.iter().map(|s| s.as_str()).collect();
                     self.dialog(
                         "Full-Length Options Test",
@@ -2397,9 +2403,7 @@ impl Picker {
                 }
                 Some(10) => {
                     // Many Short Options - dialog with many short buttons in a vertical list (one per row)
-                    let buttons: Vec<String> = (1..=20).map(|i| {
-                        format!("Option {:02}", i)
-                    }).collect();
+                    let buttons: Vec<String> = (1..=20).map(|i| format!("Option {:02}", i)).collect();
                     let btn_refs: Vec<&str> = buttons.iter().map(|s| s.as_str()).collect();
                     self.dialog(
                         "Many Short Options Test",

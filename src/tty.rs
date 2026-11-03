@@ -3225,10 +3225,7 @@ impl Tty {
                     } else {
                         // Single click: copy to clipboard
                         let text = initial_seed.to_string();
-                        let seq = format!(
-                            "\x1b]52;c;{}\x07",
-                            base64::engine::general_purpose::STANDARD.encode(text.as_bytes())
-                        );
+                        let seq = format!("\x1b]52;c;{}\x07", base64::engine::general_purpose::STANDARD.encode(text.as_bytes()));
                         if self.term != "hurd" && !sun_console(&self.term) {
                             write_all(seq.as_bytes());
                         }

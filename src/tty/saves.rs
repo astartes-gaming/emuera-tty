@@ -390,11 +390,8 @@ impl Tty {
         let default_help = t!("↑↓ choose  Enter pick  Esc back");
         // Wrap help text to fit the dialog width
         let inner_w = self.cols.saturating_sub(6).clamp(30, 110) - 2;
-        let help_lines: Vec<String> = if help.is_empty() {
-            vec![default_help.to_string()]
-        } else {
-            help.split('\n').flat_map(|line| wrap_text(line, inner_w)).collect()
-        };
+        let help_lines: Vec<String> =
+            if help.is_empty() { vec![default_help.to_string()] } else { help.split('\n').flat_map(|line| wrap_text(line, inner_w)).collect() };
         let help_lines_ref: Vec<&str> = help_lines.iter().map(|s| s.as_str()).collect();
         let vis = rows.len().min(self.rows.saturating_sub(5 + help_lines_ref.len()).max(3));
         let start = sel.saturating_sub(vis.saturating_sub(1)).min(rows.len() - vis);
