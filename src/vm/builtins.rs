@@ -973,6 +973,9 @@ impl Vm {
                 if self.fe.await_input(&mut self.con, &mut self.res, ms as u64) {
                     return Err(Ctrl::Quit);
                 }
+                // a real-time game's frame: the infinite loop timer starts
+                // over (Emuera's Await: UpdateCheckInfiniteLoopState)
+                self.loop_check_time = std::time::Instant::now();
             }
             "VARSETEX" => {
                 // VARSETEX "VAR:i:j", value, all_rows = 1, start = 0, end
@@ -1069,6 +1072,9 @@ impl Vm {
                         r => break r,
                     }
                 };
+                // an input, if a timed one (a real-time game's frame): the
+                // infinite loop timer starts over, as at any input
+                self.loop_check_time = std::time::Instant::now();
                 for k in 0..6 {
                     self.set_global_i("RESULT", k, 0);
                 }

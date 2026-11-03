@@ -245,3 +245,21 @@ fn sorted_load_order_follows_the_shipped_emuera() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A real-time game's frame loop (AWAIT, or a timed INPUTMOUSEKEY, every
+/// frame) never trips the infinite loop warning: as in Emuera, both start
+/// its timer over. A loop without them does.
+#[test]
+fn frame_loops_are_not_infinite_loops() {
+    let dir = temp_dir("frame-loop");
+    let looped = |body: &str| {
+        let erb = format!("@SYSTEM_TITLE\nLOCAL = GETMILLISECOND()\nWHILE GETMILLISECOND() - LOCAL < 700\n{}\nWEND\nPRINTL done\nQUIT\n", body);
+        game(&dir, &[("ERB/T.ERB", &erb), ("emuera.config", "無限ループ警告までのミリ秒数:200\n")]);
+        run(&dir, b"")
+    };
+    let text = looped("  AWAIT 0");
+    assert!(text.contains("done") && !text.contains("note:"), "{}", text);
+    let text = looped("  LOCAL:1 += 1");
+    assert!(text.contains("done") && text.contains("note:"), "{}", text);
+    let _ = std::fs::remove_dir_all(&dir);
+}

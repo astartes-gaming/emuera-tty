@@ -21,6 +21,7 @@
 
 use super::{Backend, Placement};
 use base64::Engine;
+use image::ImageEncoder;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -167,26 +168,31 @@ impl Kitty {
             self.next_id = self.next_id.wrapping_add(1).max(1);
             id
         });
-        // zlib-compressed (o=z): a picture redrawn every frame (a game's
-        // whole-window CBG, mostly one colour) shrinks a hundredfold, which
-        // is what limits the frame rate (and over SSH, everything). Level 2,
-        // not 1: flate2's zlib-rs backend writes level 1 as fixed-Huffman
-        // blocks, and Ghostty 1.3's inflater crashes on a large stream of
-        // those; level 2 has its own tables, is a third smaller, as fast
+        // compressed: a picture redrawn every frame (a game's whole-window
+        // CBG, mostly one colour) shrinks a hundredfold, which is what
+        // limits the frame rate (and over SSH, everything). As a PNG
+        // (f=100), not zlib'd pixels (o=z): Ghostty 1.3's zlib inflater
+        // crashes the whole terminal on any fixed-Huffman block, which a
+        // zlib encoder writes wherever one comes out smaller (one row of
+        // AnonTW's title at 42-px cells), while its PNGs go through another
+        // decoder. The fast PNG is smaller and quicker to make too (fdeflate,
+        // with the filters: 20 ms against zlib level 2's 50 for a
+        // 2733×1462 picture)
         let raw = p.img.as_raw();
-        let mut z = flate2::write::ZlibEncoder::new(Vec::with_capacity(raw.len() / 8), flate2::Compression::new(2));
-        let packed = z.write_all(raw).and_then(|_| z.finish()).ok().filter(|v| v.len() < raw.len());
-        let (bytes, o) = match &packed {
-            Some(v) => (v.as_slice(), ",o=z"),
-            None => (raw.as_slice(), ""),
-        };
+        let mut png = Vec::with_capacity(raw.len() / 8);
+        let packed =
+            image::codecs::png::PngEncoder::new_with_quality(&mut png, image::codecs::png::CompressionType::Fast, image::codecs::png::FilterType::Adaptive)
+                .write_image(raw, p.img.width(), p.img.height(), image::ExtendedColorType::Rgba8)
+                .is_ok();
+        let (bytes, format) =
+            if packed { (png.as_slice(), "f=100".to_string()) } else { (raw.as_slice(), format!("f=32,s={},v={}", p.img.width(), p.img.height())) };
         let data = base64::engine::general_purpose::STANDARD.encode(bytes);
         let chunks: Vec<&[u8]> = data.as_bytes().chunks(4096).collect();
         for (k, ch) in chunks.iter().enumerate() {
             let more = if k + 1 < chunks.len() { 1 } else { 0 };
             let mut cmd = Vec::with_capacity(ch.len() + 64);
             if k == 0 {
-                let _ = write!(cmd, "\x1b_Ga=t,f=32,s={},v={},i={},q=2{},m={};", p.img.width(), p.img.height(), id, o, more);
+                let _ = write!(cmd, "\x1b_Ga=t,{},i={},q=2,m={};", format, id, more);
             } else {
                 let _ = write!(cmd, "\x1b_Gm={},q=2;", more);
             }
@@ -489,7 +495,7 @@ mod tests {
         // 20x32 px in 10x16 cells: 2 columns, 2 rows
         k.draw(&mut out, &[placement(20, 32, 0, 32)], (10, 16));
         let s = String::from_utf8(out).unwrap();
-        assert!(s.starts_with("\x1bPtmux;\x1b\x1b_Ga=t,f=32,s=20,v=32,i=1,"), "{:?}", &s[..40]);
+        assert!(s.starts_with("\x1bPtmux;\x1b\x1b_Ga=t,f=100,i=1,"), "{:?}", &s[..40]);
         assert!(s.contains("\x1bPtmux;\x1b\x1b_Ga=p,U=1,i=1,p=1,c=2,r=2,q=2\x1b\x1b\\\x1b\\"), "{:?}", s);
         let (p, d) = ('\u{10EEEE}', DIACRITICS);
         let row = |r: usize, y: usize| format!("\x1b[{};5H\x1b[38;5;1m{p}{}{}{p}{}{}\x1b[39m", y, d[r], d[0], d[r], d[1]);
@@ -516,7 +522,10 @@ mod tests {
         k.draw(&mut out, &[p], (10, 16));
         let s = String::from_utf8(out).unwrap();
         // 26 px from 6 px down: 32 px, two rows
-        assert!(s.contains("s=20,v=32,"), "{:?}", &s[..60]);
+        let b64: String = s.split("q=2,m=0;").nth(1).unwrap().split('\x1b').next().unwrap().into();
+        let png = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let img = image::load_from_memory_with_format(&png, image::ImageFormat::Png).unwrap();
+        assert_eq!((img.width(), img.height()), (20, 32));
         assert!(s.contains("a=p,U=1,i=1,p=1,c=2,r=2,"), "{:?}", s);
     }
 
@@ -565,21 +574,19 @@ mod tests {
     /// placement, so the frame after the text is only placeholders.
     #[test]
     fn tmux_prepare_sends_first() {
-        use std::io::Read;
         let mut k = Kitty::new_tmux();
         let (mut pre, mut out) = (Vec::new(), Vec::new());
         let a = placement(20, 32, 0, 32);
         k.prepare(&mut pre, std::slice::from_ref(&a), (10, 16));
         k.draw(&mut out, std::slice::from_ref(&a), (10, 16));
         let (p, s) = (String::from_utf8(pre).unwrap(), String::from_utf8(out).unwrap());
-        assert!(p.contains("a=t,f=32,") && p.contains(",o=z,") && p.contains("a=p,U=1,i=1,"), "{:?}", p);
+        assert!(p.contains("a=t,f=100,") && !p.contains("o=z") && p.contains("a=p,U=1,i=1,"), "{:?}", p);
         assert!(!s.contains("_G") && s.contains('\u{10EEEE}'), "{:?}", s);
-        // the data is the picture, zlib-compressed
+        // the data is the picture, as a PNG
         let b64: String = p.split(";").nth(2).unwrap().split('\x1b').next().unwrap().into();
-        let z = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
-        let mut raw = Vec::new();
-        flate2::read::ZlibDecoder::new(&z[..]).read_to_end(&mut raw).unwrap();
-        assert_eq!(raw, a.img.as_raw().to_vec());
+        let png = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let back = image::load_from_memory_with_format(&png, image::ImageFormat::Png).unwrap().to_rgba8();
+        assert_eq!(back.as_raw(), a.img.as_raw());
     }
 
     /// Outside tmux nothing changes: plain commands, no placeholders.

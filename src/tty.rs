@@ -2552,16 +2552,19 @@ impl Tty {
         use crate::resources::CbgSrc;
         let cw = (con.font_size / 2.0).max(1.0);
         let lh = con.line_height.max(1.0);
-        let client_h = self.rows as f32 * lh;
+        // Emuera's client area: the rows under the top bar (row 1), the
+        // input line included; its pictures are offset by the bar's row
+        let area_rows = self.rows.saturating_sub(1);
+        let client_h = area_rows as f32 * lh;
         // the button under the mouse (button map colour)
         let hovered = self.mouse.and_then(|(c, r)| {
             let x = (c as f32 * cw + cw / 2.0) as i64;
-            let y = (r as f32 * lh + lh / 2.0 - client_h) as i64;
+            let y = (r.checked_sub(1)? as f32 * lh + lh / 2.0 - client_h) as i64;
             res.cbg_button_at(x, y)
         });
         let images = self.gfx.name() != "none" && !self.no_images;
         let (sx, sy) = (self.cell.0 as f32 / cw, self.cell.1 as f32 / lh);
-        let screen_px = (self.rows as u32 * self.cell.1.max(1)) as i32;
+        let screen_px = (area_rows as u32 * self.cell.1.max(1)) as i32;
         let mut out = Vec::new();
         for l in res.cbg.clone() {
             let src = match &l.button {
@@ -2650,7 +2653,7 @@ impl Tty {
                 key: format!("cbg{:x}@{}x{}", fp, pw, ph),
                 img: scaled,
                 col: left / self.cell.0.max(1) as i32,
-                row: top_c / ch,
+                row: top_c / ch + 1,
                 y_off: top_c % ch,
                 crop_top,
                 crop_h,
