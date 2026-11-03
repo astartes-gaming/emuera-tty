@@ -347,6 +347,9 @@ pub(crate) fn sized_dims(varsize: &HashMap<String, Vec<usize>>, name: &str, def:
 /// `crate::atomic64` because ARMv5, 32-bit PowerPC, MIPS... have no std
 /// `AtomicI64`.
 pub static CURRENT_SEED: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64::new(0);
+/// The seed at startup (before RANDOMIZE/INITRAND changes it), for the
+/// settings overlay to show.
+pub static INITIAL_SEED: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64::new(0);
 
 impl Vm {
     pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf) -> Vm {
@@ -359,6 +362,7 @@ impl Vm {
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0x1234_5678));
         CURRENT_SEED.store(seed, std::sync::atomic::Ordering::Relaxed);
+        INITIAL_SEED.store(seed, std::sync::atomic::Ordering::Relaxed);
         let tr_run = csv.tr.active();
         // EMUERA_VM_DEBUG=1 or --vm-debug enables the interactive debugger
         let debug_enabled = std::env::var("EMUERA_VM_DEBUG").is_ok();

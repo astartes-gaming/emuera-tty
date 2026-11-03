@@ -217,13 +217,8 @@ impl Tty {
                 Source::Fixed => tc!("setting source", "fixed"),
             };
 
-            // Compute label start column (after value field) on first line
-            let mut label_start = 1; // after frame border + space
-            match it.kind {
-                Kind::Bool => label_start += 4, // "[x] "
-                Kind::Color => label_start += field,
-                _ => label_start += field,
-            }
+            // Label starts after fixed-width value field (field=20) + space
+            let label_start = 1 + field + 1; // frame border + space + field + space
 
             for (line_idx, label_line) in lines.iter().enumerate() {
                 if row_idx < first_row {
@@ -237,12 +232,13 @@ impl Tty {
                 let _ = write!(out, "\x1b[{};{}H{}│{} ", r, left, frame, base);
                 let mut used = 1;
                 if line_idx == 0 {
-                    // First line: show the value field
+                    // First line: show the value field (all padded to field width)
                     match it.kind {
                         Kind::Bool => {
                             let on = v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE");
-                            let _ = write!(out, "[{}] ", if on { "x" } else { " " });
-                            used += 4;
+                            let val_str = format!("[{}]", if on { "x" } else { " " });
+                            let _ = write!(out, "{}{} ", fit(&val_str, field - 1), base);
+                            used += field;
                         }
                         Kind::Color => {
                             let c = rgb(&v).unwrap_or((0, 0, 0));

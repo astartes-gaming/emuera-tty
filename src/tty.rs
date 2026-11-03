@@ -3083,25 +3083,23 @@ impl Tty {
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ENV_VARS, ITEMS};
         let mut st = Settings::load();
-        let seed_row = format!(
-            "{} {}  {}",
-            crate::i18n::pad(&t!("Random seed"), 18),
-            crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64,
-            t!("(read-only)")
-        );
         // the variables page is only offered when one of its variables is set
         let env_any = ENV_VARS.iter().any(|(name, _)| std::env::var_os(name).is_some());
         let mut sel = 0usize;
         let mut note = String::new();
         // a translator test running: (its answer, when it began, what is tested)
         let mut test: Option<(std::sync::mpsc::Receiver<Result<String, String>>, Instant, String)> = None;
-        // an action row's id in the `match` below (the seed row has none)
+        // an action row's id in the `match` below (the seed rows have none)
         const SEED_ROW: usize = usize::MAX;
         let exit = loop {
             // the settings shown (the translation ones hide while the
             // Translator is off) and the rows after them: (text, action id)
             let vis: Vec<usize> = ITEMS.iter().enumerate().filter(|(_, it)| st.shown(it)).map(|(i, _)| i).collect();
-            let mut rows: Vec<(String, usize)> = vec![(seed_row.clone(), SEED_ROW)];
+            let current_seed = crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64;
+            let initial_seed = crate::vm::INITIAL_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64;
+            let seed_row = format!("{} {}  {}", crate::i18n::pad(&t!("Random seed"), 18), current_seed, t!("(read-only)"));
+            let initial_seed_row = format!("{} {}  {}", crate::i18n::pad(&t!("Initial seed"), 18), initial_seed, t!("(read-only)"));
+            let mut rows: Vec<(String, usize)> = vec![(seed_row, SEED_ROW), (initial_seed_row, SEED_ROW)];
             if env_any {
                 rows.push((t!("Environment variables…  (the EMUERA_* ones emuera-tty reads)"), 0));
             }
@@ -3740,6 +3738,8 @@ impl Tty {
             crate::i18n::tr(ITEMS[vis[sel]].help)
         } else if sel == vis.len() {
             t!("the number the random generator started from (read-only); set EMUERA_SEED=N before starting for repeatable runs; RANDOMIZE / INITRAND in the game change it")
+        } else if sel == vis.len() + 1 {
+            t!("the seed at startup (read-only); never changes even when the game calls RANDOMIZE or INITRAND")
         } else {
             t!("↑↓ choose  ←→ / Enter change  Esc close")
         };
@@ -3792,10 +3792,14 @@ impl Tty {
             let col = left + 1 + head_cols + gap + UnicodeWidthStr::width(mem_label.as_str()) + 1;
             let _ = write!(out, "\x1b[{};{}H{}{}{}", top + 1, col, title, self.mem_fg(crate::sys::memory_level(b)), live);
         }
+        // Compute max label display width for alignment
+        let max_label_w = vis.iter().map(|&ix| crate::i18n::width(&crate::i18n::tr(ITEMS[ix].label))).max().unwrap_or(0);
         for (i, &ix) in vis.iter().enumerate() {
             let it = &ITEMS[ix];
             let later = if it.live { String::new() } else { format!("  {}", t!("(next start)")) };
-            let text = format!("  {} ‹ {} ›{}", crate::i18n::pad(&crate::i18n::tr(it.label), 18), st.shown_value(it.key), later);
+            let label = crate::i18n::tr(it.label);
+            let val = st.shown_value(it.key);
+            let text = format!("  {} ‹ {} ›{}", crate::i18n::pad(&label, max_label_w), val, later);
             line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
         }
         for (k, e) in extra.iter().enumerate() {
