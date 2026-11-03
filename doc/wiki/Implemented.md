@@ -102,6 +102,7 @@ and [doc/anchor.md](https://github.com/astartes-gaming/emuera-tty/blob/master/do
   click).
 - Infinite loop detection (`無限ループ警告までのミリ秒数` /
   `Milliseconds for infinite loop warning`): after a configurable timeout
-  (default 5 s) without input, a confirmation dialog appears (TUI); headless
+  (default 5 s) without input, a confirmation dialog names the file and
+  line running (TUI), and stopping is a script error there, as in Emuera; headless
   runs go on with a note on stderr; configurable via `emuera.config`, the in-game
   settings (Environment tab), or `EMUERA_INFINITE_LOOP_ALERT_TIME`.

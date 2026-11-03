@@ -1,7 +1,9 @@
 ## emuera-tty's settings (F3)
 
 F3 or Ctrl-O in a game (F3 unless a keyboard macro is stored on it), or *⚙
-Settings* in the launcher. ↑ / ↓ choose, ← / → or Enter change, Esc closes;
+Settings* in the launcher. ↑ / ↓ choose (PgUp / PgDn, Home / End jump;
+on a short terminal the list scrolls, ▲ / ▼ marking more), ← / → or
+Enter change, Esc closes;
 changes are saved at once in `~/.config/emuera-tty/config` and, except
 where marked, apply to the running game:
 

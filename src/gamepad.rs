@@ -510,7 +510,7 @@ mod tests {
         // a keyboard's: no BTN_SOUTH
         assert!(!has_bit("120013 803078f800d001 feffffdfffefffff fffffffffffffffe", 0x130, 64));
         // 32-bit longs: bit 0x130 is in the 10th word from the end
-        let mut w = vec!["0"; 10];
+        let mut w = ["0"; 10];
         w[0] = "10000";
         assert!(has_bit(&w.join(" "), 0x130, 32));
     }

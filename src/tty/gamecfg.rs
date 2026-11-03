@@ -24,9 +24,10 @@ struct Geo {
     /// the tab bar's row and each tab's columns (1-based)
     tab_row: usize,
     tabs: Vec<(usize, usize)>,
-    /// the first item row, and the first item shown
+    /// the first item row, and the item on each row shown (a long
+    /// name wraps onto more rows)
     items_top: usize,
-    first: usize,
+    row_items: Vec<usize>,
 }
 
 impl Tty {
@@ -78,8 +79,8 @@ impl Tty {
                                 tab = t;
                                 sel = 0;
                             }
-                        } else if y >= geo.items_top && y - geo.items_top + geo.first < items.len() {
-                            sel = y - geo.items_top + geo.first;
+                        } else if let Some(&i) = y.checked_sub(geo.items_top).and_then(|r| geo.row_items.get(r)) {
+                            sel = i;
                             act = 1;
                         }
                     }
@@ -198,6 +199,7 @@ impl Tty {
         let _ = write!(out, "\x1b[{};{}H{}├{}┤", top + 3, left, frame, "─".repeat(inner));
         // the settings: a check box or a value, then the name (word-wrapped)
         let mut row_idx = 0;
+        let mut row_items = Vec::new();
         for (item_idx, it) in items.iter().enumerate() {
             let lines = &item_rows[item_idx];
             let (v, src) = vals.get(it);
@@ -217,8 +219,9 @@ impl Tty {
                 Source::Fixed => tc!("setting source", "fixed"),
             };
 
-            // Label starts after fixed-width value field (field=20) + space
-            let label_start = 1 + field + 1; // frame border + space + field + space
+            // continuation lines start under the name: after the space
+            // and the value field
+            let label_start = field;
 
             for (line_idx, label_line) in lines.iter().enumerate() {
                 if row_idx < first_row {
@@ -229,6 +232,7 @@ impl Tty {
                     break;
                 }
                 let r = top + 4 + row_idx - first_row;
+                row_items.push(item_idx);
                 let _ = write!(out, "\x1b[{};{}H{}│{} ", r, left, frame, base);
                 let mut used = 1;
                 if line_idx == 0 {
@@ -279,7 +283,7 @@ impl Tty {
         row(&mut out, top + 6 + max_vis_rows, &format!(" {}", n.trim_start()), &notec);
         let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 7 + max_vis_rows, left, frame, "─".repeat(inner));
         write_all(&out);
-        Geo { tab_row: top + 2, tabs, items_top: top + 4, first: first_row }
+        Geo { tab_row: top + 2, tabs, items_top: top + 4, row_items }
     }
 }
 

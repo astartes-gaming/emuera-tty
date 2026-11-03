@@ -15,7 +15,9 @@ overwrites (see [Save history](Playing#save-history)).
 - **Screen looks broken:** Ctrl-L redraws; try `--gfx none` to rule out
   image problems; make the window wider.
 - **Infinite loop detection:** if a script runs too long without input
-  (default 5 s), a prompt appears (TUI); headless runs go on, with a note
+  (default 5 s), a prompt shows the ERB file and line it is on (TUI).
+  Stopping it ends the script with an error at that line, as in Emuera;
+  headless runs go on, with a note
   on stderr (no one is there to answer, and on a slow machine a big game's
   day change takes that long). Set the time with *Milliseconds for
   infinite loop warning* in *Game settings → Environment*, or the game's

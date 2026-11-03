@@ -544,13 +544,13 @@ mod tests {
         let mut k = Kitty::new();
         let mut out = Vec::new();
         let a = placement(20, 32, 0, 32);
-        k.draw(&mut out, &[a.clone()], (10, 16));
+        k.draw(&mut out, std::slice::from_ref(&a), (10, 16));
         // a new picture in its place
         let mut img = image::RgbaImage::new(20, 32);
         img.put_pixel(0, 0, image::Rgba([1, 2, 3, 255]));
         let b = Placement { img: Rc::new(img), key: "b".into(), ..a.clone() };
         out.clear();
-        k.draw(&mut out, &[b.clone()], (10, 16));
+        k.draw(&mut out, std::slice::from_ref(&b), (10, 16));
         let s = String::from_utf8(out.clone()).unwrap();
         let (place, del) = (s.find("a=p,i=2,").unwrap(), s.find("a=d,d=i,i=1,").unwrap());
         assert!(place < del, "{:?}", s);
@@ -569,8 +569,8 @@ mod tests {
         let mut k = Kitty::new_tmux();
         let (mut pre, mut out) = (Vec::new(), Vec::new());
         let a = placement(20, 32, 0, 32);
-        k.prepare(&mut pre, &[a.clone()], (10, 16));
-        k.draw(&mut out, &[a.clone()], (10, 16));
+        k.prepare(&mut pre, std::slice::from_ref(&a), (10, 16));
+        k.draw(&mut out, std::slice::from_ref(&a), (10, 16));
         let (p, s) = (String::from_utf8(pre).unwrap(), String::from_utf8(out).unwrap());
         assert!(p.contains("a=t,f=32,") && p.contains(",o=z,") && p.contains("a=p,U=1,i=1,"), "{:?}", p);
         assert!(!s.contains("_G") && s.contains('\u{10EEEE}'), "{:?}", s);

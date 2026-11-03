@@ -324,6 +324,8 @@ struct Picker {
     note: String,
     mice: Option<crate::mice::Mice>,
     pending: Vec<u8>,
+    /// a dialog is up: clicks come as screen cells, not list rows
+    raw_clicks: bool,
     mode: Mode,
     /// the browser was opened from the library to add a game
     adding: bool,
@@ -402,6 +404,7 @@ fn run_screen(mode: Mode, start: &Path, clone: Option<&str>, game_debug: bool, v
         note: String::new(),
         mice,
         pending: Vec::new(),
+        raw_clicks: false,
         mode,
         adding: false,
         updating: None,
@@ -473,9 +476,10 @@ const DLG_HILITE_FG: (u8, u8, u8) = (0, 0, 0);
 const DLG_HELP_FG: (u8, u8, u8) = (255, 220, 90);
 
 /// True-colour SGR sequence for foreground and background.
+/// A box colour pair in the terminal's colour depth (16 colours on the
+/// Linux console, 256 where TERM says so), as the game screen draws them.
 fn sgr(fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool) -> String {
-    let b = if bold { "1;" } else { "" };
-    format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2)
+    crate::tty::launcher_style(fg, bg, bold)
 }
 
 /// Reset SGR.
@@ -1424,7 +1428,8 @@ impl Picker {
                 let _ = write!(s, "\x1b[{};{}H{}│{}{}│", btn_row_idx + 1 + row_idx, left, frame, btn_row, frame);
             }
             // Help line
-            let help = t!("←→ choose  Enter pick  Esc cancel");
+            // (the arrows that move: ↑↓ too when the buttons take rows)
+            let help = if btn_rows.len() > 1 { t!("↑↓←→ choose  Enter pick  Esc cancel") } else { t!("←→ choose  Enter pick  Esc cancel") };
             box_row(&mut s, btn_row_idx + 1 + btn_rows.len(), left, inner_w, &frame, &format!(" {}", help), &help_style);
             // Bottom border
             let _ = write!(s, "\x1b[{};{}H{}└{}┘{}", btn_row_idx + 2 + btn_rows.len(), left, frame, "─".repeat(inner_w), SGR0);
@@ -2432,6 +2437,7 @@ impl Picker {
     /// coordinates are raw screen cells (for dialogs); otherwise they are
     /// converted to list-relative coordinates.
     fn next_act(&mut self, dialog: bool) -> Act {
+        self.raw_clicks = dialog;
         loop {
             if let Some((a, used)) = self.parse() {
                 self.pending.drain(..used);
@@ -2475,10 +2481,6 @@ impl Picker {
                 let (cols, rows) = term_size();
                 let evs = self.mice.as_mut().map(|m| m.read((8, 16), cols, rows)).unwrap_or_default();
                 for (btn, x, y, press) in evs {
-                    if dialog {
-                        // In dialog mode: return raw screen coordinates
-                        return Act::Click(x as usize, y as usize);
-                    }
                     if let Some(a) = self.mouse(btn, x, y, press) {
                         return a;
                     }
@@ -2500,6 +2502,8 @@ impl Picker {
         match btn & !(4 | 8 | 16) {
             64 => Some(Act::Move(-3)),
             65 => Some(Act::Move(3)),
+            // (a dialog's buttons: where on the screen)
+            0 if press && self.raw_clicks => Some(Act::Click(x as usize, y as usize)),
             0 if press => {
                 let row = (y as usize).checked_sub(3)?; // list starts on screen row 3
                 (row < self.list_rows()).then_some(Act::Click(x as usize, self.top + row))
@@ -3474,6 +3478,7 @@ mod render_tests {
                 note: t!("Removed {game} from the list (its files are still there).", game = "/nonexistent/eraMegaten"),
                 mice: None,
                 pending: Vec::new(),
+                raw_clicks: false,
                 mode: Mode::Library,
                 adding: false,
                 updating: None,

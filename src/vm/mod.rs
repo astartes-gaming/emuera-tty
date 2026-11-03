@@ -294,8 +294,6 @@ pub struct Vm {
     /// instructions run, for the periodic screen update (`tick`)
     ticks: u32,
     last_draw: std::time::Instant,
-    /// Infinite loop detection: instructions since last input/check.
-    loop_check_count: u64,
     /// Infinite loop detection: time of last input (or last prompt "No").
     loop_check_time: std::time::Instant,
     /// ISTIMEOUT: did the last timed input expire?
@@ -421,7 +419,6 @@ impl Vm {
             macro_queue: Default::default(),
             ticks: 0,
             last_draw: std::time::Instant::now(),
-            loop_check_count: 0,
             loop_check_time: std::time::Instant::now(),
             is_timeout: false,
             last_input: String::new(),
@@ -1899,7 +1896,9 @@ impl Vm {
             }
             self.ticks = self.ticks.wrapping_add(1);
             if self.ticks & 0xFFF == 0 {
-                self.tick()?;
+                if let Err(e) = self.tick() {
+                    return Err(self.located(e, &f, &body, pc));
+                }
             }
             // Debugger: check for breakpoints / step mode before executing
             if crate::vm::debugger::debug_enabled() {
@@ -2780,7 +2779,6 @@ impl Vm {
         };
         // Reset infinite loop timer on any input (including timeout/quit)
         self.loop_check_time = std::time::Instant::now();
-        self.loop_check_count = 0;
         let r = match r {
             InputResult::Line(s) => {
                 self.macro_queue = crate::macros::expand(&s).into();
@@ -2904,33 +2902,37 @@ impl Vm {
         self.note_running();
         self.fe.busy(&self.con);
 
-        // Infinite loop detection (Emuera's "InfiniteLoopAlertTime" config)
+        // Infinite loop detection (Emuera's "InfiniteLoopAlertTime" config):
+        // a script running this long since the last input asks the player
+        // whether to stop it (Process.checkInfiniteLoop)
         let alert_ms = self.con.infinite_loop_alert_time;
         if alert_ms > 0 && !self.con.disable_infinite_loop_detection {
-            self.loop_check_count += 1;
-            // Check every ~4096 instructions (0xFFF), matching the tick frequency
-            if self.loop_check_count >= 1 {
-                let elapsed = self.loop_check_time.elapsed().as_millis() as u64;
-                if elapsed >= alert_ms {
-                    // Show the infinite loop warning prompt
-                    let msg = format!(
-                        "Currently executing line {} of {}.\n{}ms elapsed since last input, {} instructions executed.\nAbort and force exit (you will lose all unsaved progress!)?",
-                        self.frames.last().map_or(0, |f| f.pc),
-                        self.con.running,
-                        elapsed,
-                        self.loop_check_count * 4096
-                    );
-                    if self.fe.confirm(&mut self.con, &mut self.res, &msg) {
-                        // Second confirmation
-                        let msg2 = "Are you sure? You may also wait for the line to finish (lines may occasionally freeze up).";
-                        if self.fe.confirm2(&mut self.con, &mut self.res, msg2) {
-                            return Err(Ctrl::Quit);
-                        }
+            let elapsed = self.loop_check_time.elapsed().as_millis() as u64;
+            if elapsed >= alert_ms {
+                let (file, line, func) = match self.frames.last() {
+                    Some(f) => {
+                        let (file, line) = f.body.lines.get(f.pc.saturating_sub(1)).copied().unwrap_or((f.func.file, f.func.line));
+                        (self.prog.files.get(file as usize).cloned().unwrap_or_default(), line, f.func.name.clone())
                     }
-                    // User chose to continue: reset timer and counter
-                    self.loop_check_time = std::time::Instant::now();
-                    self.loop_check_count = 0;
+                    None => (String::new(), 0, String::new()),
+                };
+                let msg = t!(
+                    "Now running line {line} of {file} (@{func}).\n{ms} ms have passed since the last input.\nStop the script? (unsaved progress is lost)",
+                    line = line,
+                    file = file,
+                    func = func,
+                    ms = elapsed
+                );
+                if self.fe.confirm(&mut self.con, &mut self.res, &msg) {
+                    let msg2 = t!("Are you sure? You may also wait for the line to finish (lines may occasionally freeze up).");
+                    if self.fe.confirm2(&mut self.con, &mut self.res, &msg2) {
+                        // as Emuera: an error at this line, which ends the
+                        // script (SelectExitInfiniteLoopMB)
+                        return Err(Ctrl::Error(t!("stopped by the player: a possible infinite loop"), false));
+                    }
                 }
+                // going on: count again from now
+                self.loop_check_time = std::time::Instant::now();
             }
         }
 
@@ -3193,6 +3195,12 @@ pub mod prof {
     }
 }
 
+/// Emuera's event functions (IdentifierDictionary.IsEventLabelName): every
+/// definition of one runs, by #ONLY / #PRI / #LATER / #SINGLE.
+pub fn is_event_name(name: &str) -> bool {
+    matches!(name, "EVENTFIRST" | "EVENTTRAIN" | "EVENTSHOP" | "EVENTBUY" | "EVENTCOM" | "EVENTTURNEND" | "EVENTCOMEND" | "EVENTEND" | "EVENTLOAD")
+}
+
 #[cfg(test)]
 mod nameinfo_tests {
     use super::*;
@@ -3218,10 +3226,4 @@ mod nameinfo_tests {
             assert!(std::ptr::eq(u.system.unwrap(), d) && matches!(u.table, Tbl::Own) && u.pseudo);
         }
     }
-}
-
-/// Emuera's event functions (IdentifierDictionary.IsEventLabelName): every
-/// definition of one runs, by #ONLY / #PRI / #LATER / #SINGLE.
-pub fn is_event_name(name: &str) -> bool {
-    matches!(name, "EVENTFIRST" | "EVENTTRAIN" | "EVENTSHOP" | "EVENTBUY" | "EVENTCOM" | "EVENTTURNEND" | "EVENTCOMEND" | "EVENTEND" | "EVENTLOAD")
 }

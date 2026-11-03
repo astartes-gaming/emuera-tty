@@ -539,6 +539,80 @@ fn parse_osc11(s: &str) -> Option<Rgb> {
 }
 
 /// What the settings overlay asks the input loop to do next.
+/// The widest label of the settings shown, which the values line up after.
+fn settings_label_w(vis: &[usize]) -> usize {
+    vis.iter().map(|&ix| crate::i18n::width(&crate::i18n::tr(crate::settings::ITEMS[ix].label))).max().unwrap_or(0)
+}
+
+/// The SGR sequence for a box's colour pair in colour depth `color`
+/// (`fbterm`: its own 256-colour escapes; `bright`: the terminal has the
+/// 9x / 10x bright codes).
+fn box_style(color: ColorMode, fbterm: bool, bright: bool, fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool) -> String {
+    let b = if bold { "1;" } else { "" };
+    match color {
+        ColorMode::True => format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2),
+        ColorMode::C256 if fbterm => {
+            format!("\x1b[0;{}m\x1b[1;{}}}\x1b[2;{}}}", b.trim_end_matches(';'), rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2)))
+        }
+        ColorMode::C256 => format!("\x1b[0;{}38;5;{};48;5;{}m", b, rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2))),
+        // 16 colours: white / yellow on black, black on white
+        ColorMode::C16 => {
+            let f = if fg == (0, 0, 0) {
+                "30"
+            } else if fg.2 < 100 {
+                if bright {
+                    "93"
+                } else {
+                    "33;1"
+                }
+            } else if bright {
+                "97"
+            } else {
+                "37;1"
+            };
+            let k = if bg == (0, 0, 0) || bg.0 < 128 { 40 } else { 47 };
+            format!("\x1b[0;{}{};{}m", b, f, k)
+        }
+    }
+}
+
+/// The colour depth asked for with `EMUERA_COLORS`, and the one `TERM` /
+/// `COLORTERM` suggest.
+fn color_modes() -> (Option<ColorMode>, ColorMode) {
+    let term = std::env::var("TERM").unwrap_or_default();
+    let colorterm = std::env::var("COLORTERM").unwrap_or_default();
+    let forced = match std::env::var("EMUERA_COLORS").as_deref() {
+        Ok("truecolor") | Ok("24bit") => Some(ColorMode::True),
+        Ok("256") => Some(ColorMode::C256),
+        Ok("16") => Some(ColorMode::C16),
+        _ => None,
+    };
+    let detected = if term == "linux" || term == "hurd" {
+        ColorMode::C16
+    } else if term.starts_with("fbterm") {
+        // with its own escapes (see `sgr`)
+        ColorMode::C256
+    } else if colorterm.contains("truecolor") || colorterm.contains("24bit") || term.contains("kitty") || term.contains("foot") || term.contains("direct") {
+        ColorMode::True
+    } else if term.contains("256") {
+        ColorMode::C256
+    } else {
+        ColorMode::True
+    };
+    (forced, detected)
+}
+
+/// [`box_style`] for the launcher's boxes, which have no `Tty`: the depth
+/// the terminal gets in a game.
+pub(crate) fn launcher_style(fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool) -> String {
+    let (forced, detected) = color_modes();
+    let term = std::env::var("TERM").unwrap_or_default();
+    box_style(forced.unwrap_or(detected), term.starts_with("fbterm"), term != "hurd", fg, bg, bold)
+}
+
+/// The top bar's [ Settings ] in `btn_map` (no game button has this id).
+const SETTINGS_BUTTON: usize = usize::MAX;
+
 enum OverlayExit {
     Close,
     /// the game's settings (emuera.config) changed
@@ -1064,25 +1138,7 @@ impl Tty {
     pub fn new(gfx_pref: &str) -> Result<Tty, String> {
         let raw_mode = crate::sys::RawMode::enter()?;
         let term = std::env::var("TERM").unwrap_or_default();
-        let colorterm = std::env::var("COLORTERM").unwrap_or_default();
-        let forced = match std::env::var("EMUERA_COLORS").as_deref() {
-            Ok("truecolor") | Ok("24bit") => Some(ColorMode::True),
-            Ok("256") => Some(ColorMode::C256),
-            Ok("16") => Some(ColorMode::C16),
-            _ => None,
-        };
-        let detected = if term == "linux" || term == "hurd" {
-            ColorMode::C16
-        } else if term.starts_with("fbterm") {
-            // with its own escapes (see `sgr`)
-            ColorMode::C256
-        } else if colorterm.contains("truecolor") || colorterm.contains("24bit") || term.contains("kitty") || term.contains("foot") || term.contains("direct") {
-            ColorMode::True
-        } else if term.contains("256") {
-            ColorMode::C256
-        } else {
-            ColorMode::True
-        };
+        let (forced, detected) = color_modes();
         let color = forced.unwrap_or(detected);
         let (cols, rows, xp, yp) = winsize();
         let mut t = Tty::blank(Some(raw_mode), cols, rows, color);
@@ -2698,7 +2754,7 @@ impl Tty {
         }
         // as tall as the screen allows (Emuera shows all of it: AnonTW's
         // ability descriptions run to a dozen lines); a cut one ends in …
-        let most = self.rows.saturating_sub(2).max(1);
+        let most = self.rows.saturating_sub(3).max(1);
         if lines.len() > most {
             lines.truncate(most);
             if let Some((l, w)) = lines.last_mut() {
@@ -2713,7 +2769,9 @@ impl Tty {
         let w = lines.iter().map(|l| l.1).max().unwrap_or(0) + 2;
         let h = lines.len();
         let view = self.rows.saturating_sub(1);
-        let top = if my + 2 + h <= view { my + 2 } else { (my + 1).saturating_sub(h).max(1) };
+        // (row 1 is the top bar: never over it, and `draw_tooltip`'s rows
+        // are counted from below it)
+        let top = if my + 2 + h <= view { my + 2 } else { (my + 1).saturating_sub(h).max(2) };
         let left = (mx + 2).min(self.cols.saturating_sub(w)).max(1);
         TipBox { lines, top, left, w }
     }
@@ -3081,6 +3139,28 @@ impl Tty {
     /// `settings::ITEMS`, changed with ← / → / Enter and saved at once;
     /// most apply to the running game. Images are hidden while it is up
     /// (kitty would draw them over it).
+    /// F3 / Ctrl-O or the top bar's button at a game's input: the settings
+    /// overlay, then what the player chose there (None: back to the input).
+    fn open_settings(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> Option<InputResult> {
+        match self.settings_overlay(con, res, req) {
+            OverlayExit::Close => None,
+            OverlayExit::Title => self.anchor_hotkey(con, res, req, &Key::Title),
+            OverlayExit::Restart => self.anchor_hotkey(con, res, req, &Key::Restart),
+            OverlayExit::RestartDebug => self.restart(con, res, req, true),
+            OverlayExit::Reload => Some(InputResult::Hotkey(crate::frontend::Hotkey::Reload)),
+            OverlayExit::Config => Some(InputResult::Hotkey(crate::frontend::Hotkey::Config)),
+            OverlayExit::Quit => Some(InputResult::Quit),
+            OverlayExit::SwitchGame => {
+                // start over on the launcher (this game's unsaved
+                // progress goes, as the overlay warns)
+                self.shutdown();
+                let e = crate::sys::exec_self(&["--choose".into()]);
+                eprintln!("emuera-tty: can't restart: {}", e);
+                Some(InputResult::Quit)
+            }
+        }
+    }
+
     fn settings_overlay(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> OverlayExit {
         use crate::settings::{Settings, ENV_VARS, ITEMS};
         let mut st = Settings::load();
@@ -3100,8 +3180,10 @@ impl Tty {
             let vis: Vec<usize> = ITEMS.iter().enumerate().filter(|(_, it)| st.shown(it)).map(|(i, _)| i).collect();
             let current_seed = crate::vm::CURRENT_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64;
             let initial_seed = crate::vm::INITIAL_SEED.load(std::sync::atomic::Ordering::Relaxed) as i64;
-            let seed_row = format!("{} {}  {}", crate::i18n::pad(&t!("Random seed"), 18), current_seed, t!("(read-only)"));
-            let initial_seed_row = format!("{} {}  {}", crate::i18n::pad(&t!("Initial seed"), 18), initial_seed, t!("(read-only)"));
+            // (in line with the settings' values)
+            let lw = settings_label_w(&vis) + 3;
+            let seed_row = format!("{}{}  {}", crate::i18n::pad(&t!("Random seed"), lw), current_seed, t!("(read-only)"));
+            let initial_seed_row = format!("{}{}  {}", crate::i18n::pad(&t!("Initial seed"), lw), initial_seed, t!("(read-only)"));
             let mut rows: Vec<(String, usize)> = vec![(seed_row, SEED_ROW), (initial_seed_row, SEED_ROW)];
             if env_any {
                 rows.push((t!("Environment variables…  (the EMUERA_* ones emuera-tty reads)"), 0));
@@ -3159,6 +3241,10 @@ impl Tty {
             match k {
                 Key::Up | Key::Char('k') => sel = (sel + n - 1) % n,
                 Key::Down | Key::Char('j') => sel = (sel + 1) % n,
+                Key::PageUp => sel = sel.saturating_sub(10),
+                Key::PageDown => sel = (sel + 10).min(n - 1),
+                Key::Home => sel = 0,
+                Key::End => sel = n - 1,
                 Key::Esc | Key::Settings | Key::Char('q') => break OverlayExit::Close,
                 Key::CtrlC => break OverlayExit::Quit,
                 Key::Enter | Key::Right | Key::Char(' ') | Key::Char('l') => act = 1,
@@ -3167,9 +3253,10 @@ impl Tty {
                     64 => sel = (sel + n - 1) % n,
                     65 => sel = (sel + 1) % n,
                     0 => {
+                        let (top, first, shown) = geo;
                         let row = y as usize;
-                        if row > geo.0 && row <= geo.0 + n {
-                            sel = row - geo.0 - 1;
+                        if row > top && row <= top + shown {
+                            sel = row - top - 1 + first;
                             act = 1;
                         }
                     }
@@ -3695,32 +3782,7 @@ impl Tty {
 
     /// The SGR sequence for an overlay colour pair, in the terminal's depth.
     fn ov_style(&self, fg: (u8, u8, u8), bg: (u8, u8, u8), bold: bool) -> String {
-        let b = if bold { "1;" } else { "" };
-        match self.color {
-            ColorMode::True => format!("\x1b[0;{}38;2;{};{};{};48;2;{};{};{}m", b, fg.0, fg.1, fg.2, bg.0, bg.1, bg.2),
-            ColorMode::C256 if self.fbterm => {
-                format!("\x1b[0;{}m\x1b[1;{}}}\x1b[2;{}}}", b.trim_end_matches(';'), rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2)))
-            }
-            ColorMode::C256 => format!("\x1b[0;{}38;5;{};48;5;{}m", b, rgb256(Rgb(fg.0, fg.1, fg.2)), rgb256(Rgb(bg.0, bg.1, bg.2))),
-            // 16 colours: white / yellow on black, black on white
-            ColorMode::C16 => {
-                let f = if fg == (0, 0, 0) {
-                    "30"
-                } else if fg.2 < 100 {
-                    if self.bright_codes {
-                        "93"
-                    } else {
-                        "33;1"
-                    }
-                } else if self.bright_codes {
-                    "97"
-                } else {
-                    "37;1"
-                };
-                let k = if bg == (0, 0, 0) || bg.0 < 128 { 40 } else { 47 };
-                format!("\x1b[0;{}{};{}m", b, f, k)
-            }
-        }
+        box_style(self.color, self.fbterm, self.bright_codes, fg, bg, bold)
     }
 
     /// The foreground-only SGR for a memory band, in the terminal's depth
@@ -3753,7 +3815,10 @@ impl Tty {
 
     /// Draw the overlay box; returns its top row (1-based, the title row)
     /// for mapping clicks.
-    fn draw_overlay(&self, st: &crate::settings::Settings, vis: &[usize], extra: &[&str], sel: usize, note: &str) -> (usize,) {
+    /// Draw the settings box, scrolled to show `sel` when the rows don't
+    /// all fit (an 80×24 terminal): returns the title row, the first row
+    /// shown and how many are.
+    fn draw_overlay(&self, st: &crate::settings::Settings, vis: &[usize], extra: &[&str], sel: usize, note: &str) -> (usize, usize, usize) {
         self.redraw_all.set(true);
         use crate::settings::ITEMS;
         let n = vis.len() + extra.len();
@@ -3780,7 +3845,9 @@ impl Tty {
         // (always three lines high, so the box doesn't move between rows)
         let mut help = wrap_words(&help, w.saturating_sub(3), 3);
         help.resize(3, String::new());
-        let h = n + 3 + help.len(); // title, rows, help, borders
+        let shown = n.min(self.rows.saturating_sub(3 + help.len()).max(3));
+        let first = sel.saturating_sub(shown - 1).min(n - shown);
+        let h = shown + 3 + help.len(); // title, rows, help, borders
         let left = (self.cols.saturating_sub(w)) / 2 + 1;
         let top = (self.rows.saturating_sub(h)) / 2 + 1;
         let mut out: Vec<u8> = Vec::new();
@@ -3825,26 +3892,33 @@ impl Tty {
             let col = left + 1 + head_cols + gap + UnicodeWidthStr::width(mem_label.as_str()) + 1;
             let _ = write!(out, "\x1b[{};{}H{}{}{}", top + 1, col, title, self.mem_fg(crate::sys::memory_level(b)), live);
         }
-        // Compute max label display width for alignment
-        let max_label_w = vis.iter().map(|&ix| crate::i18n::width(&crate::i18n::tr(ITEMS[ix].label))).max().unwrap_or(0);
-        for (i, &ix) in vis.iter().enumerate() {
-            let it = &ITEMS[ix];
-            let later = if it.live { String::new() } else { format!("  {}", t!("(next start)")) };
-            let label = crate::i18n::tr(it.label);
-            let val = st.shown_value(it.key);
-            let text = format!("  {} ‹ {} ›{}", crate::i18n::pad(&label, max_label_w), val, later);
-            line(&mut out, top + 2 + i, &text, if i == sel { &hilite } else { &normal });
-        }
-        for (k, e) in extra.iter().enumerate() {
-            let i = vis.len() + k;
-            line(&mut out, top + 2 + i, &format!("  {}", e), if i == sel { &hilite } else { &action });
+        let max_label_w = settings_label_w(vis);
+        for i in first..first + shown {
+            let (text, style) = match vis.get(i) {
+                Some(&ix) => {
+                    let it = &ITEMS[ix];
+                    let later = if it.live { String::new() } else { format!("  {}", t!("(next start)")) };
+                    let label = crate::i18n::tr(it.label);
+                    (format!("  {} ‹ {} ›{}", crate::i18n::pad(&label, max_label_w), st.shown_value(it.key), later), &normal)
+                }
+                None => (format!("  {}", extra[i - vis.len()]), &action),
+            };
+            // ▲ / ▼ in the margin: more rows above or below
+            let more = if i == first && first > 0 {
+                "▲"
+            } else if i + 1 == first + shown && i + 1 < n {
+                "▼"
+            } else {
+                " "
+            };
+            line(&mut out, top + 2 + i - first, &format!("{}{}", more, &text[1..]), if i == sel { &hilite } else { style });
         }
         for (k, l) in help.iter().enumerate() {
-            line(&mut out, top + 2 + n + k, &format!(" {}", l), &helpc);
+            line(&mut out, top + 2 + shown + k, &format!(" {}", l), &helpc);
         }
-        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 2 + n + help.len(), left, frame, "─".repeat(inner));
+        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 2 + shown + help.len(), left, frame, "─".repeat(inner));
         write_all(&out);
-        (top + 1,)
+        (top + 1, first, shown)
     }
 
     /// The top row: dark gray background, [ Settings ] button at left,
@@ -3852,18 +3926,19 @@ impl Tty {
     /// and translation status (queued/failed/cached).
     fn draw_top_bar(&mut self, out: &mut Vec<u8>) {
         let cols = self.cols;
-        // Dark gray background (237 in 256-color palette), light gray text (250)
-        let _ = write!(out, "\x1b[1;1H\x1b[48;5;237m\x1b[38;5;250m\x1b[K");
-        // Left: [ Settings ] button (keep background/foreground)
-        let settings_label = " [ Settings ] ";
-        let settings_width = settings_label.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+        // light grey on dark grey (as the terminal's colours allow)
+        let bar = self.ov_style((188, 188, 188), (58, 58, 58), false);
+        let _ = write!(out, "\x1b[1;1H{}\x1b[K", bar);
+        // Left: [ Settings ] button
+        let settings_label = format!(" [ {} ] ", t!("Settings"));
+        let settings_width = crate::i18n::width(&settings_label);
         let _ = write!(out, "\x1b[1;1H{}", settings_label);
         // Register the button in btn_map for click handling
         if self.btn_map.is_empty() {
             self.btn_map.push(Vec::new());
         }
-        self.btn_map[0] = vec![(0, settings_width, usize::MAX)]; // MAX = special ID for Settings
-                                                                 // Right: memory + translation stats
+        self.btn_map[0] = vec![(0, settings_width, SETTINGS_BUTTON)];
+        // Right: memory + translation stats
         let mut right_plain: Vec<String> = Vec::new();
         let mut right_styled: Vec<String> = Vec::new();
         if let Some(mem) = self.memory().filter(|_| self.show_memory) {
@@ -3874,11 +3949,11 @@ impl Tty {
                     let live_part = &mem[..peak_idx];
                     let peak_part = &mem[peak_idx..];
                     right_plain.push(mem.clone());
-                    let colored_mem = format!("{}{}\x1b[38;5;250m{}", self.mem_fg(lvl), live_part, peak_part);
+                    let colored_mem = format!("{}{}{}{}", self.mem_fg(lvl), live_part, bar, peak_part);
                     right_styled.push(colored_mem);
                 } else {
                     right_plain.push(mem.clone());
-                    let colored_mem = format!("{}{}\x1b[38;5;250m", self.mem_fg(lvl), mem);
+                    let colored_mem = format!("{}{}{}", self.mem_fg(lvl), mem, bar);
                     right_styled.push(colored_mem);
                 }
             } else {
@@ -3889,7 +3964,7 @@ impl Tty {
         if let Some(mt) = &self.mt {
             let (queued, failed, cached) = mt.stats();
             if queued > 0 || failed > 0 || cached > 0 {
-                let tr_text = format!("{} trns, {} fail, {} cache", queued, failed, cached);
+                let tr_text = t!("translating {queued}, failed {failed}, cached {cached}", queued = queued, failed = failed, cached = cached);
                 right_plain.push(tr_text.clone());
                 right_styled.push(tr_text);
             }
@@ -3897,7 +3972,7 @@ impl Tty {
         if !right_plain.is_empty() {
             let right_text_plain = right_plain.join("  ");
             let right_text_styled = right_styled.join("  ");
-            let right_width = right_text_plain.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>();
+            let right_width = crate::i18n::width(&right_text_plain);
             let start_col = cols.saturating_sub(right_width);
             if start_col > settings_width {
                 let _ = write!(out, "\x1b[1;{}H{}", start_col + 1, right_text_styled);
@@ -4413,38 +4488,12 @@ impl Frontend for Tty {
                     }
                     redraw = true;
                 }
-                Key::Settings => match self.settings_overlay(con, res, req) {
-                    OverlayExit::Close => redraw = true,
-                    OverlayExit::Title => {
-                        if let Some(r) = self.anchor_hotkey(con, res, req, &Key::Title) {
-                            return r;
-                        }
-                        redraw = true;
+                Key::Settings => {
+                    if let Some(r) = self.open_settings(con, res, req) {
+                        return r;
                     }
-                    OverlayExit::Restart => {
-                        if let Some(r) = self.anchor_hotkey(con, res, req, &Key::Restart) {
-                            return r;
-                        }
-                        redraw = true;
-                    }
-                    OverlayExit::RestartDebug => {
-                        if let Some(r) = self.restart(con, res, req, true) {
-                            return r;
-                        }
-                        redraw = true;
-                    }
-                    OverlayExit::Reload => return InputResult::Hotkey(crate::frontend::Hotkey::Reload),
-                    OverlayExit::Config => return InputResult::Hotkey(crate::frontend::Hotkey::Config),
-                    OverlayExit::Quit => return InputResult::Quit,
-                    OverlayExit::SwitchGame => {
-                        // start over on the launcher (this game's unsaved
-                        // progress goes, as the overlay warns)
-                        self.shutdown();
-                        let e = crate::sys::exec_self(&["--choose".into()]);
-                        eprintln!("emuera-tty: can't restart: {}", e);
-                        return InputResult::Quit;
-                    }
-                },
+                    redraw = true;
+                }
                 // Up / Down: the inputs given before, as in Emuera (at a
                 // WAIT, which shows no input line, they scroll)
                 Key::Up | Key::Down if req.kind != InputKind::Wait => {
@@ -4508,21 +4557,17 @@ impl Frontend for Tty {
                                 pointer_owed = true;
                             }
                         }
+                        // the top bar's [ Settings ] (at a WAIT too, where
+                        // any other click goes on)
+                        0 if press && self.button_at(x, y) == Some(SETTINGS_BUTTON) => {
+                            if let Some(r) = self.open_settings(con, res, req) {
+                                return r;
+                            }
+                            redraw = true;
+                        }
                         0 if press => {
                             if req.kind == InputKind::Wait {
                                 return InputResult::Text(String::new());
-                            }
-                            // Check for Settings button click (top bar, row 0)
-                            if y == 0 {
-                                if let Some(row) = self.btn_map.first() {
-                                    for (s, e, b) in row {
-                                        if *b == usize::MAX && x >= *s && x < *e {
-                                            let _ = self.settings_overlay(con, res, req);
-                                            redraw = true;
-                                            break;
-                                        }
-                                    }
-                                }
                             }
                             if let Some(b) = self.click_at(x, y) {
                                 // a click goes through Emuera's input box,
@@ -5005,8 +5050,8 @@ impl Frontend for Tty {
             con,
             res,
             &InputReq { kind: InputKind::Str, one: false, timeout_ms: None, stop_skip: false },
-            "Infinite loop detected",
-            &["Yes".to_string(), "No".to_string()],
+            &t!("Infinite loop detected"),
+            &[t!("Yes"), t!("No")],
             0,
             &mut sel,
             msg,
@@ -5024,8 +5069,8 @@ impl Frontend for Tty {
             con,
             res,
             &InputReq { kind: InputKind::Str, one: false, timeout_ms: None, stop_skip: false },
-            "Confirm exit",
-            &["Exit anyway".to_string(), "Wait for the line to finish".to_string()],
+            &t!("Confirm exit"),
+            &[t!("Exit anyway"), t!("Wait for the line to finish")],
             0,
             &mut sel,
             msg,
@@ -5453,11 +5498,46 @@ pub(crate) mod render_tests {
         }
         crate::i18n::set_language("en");
     }
+
+    /// All the settings and actions on an 80×24 terminal: the box scrolls
+    /// rather than running off the screen, at either end of the list
+    #[test]
+    fn overlay_scrolls_on_a_small_screen() {
+        use crate::settings::{Settings, ITEMS};
+        let t = Tty::blank(None, 80, 24, ColorMode::True);
+        let st = Settings::default();
+        let vis: Vec<usize> = ITEMS.iter().enumerate().filter(|(_, it)| st.shown(it)).map(|(i, _)| i).collect();
+        let extra: Vec<String> = (0..20).map(|k| format!("action {}", k)).collect();
+        let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+        let n = vis.len() + extra.len();
+        for sel in [0, n / 2, n - 1] {
+            let mut geo = (0, 0, 0);
+            let out = capture(|| {
+                geo = t.draw_overlay(&st, &vis, &extra, sel, "");
+            });
+            check("the overlay", "en", 80, 24, &out);
+            let (_, first, shown) = geo;
+            assert!(shown < n && first <= sel && sel < first + shown, "row {} not in {}..{}", sel, first, first + shown);
+        }
+    }
 }
 
 #[cfg(test)]
 mod mark_tests {
     use super::*;
+
+    /// A tooltip opening upwards from a button near the top never covers
+    /// the top bar (row 1), whose row `draw_tooltip`'s range doesn't count
+    #[test]
+    fn tooltip_stays_below_the_top_bar() {
+        let t = Tty::blank(None, 80, 24, ColorMode::True);
+        let tip = (0..30).map(|k| format!("line {}", k)).collect::<Vec<_>>().join("\n");
+        for my in [0, 1, 5, 20, 22] {
+            let b = t.tooltip_box(&tip, 10, my);
+            assert!(b.top >= 2, "mouse row {}: tooltip at {}", my, b.top);
+            assert!(b.top + b.lines.len() <= 24, "mouse row {}: tooltip runs to {}", my, b.top + b.lines.len());
+        }
+    }
 
     /// Help text wraps at spaces, and text without spaces (Japanese) wraps
     /// anywhere instead of being cut

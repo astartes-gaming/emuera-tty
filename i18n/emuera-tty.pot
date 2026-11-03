@@ -405,7 +405,7 @@ msgstr ""
 msgid "Clone a game from a git repository…"
 msgstr ""
 
-#: src/picker.rs
+#: src/picker.rs src/tty.rs
 msgid "Settings"
 msgstr ""
 
@@ -551,6 +551,10 @@ msgstr ""
 
 #: src/picker.rs
 msgid "↑↓ PgUp PgDn Home End scroll  q / Esc / Enter / g close"
+msgstr ""
+
+#: src/picker.rs
+msgid "↑↓←→ choose  Enter pick  Esc cancel"
 msgstr ""
 
 #: src/picker.rs
@@ -1366,11 +1370,11 @@ msgstr ""
 msgid "no such folder: {dir}"
 msgstr ""
 
-#: src/tty/saves.rs
+#: src/tty/saves.rs src/tty.rs
 msgid "Yes"
 msgstr ""
 
-#: src/tty/saves.rs
+#: src/tty/saves.rs src/tty.rs
 msgid "No"
 msgstr ""
 
@@ -1720,6 +1724,11 @@ msgid "memory"
 msgstr ""
 
 #: src/tty.rs
+#, no-c-format
+msgid "translating {queued}, failed {failed}, cached {cached}"
+msgstr ""
+
+#: src/tty.rs
 msgid "settings"
 msgstr ""
 
@@ -1730,4 +1739,36 @@ msgstr ""
 #: src/tty.rs
 #, no-c-format
 msgid "can't write {file}: {error}"
+msgstr ""
+
+#: src/tty.rs
+msgid "Infinite loop detected"
+msgstr ""
+
+#: src/tty.rs
+msgid "Confirm exit"
+msgstr ""
+
+#: src/tty.rs
+msgid "Exit anyway"
+msgstr ""
+
+#: src/tty.rs
+msgid "Wait for the line to finish"
+msgstr ""
+
+#: src/vm/mod.rs
+#, no-c-format
+msgid ""
+"Now running line {line} of {file} (@{func}).\n"
+"{ms} ms have passed since the last input.\n"
+"Stop the script? (unsaved progress is lost)"
+msgstr ""
+
+#: src/vm/mod.rs
+msgid "Are you sure? You may also wait for the line to finish (lines may occasionally freeze up)."
+msgstr ""
+
+#: src/vm/mod.rs
+msgid "stopped by the player: a possible infinite loop"
 msgstr ""
