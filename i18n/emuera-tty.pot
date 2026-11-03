@@ -1575,6 +1575,18 @@ msgid "{setting} takes effect the next time emuera-tty starts"
 msgstr ""
 
 #: src/tty.rs
+msgid "Restarts the game with the same initial seed. This is primarily for debugging in reproducible runs; restart normally if you aren't doing any of that."
+msgstr ""
+
+#: src/tty.rs
+msgid "restart cancelled"
+msgstr ""
+
+#: src/tty.rs
+msgid "initial seed copied to clipboard (click again quickly to restart with this seed)"
+msgstr ""
+
+#: src/tty.rs
 msgid "the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty"
 msgstr ""
 

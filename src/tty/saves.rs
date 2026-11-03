@@ -7,6 +7,7 @@
 use super::{write_all, Key, Tty};
 use crate::console::Console;
 use crate::frontend::InputReq;
+use crate::picker::wrap_text;
 use crate::resources::Resources;
 use crate::savemgr as sm;
 use std::io::Write;
@@ -387,10 +388,17 @@ impl Tty {
     fn draw_list(&self, title: &str, rows: &[String], first_action: usize, sel: usize, help: &str) -> (usize, usize) {
         self.redraw_all.set(true);
         let default_help = t!("↑↓ choose  Enter pick  Esc back");
-        let help_lines: Vec<&str> = if help.is_empty() { vec![default_help.as_str()] } else { help.split('\n').collect() };
-        let vis = rows.len().min(self.rows.saturating_sub(5 + help_lines.len()).max(3));
+        // Wrap help text to fit the dialog width
+        let inner_w = self.cols.saturating_sub(6).clamp(30, 110) - 2;
+        let help_lines: Vec<String> = if help.is_empty() {
+            vec![default_help.to_string()]
+        } else {
+            help.split('\n').flat_map(|line| wrap_text(line, inner_w)).collect()
+        };
+        let help_lines_ref: Vec<&str> = help_lines.iter().map(|s| s.as_str()).collect();
+        let vis = rows.len().min(self.rows.saturating_sub(5 + help_lines_ref.len()).max(3));
         let start = sel.saturating_sub(vis.saturating_sub(1)).min(rows.len() - vis);
-        let (left, top, inner) = self.box_geo(vis + help_lines.len() - 1);
+        let (left, top, inner) = self.box_geo(vis + help_lines_ref.len() - 1);
         let bg = (22, 32, 58);
         let frame = self.ov_style((150, 170, 210), bg, false);
         let tstyle = self.ov_style((255, 255, 255), bg, true);
@@ -415,10 +423,10 @@ impl Tty {
             };
             line(&mut out, top + 2 + i - start, &format!("  {}", r), st);
         }
-        for (k, l) in help_lines.iter().enumerate() {
+        for (k, l) in help_lines_ref.iter().enumerate() {
             line(&mut out, top + 2 + vis + k, &format!(" {}", l), &helpc);
         }
-        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 2 + vis + help_lines.len(), left, frame, "─".repeat(inner));
+        let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 2 + vis + help_lines_ref.len(), left, frame, "─".repeat(inner));
         write_all(&out);
         (top + 1, start)
     }

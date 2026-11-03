@@ -24,7 +24,7 @@ use unicode_width::UnicodeWidthChar;
 /// Wraps a string into multiple lines at `width` display columns.
 /// Handles ANSI escape codes (preserves them, doesn't count them in width).
 /// Wraps at word boundaries where possible; falls back to hard-wrapping for long words.
-fn wrap_text(s: &str, width: usize) -> Vec<String> {
+pub fn wrap_text(s: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
     }
@@ -1319,25 +1319,10 @@ impl Picker {
         for line in message.lines() {
             wrapped_lines.extend(wrap_text(line, cols.saturating_sub(10).min(60)));
         }
-        // Dialog dimensions
+        // Pre-compute button layout first to know how many button rows we need
+        let mut btn_rows: Vec<Vec<usize>> = Vec::new();
+        let mut btn_pos: Vec<(usize, usize)> = Vec::new();
         let inner_w = cols.saturating_sub(12).clamp(30, 72);
-        let inner_h = wrapped_lines.len() + 4; // message + blank + buttons + blank
-        let (left, top, _, _) = box_geo(cols, rows, inner_w, inner_h);
-        if inner_w < 30 || rows < inner_h + 4 {
-            // Terminal too small, fall back to prompt
-            return self.prompt(message, "").and_then(|a| {
-                let al = a.to_lowercase();
-                buttons.iter().position(|b| b.to_lowercase().starts_with(&al))
-            });
-        }
-        let frame = sgr(DLG_FRAME, DLG_BG, false);
-        let title_style = sgr(DLG_TITLE_FG, DLG_BG, true);
-        let normal_style = sgr(DLG_NORMAL_FG, DLG_BG, false);
-        let hilite_style = sgr(DLG_HILITE_FG, DLG_HILITE_BG, false);
-        let help_style = sgr(DLG_HELP_FG, DLG_BG, false);
-        // Pre-compute button layout
-        let mut btn_rows: Vec<Vec<usize>> = Vec::new(); // indices of buttons in each row
-        let mut btn_pos: Vec<(usize, usize)> = Vec::new(); // (row, col_in_row) for each button
         if let Some(cols_per_row) = grid_cols.filter(|&c| c > 0) {
             // Fixed grid layout: exactly cols_per_row buttons per row
             for (i, _) in buttons.iter().enumerate() {
@@ -1356,9 +1341,8 @@ impl Picker {
             for (i, btn) in buttons.iter().enumerate() {
                 let btn_text = format!(" {} ", btn);
                 let btn_w = crate::i18n::width(&btn_text);
-                let spacing = if current_row.is_empty() { 0 } else { 2 }; // "  " between buttons
+                let spacing = if current_row.is_empty() { 0 } else { 2 };
                 if current_width + spacing + btn_w > inner_w && !current_row.is_empty() {
-                    // Start new row
                     for (col, &btn_idx) in current_row.iter().enumerate() {
                         btn_pos[btn_idx] = (btn_rows.len(), col);
                     }
@@ -1368,7 +1352,7 @@ impl Picker {
                 }
                 current_row.push(i);
                 current_width += spacing + btn_w;
-                btn_pos.push((0, 0)); // placeholder, will be updated when row is finalized
+                btn_pos.push((0, 0));
             }
             if !current_row.is_empty() {
                 for (col, &btn_idx) in current_row.iter().enumerate() {
@@ -1377,6 +1361,21 @@ impl Picker {
                 btn_rows.push(current_row);
             }
         }
+        // Dialog dimensions: account for message + blank + button rows + blank + help
+        let inner_h = wrapped_lines.len() + 3 + btn_rows.len() + 1; // title + blank + message + blank + btn_rows + blank + help
+        let (left, top, _, _) = box_geo(cols, rows, inner_w, inner_h);
+        if inner_w < 30 || rows < inner_h + 4 {
+            // Terminal too small, fall back to prompt
+            return self.prompt(message, "").and_then(|a| {
+                let al = a.to_lowercase();
+                buttons.iter().position(|b| b.to_lowercase().starts_with(&al))
+            });
+        }
+        let frame = sgr(DLG_FRAME, DLG_BG, false);
+        let title_style = sgr(DLG_TITLE_FG, DLG_BG, true);
+        let normal_style = sgr(DLG_NORMAL_FG, DLG_BG, false);
+        let hilite_style = sgr(DLG_HILITE_FG, DLG_HILITE_BG, false);
+        let help_style = sgr(DLG_HELP_FG, DLG_BG, false);
         let mut sel = default.min(buttons.len().saturating_sub(1));
         loop {
             let mut s = String::new();
@@ -2286,9 +2285,10 @@ impl Picker {
                 &[
                     "Confirmation (Yes/No/Cancel)", "Multi-button (3 buttons)", "Text Input (with default)", "Secret Input (password)",
                     "Progress Bar (determinate)", "Progress Bar (indeterminate)", "3x3 Options Grid", "5x5 Options Grid", "Long Word Test (word-wrapping)",
+                    "Full-Length Options (long text)", "Many Short Options (long list)",
                     "Back",
                 ],
-                9, // default to "Back"
+                11, // default to "Back"
                 None,
             );
             match choice {
@@ -2377,6 +2377,37 @@ impl Picker {
                          The word exceeds dialog width and should be split across lines.",
                     );
                     self.dialog("Long Word Wrapping Test", &message, &["OK"], 0, None);
+                }
+                Some(9) => {
+                    // Full-Length Options - dialog with long button labels (one per row)
+                    // inner_w is 30-72, button format is " {} " so max ~28-70 chars
+                    // Use text that fits even at min width (30)
+                    let long_text = "Very long option filling the dialog width";
+                    let buttons: Vec<String> = (1..=5).map(|i| {
+                        format!("Option {}: {}", i, long_text)
+                    }).collect();
+                    let btn_refs: Vec<&str> = buttons.iter().map(|s| s.as_str()).collect();
+                    self.dialog(
+                        "Full-Length Options Test",
+                        "Five buttons with long labels (one per row via fluid layout).\nTest how the dialog handles long button text.",
+                        &btn_refs,
+                        0,
+                        None, // fluid layout: buttons flow to fit, each gets its own row when too wide
+                    );
+                }
+                Some(10) => {
+                    // Many Short Options - dialog with many short buttons in a vertical list (one per row)
+                    let buttons: Vec<String> = (1..=20).map(|i| {
+                        format!("Option {:02}", i)
+                    }).collect();
+                    let btn_refs: Vec<&str> = buttons.iter().map(|s| s.as_str()).collect();
+                    self.dialog(
+                        "Many Short Options Test",
+                        "Twenty short buttons in a long vertical list.\nTest scrolling/navigation with many options.",
+                        &btn_refs,
+                        0,
+                        Some(1), // fixed grid: 1 column = one button per row (like restart prompt)
+                    );
                 }
                 _ => {
                     // Back or cancelled

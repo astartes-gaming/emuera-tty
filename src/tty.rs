@@ -20,6 +20,7 @@ use crate::frontend::{Frontend, InputKind, InputReq, InputResult};
 use crate::gfx::{self, Backend, Placement};
 use crate::resources::Resources;
 use crate::vm::value::Value;
+use base64::Engine;
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -3089,6 +3090,8 @@ impl Tty {
         let mut note = String::new();
         // a translator test running: (its answer, when it began, what is tested)
         let mut test: Option<(std::sync::mpsc::Receiver<Result<String, String>>, Instant, String)> = None;
+        // last time the Initial seed row was activated (for double-click to restart)
+        let mut initial_seed_last_act: Option<Instant> = None;
         // an action row's id in the `match` below (the seed rows have none)
         const SEED_ROW: usize = usize::MAX;
         let exit = loop {
@@ -3200,8 +3203,41 @@ impl Tty {
                     note = t!("{setting} takes effect the next time emuera-tty starts", setting = crate::i18n::tr(it.label));
                 }
             } else if rows[sel - vis.len()].1 == SEED_ROW {
-                // the seed row: selectable for its description, never changed
-                note = t!("the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty");
+                let idx = sel - vis.len();
+                if idx == 1 && act == 1 {
+                    let now = Instant::now();
+                    let is_double = initial_seed_last_act.is_some_and(|t| now.duration_since(t) < Duration::from_millis(400));
+                    initial_seed_last_act = Some(now);
+                    if is_double {
+                        // Double-click: prompt to restart with same seed
+                        let msg = t!(
+                            "Restarts the game with the same initial seed. This is primarily for debugging in reproducible runs; restart normally if you aren't doing any of that."
+                        );
+                        if self.confirm(con, res, req, &msg) {
+                            std::env::set_var("EMUERA_SEED", initial_seed.to_string());
+                            let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+                            self.shutdown();
+                            let e = crate::sys::exec_self(&args);
+                            eprintln!("emuera-tty: can't restart with seed: {}", e);
+                            break OverlayExit::Quit;
+                        }
+                        note = t!("restart cancelled");
+                    } else {
+                        // Single click: copy to clipboard
+                        let text = initial_seed.to_string();
+                        let seq = format!(
+                            "\x1b]52;c;{}\x07",
+                            base64::engine::general_purpose::STANDARD.encode(text.as_bytes())
+                        );
+                        if self.term != "hurd" && !sun_console(&self.term) {
+                            write_all(seq.as_bytes());
+                        }
+                        note = t!("initial seed copied to clipboard (click again quickly to restart with this seed)");
+                    }
+                } else {
+                    // the seed row: selectable for its description, never changed
+                    note = t!("the seed can't be changed here: set EMUERA_SEED=N before starting emuera-tty");
+                }
             } else if act == 1 {
                 match rows[sel - vis.len()].1 {
                     0 => {
