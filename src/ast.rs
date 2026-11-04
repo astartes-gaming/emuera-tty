@@ -538,8 +538,8 @@ impl std::fmt::Debug for BodyCell {
 /// [`crate::parser::LazySrc`]): a game runs few of its functions.
 #[derive(Debug)]
 pub struct Function {
-    pub name: String,
-    pub params: Vec<Param>,
+    pub name: Box<str>,
+    pub params: Box<[Param]>,
     /// The statements, once compiled: use [`Function::body`].
     pub body: BodyCell,
     /// Where the statements are read from on the first call (None: they

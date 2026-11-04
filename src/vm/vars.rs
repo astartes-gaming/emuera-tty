@@ -10,7 +10,70 @@ use super::value::Value;
 #[derive(Clone, Debug)]
 pub enum Data {
     I(Vec<i64>),
+    /// A big integer array that is mostly zeros, held as its non-zero
+    /// elements: AnonTW's characters have CFLAG:10000 with about 30 set
+    /// below index 9200, 73 KB each held densely and 400 bytes this way.
+    Z(Sparse),
     S(Vec<String>),
+}
+
+/// Integer arrays this big start sparse (see [`Data::Z`]); character
+/// arrays, many copies of them, from [`SPARSE_CHARA`].
+const SPARSE_MIN: usize = 1025;
+pub const SPARSE_CHARA: usize = 256;
+
+/// The non-zero elements of an integer array, by index.
+#[derive(Clone, Debug, Default)]
+pub struct Sparse {
+    keys: Vec<u32>,
+    vals: Vec<i64>,
+}
+
+impl Sparse {
+    #[inline]
+    fn get(&self, f: usize) -> i64 {
+        match u32::try_from(f).map(|f| self.keys.binary_search(&f)) {
+            Ok(Ok(i)) => self.vals[i],
+            _ => 0,
+        }
+    }
+
+    fn set(&mut self, f: usize, x: i64) {
+        let Ok(k) = u32::try_from(f) else { return };
+        match (self.keys.binary_search(&k), x) {
+            (Ok(i), 0) => {
+                self.keys.remove(i);
+                self.vals.remove(i);
+            }
+            (Ok(i), _) => self.vals[i] = x,
+            (Err(_), 0) => {}
+            (Err(i), _) => {
+                self.keys.insert(i, k);
+                self.vals.insert(i, x);
+            }
+        }
+    }
+
+    /// One past the last non-zero element.
+    fn end(&self) -> usize {
+        self.keys.last().map_or(0, |&k| k as usize + 1)
+    }
+
+    /// Zero the elements of `r`.
+    fn zero(&mut self, r: std::ops::Range<usize>) {
+        let at = |k: usize| self.keys.partition_point(|&x| (x as usize) < k);
+        let (a, b) = (at(r.start), at(r.end));
+        self.keys.drain(a..b);
+        self.vals.drain(a..b);
+    }
+
+    fn dense(&self) -> Vec<i64> {
+        let mut v = vec![0; self.end()];
+        for (&k, &x) in self.keys.iter().zip(&self.vals) {
+            v[k as usize] = x;
+        }
+        v
+    }
 }
 
 /// One variable: every Emuera variable, scalars included, is an array.
@@ -23,7 +86,38 @@ pub struct Arr {
 
 impl Arr {
     pub fn new(is_str: bool, dims: &[usize]) -> Arr {
-        Arr { data: if is_str { Data::S(Vec::new()) } else { Data::I(Vec::new()) }, dims: dims.to_vec() }
+        Arr::sized(is_str, dims, SPARSE_MIN)
+    }
+
+    /// A new array, sparse if it is an integer one of `sparse` elements or
+    /// more.
+    pub fn sized(is_str: bool, dims: &[usize], sparse: usize) -> Arr {
+        let data = if is_str {
+            Data::S(Vec::new())
+        } else if !dims.is_empty() && dims.iter().try_fold(1usize, |n, &d| n.checked_mul(d)).is_some_and(|n| n >= sparse && n <= u32::MAX as usize) {
+            Data::Z(Sparse::default())
+        } else {
+            Data::I(Vec::new())
+        };
+        Arr { data, dims: dims.to_vec() }
+    }
+
+    /// The elements as a dense vector (sparse ones expanded): what the
+    /// save writer and slice-based operations take.
+    pub fn ints(&self) -> std::borrow::Cow<'_, [i64]> {
+        match &self.data {
+            Data::I(v) => std::borrow::Cow::Borrowed(v),
+            Data::Z(z) => std::borrow::Cow::Owned(z.dense()),
+            Data::S(_) => std::borrow::Cow::Borrowed(&[]),
+        }
+    }
+
+    /// Hold a sparse array densely (before operations that move ranges of
+    /// elements).
+    fn densify(&mut self) {
+        if let Data::Z(z) = &self.data {
+            self.data = Data::I(z.dense());
+        }
     }
 
     pub fn is_str(&self) -> bool {
@@ -34,6 +128,7 @@ impl Arr {
     pub fn bytes(&self) -> usize {
         match &self.data {
             Data::I(v) => v.capacity() * 8,
+            Data::Z(z) => z.keys.capacity() * 4 + z.vals.capacity() * 8,
             Data::S(v) => v.capacity() * 24 + v.iter().map(|s| s.capacity()).sum::<usize>(),
         }
     }
@@ -51,6 +146,7 @@ impl Arr {
     fn stored(&self) -> usize {
         match &self.data {
             Data::I(v) => v.len(),
+            Data::Z(z) => z.end(),
             Data::S(v) => v.len(),
         }
     }
@@ -87,6 +183,7 @@ impl Arr {
     pub fn get(&self, f: usize) -> Value {
         match &self.data {
             Data::I(v) => Value::Int(v.get(f).copied().unwrap_or(0)),
+            Data::Z(z) => Value::Int(z.get(f)),
             Data::S(v) => Value::Str(v.get(f).cloned().unwrap_or_default()),
         }
     }
@@ -108,22 +205,36 @@ impl Arr {
         true
     }
 
-    /// Make room for element `f`, holding the elements up to it: a small
-    /// array is held whole at once.
+    /// Make room for element `f`, holding the elements up to it.
     fn grow(&mut self, f: usize) {
         if f < self.stored() || !self.extend(f) {
             return;
         }
-        let n = self.len();
-        let to = if n <= 1024 { n.max(f + 1) } else { f + 1 };
+        // to the element written: a function's LOCAL:1000 used as LOCAL:0
+        // to LOCAL:5 holds six (thousands of functions keep their LOCALs)
+        let to = f + 1;
         match &mut self.data {
             Data::I(v) => v.resize(to, 0),
+            Data::Z(_) => {}
             Data::S(v) => v.resize(to, String::new()),
         }
     }
 
     /// Store `val`, converting to the array's type.
     pub fn set(&mut self, f: usize, val: Value) {
+        if matches!(self.data, Data::Z(_)) {
+            if self.extend(f) {
+                let n = self.len();
+                if let Data::Z(z) = &mut self.data {
+                    z.set(f, val.as_int());
+                    // held densely once it is no longer mostly zeros
+                    if z.keys.len() >= 64 && z.keys.len() * 8 > n {
+                        self.densify();
+                    }
+                }
+            }
+            return;
+        }
         self.grow(f);
         match &mut self.data {
             Data::I(v) => {
@@ -131,6 +242,7 @@ impl Arr {
                     *x = val.as_int()
                 }
             }
+            Data::Z(_) => {}
             Data::S(v) => {
                 if let Some(x) = v.get_mut(f) {
                     *x = val.into_string()
@@ -147,9 +259,23 @@ impl Arr {
         }
         // 0 / "" needn't reach past the elements held
         let unset = match &self.data {
-            Data::I(_) => val.as_int() == 0,
+            Data::I(_) | Data::Z(_) => val.as_int() == 0,
             Data::S(_) => val.as_string().is_empty(),
         };
+        if let Data::Z(z) = &mut self.data {
+            if unset {
+                z.zero(range.clone());
+                self.extend(range.end - 1);
+                return;
+            }
+            if range.len() < 64 {
+                for f in range {
+                    self.set(f, val.clone());
+                }
+                return;
+            }
+            self.densify();
+        }
         if unset {
             self.extend(range.end - 1);
         } else {
@@ -159,6 +285,7 @@ impl Arr {
         let start = range.start.min(end);
         match &mut self.data {
             Data::I(v) => v[start..end].fill(val.as_int()),
+            Data::Z(_) => {}
             Data::S(v) => {
                 let s = val.as_string();
                 for x in &mut v[start..end] {
@@ -177,6 +304,7 @@ impl Arr {
         if range.is_empty() || k == 0 {
             return;
         }
+        self.densify();
         self.grow(range.end - 1);
         let end = range.end.min(self.stored());
         let start = range.start.min(end);
@@ -193,6 +321,7 @@ impl Arr {
         }
         match &mut self.data {
             Data::I(v) => rot(&mut v[start..end], m, k > 0),
+            Data::Z(_) => {}
             Data::S(v) => rot(&mut v[start..end], m, k > 0),
         }
         self.fill(if k > 0 { start..start + m } else { end - m..end }, free);
@@ -201,6 +330,7 @@ impl Arr {
     pub fn get_i(&self, f: usize) -> i64 {
         match &self.data {
             Data::I(v) => v.get(f).copied().unwrap_or(0),
+            Data::Z(z) => z.get(f),
             Data::S(v) => v.get(f).map(|s| s.parse().unwrap_or(0)).unwrap_or(0),
         }
     }
@@ -213,6 +343,7 @@ impl Arr {
     pub fn clear(&mut self) {
         match &mut self.data {
             Data::I(v) => v.clear(),
+            Data::Z(z) => *z = Sparse::default(),
             Data::S(v) => v.clear(),
         }
     }
@@ -477,5 +608,65 @@ mod tests {
         assert_eq!(sc.len(), 1);
         sc.set(0, Value::Int(3));
         assert_eq!(sc.get_i(0), 3);
+    }
+
+    /// A sparse array reads exactly as a dense one through any mix of
+    /// writes, VARSET, ARRAYSHIFT and clearing, and turns dense when it
+    /// fills up.
+    #[test]
+    fn sparse_arrays_read_as_dense_ones() {
+        for dims in [vec![3000usize], vec![40, 50]] {
+            let mut d = Arr::sized(false, &dims, usize::MAX);
+            let mut z = Arr::sized(false, &dims, 1);
+            assert!(matches!(z.data, super::Data::Z(_)) && matches!(d.data, super::Data::I(_)));
+            let n = d.len();
+            let mut seed = 12345u64;
+            let mut rnd = |m: usize| {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                (seed >> 33) as usize % m
+            };
+            for step in 0..3000 {
+                let v = [0i64, 1, -7, 1 << 40][rnd(4)];
+                match rnd(20) {
+                    0 => {
+                        let a = rnd(n);
+                        let r = a..(a + rnd(200)).min(n);
+                        d.fill(r.clone(), &Value::Int(v));
+                        z.fill(r, &Value::Int(v));
+                    }
+                    1 if step % 7 == 0 => {
+                        let a = rnd(n);
+                        let r = a..(a + rnd(100)).min(n);
+                        let k = rnd(11) as i64 - 5;
+                        d.shift(r.clone(), k, &Value::Int(v));
+                        z.shift(r, k, &Value::Int(v));
+                    }
+                    2 if step % 500 == 0 => {
+                        d.clear();
+                        z.clear();
+                    }
+                    _ => {
+                        let f = rnd(n);
+                        d.set(f, Value::Int(v));
+                        z.set(f, Value::Int(v));
+                    }
+                }
+                if step % 100 == 0 {
+                    assert!((0..n + 5).all(|f| d.get_i(f) == z.get_i(f)), "step {step} dims {dims:?}");
+                }
+            }
+            assert!((0..n).all(|f| d.get_i(f) == z.get_i(f)));
+            assert_eq!(&d.ints()[..], &z.ints()[..d.ints().len().min(z.ints().len())]);
+        }
+        // a 1-D sparse array grows past its size on a write, as a dense one
+        let mut z = Arr::sized(false, &[2000], 1);
+        z.set(2500, Value::Int(4));
+        assert_eq!((z.len(), z.get_i(2500)), (2501, 4));
+        // mostly set: held densely
+        for f in 0..400 {
+            z.set(f, Value::Int(1));
+        }
+        assert!(matches!(z.data, super::Data::I(_)));
+        assert_eq!((z.get_i(399), z.get_i(400), z.get_i(2500)), (1, 0, 4));
     }
 }

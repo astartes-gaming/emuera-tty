@@ -99,7 +99,7 @@ impl Types<'_> {
 /// Every string `>=` / `<=`, "file:line: @FUNC: …".
 fn string_compares(prog: &Program, out: &mut Vec<String>) {
     let global_str: HashSet<&str> = prog.global_dims.iter().filter(|d| d.is_str).map(|d| d.name.as_str()).collect();
-    for f in prog.funcs.values().flatten() {
+    for f in prog.funcs.made() {
         let body = f.body();
         let t = Types { prog, global_str: &global_str, local: body.dims.iter().map(|d| (d.name.as_str(), d.is_str)).collect() };
         let mut found = Vec::new();
@@ -234,7 +234,7 @@ fn check_form(f: &Form, out: &mut Vec<String>) {
 
 pub fn lint(prog: &Program) -> Vec<String> {
     let mut out = Vec::new();
-    for f in prog.funcs.values().flatten() {
+    for f in prog.funcs.made() {
         let body = f.body();
         for (pc, ins) in body.code.iter().enumerate() {
             let mut found = Vec::new();

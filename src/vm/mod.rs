@@ -504,7 +504,7 @@ impl Vm {
                 }
             }
         }
-        let n: usize = self.prog.funcs.values().map(|v| v.len()).sum();
+        let n = self.prog.funcs.len();
         self.con.print(&format!("Reloaded {} functions in {:.1?} ({} parse errors)", n, t0.elapsed(), errors));
         self.con.newline();
         for e in self.prog.errors.iter().take(10) {
@@ -686,14 +686,15 @@ impl Vm {
         {
             let name = self.chara_names.name(id).to_string();
             let name = name.as_str();
+            // one copy per character: sparse from a smaller size
             let a = if let Some(def) = system_var(name) {
-                Arr::new(def.is_str, &self.var_def_dims(name, def))
+                Arr::sized(def.is_str, &self.var_def_dims(name, def), vars::SPARSE_CHARA)
             } else if let Some(d) = self.user_dims.get(name).cloned() {
                 let mut dims = Vec::new();
                 for e in &d.dims {
                     dims.push(self.eval(e).map(|v| v.as_int()).unwrap_or(1).max(0) as usize);
                 }
-                Arr::new(d.is_str, &dims)
+                Arr::sized(d.is_str, &dims, vars::SPARSE_CHARA)
             } else {
                 Arr::new(false, &[1])
             };
@@ -919,7 +920,7 @@ impl Vm {
                 let cache = body.static_cache.get().unwrap();
                 // storage is per function name (event functions with one
                 // name share it)
-                let k = (self.frames.last().unwrap().func.name.clone(), name.to_string());
+                let k = (self.frames.last().unwrap().func.name.to_string(), name.to_string());
                 let s = match self.static_index.get(&k) {
                     Some(&s) => s,
                     None => {
@@ -1034,7 +1035,7 @@ impl Vm {
         let Some(f) = self.prog.funcs.get(func).and_then(|fs| fs.first()).cloned() else {
             return err(format!("{}: there is no function @{}", v.name, func));
         };
-        let k = (f.name.clone(), base.to_string());
+        let k = (f.name.to_string(), base.to_string());
         let slot = match self.static_index.get(&k) {
             Some(&s) => s,
             None => {
@@ -1619,7 +1620,7 @@ impl Vm {
                 self.call_func(f, args)?;
                 return Ok(true);
             }
-            Some(fs) => fs.clone(),
+            Some(fs) => fs.to_vec(),
         };
         // event function: #ONLY, then #PRI, normal, #LATER; #SINGLE stops
         if let Some(only) = fs.iter().find(|f| f.only) {
@@ -1817,7 +1818,7 @@ impl Vm {
         }
         use std::sync::atomic::Ordering::Relaxed;
         let mut lru: Vec<(u64, usize, Rc<Function>)> = Vec::new();
-        for f in self.prog.funcs.values().flatten() {
+        for f in self.prog.funcs.made() {
             if f.lazy.is_none() || self.frames.iter().any(|fr| Rc::ptr_eq(&fr.func, f)) {
                 continue;
             }
@@ -2125,7 +2126,7 @@ impl Vm {
         let (func_name, params): (String, Vec<Rc<crate::ast::VarRef>>) = {
             let frame = self.frames.last().unwrap();
             let f = &frame.func;
-            (f.name.clone(), f.params.iter().map(|p| p.target.clone()).collect())
+            (f.name.to_string(), f.params.iter().map(|p| p.target.clone()).collect())
         };
         eprintln!("Locals in @{}:", func_name);
         // Print function parameters
@@ -2912,7 +2913,7 @@ impl Vm {
                 let (file, line, func) = match self.frames.last() {
                     Some(f) => {
                         let (file, line) = f.body.lines.get(f.pc.saturating_sub(1)).copied().unwrap_or((f.func.file, f.func.line));
-                        (self.prog.files.get(file as usize).cloned().unwrap_or_default(), line, f.func.name.clone())
+                        (self.prog.files.get(file as usize).cloned().unwrap_or_default(), line, f.func.name.to_string())
                     }
                     None => (String::new(), 0, String::new()),
                 };
@@ -2942,7 +2943,7 @@ impl Vm {
     /// Put the innermost function's name in `con.running`.
     fn note_running(&mut self) {
         if let Some(f) = self.frames.last() {
-            if self.con.running != f.func.name {
+            if *self.con.running != *f.func.name {
                 self.con.running.clear();
                 self.con.running.push_str(&f.func.name);
             }
@@ -3161,7 +3162,7 @@ pub mod prof {
         let id = std::sync::Arc::as_ptr(f) as usize;
         if CUR.swap(id, Ordering::Relaxed) != id {
             let mut n = NAMES.lock().unwrap();
-            n.get_or_insert_with(HashMap::new).entry(id).or_insert_with(|| f.name.clone());
+            n.get_or_insert_with(HashMap::new).entry(id).or_insert_with(|| f.name.to_string());
         }
     }
 

@@ -1,9 +1,10 @@
 A big game's scripts are tens of thousands of functions (AnonTW 90000,
 pops-tw 100000), and a session runs a few percent of them. So at load
-emuera-tty reads only each function's `@` line and attributes (`#FUNCTION`,
-`#PRI`…) and where it is in its file; the statements are compiled the
-first time the function is called, read again from the file (nothing is
-kept in memory meanwhile). A parse error in a function body is reported
+emuera-tty keeps only each function's name, its attributes (`#FUNCTION`,
+`#PRI`…) and where it is in its file, about 60 bytes; its parameters are
+read and its statements compiled the first time it is called, from the
+file again (nothing is kept in memory meanwhile). For AnonTW that is 8 MB
+where a full description of every function took 20. A parse error in a function body is reported
 when the function first runs; `--check` compiles everything and lists
 them all (`EMUERA_PARSE=all` compiles everything at load for a normal
 run too). A script file edited while the game runs is read as it is
@@ -13,7 +14,17 @@ then, for functions not run yet; the reload key (Ctrl-E) reloads everything.
 the last one written to; the rest read as 0 / "" and cost nothing. eraAL-K
 gives each of its 743 characters CSTR:100000 and CFLAG:100000: allocated
 in full, they took 2 GB and the game ran out of memory at "new game";
-now they take 25 MB.
+now they take 25 MB. A function's LOCAL:1000 used as LOCAL:0…5 holds six
+numbers (AnonTW keeps the LOCALs of 4000 functions: 13.6 MB before, 0.5
+MB now).
+
+**Big number arrays that are mostly zeros keep only the non-zero ones**:
+those of more than 1024 elements, and a character's of 256 or more (there
+is one per character). AnonTW's characters write about 30 of their
+CFLAG:10000, at indices up to 9000: 22.8 MB for 166 characters held
+in full, 0.1 MB this way. An array that fills up (one element in eight
+set) goes back to being held in full. Reading, saving and the results
+are the same either way.
 
 Three things are kept within a share of the machine's memory, so a 512 MB
 board copes and a PC with memory to spare does exactly what it did:
@@ -47,6 +58,19 @@ reduce peak memory use at launch on small machines.
 |---|---|---|---|---|
 | AnonTW, 800-input session | 654 MB | 157 MB | 157 MB | ~2-4MB |
 | pops-tw, a new game | 1204 MB | 636 MB | 346 MB | unrecorded |
+
+Without pictures (`--headless`, a text terminal or *Images: none*), with
+one loading thread (`EMUERA_THREADS=1`) and a 32 MB machine's budgets:
+
+| | loaded | a played save (166 characters), 300 inputs |
+|---|---|---|
+| AnonTW (90,000 functions) | 26 MB (was 47) | 50 MB (was 100) |
+| eraTohoK (15,000 functions) | 14 MB (was 17) | |
+| era4x (15,000 functions) | 14 MB (was 15) | |
+
+Loading on all cores is as fast as before but leaves more memory behind
+(each thread keeps its own heap): use `EMUERA_THREADS=1` where memory is
+short. About 6 MB of these numbers is the program itself.
 
 `EMUERA_MEMSTATS=<file>` writes what the memory holds (functions
 compiled, the biggest variables, characters and their biggest

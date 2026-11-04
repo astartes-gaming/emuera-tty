@@ -383,6 +383,7 @@ fn build_program(
         p.prog.files.push(src.path.clone());
         p.parse_erb((n_files - 1) as u32, &src);
     }
+    p.prog.funcs.shrink();
     phase("parse erb");
     (p.prog, n_files - 1)
 }
@@ -471,7 +472,7 @@ fn run(o: Opts) -> i32 {
     // (or EMUERA_PARSE=all): a game runs a few percent of them
     let lazy = !o.check && std::env::var("EMUERA_PARSE").map_or(true, |v| v != "all");
     let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.game_debug, lazy, &mut phase);
-    let n_funcs: usize = prog.funcs.values().map(|v| v.len()).sum();
+    let n_funcs = prog.funcs.len();
     eprintln!(
         "loaded {} files, {} functions, {} chara templates in {:.2?} ({} parse errors)",
         n_files,

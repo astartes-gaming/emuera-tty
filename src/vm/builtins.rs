@@ -462,7 +462,7 @@ impl Vm {
         let arr = self.arr_at(&loc).unwrap();
         Ok(match &arr.data {
             super::vars::Data::I(vs) => r.map(|k| vs.get(k).copied().unwrap_or(0)).collect(),
-            super::vars::Data::S(_) => r.map(|k| arr.get(k).as_int()).collect(),
+            _ => r.map(|k| arr.get_i(k)).collect(),
         })
     }
 
@@ -3003,9 +3003,9 @@ impl Vm {
                 let (loc, r) = self.row_range(&v, st, en)?;
                 let arr = self.arr_at(&loc).unwrap();
                 i(match &arr.data {
-                    super::vars::Data::I(vs) => match &target {
-                        Value::Int(t) => r.filter(|k| vs.get(*k).copied().unwrap_or(0) == *t).count(),
-                        Value::Str(t) => r.filter(|k| vs.get(*k).copied().unwrap_or(0).to_string() == *t).count(),
+                    super::vars::Data::I(_) | super::vars::Data::Z(_) => match &target {
+                        Value::Int(t) => r.filter(|k| arr.get_i(*k) == *t).count(),
+                        Value::Str(t) => r.filter(|k| arr.get_i(*k).to_string() == *t).count(),
                     },
                     super::vars::Data::S(vs) => {
                         let t = target.as_string();
@@ -3048,9 +3048,9 @@ impl Vm {
                     }
                 }
                 let pos = match &arr.data {
-                    super::vars::Data::I(vs) => {
+                    super::vars::Data::I(_) | super::vars::Data::Z(_) => {
                         let t = target.as_int();
-                        search(vs, base + st, base + en, last, |&x| x == t, t == 0)
+                        search(&arr.ints(), base + st, base + en, last, |&x| x == t, t == 0)
                     }
                     super::vars::Data::S(vs) => {
                         let m = |x: &str| match (&lit, &re) {
@@ -3695,7 +3695,7 @@ impl Vm {
                 // matching names (case-insensitive) into ARRAY or RESULTS
                 let key = self.as_(a, 0, "")?.to_uppercase();
                 let mut names: Vec<String> = if name.starts_with("ENUMFUNC") {
-                    self.prog.funcs.iter().filter(|(_, fs)| fs.len() == 1 && !fs[0].single && !fs[0].only).map(|(k, _)| k.clone()).collect()
+                    self.prog.funcs.names().filter(|&(_, listed)| listed).map(|(k, _)| k.to_string()).collect()
                 } else if name.starts_with("ENUMVAR") {
                     let mut v: Vec<String> = super::vars::SYSTEM_VARS.iter().map(|d| d.name.to_string()).collect();
                     v.extend(self.prog.global_dims.iter().map(|d| d.name.clone()));
@@ -3945,7 +3945,7 @@ impl Vm {
                     _ => Ok(Some(v)),
                 }
             }
-            "GETDOINGFUNCTION" => s(self.frames.last().map(|f| f.func.name.clone()).unwrap_or_default()),
+            "GETDOINGFUNCTION" => s(self.frames.last().map(|f| f.func.name.to_string()).unwrap_or_default()),
             "CLIENTWIDTH" => i(((self.con.width + 1) as f32 * self.con.font_size / 2.0) as i64),
             "CLIENTHEIGHT" => i((self.fe.rows() as f32 * self.con.line_height) as i64),
             "EXISTFILE" => {
