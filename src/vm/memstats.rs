@@ -20,9 +20,8 @@ impl Vm {
             }
         }
         // functions: all have a header, the ones run lately a body
-        let (mut n, mut compiled, mut instrs) = (0, 0, 0);
-        for f in self.prog.funcs.values().flatten() {
-            n += 1;
+        let (n, mut compiled, mut instrs) = (self.prog.funcs.len(), 0, 0);
+        for f in self.prog.funcs.made() {
             if let Some(b) = f.body.get() {
                 compiled += 1;
                 instrs += b.code.len();
@@ -37,7 +36,7 @@ impl Vm {
             mb(self.code_bytes),
             if self.code_budget == usize::MAX { "-".to_string() } else { mb(self.code_budget) }
         );
-        let mut big: Vec<(usize, &str)> = self.prog.funcs.values().flatten().filter_map(|f| f.body.get().map(|b| (b.code.len(), f.name.as_str()))).collect();
+        let mut big: Vec<(usize, &str)> = self.prog.funcs.made().filter_map(|f| f.body.get().map(|b| (b.code.len(), &*f.name))).collect();
         big.sort_unstable_by(|a, b| b.cmp(a));
         for (n, name) in big.iter().take(5) {
             let _ = writeln!(out, "  @{:<23} {} instructions", name, n);

@@ -37,13 +37,281 @@ pub struct SourceFile {
 pub struct Program {
     pub files: Vec<String>,
     /// Functions by uppercase name; several entries == event function.
-    pub funcs: HashMap<String, Vec<Rc<Function>>>,
+    pub funcs: Funcs,
     /// `#DIM`s from .ERH files, allocated at game start / RESETDATA.
     pub global_dims: Vec<DimDecl>,
     /// `#DEFINE NAME body`: expanded textually inside expressions.
     pub defines: HashMap<String, String>,
     /// Parse errors, "file:line: message"; shown by `--check`.
     pub errors: Vec<String>,
+}
+
+/// Functions by upper-case name; several of one name are an event's
+/// handlers, in file order.
+///
+/// Big games have about 100,000 functions and a session calls a few
+/// thousand, so a function is kept as a [`Head`] (its name, where it is and
+/// its `#` attributes, 56 bytes) until it is first looked up; the
+/// [`Function`] (parameters, the place for its compiled body) is made then,
+/// from its file, like its body. A full `Function` for each took 20 MB of
+/// AnonTW's memory, the heads take 8.
+#[derive(Default)]
+pub struct Funcs {
+    /// every name, back to back ([`Head::name`] is a range of it)
+    names: String,
+    heads: Vec<Head>,
+    /// the first head of each name, by name: open addressing, each entry
+    /// the name's hash (its top half, to skip others without reading
+    /// their names) and the head; `FREE` for none
+    table: Vec<u64>,
+    /// the number of names
+    n_names: usize,
+    /// `#LOCALSIZE` / `#LOCALSSIZE` of the heads that have them (few do)
+    sizes: HashMap<u32, (u32, u32)>,
+    /// for each name with several functions: all of them, made on first use
+    groups: Vec<std::sync::OnceLock<Box<[Rc<Function>]>>>,
+    ctx: Option<Rc<LazyCtx>>,
+}
+
+const NONE: u32 = u32::MAX;
+const FREE: u64 = u64::MAX;
+
+/// A function before it is looked up (see [`Funcs`]).
+struct Head {
+    name: (u32, u32),
+    /// the next head of the same name, in file order
+    next: u32,
+    /// on the first head of a name with several: its [`Funcs::groups`] entry
+    group: u32,
+    src: Src,
+    attrs: Attrs,
+    /// the function, made on first use (set at once for those compiled at
+    /// load)
+    one: std::sync::OnceLock<Rc<Function>>,
+}
+
+/// Where a function's text is (see [`LazySrc`]).
+#[derive(Clone, Copy)]
+struct Src {
+    file: u32,
+    line: u32,
+    start: u32,
+    end: u32,
+    open_ifs: u16,
+    ord: u16,
+}
+
+/// The `#` attributes of a function, read at load (`#LOCALSIZE`s are in
+/// [`Funcs::sizes`]).
+#[derive(Clone, Copy)]
+struct Attrs {
+    is_function: bool,
+    returns_str: bool,
+    order: EventOrder,
+    single: bool,
+    only: bool,
+}
+
+impl Attrs {
+    fn of(f: &Function) -> Attrs {
+        Attrs { is_function: f.is_function, returns_str: f.returns_str, order: f.order, single: f.single, only: f.only }
+    }
+}
+
+fn name_hash(name: &str) -> usize {
+    use std::hash::Hasher;
+    let mut h = crate::fxhash::FxHasher::default();
+    h.write(name.as_bytes());
+    h.finish() as usize
+}
+
+impl Funcs {
+    fn name_of(&self, h: &Head) -> &str {
+        &self.names[h.name.0 as usize..h.name.1 as usize]
+    }
+
+    /// The table slot of `name`: its entry, or the free slot it would
+    /// take; and the entry's hash part.
+    fn slot(&self, name: &str) -> (usize, u64) {
+        let h = name_hash(name);
+        let tag = (h as u64) & !(NONE as u64);
+        let mask = self.table.len() - 1;
+        let mut i = (h >> 32 ^ h) & mask;
+        loop {
+            let e = self.table[i];
+            if e == FREE || e & !(NONE as u64) == tag && self.name_of(&self.heads[e as u32 as usize]) == name {
+                return (i, tag);
+            }
+            i = (i + 1) & mask;
+        }
+    }
+
+    fn first(&self, name: &str) -> Option<&Head> {
+        if self.table.is_empty() {
+            return None;
+        }
+        match self.table[self.slot(name).0] {
+            FREE => None,
+            e => Some(&self.heads[e as u32 as usize]),
+        }
+    }
+
+    /// The functions named `name` (made now if not yet).
+    pub fn get(&self, name: &str) -> Option<&[Rc<Function>]> {
+        let h = self.first(name)?;
+        if h.next == NONE {
+            return Some(std::slice::from_ref(h.one.get_or_init(|| self.make(h))));
+        }
+        Some(self.groups[h.group as usize].get_or_init(|| {
+            let mut v = Vec::new();
+            let mut e = h;
+            loop {
+                v.push(e.one.get_or_init(|| self.make(e)).clone());
+                if e.next == NONE {
+                    break v.into_boxed_slice();
+                }
+                e = &self.heads[e.next as usize];
+            }
+        }))
+    }
+
+    pub fn contains_key(&self, name: &str) -> bool {
+        self.first(name).is_some()
+    }
+
+    /// How many functions there are.
+    pub fn len(&self) -> usize {
+        self.heads.len()
+    }
+
+    /// The functions made so far (all of them when compiled at load).
+    pub fn made(&self) -> impl Iterator<Item = &Rc<Function>> {
+        self.heads.iter().filter_map(|h| h.one.get())
+    }
+
+    /// Each name and whether it is a single function that is neither
+    /// `#SINGLE` nor `#ONLY` (what ENUMFUNC lists).
+    pub fn names(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.table.iter().filter(|&&e| e != FREE).map(|&e| {
+            let h = &self.heads[e as u32 as usize];
+            (self.name_of(h), h.next == NONE && !h.attrs.single && !h.attrs.only)
+        })
+    }
+
+    /// Add `f` after the functions of its name: made already (`src`
+    /// None), or to be made from its file when first looked up.
+    fn add(&mut self, f: Function, src: Option<Src>) {
+        if self.table.len() * 3 <= self.n_names * 4 {
+            self.grow();
+        }
+        let at = self.heads.len() as u32;
+        let name = (self.names.len() as u32, (self.names.len() + f.name.len()) as u32);
+        self.names.push_str(&f.name);
+        let one = std::sync::OnceLock::new();
+        let attrs = Attrs::of(&f);
+        if f.local_size != 0 || f.locals_size != 0 {
+            self.sizes.insert(at, (f.local_size, f.locals_size));
+        }
+        let src = match src {
+            Some(s) => s,
+            None => {
+                let s = Src { file: f.file, line: f.line, start: 0, end: 0, open_ifs: 0, ord: 0 };
+                let _ = one.set(Rc::new(f));
+                s
+            }
+        };
+        self.heads.push(Head { name, next: NONE, group: NONE, src, attrs, one });
+        self.link(at);
+    }
+
+    /// Put head `at` (the last) in the table, or after the others of its
+    /// name.
+    fn link(&mut self, at: u32) {
+        let h = &self.heads[at as usize];
+        let (i, tag) = self.slot(&self.names[h.name.0 as usize..h.name.1 as usize]);
+        match self.table[i] {
+            FREE => {
+                self.table[i] = tag | at as u64;
+                self.n_names += 1;
+            }
+            first => {
+                let first = first as u32;
+                if self.heads[first as usize].group == NONE {
+                    self.heads[first as usize].group = self.groups.len() as u32;
+                    self.groups.push(Default::default());
+                }
+                // the last of the name's chain
+                let mut e = first;
+                while self.heads[e as usize].next != NONE {
+                    e = self.heads[e as usize].next;
+                }
+                self.heads[e as usize].next = at;
+            }
+        }
+    }
+
+    fn grow(&mut self) {
+        let size = (self.table.len() * 2).max(64);
+        let old = std::mem::replace(&mut self.table, vec![FREE; size]);
+        for e in old.into_iter().filter(|&e| e != FREE) {
+            let i = self.slot(self.name_of(&self.heads[e as u32 as usize])).0;
+            self.table[i] = e;
+        }
+    }
+
+    /// Append the functions of `other` (a fork's), in order.
+    fn absorb(&mut self, other: Funcs) {
+        if self.ctx.is_none() {
+            self.ctx = other.ctx.clone();
+        }
+        let Funcs { names, heads, sizes, .. } = other;
+        self.names.reserve(names.len());
+        self.heads.reserve(heads.len());
+        let base = self.heads.len() as u32;
+        self.sizes.extend(sizes.into_iter().map(|(k, v)| (k + base, v)));
+        for h in heads {
+            let at = self.heads.len() as u32;
+            let name = (self.names.len() as u32, (self.names.len() + (h.name.1 - h.name.0) as usize) as u32);
+            self.names.push_str(&names[h.name.0 as usize..h.name.1 as usize]);
+            self.heads.push(Head { name, next: NONE, group: NONE, ..h });
+            if self.table.len() * 3 <= self.n_names * 4 {
+                self.grow();
+            }
+            self.link(at);
+        }
+    }
+
+    /// Drop spare capacity once everything is loaded.
+    pub fn shrink(&mut self) {
+        self.names.shrink_to_fit();
+        self.heads.shrink_to_fit();
+        self.groups.shrink_to_fit();
+    }
+
+    /// Make the function of `h` from its file.
+    fn make(&self, h: &Head) -> Rc<Function> {
+        let ctx = self.ctx.clone().expect("functions to make need their files");
+        let s = h.src;
+        let src = LazySrc { ctx, file: s.file, start: s.start, end: s.end, open_ifs: s.open_ifs, ord: s.ord };
+        let mut f = src.header(self.name_of(h), s.line);
+        let a = h.attrs;
+        (f.is_function, f.returns_str, f.order, f.single, f.only) = (a.is_function, a.returns_str, a.order, a.single, a.only);
+        let at = (h as *const Head as usize - self.heads.as_ptr() as usize) / std::mem::size_of::<Head>();
+        (f.local_size, f.locals_size) = self.sizes.get(&(at as u32)).copied().unwrap_or((0, 0));
+        f.lazy = Some(src);
+        Rc::new(f)
+    }
+
+    /// A map by name, to change the functions in place (all made at load).
+    pub fn into_map(self) -> HashMap<String, Vec<Rc<Function>>> {
+        let mut m: HashMap<String, Vec<Rc<Function>>> = HashMap::default();
+        for h in &self.heads {
+            if let Some(f) = h.one.get() {
+                m.entry(self.name_of(h).to_string()).or_default().push(f.clone());
+            }
+        }
+        m
+    }
 }
 
 /// System string variables (all others are integer). Whether a variable is a
@@ -343,6 +611,61 @@ fn read_range(path: &std::path::Path, start: u32, end: u32) -> std::io::Result<V
 }
 
 impl LazySrc {
+    /// The function `name` whose `@` line is line `line` of this text,
+    /// without its body (see [`Funcs`]); its `#` attributes are the
+    /// caller's.
+    fn header(&self, name: &str, line: u32) -> Function {
+        let ctx = &*self.ctx;
+        let file = ctx.files.get(self.file as usize).and_then(|m| m.get());
+        let made = file.and_then(|file| {
+            let same = std::fs::metadata(&file.path).is_ok_and(|m| m.len() == file.len && m.modified().ok() == file.mtime);
+            if !same {
+                return None;
+            }
+            let text = crate::loader::decode_as(&read_range(&file.path, self.start, self.end).ok()?, file.sjis);
+            let p = lock(&ctx.parser);
+            let (lines, _) = p.logical_lines(&text, line, self.open_ifs as usize);
+            match lines.first() {
+                Some((no, head)) if *no == line && head.starts_with('@') => p.func_header(&head[1..], self.file, *no).ok().map(|b| b.f),
+                _ => None,
+            }
+        });
+        match made {
+            Some(f) if &*f.name == name => f,
+            // the file changed since loading: the parameters as it has
+            // them now (the body is read from it too, see changed_body)
+            _ => {
+                let params = file
+                    .and_then(|file| self.with_changed(file, |funcs| funcs.get(name).and_then(|v| v.get(self.ord as usize)).map(|g| g.params.clone())).ok());
+                let mut f = lock(&ctx.parser).func_header(name, self.file, line).map(|b| b.f).expect("a bare name parses");
+                f.params = params.flatten().unwrap_or_default();
+                f
+            }
+        }
+    }
+
+    /// Run `with` on the functions of this file as it is now (read once,
+    /// when a function of it is first needed after it changed).
+    fn with_changed<T>(&self, file: &LazyFile, with: impl FnOnce(&mut HashMap<String, Vec<Rc<Function>>>) -> T) -> Result<T, String> {
+        let ctx = &*self.ctx;
+        let mut changed = lock(&ctx.changed);
+        if !changed.iter().any(|(i, _)| *i == self.file) {
+            let raw = std::fs::read(&file.path).map_err(|e| format!("{}: {}", file.rel, e))?;
+            let mut q = lock(&ctx.parser).fork();
+            q.parse_erb_text(self.file, &file.rel, &crate::loader::decode(&raw), None);
+            let mut errors = lock(&ctx.errors);
+            errors.push(format!(
+                "{} changed since the game was loaded: its functions are read as they are now when they first run (F5 reloads all the scripts)",
+                file.rel
+            ));
+            errors.append(&mut q.prog.errors);
+            LAZY_ERRORS.store(true, std::sync::atomic::Ordering::Relaxed);
+            changed.push((self.file, std::mem::take(&mut q.prog.funcs).into_map()));
+        }
+        let funcs = &mut changed.iter_mut().find(|(i, _)| *i == self.file).expect("just added").1;
+        Ok(with(funcs))
+    }
+
     /// Read and compile the body of `f` (whose header this is).
     pub fn compile(&self, f: &Function) -> Body {
         let ctx = &*self.ctx;
@@ -384,28 +707,12 @@ impl LazySrc {
     /// The body of `f` from its file as it is now: the file changed since
     /// the game was loaded.
     fn changed_body(&self, f: &Function, file: &LazyFile) -> Body {
-        let ctx = &*self.ctx;
-        let mut changed = lock(&ctx.changed);
-        if !changed.iter().any(|(i, _)| *i == self.file) {
-            let raw = match std::fs::read(&file.path) {
-                Ok(r) => r,
-                Err(e) => return failed_body(f, format!("{}: {}", file.rel, e)),
-            };
-            let mut q = lock(&ctx.parser).fork();
-            q.parse_erb_text(self.file, &file.rel, &crate::loader::decode(&raw), None);
-            let mut errors = lock(&ctx.errors);
-            errors.push(format!(
-                "{} changed since the game was loaded: its functions are read as they are now when they first run (F5 reloads all the scripts)",
-                file.rel
-            ));
-            errors.append(&mut q.prog.errors);
-            LAZY_ERRORS.store(true, std::sync::atomic::Ordering::Relaxed);
-            changed.push((self.file, std::mem::take(&mut q.prog.funcs)));
-        }
-        let funcs = &mut changed.iter_mut().find(|(i, _)| *i == self.file).expect("just added").1;
-        match funcs.get_mut(&f.name).and_then(|v| v.get_mut(self.ord as usize)).and_then(Rc::get_mut).and_then(|g| g.body.take()) {
-            Some(b) => b,
-            None => failed_body(f, format!("@{} is no longer in {}, which changed since the game was loaded: reload the scripts (F5)", f.name, file.rel)),
+        let b = self
+            .with_changed(file, |funcs| funcs.get_mut(&*f.name).and_then(|v| v.get_mut(self.ord as usize)).and_then(Rc::get_mut).and_then(|g| g.body.take()));
+        match b {
+            Ok(Some(b)) => b,
+            Ok(None) => failed_body(f, format!("@{} is no longer in {}, which changed since the game was loaded: reload the scripts (F5)", f.name, file.rel)),
+            Err(e) => failed_body(f, e),
         }
     }
 
@@ -784,9 +1091,7 @@ impl Parser {
     /// Take the functions and errors a forked parser produced. Absorbing
     /// forks in file order keeps event handlers in file order.
     pub fn absorb(&mut self, other: Program) {
-        for (name, fs) in other.funcs {
-            self.prog.funcs.entry(name).or_default().extend(fs);
-        }
+        self.prog.funcs.absorb(other.funcs);
         self.prog.errors.extend(other.errors);
     }
 
@@ -949,17 +1254,20 @@ impl Parser {
             self.attributes(&mut b, path, &lines[i0 + 1..i1]);
             match &lazy {
                 Some((ctx, raw)) => {
-                    let ord = ords.entry(b.f.name.clone()).or_default();
-                    b.f.lazy = Some(LazySrc {
-                        ctx: ctx.clone(),
+                    let ord = ords.entry(b.f.name.to_string()).or_default();
+                    let src = Src {
                         file: file_idx,
+                        line: *no,
                         start: offsets[k],
                         end: offsets.get(k + 1).copied().unwrap_or(raw.len() as u32),
                         open_ifs: depths.get(k).copied().unwrap_or(0),
                         ord: *ord,
-                    });
+                    };
                     *ord += 1;
-                    self.register(b.f);
+                    if self.prog.funcs.ctx.is_none() {
+                        self.prog.funcs.ctx = Some(ctx.clone());
+                    }
+                    self.prog.funcs.add(b.f, Some(src));
                 }
                 None => {
                     self.statements(&mut b, path, &lines[i0 + 1..i1]);
@@ -1064,8 +1372,8 @@ impl Parser {
             soft_error: None,
             body: Body::default(),
             f: Function {
-                name,
-                params,
+                name: name.into(),
+                params: params.into(),
                 body: Default::default(),
                 lazy: None,
                 is_function: false,
@@ -1120,9 +1428,8 @@ impl Parser {
 
     /// Add a function to the program. Several functions with one name
     /// form an event (all are kept).
-    fn register(&mut self, mut f: Function) {
-        f.params.shrink_to_fit();
-        self.prog.funcs.entry(f.name.clone()).or_default().push(Rc::new(f));
+    fn register(&mut self, f: Function) {
+        self.prog.funcs.add(f, None);
     }
 
     fn is_str_var(&self, b: &FuncBuilder, name: &str) -> bool {
@@ -2005,6 +2312,39 @@ pub fn is_command(c: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// Functions are made from their files on first use, with the
+    /// attributes read at load, the same object each time, and an event's
+    /// handlers in file order.
+    #[test]
+    fn functions_made_on_first_use() {
+        use crate::ast::EventOrder;
+        let dir = std::env::temp_dir().join(format!("emuera-funcs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("A.ERB");
+        let src = "@EVENTFIRST\n#PRI\nPRINTL a\n@F(X, S = \"q\")\n#FUNCTIONS\n#LOCALSIZE 5\nRETURNF \"x\"\n@EVENTFIRST\nPRINTL b\n@G\nPRINTL c\n";
+        std::fs::write(&path, src).unwrap();
+        let mut p = super::Parser::new(&[], false);
+        p.prog.files.push("A.ERB".into());
+        p.compile_lazily(1);
+        p.parse_erb_file(0, "A.ERB", &path, src.as_bytes());
+        let fs = &p.prog.funcs;
+        assert_eq!((fs.len(), fs.made().count()), (4, 0));
+        let f = fs.get("F").unwrap()[0].clone();
+        assert!(f.is_function && f.returns_str && f.local_size == 5 && f.line == 4);
+        assert_eq!(f.params.len(), 2);
+        assert!(f.params[0].default.is_none() && f.params[1].default.is_some());
+        assert!(std::sync::Arc::ptr_eq(&fs.get("F").unwrap()[0], &f));
+        let ev = fs.get("EVENTFIRST").unwrap();
+        assert_eq!((ev.len(), ev[0].order, ev[1].order, ev[1].line), (2, EventOrder::Pri, EventOrder::Normal, 8));
+        assert!(fs.get("H").is_none() && fs.contains_key("G") && !fs.contains_key("H"));
+        assert!(fs.get("G").unwrap()[0].body().code.len() > 1);
+        let mut names: Vec<(&str, bool)> = fs.names().collect();
+        names.sort();
+        assert_eq!(names, [("EVENTFIRST", false), ("F", true), ("G", true)]);
+        assert_eq!(fs.made().count(), 4);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn line_offsets_count_lone_cr() {
         // lines 1 "a", 2 "", 3 "b", 4 "c": the lazy compiler reads from these

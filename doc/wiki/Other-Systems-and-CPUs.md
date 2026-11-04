@@ -98,6 +98,8 @@ is installed.
 
 emuera-tty keeps its memory low enough for a 512 MB board (see
 [Memory](Memory)): AnonTW stays under 160 MB, pops-tw under 350 MB.
+Without pictures and with `EMUERA_THREADS=1`, AnonTW loads in 26 MB and
+plays in about 50; smaller games such as eraTohoK load in 14 MB.
 It runs on 32-bit ARM (Pi Zero / Zero W, ARMv6) and 64-bit ARM (Pi Zero 2,
 Pi 3 and later). **Not tried on a real board yet**: the 32-bit ARM build
 runs AnonTW under emulation (`qemu-arm`) with the same output as on a PC,
