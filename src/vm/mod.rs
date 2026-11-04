@@ -33,7 +33,6 @@ pub mod debugger;
 pub mod erasav;
 mod memstats;
 pub mod save;
-pub mod sfmt;
 pub mod system;
 pub mod textsav;
 pub mod value;
@@ -274,7 +273,7 @@ pub struct Vm {
     /// huge functions whose code was let go as they returned the first
     /// time (see `call_func_in`), by address: called again, they are kept
     big_dropped: HashSet<usize>,
-    sfmt: crate::vm::sfmt::Sfmt,
+    rng: u64,
     /// Warnings already printed (each is shown once).
     warned: HashSet<String>,
     pub game_dir: PathBuf,
@@ -410,7 +409,7 @@ impl Vm {
             code_bytes: 0,
             code_budget: crate::sys::memory_budget("EMUERA_CODE_MB", 16),
             big_dropped: HashSet::default(),
-            sfmt: crate::vm::sfmt::Sfmt::with_seed(seed as u32),
+            rng: seed | 1,
             warned: HashSet::default(),
             long_oneinput: crate::emuconfig::Values::read(&game_dir).flag("ONEINPUT系命令でマウスによる2文字以上の入力を許可する"),
             game_dir,
@@ -615,22 +614,23 @@ impl Vm {
     }
 
     // ---------------------------------------------------------------- rng
-    /// RAND:n — uniform 0..n via SFMT (Emuera-compatible).
+    /// RAND:n — uniform 0..n via xorshift64*. Not Emuera's generator, so
+    /// seeded sequences differ from the original (scripts rarely rely on it).
     pub fn rand(&mut self, n: i64) -> i64 {
-        self.sfmt.next_int64(n)
+        if n <= 0 {
+            return 0;
+        }
+        let mut x = self.rng;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.rng = x;
+        ((x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 1) % (n as u64)) as i64
     }
     /// RANDOMIZE / INITRAND: reseed.
     pub fn seed(&mut self, s: i64) {
         CURRENT_SEED.store(s as u64, std::sync::atomic::Ordering::Relaxed);
-        self.sfmt = crate::vm::sfmt::Sfmt::with_seed(s as u32);
-    }
-    /// DUMPRAND: get full RNG state for saving (625 u64 = 624 state + index).
-    pub fn get_rand(&self) -> [u64; crate::vm::sfmt::N32 + 1] {
-        self.sfmt.get_rand()
-    }
-    /// INITRAND: restore full RNG state from save.
-    pub fn set_rand(&mut self, data: &[u64; crate::vm::sfmt::N32 + 1]) {
-        self.sfmt.set_rand(data);
+        self.rng = (s as u64) ^ 0x9E37_79B9_7F4A_7C15 | 1;
     }
 
     // ------------------------------------------------------------ variables

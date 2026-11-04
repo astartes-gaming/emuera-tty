@@ -668,20 +668,7 @@ impl Vm {
             return err(format!("loading {}: {}", path.display(), e));
         }
         self.set_lastload(n, chk.mes, chk.version);
-        self.restore_rng_from_randdata();
         Ok(true)
-    }
-
-    /// Restore SFMT RNG state from RANDDATA global array (for Emuera binary save compatibility).
-    fn restore_rng_from_randdata(&mut self) {
-        let arr = self.global_arr("RANDDATA");
-        if arr.len() > crate::vm::sfmt::N32 {
-            let mut data = [0u64; crate::vm::sfmt::N32 + 1];
-            for i in 0..=crate::vm::sfmt::N32 {
-                data[i] = arr.get_i(i) as u64;
-            }
-            self.set_rand(&data);
-        }
     }
 
     /// Load slot `n` from an Emuera text-format save.
@@ -707,7 +694,6 @@ impl Vm {
             }
         }
         self.set_lastload(n, chk.mes, chk.version);
-        self.restore_rng_from_randdata();
         Ok(true)
     }
 
@@ -753,10 +739,7 @@ impl Vm {
             Ok(())
         })();
         match res {
-            Ok(()) => {
-                self.restore_rng_from_randdata();
-                Ok(true)
-            }
+            Ok(()) => Ok(true),
             Err(e) => {
                 self.warn(&format!("global.sav: {}", e));
                 Ok(false)

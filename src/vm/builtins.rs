@@ -1401,29 +1401,11 @@ impl Vm {
                     _ => self.set_result(n),
                 }
             }
-            "RANDOMIZE" => {
+            "RANDOMIZE" | "INITRAND" => {
                 let s = self.ai(a, 0, 0)?;
                 self.seed(s);
             }
-            "INITRAND" => {
-                // Load RNG state from RANDDATA global array
-                let arr = self.global_arr("RANDDATA");
-                if arr.len() > crate::vm::sfmt::N32 {
-                    let mut data = [0u64; crate::vm::sfmt::N32 + 1];
-                    for i in 0..=crate::vm::sfmt::N32 {
-                        data[i] = arr.get_i(i) as u64;
-                    }
-                    self.set_rand(&data);
-                }
-            }
-            "DUMPRAND" => {
-                // Save RNG state to RANDDATA global array
-                let data = self.get_rand();
-                let arr = self.global_arr("RANDDATA");
-                for i in 0..=crate::vm::sfmt::N32 {
-                    arr.set(i, Value::Int(data[i] as i64));
-                }
-            }
+            "DUMPRAND" => {}
             "STRLEN" | "STRLENU" => {
                 if let Args::Raw(s) = args {
                     let n = if name == "STRLEN" { sjis_len(s) } else { s.chars().count() };
