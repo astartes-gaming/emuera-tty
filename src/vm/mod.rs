@@ -184,6 +184,177 @@ pub struct Place {
     pub flat: usize,
 }
 
+/// SFMT (MT19937) random number generator, matching Emuera's MTRandom.
+/// Period: 2^19937 - 1
+pub struct Sfmt {
+    /// Internal state vector (624 u32 = 19968 bits)
+    state: [u32; 624],
+    /// Index of next value to return (0..624)
+    idx: usize,
+}
+
+impl Sfmt {
+    const N: usize = 156;           // MEXP / 128 + 1 = 19937/128 + 1
+    const N32: usize = 624;         // N * 4
+    const POS1: usize = 122;        // cPOS1
+    const SL1: usize = 18;          // cSL1
+    const SR1: usize = 11;          // cSR1
+    const MSK1: u32 = 0xdfffffef;
+    const MSK2: u32 = 0xddfecb7f;
+    const MSK3: u32 = 0xbffaffff;
+    const MSK4: u32 = 0xbffffff6;
+    const PARITY1: u32 = 0x00000001;
+    const PARITY2: u32 = 0x00000000;
+    const PARITY3: u32 = 0x00000000;
+    const PARITY4: u32 = 0x13c9e684;
+
+    /// Create a new SFMT with the given seed (lower 32 bits used, matching Emuera).
+    pub fn new(seed: u64) -> Self {
+        let mut sfmt = Self {
+            state: [0; 624],
+            idx: 624, // Force regeneration on first call
+        };
+        sfmt.init_gen_rand(seed as u32);
+        sfmt
+    }
+
+    /// Initialize generator with 32-bit seed (matches Emuera's init_gen_rand).
+    fn init_gen_rand(&mut self, seed: u32) {
+        self.state[0] = seed;
+        for i in 1..Self::N32 {
+            self.state[i] = 1812433253_u32.wrapping_mul(self.state[i - 1] ^ (self.state[i - 1] >> 30)).wrapping_add(i as u32);
+        }
+        self.period_certification();
+        self.idx = Self::N32;
+    }
+
+    /// Period certification (matches Emuera's period_certification).
+    fn period_certification(&mut self) {
+        let parity = [Self::PARITY1, Self::PARITY2, Self::PARITY3, Self::PARITY4];
+        let mut inner = 0u32;
+        for i in 0..4 {
+            inner ^= self.state[i] & parity[i];
+        }
+        for i in (1..=16).rev() {
+            inner ^= inner >> i;
+        }
+        inner &= 1;
+        if inner == 1 {
+            return;
+        }
+        // Check NG, and modification
+        for i in 0..4 {
+            let mut work = 1u32;
+            for _ in 0..32 {
+                if (work & parity[i]) != 0 {
+                    self.state[i] ^= work;
+                    return;
+                }
+                work <<= 1;
+            }
+        }
+    }
+
+    /// Generate the next 624 values (matches Emuera's gen_rand_all_19937).
+    #[allow(non_snake_case)]
+    fn gen_rand_all(&mut self) {
+        let p = &mut self.state;
+        let cN = Self::N;
+        let cN32 = Self::N32;
+        let cPOS1 = Self::POS1;
+        let cSL1 = Self::SL1;
+        let cSR1 = Self::SR1;
+        let cMSK1 = Self::MSK1;
+        let cMSK2 = Self::MSK2;
+        let cMSK3 = Self::MSK3;
+        let cMSK4 = Self::MSK4;
+
+        let mut a = 0;
+        let mut b = cPOS1 * 4;
+        let mut c = (cN - 2) * 4;
+        let mut d = (cN - 1) * 4;
+
+        loop {
+            p[a + 3] = p[a + 3]
+                ^ (p[a + 3] << 8)
+                ^ (p[a + 2] >> 24)
+                ^ (p[c + 3] >> 8)
+                ^ ((p[b + 3] >> cSR1) & cMSK4)
+                ^ (p[d + 3] << cSL1);
+            p[a + 2] = p[a + 2]
+                ^ (p[a + 2] << 8)
+                ^ (p[a + 1] >> 24)
+                ^ (p[c + 3] << 24)
+                ^ (p[c + 2] >> 8)
+                ^ ((p[b + 2] >> cSR1) & cMSK3)
+                ^ (p[d + 2] << cSL1);
+            p[a + 1] = p[a + 1]
+                ^ (p[a + 1] << 8)
+                ^ (p[a + 0] >> 24)
+                ^ (p[c + 2] << 24)
+                ^ (p[c + 1] >> 8)
+                ^ ((p[b + 1] >> cSR1) & cMSK2)
+                ^ (p[d + 1] << cSL1);
+            p[a + 0] = p[a + 0]
+                ^ (p[a + 0] << 8)
+                ^ (p[c + 1] << 24)
+                ^ (p[c + 0] >> 8)
+                ^ ((p[b + 0] >> cSR1) & cMSK1)
+                ^ (p[d + 0] << cSL1);
+
+            c = d;
+            d = a;
+            a += 4;
+            b += 4;
+            if b >= cN32 {
+                b = 0;
+            }
+            if a >= cN32 {
+                break;
+            }
+        }
+    }
+
+    /// Get next 32-bit random value (matches Emuera's NextUInt32).
+    pub fn next_u32(&mut self) -> u32 {
+        if self.idx >= Self::N32 {
+            self.gen_rand_all();
+            self.idx = 0;
+        }
+        let val = self.state[self.idx];
+        self.idx += 1;
+        val
+    }
+
+    /// Get next 64-bit random value (matches Emuera's NextUInt64).
+    pub fn next_u64(&mut self) -> u64 {
+        ((self.next_u32() as u64) << 32) | (self.next_u32() as u64)
+    }
+
+    /// Reseed with a new seed (matches Emuera's MTRandom constructor with seed).
+    pub fn reseed(&mut self, seed: u64) {
+        self.init_gen_rand(seed as u32);
+    }
+
+    /// Get internal state for DUMPRAND (624 state words + index).
+    pub fn get_state(&self) -> [u64; 625] {
+        let mut out = [0u64; 625];
+        for i in 0..624 {
+            out[i] = self.state[i] as u64;
+        }
+        out[624] = self.idx as u64;
+        out
+    }
+
+    /// Set internal state from DUMPRAND / save data.
+    pub fn set_state(&mut self, data: &[u64; 625]) {
+        for i in 0..624 {
+            self.state[i] = data[i] as u32;
+        }
+        self.idx = data[624] as usize;
+    }
+}
+
 /// The whole interpreter state.
 pub struct Vm {
     pub prog: Program,
@@ -273,7 +444,8 @@ pub struct Vm {
     /// huge functions whose code was let go as they returned the first
     /// time (see `call_func_in`), by address: called again, they are kept
     big_dropped: HashSet<usize>,
-    rng: u64,
+    /// SFMT (MT19937) random number generator state
+    rng: Sfmt,
     /// Warnings already printed (each is shown once).
     warned: HashSet<String>,
     pub game_dir: PathBuf,
@@ -409,7 +581,7 @@ impl Vm {
             code_bytes: 0,
             code_budget: crate::sys::memory_budget("EMUERA_CODE_MB", 16),
             big_dropped: HashSet::default(),
-            rng: seed | 1,
+            rng: Sfmt::new(seed),
             warned: HashSet::default(),
             long_oneinput: crate::emuconfig::Values::read(&game_dir).flag("ONEINPUT系命令でマウスによる2文字以上の入力を許可する"),
             game_dir,
@@ -614,23 +786,30 @@ impl Vm {
     }
 
     // ---------------------------------------------------------------- rng
-    /// RAND:n — uniform 0..n via xorshift64*. Not Emuera's generator, so
-    /// seeded sequences differ from the original (scripts rarely rely on it).
+    /// RAND:n — uniform 0..n via SFMT (MT19937), matching Emuera's MTRandom.
     pub fn rand(&mut self, n: i64) -> i64 {
         if n <= 0 {
             return 0;
         }
-        let mut x = self.rng;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.rng = x;
-        ((x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 1) % (n as u64)) as i64
+        // Emuera's NextInt64(max) returns NextUInt64() % max
+        (self.rng.next_u64() % (n as u64)) as i64
     }
     /// RANDOMIZE / INITRAND: reseed.
     pub fn seed(&mut self, s: i64) {
         CURRENT_SEED.store(s as u64, std::sync::atomic::Ordering::Relaxed);
-        self.rng = (s as u64) ^ 0x9E37_79B9_7F4A_7C15 | 1;
+        self.rng.reseed(s as u64);
+    }
+    /// Sync RNG state from RANDDATA global array (after loading a save).
+    pub fn sync_rng_from_randdata(&mut self) {
+        if let Some(arr) = self.globals.get("RANDDATA") {
+            if arr.len() >= 625 {
+                let mut state = [0u64; 625];
+                for i in 0..625 {
+                    state[i] = arr.get(i).as_int() as u64;
+                }
+                self.rng.set_state(&state);
+            }
+        }
     }
 
     // ------------------------------------------------------------ variables

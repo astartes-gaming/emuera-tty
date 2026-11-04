@@ -667,6 +667,8 @@ impl Vm {
         if let Err(e) = res {
             return err(format!("loading {}: {}", path.display(), e));
         }
+        // Sync RNG state from RANDDATA after loading save
+        self.sync_rng_from_randdata();
         self.set_lastload(n, chk.mes, chk.version);
         Ok(true)
     }
@@ -693,6 +695,8 @@ impl Vm {
                 fill_vals(self.global_arr(&k), &v);
             }
         }
+        // Sync RNG state from RANDDATA after loading text save
+        self.sync_rng_from_randdata();
         self.set_lastload(n, chk.mes, chk.version);
         Ok(true)
     }
@@ -738,6 +742,8 @@ impl Vm {
             }
             Ok(())
         })();
+        // Sync RNG state from RANDDATA after loading globals
+        self.sync_rng_from_randdata();
         match res {
             Ok(()) => Ok(true),
             Err(e) => {
@@ -828,6 +834,8 @@ impl Vm {
         self.init_data();
         self.charas.clear();
         self.apply_old_lines(&s, false);
+        // Sync RNG state from RANDDATA after loading old save
+        self.sync_rng_from_randdata();
         let text = self.peek_old_save(n).unwrap_or_default();
         self.set_lastload(n, text, 0);
         Ok(true)

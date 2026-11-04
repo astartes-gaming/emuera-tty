@@ -1405,7 +1405,14 @@ impl Vm {
                 let s = self.ai(a, 0, 0)?;
                 self.seed(s);
             }
-            "DUMPRAND" => {}
+            "DUMPRAND" => {
+                // Dump RNG state to RANDDATA (625 elements: 624 state + index)
+                let state = self.rng.get_state();
+                let arr = self.global_arr("RANDDATA");
+                for (i, &v) in state.iter().enumerate() {
+                    arr.set(i, Value::Int(v as i64));
+                }
+            }
             "STRLEN" | "STRLENU" => {
                 if let Args::Raw(s) = args {
                     let n = if name == "STRLEN" { sjis_len(s) } else { s.chars().count() };
