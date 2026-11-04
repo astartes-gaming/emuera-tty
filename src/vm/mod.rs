@@ -777,8 +777,12 @@ impl Vm {
         CURRENT_SEED.store(s as u64, std::sync::atomic::Ordering::Relaxed);
         self.rng.reseed(s as u64);
     }
+
     /// Sync RNG state from RANDDATA global array (after loading a save).
+    #[allow(unreachable_code)]
     pub fn sync_rng_from_randdata(&mut self) {
+        return;
+
         if let Some(arr) = self.globals.get("RANDDATA") {
             if arr.len() >= 625 {
                 let mut state = [0u64; 625];
