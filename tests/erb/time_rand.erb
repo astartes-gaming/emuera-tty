@@ -6,7 +6,11 @@ CALL CHECK, "clock is running", LOCAL > 0 && LOCAL:1 > 1700000000
 GETTIME
 CALL CHECK, "gettime statement", RESULT > 20240000000000000 && STRLENS(RESULTS) == 19
 CALL CHECK, "gettimes format", STRCOUNT(GETTIMES(), "^\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2}$") == 1
-;--- the same seed gives the same numbers
+;--- saves current random number state, must be called before INITRAND
+;--- (was previously a no-op, but is now properly implemented alongside SFMT)
+DUMPRAND
+;--- INITRAND gives the same numbers
+;--- it accepts no args, so the given 12345 ones should do nothing
 INITRAND 12345
 LOCAL:2 = RAND:1000
 LOCAL:3 = RAND:1000

@@ -1401,9 +1401,22 @@ impl Vm {
                     _ => self.set_result(n),
                 }
             }
-            "RANDOMIZE" | "INITRAND" => {
-                let s = self.ai(a, 0, 0)?;
+            "RANDOMIZE" => {
+                // Optional seed argument; if omitted, use time-based seed like Emuera
+                let s = self.ai(a, 0, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))?;
                 self.seed(s);
+            }
+            "INITRAND" => {
+                // Restore RNG state from RANDDATA
+                if let Some(arr) = self.globals.get("RANDDATA") {
+                    if arr.len() >= 625 {
+                        let mut state = [0u64; 625];
+                        for i in 0..625 {
+                            state[i] = arr.get(i).as_int() as u64;
+                        }
+                        self.rng.set_state(&state);
+                    }
+                }
             }
             "DUMPRAND" => {
                 // Dump RNG state to RANDDATA (625 elements: 624 state + index)

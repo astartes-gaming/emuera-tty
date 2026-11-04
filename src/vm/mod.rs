@@ -194,11 +194,11 @@ pub struct Sfmt {
 }
 
 impl Sfmt {
-    const N: usize = 156;           // MEXP / 128 + 1 = 19937/128 + 1
-    const N32: usize = 624;         // N * 4
-    const POS1: usize = 122;        // cPOS1
-    const SL1: usize = 18;          // cSL1
-    const SR1: usize = 11;          // cSR1
+    const N: usize = 156; // MEXP / 128 + 1 = 19937/128 + 1
+    const N32: usize = 624; // N * 4
+    const POS1: usize = 122; // cPOS1
+    const SL1: usize = 18; // cSL1
+    const SR1: usize = 11; // cSR1
     const MSK1: u32 = 0xdfffffef;
     const MSK2: u32 = 0xddfecb7f;
     const MSK3: u32 = 0xbffaffff;
@@ -275,32 +275,10 @@ impl Sfmt {
         let mut d = (cN - 1) * 4;
 
         loop {
-            p[a + 3] = p[a + 3]
-                ^ (p[a + 3] << 8)
-                ^ (p[a + 2] >> 24)
-                ^ (p[c + 3] >> 8)
-                ^ ((p[b + 3] >> cSR1) & cMSK4)
-                ^ (p[d + 3] << cSL1);
-            p[a + 2] = p[a + 2]
-                ^ (p[a + 2] << 8)
-                ^ (p[a + 1] >> 24)
-                ^ (p[c + 3] << 24)
-                ^ (p[c + 2] >> 8)
-                ^ ((p[b + 2] >> cSR1) & cMSK3)
-                ^ (p[d + 2] << cSL1);
-            p[a + 1] = p[a + 1]
-                ^ (p[a + 1] << 8)
-                ^ (p[a + 0] >> 24)
-                ^ (p[c + 2] << 24)
-                ^ (p[c + 1] >> 8)
-                ^ ((p[b + 1] >> cSR1) & cMSK2)
-                ^ (p[d + 1] << cSL1);
-            p[a + 0] = p[a + 0]
-                ^ (p[a + 0] << 8)
-                ^ (p[c + 1] << 24)
-                ^ (p[c + 0] >> 8)
-                ^ ((p[b + 0] >> cSR1) & cMSK1)
-                ^ (p[d + 0] << cSL1);
+            p[a + 3] = p[a + 3] ^ (p[a + 3] << 8) ^ (p[a + 2] >> 24) ^ (p[c + 3] >> 8) ^ ((p[b + 3] >> cSR1) & cMSK4) ^ (p[d + 3] << cSL1);
+            p[a + 2] = p[a + 2] ^ (p[a + 2] << 8) ^ (p[a + 1] >> 24) ^ (p[c + 3] << 24) ^ (p[c + 2] >> 8) ^ ((p[b + 2] >> cSR1) & cMSK3) ^ (p[d + 2] << cSL1);
+            p[a + 1] = p[a + 1] ^ (p[a + 1] << 8) ^ (p[a + 0] >> 24) ^ (p[c + 2] << 24) ^ (p[c + 1] >> 8) ^ ((p[b + 1] >> cSR1) & cMSK2) ^ (p[d + 1] << cSL1);
+            p[a + 0] = p[a + 0] ^ (p[a + 0] << 8) ^ (p[c + 1] << 24) ^ (p[c + 0] >> 8) ^ ((p[b + 0] >> cSR1) & cMSK1) ^ (p[d + 0] << cSL1);
 
             c = d;
             d = a;
