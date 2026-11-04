@@ -198,6 +198,8 @@ fn save_history() {
 /// On a small stack (Haiku allows a thread under 16 MB; EMUERA_STACK_MB
 /// stands in for it here) endless recursion is still a script error, not
 /// a crash: the call-depth limit follows the stack's size.
+///
+/// NOTE: With tests, you MUST use `--release` or it will immediately fail.
 #[test]
 fn deep_recursion_on_a_small_stack() {
     let dir = temp_dir("small-stack");

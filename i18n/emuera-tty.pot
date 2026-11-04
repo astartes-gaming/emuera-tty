@@ -1422,6 +1422,10 @@ msgid "no mouse ({error}): install gpm, or add yourself to the input group"
 msgstr ""
 
 #: src/tty.rs
+msgid "; fb disabled here: not an actual vt (expected 'linux', 'fbterm*', 'hurd' or 'sun-*' in $TERM)"
+msgstr ""
+
+#: src/tty.rs
 msgid " (/dev/fb0 needs the video group)"
 msgstr ""
 

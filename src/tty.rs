@@ -1411,6 +1411,18 @@ impl Tty {
         let is_vt = text_console(term);
         let mut why = String::new();
         let mut try_fb = |t: &mut Tty| -> bool {
+            // skip immediately if the current TERM isn't a vt.
+            // this is for when the user sets the option to fb on a non-vt;
+            // images don't display, but they still get flushed into the
+            // framebuffer, which results in a brief flash of images when
+            // switching from a gui back into a vt.
+            // in some cases, the images can stick to the vt until the user
+            // clears them off manually.
+            if !is_vt {
+                why = t!("; fb disabled here: not an actual vt (expected 'linux', 'fbterm*', 'hurd' or 'sun-*' in $TERM)");
+                return false;
+            }
+
             match gfx::fb::Fb::open() {
                 Ok(fb) => {
                     t.cell = ((fb.xres / t.cols as u32).max(1), (fb.yres / t.rows as u32).max(1));
