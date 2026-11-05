@@ -26,7 +26,7 @@ fn compat_suite_passes() {
             std::fs::copy(e.path(), dir.join(sub).join(e.file_name())).unwrap();
         }
     }
-    let text = run(&dir, b"\n");
+    let text = run(&dir, b"\n", Some("EEv56"));
     let ng: Vec<&str> = text.lines().filter(|l| l.starts_with("NG  ") || l.starts_with("SKIP ")).collect();
     assert!(!text.contains("script error"), "{}", text);
     assert!(ng.is_empty(), "{}", ng.join("\n"));

@@ -52,7 +52,11 @@ impl Types<'_> {
         match e {
             Expr::Binary(op, a, b) => {
                 if matches!(op, BinOp::Ge | BinOp::Le) && self.is_str(a) && self.is_str(b) {
-                    out.push(format!("string {} (Emuera evaluates it as <)", if *op == BinOp::Ge { ">=" } else { "<=" }));
+                    let ee_version = std::env::var("EMUERA_EE_VERSION").unwrap_or_default();
+                    let correct = matches!(ee_version.as_str(), "EEv56-anontw" | "EEv57");
+                    if !correct {
+                        out.push(format!("string {} (Emuera evaluates it as <)", if *op == BinOp::Ge { ">=" } else { "<=" }));
+                    }
                 }
                 self.expr(a, out);
                 self.expr(b, out);
@@ -156,7 +160,9 @@ fn string_compares(prog: &Program, out: &mut Vec<String>) {
                                 t.expr(b, &mut found);
                             }
                             CaseCond::Is(op, e) => {
-                                if matches!(op, BinOp::Ge | BinOp::Le) && select_str.get(slot) == Some(&true) {
+                                let ee_version = std::env::var("EMUERA_EE_VERSION").unwrap_or_default();
+                                let correct = matches!(ee_version.as_str(), "EEv56-anontw" | "EEv57");
+                                if matches!(op, BinOp::Ge | BinOp::Le) && select_str.get(slot) == Some(&true) && !correct {
                                     found.push(format!("CASE IS {} on a string (Emuera evaluates it as <)", if *op == BinOp::Ge { ">=" } else { "<=" }));
                                 }
                                 t.expr(e, &mut found);

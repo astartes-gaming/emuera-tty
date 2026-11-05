@@ -159,6 +159,13 @@ pub const ITEMS: &[Item] = &[
         live: false,
         help: n!("retro: ASCII through terminfo, for old or dumb terminals"),
     },
+    Item {
+        key: "ee_version",
+        label: n!("Target EE version"),
+        choices: &["EEv56", "EEv56-anontw", "EEv57"],
+        live: false,
+        help: n!("which Emuera-EE version to emulate (EEv56: baseline; EEv56-anontw: EEv56 plus AnonTW fixes from Shakes4cc; EEv57: official EEv57)"),
+    },
 ];
 
 /// Every `EMUERA_*` environment variable emuera-tty reads, with what it
@@ -178,6 +185,7 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_GAMEPAD", n!("off: don't read gamepads; /dev/input/eventN: read just that device as a pad")),
     ("EMUERA_GPMCTL", n!("path of the gpm socket (default /dev/gpmctl), for testing the Linux-console mouse")),
     ("EMUERA_GPM_VC", n!("the virtual console number the gpm mouse is read for (testing)")),
+    ("EMUERA_EE_VERSION", n!("EEv56, EEv56-anontw or EEv57: which Emuera-EE version to emulate for compatibility (default: EEv56)")),
     ("EMUERA_INFINITE_LOOP_ALERT_TIME", n!("ms before infinite loop warning (0 = disabled, default: 5000)")),
     ("EMUERA_INJECT", n!("STMT||STMT: statements run just before the EMUERA_INJECT_AT-th input (debugging)")),
     ("EMUERA_INJECT_AT", n!("the input number EMUERA_INJECT runs before")),
@@ -422,6 +430,7 @@ impl Settings {
         set("EMUERA_AMBIGUOUS", self.get("wide"));
         set("EMUERA_COLORS", self.get("colors"));
         set("EMUERA_WARMUP", self.get("warmup"));
+        set("EMUERA_EE_VERSION", self.get("ee_version"));
         if self.get("mouse") == "off" {
             set("EMUERA_MOUSE", "off");
         }

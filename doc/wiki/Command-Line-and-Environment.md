@@ -65,6 +65,12 @@ the saved setting. A value can also be written `--colors=256`.
   library page. It opens a submenu to try every dialog type (confirmation,
   multi-button, text input, password input, progress bars) and verify they
   all use the unified settings dialog style.
+- `EMUERA_EE_VERSION=EEv56|EEv56-anontw|EEv57` sets which Emuera-EE version to
+  emulate for compatibility (also the **Target EE version** setting): `EEv56`
+  is the baseline (original emuera-tty behavior); `EEv56-anontw` is EEv56 plus
+  AnonTW fixes from Shakes4cc (string >=/<= fix, CHKDATA version in
+  RESULTS[1], encoding improvements); `EEv57` is the official EEv57 (includes
+  string operator fix, CHKDATA version, encoding improvements).
 
 The variables for debugging are under [Debugging](Debugging).
 

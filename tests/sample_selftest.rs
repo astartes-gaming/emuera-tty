@@ -7,7 +7,7 @@ use common::{game, run, sample_copy, temp_dir};
 fn sample_selftest_passes() {
     let dir = sample_copy("selftest");
     // new game, advance a day, quit
-    let text = run(&dir, b"0\n101\n\n999\n");
+    let text = run(&dir, b"0\n101\n\n999\n", None);
     assert!(text.contains("OK  arith"), "{}", text);
     assert!(!text.contains("NG "), "{}", text);
     // every CHECK/CHECKS call must have run and printed OK
@@ -43,7 +43,7 @@ fn after_comment(file: &[u8]) -> &[u8] {
 fn save_load_roundtrip() {
     let dir = sample_copy("save");
     // day 1, save to slot 3, day 2, load slot 3, save the loaded state to 4
-    let text = run(&dir, b"0\n101\n\n102\n3\n101\n\n103\n3\n102\n4\n999\n");
+    let text = run(&dir, b"0\n101\n\n102\n3\n101\n\n103\n3\n102\n4\n999\n", None);
     assert!(text.contains("ロードしました"), "{}", text);
     let after_load = &text[text.rfind("ロードしました").unwrap()..];
     assert!(after_load.contains("1日目"), "loaded state isn't day 1:\n{}", after_load);
@@ -68,7 +68,7 @@ fn typed_macros_answer_several_inputs() {
     let erb = "@SYSTEM_TITLE\nREPEAT 3\nINPUT\nPRINTFORML got {RESULT}\nREND\nWAIT\nPRINTL after wait\nWAIT\n\
         INPUT\nPRINTFORML got {RESULT}\nONEINPUT\nPRINTFORML one {RESULT}\nQUIT\n";
     std::fs::write(dir.join("ERB/T.ERB"), erb).unwrap();
-    let text = run(&dir, b"(1\\n)*2\\n5\\e\\n7\\n42\n");
+    let text = run(&dir, b"(1\\n)*2\\n5\\e\\n7\\n42\n", None);
     let order = ["got 1", "got 1", "got 5", "after wait", "got 7", "one 4"];
     let mut at = 0;
     for o in order {
@@ -88,7 +88,7 @@ fn dotrain_runs_after_the_event() {
         @COM1\nPRINTL com1\nRETURN 1\n@COM999\nPRINTL com999\nRETURN 1\n@COM0\nDOTRAIN 1\nRETURN 1\n\
         @EVENTCOMEND\nPRINTFORML comend {SELECTCOM}\n";
     game(&dir, &[("CSV/Train.csv", "0,A\n1,B\n999,C\n"), ("ERB/T.ERB", erb)]);
-    let text = run(&dir, b"\n50\n\n0\n\n");
+    let text = run(&dir, b"\n50\n\n0\n\n", None);
     let order =
         ["status 1", "rest of status", "com1", "comend 1", "status 2", "usercom list", "usercom 50", "rest of usercom", "com999", "comend 999", "status 3"];
     let mut at = 0;
@@ -99,7 +99,7 @@ fn dotrain_runs_after_the_event() {
     let _ = std::fs::remove_dir_all(&dir);
     // DOTRAIN inside @COMn: Emuera refuses it
     game(&dir, &[("CSV/Train.csv", "0,A\n1,B\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nBEGIN TRAIN\n@EVENTTRAIN\nNEXTCOM = 0\n@COM0\nDOTRAIN 1\nRETURN 1\n")]);
-    let text = run(&dir, b"\n\n");
+    let text = run(&dir, b"\n\n", None);
     assert!(text.contains("DOTRAIN can only be used"), "{}", text);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -114,7 +114,7 @@ fn commands_not_allowed_in_functions() {
         @GOOD\n#FUNCTIONS\nSIF 0\n  WAIT\nIF 0\n  PRINTW x\nENDIF\nPRINTL printing is allowed\nRETURNF \"good\"\n\
         @BAD\n#FUNCTIONS\nBEGIN TITLE\nRETURNF \"x\"\n";
     game(&dir, &[("ERB/T.ERB", erb)]);
-    let text = run(&dir, b"\n");
+    let text = run(&dir, b"\n", None);
     assert!(text.contains("printing is allowed"), "{}", text);
     assert!(text.contains("[good]"), "{}", text);
     assert!(text.contains("BEGIN instruction cannot be used in #FUNCTION(S)"), "{}", text);
@@ -134,7 +134,7 @@ fn commands_not_allowed_in_functions() {
 fn trailing_comma_in_assignment() {
     let dir = temp_dir("trailing-comma");
     game(&dir, &[("ERB/T.ERB", "@SYSTEM_TITLE\nLOCAL = 5\nLOCAL += 10,\nLOCAL:1 = 1, 2,\nPRINTFORML V={LOCAL} {LOCAL:1}{LOCAL:2}\nQUIT\n")]);
-    let text = run(&dir, b"");
+    let text = run(&dir, b"", None);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(text.contains("V=15 12"), "{}", text);
 }
@@ -149,7 +149,7 @@ fn com_able_default_from_replace_csv() {
         @COM_ABLE1\nRETURN 1\n@COM1\nPRINTL com1\nRETURN 1\n@USERCOM\nPRINTFORML usercom {RESULT}\nQUIT\n";
     game(&dir, &[("CSV/Train.csv", "0,Hidden\n1,Shown\n2,AlsoHidden\n"), ("CSV/_Replace.csv", "COM_ABLE初期値 , 0\n"), ("ERB/T.ERB", erb)]);
     // 0 isn't a command any more: it goes to @USERCOM
-    let text = run(&dir, b"0\n");
+    let text = run(&dir, b"0\n", None);
     assert!(text.contains("Shown[  1]") && !text.contains("Hidden"), "{}", text);
     assert!(text.contains("usercom 0") && !text.contains("com1"), "{}", text);
 }
@@ -164,7 +164,7 @@ fn save_history() {
     game(&dir, &[("ERB/T.ERB", erb)]);
     let name = dir.canonicalize().unwrap().file_name().unwrap().to_string_lossy().to_string();
     let root = dir.join("data/emuera-tty/backups").join(name);
-    let save = |n: &str| run(&dir, format!("{}\n", n).as_bytes());
+    let save = |n: &str| run(&dir, format!("{}\n", n).as_bytes(), None);
     let folders = |kind: &str| -> Vec<std::path::PathBuf> {
         let mut v: Vec<_> =
             std::fs::read_dir(&root).unwrap().flatten().map(|e| e.path()).filter(|p| p.to_string_lossy().ends_with(&format!("-{}-save01", kind))).collect();
@@ -242,7 +242,7 @@ fn sorted_load_order_follows_the_shipped_emuera() {
             files.push(("Emuera.exe", e));
         }
         game(&dir, &files);
-        let text = run(&dir, b"");
+        let text = run(&dir, b"", None);
         assert!(text.contains(&format!("[{}]", want)), "{:?}: {}", exe, text);
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -257,7 +257,7 @@ fn frame_loops_are_not_infinite_loops() {
     let looped = |body: &str| {
         let erb = format!("@SYSTEM_TITLE\nLOCAL = GETMILLISECOND()\nWHILE GETMILLISECOND() - LOCAL < 700\n{}\nWEND\nPRINTL done\nQUIT\n", body);
         game(&dir, &[("ERB/T.ERB", &erb), ("emuera.config", "無限ループ警告までのミリ秒数:200\n")]);
-        run(&dir, b"")
+        run(&dir, b"", None)
     };
     let text = looped("  AWAIT 0");
     assert!(text.contains("done") && !text.contains("note:"), "{}", text);

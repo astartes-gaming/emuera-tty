@@ -3504,6 +3504,10 @@ impl Vm {
                 let n = self.ai(a, 0, 0)?;
                 let r = self.check_save(n);
                 self.set_results(r.mes);
+                if self.ee_version.correct_string_comparison() {
+                    // EEv56-anontw and EEv57: version in RESULTS[1]
+                    self.global_arr("RESULTS").set(1, Value::Int(r.version));
+                }
                 i(r.state)
             }
             "EXISTFUNCTION" => {

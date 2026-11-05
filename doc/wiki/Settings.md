@@ -29,6 +29,7 @@ where marked, apply to the running game:
 | Wheel scrolls | 3, 1, 5, 10 | lines per wheel step |
 | Console mouse | auto, off | gpm / `/dev/input/mice` (next start) |
 | Display | auto, ansi, retro | `retro`: the ASCII terminfo frontend (next start) |
+| Target EE version | EEv56, EEv56-anontw, EEv57 | which Emuera-EE version to emulate for compatibility; `EEv56`: baseline (original emuera-tty behavior); `EEv56-anontw`: EEv56 plus AnonTW fixes from Shakes4cc (string >=/<= fix, CHKDATA version in RESULTS[1], encoding improvements); `EEv57`: official EEv57 (includes string operator fix, CHKDATA version, encoding improvements) |
 
 The overlay shows the *Random seed* in use: selectable for its description,
 but read-only (start with `EMUERA_SEED=N` to choose it; the game's

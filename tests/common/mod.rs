@@ -47,19 +47,21 @@ pub fn game(dir: &Path, files: &[(&str, &str)]) {
 
 /// Run the game in `dir` headlessly with a fixed random seed, typing
 /// `input`; stdout then stderr.
-pub fn run(dir: &Path, input: &[u8]) -> String {
+pub fn run(dir: &Path, input: &[u8], ee_version: Option<&str>) -> String {
     let exe = env!("CARGO_BIN_EXE_emuera-tty");
-    let mut child = Command::new(exe)
-        .arg(dir)
+    let mut cmd = Command::new(exe);
+    cmd.arg(dir)
         .args(["--headless", "--echo"])
         .env("EMUERA_SEED", "1")
         // (the save history goes to the game's folder, not the user's)
         .env("XDG_DATA_HOME", dir.join("data"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::piped());
+    if let Some(v) = ee_version {
+        cmd.env("EMUERA_EE_VERSION", v);
+    }
+    let mut child = cmd.spawn().unwrap();
     // (a game that stops on an error may exit before reading its input:
     // the write then fails, and the output still tells what happened)
     let _ = child.stdin.take().unwrap().write_all(input);

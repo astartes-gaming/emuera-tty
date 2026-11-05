@@ -48,6 +48,33 @@ use crate::parser::Program;
 use crate::resources::Resources;
 use crate::vm::debugger::Debugger;
 use std::path::PathBuf;
+
+/// Target EE version for compatibility behavior
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EeVersion {
+    /// Baseline EEv56 (original emuera-tty behavior)
+    EEv56,
+    /// EEv56 with AnonTW fixes from Shakes4cc (string operators, CHKDATA, encoding, etc.)
+    EEv56AnonTw,
+    /// Official EEv57 (includes string operator fix, CHKDATA version, encoding improvements)
+    EEv57,
+}
+
+impl EeVersion {
+    /// Parse from environment variable or settings
+    pub fn from_env() -> Self {
+        match std::env::var("EMUERA_EE_VERSION").ok().as_deref() {
+            Some("EEv56-anontw") => EeVersion::EEv56AnonTw,
+            Some("EEv57") => EeVersion::EEv57,
+            _ => EeVersion::EEv56,
+        }
+    }
+
+    /// Whether string >= and <= use correct semantics (not the Emuera quirk)
+    pub fn correct_string_comparison(&self) -> bool {
+        matches!(self, EeVersion::EEv56AnonTw | EeVersion::EEv57)
+    }
+}
 // Arc (aliased as Rc): parsed programs are built on several threads
 use std::sync::Arc as Rc;
 use value::*;
@@ -411,6 +438,8 @@ pub struct Vm {
     trace: Option<String>,
     /// `EMUERA_MEMSTATS`: the file the memory report goes to.
     memstats: Option<String>,
+    /// Target EE version (EEv56, EEv56-anontw, EEv57) for compatibility behavior
+    ee_version: EeVersion,
     /// Debugger state (enabled via EMUERA_DEBUG=1 or --debug).
     debugger: Debugger,
     /// user function calls so far
@@ -554,6 +583,7 @@ impl Vm {
             tr_last: String::new(),
             trace: std::env::var("EMUERA_TRACE").ok().map(|t| t.to_uppercase()),
             memstats: std::env::var("EMUERA_MEMSTATS").ok(),
+            ee_version: EeVersion::from_env(),
             debugger: Debugger::new(),
             calls: 0,
             code_bytes: 0,
@@ -1501,17 +1531,29 @@ impl Vm {
                 return Ok(Value::Str(s.repeat(n.max(0) as usize)));
             }
             let (xs, ys) = (x.as_string(), y.as_string());
+            // EEv56 has a quirk: string >= and <= both mean < (strictly less than).
+            // EEv56-anontw (Shakes4cc fix) and EEv57 fix this.
+            let correct_str_cmp = self.ee_version.correct_string_comparison();
             return Ok(match op {
                 BinOp::Add => Value::Str(xs + &ys),
                 BinOp::Eq => Value::Int((xs == ys) as i64),
                 BinOp::Ne => Value::Int((xs != ys) as i64),
                 BinOp::Lt => Value::Int((xs < ys) as i64),
-                // Emuera quirk: for strings, >= and <= both mean < (strictly less than)
-                // This HAS been resolved in EEv57, but the tests (and some games) might
-                // still assume EEv56
-                BinOp::Le => Value::Int((xs < ys) as i64),
+                BinOp::Le => {
+                    if correct_str_cmp {
+                        Value::Int((xs <= ys) as i64)
+                    } else {
+                        Value::Int((xs < ys) as i64)
+                    }
+                }
                 BinOp::Gt => Value::Int((xs > ys) as i64),
-                BinOp::Ge => Value::Int((xs < ys) as i64),
+                BinOp::Ge => {
+                    if correct_str_cmp {
+                        Value::Int((xs >= ys) as i64)
+                    } else {
+                        Value::Int((xs < ys) as i64)
+                    }
+                }
                 _ => return err(format!("operator {:?} not valid for strings", op)),
             });
         }

@@ -11,7 +11,7 @@ fn play_erb(tag: &str, files: &[(&str, &str)], erb: &str, check: impl FnOnce(&Pa
     let mut all: Vec<(&str, &str)> = vec![("CSV/Talent.csv", "5,処女\n"), ("ERB/T.ERB", erb)];
     all.extend_from_slice(files);
     game(&dir, &all);
-    let text = run(&dir, b"");
+    let text = run(&dir, b"", None);
     check(&dir);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(!text.contains("script error"), "{}", text);
@@ -371,9 +371,9 @@ fn tr_name_errors() {
         let mut all: Vec<(&str, &str)> = vec![("CSV/Talent.csv", "5,処女\n"), ("ERB/T.ERB", &erb)];
         all.extend_from_slice(files);
         game(&dir, &all);
-        let out = run(&dir, b"\n");
+        let text = run(&dir, b"\n", None);
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(out.contains(msg), "{}: {}", msg, out);
+        assert!(text.contains(msg), "{}: {}", msg, text);
     }
 }
 
@@ -384,7 +384,7 @@ fn tr_name_errors() {
 fn trchara_new_game_and_old_save() {
     let dir = temp_dir("trchara-save");
     game(&dir, &[("CSV/Chara1.csv", "番号,1\n名前,博麗霊夢\n呼び名,霊夢\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nADDCHARA 1\nSAVEDATA 0, \"t\"\nQUIT\n")]);
-    let first = run(&dir, b"");
+    let first = run(&dir, b"", None);
     assert!(!first.contains("script error"), "{}", first);
     game(
         &dir,
@@ -393,7 +393,7 @@ fn trchara_new_game_and_old_save() {
             ("ERB/T.ERB", "@SYSTEM_TITLE\nLOADDATA 0\n@SYSTEM_LOADEND\nPRINTFORML OLD=%NAME:0%\nADDCHARA 1\nPRINTFORML NEW=%NAME:1%\nQUIT\n"),
         ],
     );
-    let text = run(&dir, b"");
+    let text = run(&dir, b"", None);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(text.contains("OLD=博麗霊夢"), "{}", text);
     assert!(text.contains("NEW=Reimu Hakurei"), "{}", text);
@@ -440,7 +440,7 @@ fn param_renaming_gate() {
             ("ERB/T.ERB", "@SYSTEM_TITLE\n#DIM PARAMX\n#DIM PALAMX\nPARAMX = 1\nPALAMX = 2\nPRINTFORML X={PARAMX}{PALAMX}\nPARAM:0:0 = 1\nQUIT\n"),
         ],
     );
-    let text = run(&dir, b"\n");
+    let text = run(&dir, b"\n", None);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(text.contains("X=12"), "{}", text);
     assert!(text.contains("undefined variable 'PARAM'"), "{}", text);

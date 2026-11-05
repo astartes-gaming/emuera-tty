@@ -973,6 +973,14 @@ msgid "retro: ASCII through terminfo, for old or dumb terminals"
 msgstr ""
 
 #: src/settings.rs
+msgid "Target EE version"
+msgstr ""
+
+#: src/settings.rs
+msgid "which Emuera-EE version to emulate (EEv56: baseline; EEv56-anontw: EEv56 plus AnonTW fixes from Shakes4cc; EEv57: official EEv57)"
+msgstr ""
+
+#: src/settings.rs
 msgid "wide, narrow, single or osc66: how box drawing and symbols get Emuera's two columns"
 msgstr ""
 
@@ -1014,6 +1022,10 @@ msgstr ""
 
 #: src/settings.rs
 msgid "the virtual console number the gpm mouse is read for (testing)"
+msgstr ""
+
+#: src/settings.rs
+msgid "EEv56, EEv56-anontw or EEv57: which Emuera-EE version to emulate for compatibility (default: EEv56)"
 msgstr ""
 
 #: src/settings.rs
