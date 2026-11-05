@@ -118,11 +118,11 @@ impl Attrs {
     }
 }
 
-fn name_hash(name: &str) -> usize {
+fn name_hash(name: &str) -> u64 {
     use std::hash::Hasher;
     let mut h = crate::fxhash::FxHasher::default();
     h.write(name.as_bytes());
-    h.finish() as usize
+    h.finish()
 }
 
 impl Funcs {
@@ -134,9 +134,9 @@ impl Funcs {
     /// take; and the entry's hash part.
     fn slot(&self, name: &str) -> (usize, u64) {
         let h = name_hash(name);
-        let tag = (h as u64) & !(NONE as u64);
+        let tag = h & !(NONE as u64);
         let mask = self.table.len() - 1;
-        let mut i = (h >> 32 ^ h) & mask;
+        let mut i = (h >> 32 ^ h) as usize & mask;
         loop {
             let e = self.table[i];
             if e == FREE || e & !(NONE as u64) == tag && self.name_of(&self.heads[e as u32 as usize]) == name {
