@@ -1507,6 +1507,8 @@ impl Vm {
                 BinOp::Ne => Value::Int((xs != ys) as i64),
                 BinOp::Lt => Value::Int((xs < ys) as i64),
                 // Emuera quirk: for strings, >= and <= both mean < (strictly less than)
+                // This HAS been resolved in EEv57, but the tests (and some games) might
+                // still assume EEv56
                 BinOp::Le => Value::Int((xs < ys) as i64),
                 BinOp::Gt => Value::Int((xs > ys) as i64),
                 BinOp::Ge => Value::Int((xs < ys) as i64),
