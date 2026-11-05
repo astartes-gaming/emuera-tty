@@ -30,9 +30,6 @@
    Emuera and emuera-tty should produce the same outputs. If emuera-tty
    diverges, then some handling/parsing/interpreting is very likely being
    done incorrectly.
-   - **NOTE that some seeds can produce immediate diverging outputs in Emuera and emuera-tty.**
-     Make sure to use a seed that doesn't do this. Check the earliest
-     available random text output for any immediate discrepancies.
    - **NOTE that both sides should be run with the exact same chain of commands.**
      Not doing this will obviously cause divergence.
      **Every single command you send to the game matters.**
