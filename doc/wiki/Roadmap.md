@@ -12,18 +12,35 @@
    sixel pictures, and games kept in shared storage (`/sdcard`). A
    separate Android app would come later, if at all: the engine never
    talks to the terminal directly, so another frontend could be added.
-3. Play deeper into AnonTW, pops-tw and eraTohoK, and more games.
-   AnonTW's 5 remaining parse errors and pops-tw's 16 are mistakes in the
-   games' own scripts (Emuera reports them too); eraTohoK has none.
-4. Dialog translation and sound with real translators and players on
+3. Dialog translation and sound with real translators and players on
    other systems: tested here with stand-ins and mpv only.
-5. Speed of script-heavy games: pops-tw's new game takes about 14
+4. Speed of script-heavy games: pops-tw's new game takes about 14
    seconds of CPU (its own object system looks names up in 1000-entry
    arrays hundreds of thousands of times, through a million statements);
    compiling variables to slots ahead of time would be the next step.
-6. Feature parity with other Emuera forks: various forks of Emuera
+5. Feature parity with other Emuera forks: various forks of Emuera
    (such as EM and Anchor) can have their own entirely unique features
    and scripting logic that emuera-tty can't load unless implemented.
    Replicating these features from their sources or thorough
    reverse-engineering can let emuera-tty run Era games dependent on
    those features.
+6. Behavior testing/comparisons: run emuera-tty and a fork of Emuera
+   that accepts set-seed runs with a single seed and a single shared save
+   file. With both sides using SFMT, using the same seed and save on both
+   Emuera and emuera-tty should produce the same outputs. If emuera-tty
+   diverges, then some handling/parsing/interpreting is very likely being
+   done incorrectly.
+   - **NOTE that some seeds can produce immediate diverging outputs in Emuera and emuera-tty.**
+     Make sure to use a seed that doesn't do this. Check the earliest
+     available random text output for any immediate discrepancies.
+   - **NOTE that both sides should be run with the exact same chain of commands.**
+     Not doing this will obviously cause divergence.
+     **Every single command you send to the game matters.**
+   - In AnonTW, there are several points available for side-by-side 
+     comparisons (some are not listed for obvious reasons):
+     - Wake-up events
+     - Outputs of `Whereabouts Sense` (character locations)
+     - Character events
+     - Character PALAMs and PALAM gains
+     - Scores/number outputs (Danmaku matches, EXP gains, etc.)
+     - And other things...

@@ -169,6 +169,26 @@ with *auto* and no translator found, the file alone is used.
   change. Edit the file and change a setting (or restart) to use the new
   version.
 
+### Translating a game, without modifying the source files
+
+Use `--translate-load` (or `--translate-storage`) with a TSV file containing
+`original<TAB>translation` rows. The engine applies those translations at runtime,
+so the game's ERB/ERH/CSV files stay untouched. This is the intended way to
+play a game in another language with emuera-tty: build or obtain a translation
+TSV and load it with `--translate-load translations.tsv`. With *Translator* set to
+`file`, no external translator is queried at all — the file alone drives the output.
+You can layer multiple `--translate-load` files (later ones override earlier rows) and
+combine with `--translate-log` to capture new lines as you play.
+
+You may also build the TSV file yourself. As long as it has two separate rows for
+the original and translation text, emuera-tty will read it. Note that you still need
+the original text itself, which can be copied from the sources and pasted into the
+TSV file, after which you can write the translated versions yourself.
+
+Some text might be difficult or impossible to translate through an offline file, like
+dynamic ones (text with inlined variables that are random). A proper implementation
+for this is yet to be considered.
+
 ### Keeping files and lines untranslated
 
 `emuera-tty --translation-filter filter.txt` reads a list of what is never
