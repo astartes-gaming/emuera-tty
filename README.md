@@ -48,6 +48,12 @@ Expect rough edges in parts of the games nobody has played through yet
 
 ## Install
 
+Ready-made programs for Linux, Windows and macOS (and the CPUs listed
+above) are on the [releases page](https://github.com/astartes-gaming/emuera-tty/releases):
+download one and run it with `--install`
+([Ready-made binaries](https://github.com/astartes-gaming/emuera-tty/wiki/Installation#ready-made-binaries)).
+To build it yourself:
+
 You need **git**, **gcc** and **Rust 1.88 or newer**
 ([rustup](https://rustup.rs) if your distribution's Rust is older; see
 [Installation](https://github.com/astartes-gaming/emuera-tty/wiki/Installation#installing-on-your-distribution) for

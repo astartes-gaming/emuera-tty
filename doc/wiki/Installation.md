@@ -10,7 +10,8 @@
   Reports from any of them are welcome.
 - A **terminal**. Any modern one works for text; see
   [Picking a terminal](Terminals) for pictures and Japanese text.
-- **Rust** to build it: install with [rustup](https://rustup.rs)
+- **Rust** to build it (not needed for a [ready-made
+  binary](#ready-made-binaries)): install with [rustup](https://rustup.rs)
   (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`), then
   open a new terminal so `cargo` is on your `PATH`.
 - **git**, to download the source and for `--upgrade`.
@@ -21,6 +22,24 @@
 - Optional: **mpv** (or ffplay) for the games' sound and music, and a
   translator such as **Ollama** or **Argos Translate** to read a game in
   another language (see [Sound](Playing#sound) and [Translation](Translation)).
+
+## Ready-made binaries
+
+The [releases page](https://github.com/astartes-gaming/emuera-tty/releases)
+has a single-file program for Linux (x86-64, i586, ARMv5/6/7, AArch64,
+RISC-V 64, PowerPC 64 both endians, LoongArch; the `-static` ones run on
+any distribution), Windows (x86-64, ARM) and macOS (Apple silicon,
+Intel). Download the one for your system, then:
+
+```sh
+chmod +x emuera-tty-linux-x86_64-static
+./emuera-tty-linux-x86_64-static --install
+```
+
+It installs itself as `emuera-tty` (see below for where). macOS may refuse
+an unsigned download; `xattr -d com.apple.quarantine emuera-tty-macos-*`
+clears that. `--upgrade` builds from source, so it needs git and Rust: with
+a ready-made binary, download the new release and `--install` it instead.
 
 ## Build and install
 
