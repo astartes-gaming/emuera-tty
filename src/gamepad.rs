@@ -209,7 +209,7 @@ fn ior(ty: u8, nr: u8, size: usize) -> u64 {
 fn abs_range(fd: i32, code: u16) -> Option<(i32, i32)> {
     // struct input_absinfo: value, minimum, maximum, fuzz, flat, resolution
     let mut info = [0i32; 6];
-    let req = ior(b'E', 0x40 + code as u8, std::mem::size_of_val(&info));
+    let req = ior(b'E', 0x40 + code as u8, size_of_val(&info));
     let r = unsafe { libc::ioctl(fd, req as _, info.as_mut_ptr()) };
     (r >= 0 && info[2] > info[1]).then_some((info[1], info[2]))
 }
@@ -382,7 +382,7 @@ fn run(w: i32) {
     // the left stick's moves: cells not given yet, and the last tick
     let mut acc = (0.0f32, 0.0f32);
     let mut tick = Instant::now();
-    let ev_size = 2 * std::mem::size_of::<libc::c_ulong>() + 8;
+    let ev_size = 2 * size_of::<libc::c_ulong>() + 8;
     let mut buf = vec![0u8; ev_size * 64];
     loop {
         if last_scan.is_none_or(|t| t.elapsed() >= Duration::from_secs(2)) {

@@ -883,7 +883,7 @@ impl Vm {
                         format!("{}{}", c.to_string().repeat(k), ".".repeat(10 - k))
                     };
                     let text = format!("{}[{}]{:>6}", n, bar, p);
-                    let padded = super::pad(&text, self.con.printc_len, crate::ast::Align::Right);
+                    let padded = pad(&text, self.con.printc_len, Align::Right);
                     self.con.print(&padded);
                     count += 1;
                     if count % per_line == 0 {
@@ -938,7 +938,7 @@ impl Vm {
             }
             "CLEARTEXTBOX" => self.fe.set_textbox(""),
             "TOOLTIP_SETCOLOR" => {
-                let rgb = |v: i64| crate::console::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+                let rgb = |v: i64| Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
                 let (fg, bg) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0xFFFFFF)?);
                 if !(0..=0xFFFFFF).contains(&fg) || !(0..=0xFFFFFF).contains(&bg) {
                     return err("TOOLTIP_SETCOLOR: a colour is out of range");
@@ -4201,11 +4201,11 @@ pub fn format_number(v: i64, fmt: &str) -> String {
             'C' | 'c' => return format!("{}¥{}{}", neg, grouped(v.unsigned_abs() as u128), frac_zeros(prec.unwrap_or(0))),
             'G' | 'g' | 'R' | 'r' => {
                 let digits = v.unsigned_abs().to_string();
-                match prec {
+                return match prec {
                     Some(p) if p > 0 && digits.len() > p => {
-                        return format!("{}{}", neg, sci(&digits, p - 1, if letter == 'g' { 'e' } else { 'E' }, true, 2, true).trim_end_matches(['0']));
+                        format!("{}{}", neg, sci(&digits, p - 1, if letter == 'g' { 'e' } else { 'E' }, true, 2, true).trim_end_matches(['0']))
                     }
-                    _ => return v.to_string(),
+                    _ => v.to_string(),
                 }
             }
             'E' | 'e' => {

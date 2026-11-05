@@ -239,7 +239,7 @@ impl Headless {
             gen_seen: 0,
             dropped_seen: 0,
             echo_input,
-            lines_in: Box::new(std::io::BufReader::new(std::io::stdin())),
+            lines_in: Box::new(io::BufReader::new(io::stdin())),
             width: 80,
             log_style: std::env::var("EMUERA_LOG_STYLE").as_deref() == Ok("emuera"),
             loop_noted: false,
@@ -262,7 +262,7 @@ impl Frontend for Headless {
         self.dropped_seen = con.dropped_front;
         self.printed = self.printed.min(con.low_water).min(con.lines.len());
         con.low_water = usize::MAX;
-        let mut out = std::io::stdout().lock();
+        let mut out = io::stdout().lock();
         for l in &con.lines[self.printed..] {
             let _ = writeln!(out, "{}", Self::line_out(l));
         }

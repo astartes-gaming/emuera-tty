@@ -356,7 +356,7 @@ fn build_program(
     // ERB files are independent once the headers are known: read and parse
     // them on all cores in contiguous chunks (a file at a time per core),
     // then merge in file order
-    let items: Vec<(u32, &std::path::PathBuf, usize)> =
+    let items: Vec<(u32, &PathBuf, usize)> =
         erbs.iter().enumerate().map(|(j, f)| ((erhs.len() + j) as u32, f, std::fs::metadata(f).map_or(1, |m| m.len() as usize))).collect();
     let forks: Vec<parser::Program> = parallel_chunks(
         &items,
@@ -622,7 +622,7 @@ fn run(o: Opts) -> i32 {
         }
         // a game that comes with eraMidi (eratohoReverse): its music, found
         // in the printed lines as eraMidi finds it (sound::eramidi_song)
-        vm.con.note_watch = vm.sound.is_some() && crate::loader::find_file_ci(&game, "eramidi.exe").is_some();
+        vm.con.note_watch = vm.sound.is_some() && loader::find_file_ci(&game, "eramidi.exe").is_some();
     }
     let sd = vm.save_dir();
     vm.fe.set_game(&game, &sd);

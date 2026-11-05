@@ -49,7 +49,7 @@ impl Fb {
                 return Err("FBIOGET_FSCREENINFO failed".into());
             }
         }
-        let base = 16 + std::mem::size_of::<usize>() + 16 + 6;
+        let base = 16 + size_of::<usize>() + 16 + 6;
         let ll_off = (base + 3) & !3;
         let line = u32::from_ne_bytes([fix[ll_off], fix[ll_off + 1], fix[ll_off + 2], fix[ll_off + 3]]) as usize;
         let yres_v = var[3].max(var[1]);

@@ -296,7 +296,7 @@ impl Funcs {
         let mut f = src.header(self.name_of(h), s.line);
         let a = h.attrs;
         (f.is_function, f.returns_str, f.order, f.single, f.only) = (a.is_function, a.returns_str, a.order, a.single, a.only);
-        let at = (h as *const Head as usize - self.heads.as_ptr() as usize) / std::mem::size_of::<Head>();
+        let at = (h as *const Head as usize - self.heads.as_ptr() as usize) / size_of::<Head>();
         (f.local_size, f.locals_size) = self.sizes.get(&(at as u32)).copied().unwrap_or((0, 0));
         f.lazy = Some(src);
         Rc::new(f)
@@ -1457,7 +1457,7 @@ impl Parser {
         // Inside PRINTDATA / STRDATA collect DATA lines.
         if let Some(Ctl::Data { .. }) = b.ctl.last() {
             let (cmd, rest) = split_cmd(line);
-            match cmd.as_str() {
+            return match cmd.as_str() {
                 "DATA" | "DATAFORM" => {
                     let form = if cmd == "DATA" { Form::lit(rest) } else { parse_form(rest, &self.prog.defines)? };
                     if let Some(Ctl::Data { entries, list, .. }) = b.ctl.last_mut() {
@@ -1466,13 +1466,13 @@ impl Parser {
                             None => entries.push(vec![form]),
                         }
                     }
-                    return Ok(());
+                    Ok(())
                 }
                 "DATALIST" => {
                     if let Some(Ctl::Data { list, .. }) = b.ctl.last_mut() {
                         *list = Some(vec![]);
                     }
-                    return Ok(());
+                    Ok(())
                 }
                 "ENDLIST" => {
                     if let Some(Ctl::Data { list, entries, .. }) = b.ctl.last_mut() {
@@ -1480,7 +1480,7 @@ impl Parser {
                             entries.push(l);
                         }
                     }
-                    return Ok(());
+                    Ok(())
                 }
                 "ENDDATA" => {
                     if let Some(Ctl::Data { var, flags, entries, .. }) = b.ctl.pop() {
@@ -1490,21 +1490,21 @@ impl Parser {
                         };
                         Self::after_stmt(b);
                     }
-                    return Ok(());
+                    Ok(())
                 }
-                _ => return Err("only DATA/DATAFORM/DATALIST allowed inside PRINTDATA".into()),
+                _ => Err("only DATA/DATAFORM/DATALIST allowed inside PRINTDATA".into()),
             }
         }
         if let Some(Ctl::CallList { .. }) = b.ctl.last() {
             let (cmd, rest) = split_cmd(line);
-            if cmd == "FUNC" {
+            return if cmd == "FUNC" {
                 // FORM text, as CALLFORM's (Emuera: SP_CALLFORM): eraSDMprotoNTR
                 // builds `FUNC %"KOJO_" + … + "(" + … + ")"%`
                 let (t, args) = self.call_target(strip_comment(rest), true)?;
                 if let Some(Ctl::CallList { entries, .. }) = b.ctl.last_mut() {
                     entries.push((t, args));
                 }
-                return Ok(());
+                Ok(())
             } else if cmd == "ENDFUNC" {
                 if let Some(Ctl::CallList { kind, goto, entries }) = b.ctl.pop() {
                     if goto {
@@ -1514,9 +1514,9 @@ impl Parser {
                     }
                     Self::after_stmt(b);
                 }
-                return Ok(());
+                Ok(())
             } else {
-                return Err("only FUNC allowed inside TRYCALLLIST".into());
+                Err("only FUNC allowed inside TRYCALLLIST".into())
             }
         }
 
@@ -2239,7 +2239,7 @@ fn upper_expr_in(e: Expr) -> Expr {
 
 /// One shared copy of each variable name per parse thread: the same few
 /// thousand names occur millions of times in a big game.
-fn intern(s: String) -> crate::ast::Name {
+fn intern(s: String) -> Name {
     thread_local! {
         static NAMES: std::cell::RefCell<HashSet<crate::ast::Name>> = std::cell::RefCell::new(HashSet::default());
     }
@@ -2248,7 +2248,7 @@ fn intern(s: String) -> crate::ast::Name {
         if let Some(x) = n.get(s.as_str()) {
             return x.clone();
         }
-        let x: crate::ast::Name = s.into();
+        let x: Name = s.into();
         n.insert(x.clone());
         x
     })

@@ -1,5 +1,5 @@
 //! The environment-variables page, opened from the settings overlay: every
-//! `EMUERA_*` variable emuera-tty reads (see [`crate::settings::ENV_VARS`]),
+//! `EMUERA_*` variable emuera-tty reads (see [`ENV_VARS`]),
 //! with the value it sees now or "(not set)". Read-only: the variables are
 //! read when emuera-tty starts, so they are changed in the shell before it
 //! is launched. Enter on a row says what the variable does. Normal users

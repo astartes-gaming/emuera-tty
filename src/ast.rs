@@ -584,10 +584,10 @@ mod tests {
     /// instructions): growing them costs hundreds of MB.
     #[test]
     fn node_sizes_stay_small() {
-        assert!(std::mem::size_of::<super::Instr>() <= 48);
-        assert!(std::mem::size_of::<super::Expr>() <= 32);
-        assert!(std::mem::size_of::<super::FormPart>() <= 48);
+        assert!(size_of::<super::Instr>() <= 48);
+        assert!(size_of::<super::Expr>() <= 32);
+        assert!(size_of::<super::FormPart>() <= 48);
         // a header per function, compiled or not (pops-tw: 100k)
-        assert!(std::mem::size_of::<super::Function>() <= 112);
+        assert!(size_of::<super::Function>() <= 112);
     }
 }

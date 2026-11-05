@@ -690,7 +690,7 @@ pub struct Tty {
     frame: Vec<Vec<(usize, Cell, Option<Rgb>)>>,
     frame_imgs: Vec<Placement>,
     /// makes overlapping pictures into one (see `gfx::Merger`)
-    merger: crate::gfx::Merger,
+    merger: gfx::Merger,
     /// the button the pointer rests on and since when (tooltip delay)
     tip_since: Option<(usize, Instant)>,
     /// the last frame showed a tooltip
@@ -1003,7 +1003,7 @@ fn write_all(b: &[u8]) {
     if CAPTURE.with(|c| c.borrow_mut().as_mut().map(|v| v.extend_from_slice(b)).is_some()) {
         return;
     }
-    let mut out = std::io::stdout().lock();
+    let mut out = io::stdout().lock();
     let _ = out.write_all(b);
     let _ = out.flush();
 }

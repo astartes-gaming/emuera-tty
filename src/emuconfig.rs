@@ -38,7 +38,7 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
             };
             // keys may be written in Japanese or English (WINDOW WIDTH…)
             let k = line.trim_start_matches('\u{feff}').split_once(':').map(|x| x.0).unwrap_or(k);
-            match crate::config_names::canonical(k) {
+            match canonical(k) {
                 "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
                 "無限ループ警告までのミリ秒数" => con.infinite_loop_alert_time = v.parse().unwrap_or(5000),
                 "無限ループ警告を無効にする" => con.disable_infinite_loop_detection = yes(v),

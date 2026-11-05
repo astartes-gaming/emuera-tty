@@ -340,7 +340,7 @@ pub struct Vm {
     pub con: Console,
     pub fe: Box<dyn Frontend>,
     pub res: Resources,
-    pub globals: vars::Globals,
+    pub globals: Globals,
     /// function-owned storage; a slot keeps its number for good (emptied
     /// on RESETDATA, made again on next use), so references cache it
     pub statics: Vec<Option<Arr>>,
@@ -514,7 +514,7 @@ impl Vm {
         let tr_run = csv.tr.active();
         // EMUERA_VM_DEBUG=1 or --vm-debug enables the interactive debugger
         let debug_enabled = std::env::var("EMUERA_VM_DEBUG").is_ok();
-        crate::vm::debugger::set_debug_enabled(debug_enabled);
+        debugger::set_debug_enabled(debug_enabled);
 
         let mut vm = Vm {
             prog,
@@ -772,6 +772,7 @@ impl Vm {
         // Emuera's NextInt64(max) returns NextUInt64() % max
         (self.rng.next_u64() % (n as u64)) as i64
     }
+
     /// RANDOMIZE / INITRAND: reseed.
     pub fn seed(&mut self, s: i64) {
         CURRENT_SEED.store(s as u64, std::sync::atomic::Ordering::Relaxed);
@@ -781,6 +782,8 @@ impl Vm {
     /// Sync RNG state from RANDDATA global array (after loading a save).
     #[allow(unreachable_code)]
     pub fn sync_rng_from_randdata(&mut self) {
+        // intentionally skip; AnonTW's Emuera seems to skip it, and not
+        // skipping it here breaks save randomness
         return;
 
         if let Some(arr) = self.globals.get("RANDDATA") {
@@ -849,13 +852,13 @@ impl Vm {
             let name = name.as_str();
             // one copy per character: sparse from a smaller size
             let a = if let Some(def) = system_var(name) {
-                Arr::sized(def.is_str, &self.var_def_dims(name, def), vars::SPARSE_CHARA)
+                Arr::sized(def.is_str, &self.var_def_dims(name, def), SPARSE_CHARA)
             } else if let Some(d) = self.user_dims.get(name).cloned() {
                 let mut dims = Vec::new();
                 for e in &d.dims {
                     dims.push(self.eval(e).map(|v| v.as_int()).unwrap_or(1).max(0) as usize);
                 }
-                Arr::sized(d.is_str, &dims, vars::SPARSE_CHARA)
+                Arr::sized(d.is_str, &dims, SPARSE_CHARA)
             } else {
                 Arr::new(false, &[1])
             };
@@ -1853,7 +1856,7 @@ impl Vm {
             }
         }
         // Debugger: function entry hook
-        if crate::vm::debugger::debug_enabled() {
+        if debugger::debug_enabled() {
             let depth = self.frames.len();
             self.debugger.on_function_enter(depth);
         }
@@ -1931,7 +1934,7 @@ impl Vm {
         self.frames.pop();
         self.drop_if_huge(&f);
         // Debugger: function exit hook
-        if crate::vm::debugger::debug_enabled() {
+        if debugger::debug_enabled() {
             self.debugger.on_function_exit(depth_after_pop);
         }
         if prof::ON.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2063,7 +2066,7 @@ impl Vm {
                 }
             }
             // Debugger: check for breakpoints / step mode before executing
-            if crate::vm::debugger::debug_enabled() {
+            if debugger::debug_enabled() {
                 let frame_depth = self.frames.len();
                 let func_name = &f.name;
                 let (file_name, line) =
@@ -2072,8 +2075,7 @@ impl Vm {
                 if let Some(reason) = self.debugger.should_stop_at(frame_depth, func_name, &body, pc, Some(file_name), Some(line)) {
                     // Set step_frame_depth for step over/out
                     match reason {
-                        crate::vm::debugger::StopReason::Step(crate::vm::debugger::StepMode::Over)
-                        | crate::vm::debugger::StopReason::Step(crate::vm::debugger::StepMode::Out) => {
+                        debugger::StopReason::Step(debugger::StepMode::Over) | debugger::StopReason::Step(debugger::StepMode::Out) => {
                             self.debugger.set_step_frame_depth(frame_depth);
                         }
                         _ => {}
@@ -2084,7 +2086,7 @@ impl Vm {
                         if self.debugger.decrement_step_count() {
                             // More steps remaining, continue without REPL
                             // For step over/out, we still need to set frame depth
-                            if matches!(self.debugger.step_mode(), crate::vm::debugger::StepMode::Over | crate::vm::debugger::StepMode::Out) {
+                            if matches!(self.debugger.step_mode(), debugger::StepMode::Over | debugger::StepMode::Out) {
                                 self.debugger.set_step_frame_depth(frame_depth);
                             }
                         } else {
@@ -2105,7 +2107,7 @@ impl Vm {
                                 // Print watches - collect first to avoid borrow conflict
                                 let watches: Vec<String> = self.debugger.watch_exprs().to_vec();
                                 for (i, expr) in watches.iter().enumerate() {
-                                    let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                                    let var_ref = VarRef::new(expr.as_str().into(), vec![]);
                                     match self.get_var(&var_ref) {
                                         Ok(v) => eprintln!("    [{}] {} = {:?}", i, expr, v),
                                         Err(e) => eprintln!("    [{}] {} = <error: {:?}>", i, expr, e),
@@ -2134,7 +2136,7 @@ impl Vm {
                             // Print watches - collect first to avoid borrow conflict
                             let watches: Vec<String> = self.debugger.watch_exprs().to_vec();
                             for (i, expr) in watches.iter().enumerate() {
-                                let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                                let var_ref = VarRef::new(expr.as_str().into(), vec![]);
                                 match self.get_var(&var_ref) {
                                     Ok(v) => eprintln!("    [{}] {} = {:?}", i, expr, v),
                                     Err(e) => eprintln!("    [{}] {} = <error: {:?}>", i, expr, e),
@@ -2163,7 +2165,7 @@ impl Vm {
     }
 
     /// Run the debugger REPL loop.
-    fn run_debugger_repl(&mut self, reason: crate::vm::debugger::StopReason) -> VmResult<()> {
+    fn run_debugger_repl(&mut self, reason: debugger::StopReason) -> VmResult<()> {
         use crate::vm::debugger::{DebugCommand, ReplAction};
 
         // Print stop reason and location
@@ -2186,7 +2188,7 @@ impl Vm {
             // Print watches
             let watches: Vec<String> = self.debugger.watch_exprs().to_vec();
             for (i, expr) in watches.iter().enumerate() {
-                let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                let var_ref = VarRef::new(expr.as_str().into(), vec![]);
                 match self.get_var(&var_ref) {
                     Ok(v) => eprintln!("    [{}] {} = {:?}", i, expr, v),
                     Err(e) => eprintln!("    [{}] {} = <error: {:?}>", i, expr, e),
@@ -2201,7 +2203,7 @@ impl Vm {
                 // EOF or empty - treat as quit or repeat last command
                 if line.is_empty() && self.fe.is_fullscreen() {
                     // In TUI, empty might mean just Enter - repeat last command (step into)
-                    self.debugger.set_step_mode(crate::vm::debugger::StepMode::Into);
+                    self.debugger.set_step_mode(debugger::StepMode::Into);
                     break;
                 }
                 return Err(Ctrl::Quit);
@@ -2224,7 +2226,7 @@ impl Vm {
                     self.print_backtrace();
                 }
                 DebugCommand::Print(expr) => {
-                    let var_ref = crate::ast::VarRef::new(expr.as_str().into(), vec![]);
+                    let var_ref = VarRef::new(expr.as_str().into(), vec![]);
                     match self.get_var(&var_ref) {
                         Ok(v) => eprintln!("{} = {:?}", expr, v),
                         Err(e) => eprintln!("Error: {:?}", e),
@@ -2260,7 +2262,7 @@ impl Vm {
         }
 
         // Set step_frame_depth for step over/out
-        if matches!(self.debugger.step_mode(), crate::vm::debugger::StepMode::Over | crate::vm::debugger::StepMode::Out) {
+        if matches!(self.debugger.step_mode(), debugger::StepMode::Over | debugger::StepMode::Out) {
             self.debugger.set_step_frame_depth(self.frames.len());
         }
 
@@ -2284,7 +2286,7 @@ impl Vm {
 
     fn print_locals(&mut self) {
         // Clone the data we need from the frame to avoid borrow conflict
-        let (func_name, params): (String, Vec<Rc<crate::ast::VarRef>>) = {
+        let (func_name, params): (String, Vec<Rc<VarRef>>) = {
             let frame = self.frames.last().unwrap();
             let f = &frame.func;
             (f.name.to_string(), f.params.iter().map(|p| p.target.clone()).collect())
@@ -2292,7 +2294,7 @@ impl Vm {
         eprintln!("Locals in @{}:", func_name);
         // Print function parameters
         for param in &params {
-            if let Ok(v) = self.get_var(&crate::ast::VarRef::new(param.name.clone(), vec![])) {
+            if let Ok(v) = self.get_var(&VarRef::new(param.name.clone(), vec![])) {
                 eprintln!("  {} (param) = {:?}", param.name, v);
             }
         }
@@ -3246,7 +3248,7 @@ impl NameInfo {
         }
         p |= (self.csv_name as u64) << 13 | (self.pseudo as u64) << 14;
         if let Some(d) = self.system {
-            let i = (d as *const VarDef as usize - vars::SYSTEM_VARS.as_ptr() as usize) / std::mem::size_of::<VarDef>();
+            let i = (d as *const VarDef as usize - SYSTEM_VARS.as_ptr() as usize) / size_of::<VarDef>();
             p |= (i as u64 + 1) << 16;
         }
         p | 1 << 63
@@ -3265,7 +3267,7 @@ impl NameInfo {
             user: (p & 1 << 9 != 0).then_some((p & 1 << 10 != 0, ((p >> 11) & 3) as usize)),
             csv_name: p & 1 << 13 != 0,
             pseudo: p & 1 << 14 != 0,
-            system: (sys != 0).then(|| &vars::SYSTEM_VARS[sys as usize - 1]),
+            system: (sys != 0).then(|| &SYSTEM_VARS[sys as usize - 1]),
         }
     }
 }
@@ -3380,9 +3382,9 @@ mod nameinfo_tests {
         }
         // every name table_for_var can give is in TABLE_NAMES
         for v in ["ABL", "PALAMNAME", "ITEMPRICE", "TRAINNAME", "STR", "GLOBALSNAME", "TIMENAME", "CDOWN"] {
-            assert!(crate::csvdata::TABLE_NAMES.contains(&crate::csvdata::table_for_var(v).unwrap()), "{}", v);
+            assert!(crate::csvdata::TABLE_NAMES.contains(&table_for_var(v).unwrap()), "{}", v);
         }
-        for d in vars::SYSTEM_VARS {
+        for d in SYSTEM_VARS {
             let n = NameInfo { table: Tbl::Own, local_family: 0, user: None, csv_name: false, pseudo: true, system: Some(d) };
             let u = NameInfo::unpack(n.pack());
             assert!(std::ptr::eq(u.system.unwrap(), d) && matches!(u.table, Tbl::Own) && u.pseudo);

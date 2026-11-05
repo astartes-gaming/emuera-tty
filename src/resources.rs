@@ -553,9 +553,9 @@ fn font_for(name: &str) -> Option<std::sync::Arc<ab_glyph::FontVec>> {
 /// the requested one first.
 fn system_font_file(name: &str) -> Option<ab_glyph::FontVec> {
     let n = name.to_lowercase().replace([' ', '　'], "");
-    let mut c: Vec<(std::path::PathBuf, u32)> = Vec::new();
+    let mut c: Vec<(PathBuf, u32)> = Vec::new();
     if cfg!(windows) {
-        let dir = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into())).join("Fonts");
+        let dir = PathBuf::from(std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into())).join("Fonts");
         let proportional = n.contains("pgothic") || n.contains("ｐゴシック") || n.contains("pゴシック");
         if n.contains("meiryo") || n.contains("メイリオ") {
             c.push((dir.join("meiryo.ttc"), 0));
@@ -627,7 +627,7 @@ fn em_scale(font: &impl ab_glyph::Font, size: f32) -> ab_glyph::PxScale {
 
 /// GDRAWTEXT: `text` with its top-left at (x, y), filled with `c`.
 /// A rasterised glyph: offset from its pen position, size, coverage.
-type GlyphMask = std::rc::Rc<(i32, i32, u32, u32, Vec<u8>)>;
+type GlyphMask = Rc<(i32, i32, u32, u32, Vec<u8>)>;
 
 thread_local! {
     /// Glyphs already rasterised, by font, size, glyph and sub-pixel
@@ -667,7 +667,7 @@ pub fn draw_text(img: &mut RgbaImage, text: &str, (x, y): (i32, i32), name: &str
                     cov[(gy * w + gx) as usize] = (v.min(1.0) * 255.0) as u8;
                 }
             });
-            let m: GlyphMask = std::rc::Rc::new((b.min.x as i32, b.min.y as i32, w, h, cov));
+            let m: GlyphMask = Rc::new((b.min.x as i32, b.min.y as i32, w, h, cov));
             GLYPHS.with(|g| {
                 let mut g = g.borrow_mut();
                 if g.len() > 8192 {
@@ -799,7 +799,7 @@ fn triangle_taps(s: usize, d: usize) -> (Vec<(usize, std::ops::Range<usize>)>, V
 /// to four cores when there are many.
 fn par_rows<T: Send>(buf: &mut [T], stride: usize, f: impl Fn(usize, &mut [T]) + Sync) {
     let rows = buf.len() / stride.max(1);
-    let threads = if std::mem::size_of_val(buf) >= 1 << 20 { std::thread::available_parallelism().map_or(1, |n| n.get()).min(4) } else { 1 };
+    let threads = if size_of_val(buf) >= 1 << 20 { std::thread::available_parallelism().map_or(1, |n| n.get()).min(4) } else { 1 };
     if threads <= 1 || rows < 2 {
         for (y, row) in buf.chunks_exact_mut(stride).enumerate() {
             f(y, row);
