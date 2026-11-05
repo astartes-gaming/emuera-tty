@@ -6,7 +6,8 @@ use common::{run, temp_dir};
 use std::path::Path;
 
 #[test]
-#[ignore = "emuera-tty doesn't pass the suite yet (GAMEBASE_GAMECODE stops it); run with --ignored"]
+// "doesn't pass" yes it do
+//#[ignore = "emuera-tty doesn't pass the suite yet (GAMEBASE_GAMECODE stops it); run with --ignored"]
 fn compat_suite_passes() {
     let src = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/compat"));
     // a clone without --recurse-submodules, or a source archive, has an
