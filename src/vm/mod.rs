@@ -262,8 +262,11 @@ impl Sfmt {
         for i in 0..4 {
             inner ^= self.state[i] & parity[i];
         }
-        for i in (1..=16).rev() {
+        // Match C#: for (i = 16; i > 0; i >>= 1) — shifts 16, 8, 4, 2, 1
+        let mut i = 16;
+        while i > 0 {
             inner ^= inner >> i;
+            i >>= 1;
         }
         inner &= 1;
         if inner == 1 {
