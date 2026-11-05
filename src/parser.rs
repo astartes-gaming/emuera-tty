@@ -1493,7 +1493,7 @@ impl Parser {
                     Ok(())
                 }
                 _ => Err("only DATA/DATAFORM/DATALIST allowed inside PRINTDATA".into()),
-            }
+            };
         }
         if let Some(Ctl::CallList { .. }) = b.ctl.last() {
             let (cmd, rest) = split_cmd(line);
@@ -1517,7 +1517,7 @@ impl Parser {
                 Ok(())
             } else {
                 Err("only FUNC allowed inside TRYCALLLIST".into())
-            }
+            };
         }
 
         if let Some(label) = line.strip_prefix('$') {

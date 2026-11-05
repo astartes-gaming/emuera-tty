@@ -4206,7 +4206,7 @@ pub fn format_number(v: i64, fmt: &str) -> String {
                         format!("{}{}", neg, sci(&digits, p - 1, if letter == 'g' { 'e' } else { 'E' }, true, 2, true).trim_end_matches(['0']))
                     }
                     _ => v.to_string(),
-                }
+                };
             }
             'E' | 'e' => {
                 let digits = v.unsigned_abs().to_string();
