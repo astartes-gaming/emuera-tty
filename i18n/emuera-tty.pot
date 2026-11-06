@@ -238,6 +238,10 @@ msgid "{dir}: no CSV directory found"
 msgstr ""
 
 #: src/main.rs
+msgid "inside tmux, pictures in Ghostty or kitty need `set -g allow-passthrough all` (in ~/.tmux.conf, then `tmux source-file ~/.tmux.conf`); `--gfx none` plays without pictures"
+msgstr ""
+
+#: src/main.rs
 #, no-c-format
 msgid "terminal init failed ({error}); falling back to headless"
 msgstr ""

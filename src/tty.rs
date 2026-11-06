@@ -1041,6 +1041,20 @@ fn placeholder_term(term: &str) -> bool {
     term.contains("ghostty") || term.contains("kitty")
 }
 
+/// Is the terminal tmux runs in Ghostty or kitty (their variables, or
+/// tmux's client)?
+fn tmux_in_kitty_terminal() -> bool {
+    std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some() || std::env::var_os("KITTY_WINDOW_ID").is_some() || placeholder_term(&tmux_client_term())
+}
+
+/// Started inside tmux in Ghostty or kitty with pictures wanted (`gfx`
+/// auto or kitty), but without `allow-passthrough`: no picture can reach
+/// the terminal (only tmux's sixel would be left, which Ghostty doesn't
+/// draw). The game would run without pictures and nothing would say why.
+pub fn tmux_passthrough_missing(gfx: &str) -> bool {
+    matches!(gfx, "auto" | "kitty") && in_tmux() && !tmux_passthrough() && tmux_in_kitty_terminal()
+}
+
 /// Does tmux let escape sequences through to the terminal it runs in
 /// (`allow-passthrough on` or `all`)? Without it, pictures can't be shown.
 fn tmux_passthrough() -> bool {
@@ -1503,9 +1517,7 @@ impl Tty {
                     );
                     let s = String::from_utf8_lossy(&r).to_string();
                     // (terminals with kitty's Unicode placeholders)
-                    let placeholders = std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some()
-                        || std::env::var_os("KITTY_WINDOW_ID").is_some()
-                        || (passthrough && placeholder_term(&tmux_client_term()));
+                    let placeholders = passthrough && tmux_in_kitty_terminal();
                     if passthrough && (s.contains("_Gi=31;OK") || placeholders) {
                         self.gfx = Box::new(gfx::kitty::Kitty::new_tmux());
                     } else if s.contains("_Gi=31;OK") && !tmux {
