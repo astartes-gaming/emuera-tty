@@ -26,10 +26,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: test
-      - name: Install tmux and ghostty-terminfo
+      - name: Install tmux and ghostty
         # required for these tests to actually succeed
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y tmux ghostty-terminfo
+        run: sudo apt-get update && sudo apt-get install -y tmux ghostty
       - name: Formatting
         if: runner.os == 'Linux'
         run: cargo fmt --check
