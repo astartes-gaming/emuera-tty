@@ -1459,7 +1459,7 @@ impl Parser {
             let (cmd, rest) = split_cmd(line);
             return match cmd.as_str() {
                 "DATA" | "DATAFORM" => {
-                    let form = if cmd == "DATA" { Form::lit(rest) } else { parse_form(rest, &self.prog.defines)? };
+                    let form = if cmd == "DATA" { Form::lit(rest) } else { upper_form(parse_form(rest, &self.prog.defines)?) };
                     if let Some(Ctl::Data { entries, list, .. }) = b.ctl.last_mut() {
                         match list {
                             Some(l) => l.push(form),

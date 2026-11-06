@@ -47,6 +47,7 @@ PRINTDATAL
 		DATA list line 2
 	ENDLIST
 ENDDATA
+CALL DATAFORM_CASE
 ;--- files under the game folder
 CALL CHECK, "existfile", EXISTFILE("CSV/Base.csv") == 1 && EXISTFILE("CSV/none.csv") == 0
 CALL CHECK, "enumfiles", ENUMFILES("CSV", "Chara*.csv") == 3
@@ -110,3 +111,15 @@ ARRAYMSORTEX NUMS, ALONG, 1, 3
 CALL CHECKS, "arraymsortex", NAMES:0 + NAMES:1 + NAMES:2, "abc"
 ;--- REFBYNAME / GETCONFIGS
 CALL CHECK, "getconfigs", STRLENS(GETCONFIGS("お金の単位")) > 0
+
+;--- DATAFORM names a variable in any case, like every other FORM string
+;(AnonTW's casino: `nPersonality`, a private #DIM, in PRINTDATAL's DATAFORMs)
+@DATAFORM_CASE
+#DIM nPersonality
+#DIMS mobName
+nPersonality = 2
+mobName = Kappa
+STRDATA LOCALS
+	DATAFORM %mobName% {nPersonality} %SUBSTRING("abcd", nPersonality, 1)%
+ENDDATA
+CALL CHECKS, "dataform mixed-case private", LOCALS, "Kappa 2 c"
