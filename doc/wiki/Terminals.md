@@ -51,7 +51,9 @@ terminal:
   all` in `~/.tmux.conf` (then `tmux source ~/.tmux.conf`). (`on` works
   too, but tmux then drops a picture sent while the pane isn't showing,
   say during a loading screen while you are in another window, and it
-  stays blank until the game draws a new one.) Pictures are
+  stays blank until the game draws a new one.) Without it, in kitty or
+  Ghostty, emuera-tty stops at start and says what to set; `--gfx none`
+  plays without pictures instead. Pictures are
   then written as kitty's Unicode placeholders: text tmux keeps in its
   pane, so they follow splits, window switches and redraws. A picture
   meant to sit behind text isn't shown there, and crops are to whole

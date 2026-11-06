@@ -530,6 +530,13 @@ fn run(o: Opts) -> i32 {
         o.gfx = st.get("images").to_string();
     }
     let term_env = std::env::var("TERM").unwrap_or_default();
+    if !o.headless && o.serial.is_none() && tty::tmux_passthrough_missing(&o.gfx) {
+        eprintln!(
+            "emuera-tty: {}",
+            t!("inside tmux, pictures in Ghostty or kitty need `set -g allow-passthrough all` (in ~/.tmux.conf, then `tmux source-file ~/.tmux.conf`); `--gfx none` plays without pictures")
+        );
+        return 1;
+    }
     let use_retro = !o.headless
         && (o.serial.is_some() || o.retro.is_some() || st.get("frontend") == "retro" || (st.get("frontend") != "ansi" && retro::wanted_for(&term_env)));
     let fe: Box<dyn frontend::Frontend> = if o.headless {
