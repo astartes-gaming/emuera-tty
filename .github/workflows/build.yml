@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        os: [ubuntu-26.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
@@ -51,14 +51,14 @@ jobs:
           # (a pinned Ubuntu, not ubuntu-latest: the glibc it needs, 2.39, only
           # changes when we choose)
           - name: linux-amd64
-            os: ubuntu-24.04
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
             rustflags: ""
             ext: ""
           # static musl program: runs on any amd64 Linux, whatever its libc
           # (the recipe from the wiki's "Other CPUs" section)
           - name: linux-amd64-static
-            os: ubuntu-24.04
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             rustflags: "-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"
             ext: ""

@@ -57,7 +57,7 @@ jobs:
   # to the jobs below.)
   plan:
     name: choose what to run
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       builds: ${{ steps.pick.outputs.builds }}
       has_builds: ${{ steps.pick.outputs.has_builds }}
@@ -201,7 +201,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.has_attempts == 'true' }}
     name: attempt ${{ matrix.name }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.attempts) }}
