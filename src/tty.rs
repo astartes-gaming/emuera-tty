@@ -1024,6 +1024,23 @@ fn in_tmux_env(tmux: bool, term: &str, program: &str) -> bool {
     tmux && (term.starts_with("tmux") || term.starts_with("screen") || program.is_empty() || program == "tmux")
 }
 
+/// The `TERM` of the terminal tmux's client runs in (`xterm-ghostty`,
+/// `xterm-kitty`), or "". tmux doesn't hand that terminal's answer to the
+/// kitty query back to the pane, and a tmux server started outside Ghostty
+/// or kitty (at login, from another terminal) has none of their variables.
+fn tmux_client_term() -> String {
+    std::process::Command::new("tmux")
+        .args(["display-message", "-p", "#{client_termname}"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Is a terminal with this `TERM` one with kitty's Unicode placeholders?
+fn placeholder_term(term: &str) -> bool {
+    term.contains("ghostty") || term.contains("kitty")
+}
+
 /// Does tmux let escape sequences through to the terminal it runs in
 /// (`allow-passthrough on` or `all`)? Without it, pictures can't be shown.
 fn tmux_passthrough() -> bool {
@@ -1486,7 +1503,9 @@ impl Tty {
                     );
                     let s = String::from_utf8_lossy(&r).to_string();
                     // (terminals with kitty's Unicode placeholders)
-                    let placeholders = std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some() || std::env::var_os("KITTY_WINDOW_ID").is_some();
+                    let placeholders = std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some()
+                        || std::env::var_os("KITTY_WINDOW_ID").is_some()
+                        || (passthrough && placeholder_term(&tmux_client_term()));
                     if passthrough && (s.contains("_Gi=31;OK") || placeholders) {
                         self.gfx = Box::new(gfx::kitty::Kitty::new_tmux());
                     } else if s.contains("_Gi=31;OK") && !tmux {
@@ -5255,6 +5274,19 @@ mod tests {
         assert!(!t(true, "xterm-ghostty", "ghostty"));
         assert!(!t(true, "xterm-256color", "WezTerm"));
         assert!(!t(false, "tmux-256color", "tmux"));
+    }
+
+    /// tmux's client in Ghostty or kitty means kitty pictures, whatever
+    /// the tmux server's environment (a server started outside Ghostty got
+    /// tmux's sixel, which Ghostty doesn't draw)
+    #[test]
+    fn tmux_client_with_placeholders() {
+        use super::placeholder_term as p;
+        assert!(p("xterm-ghostty"));
+        assert!(p("xterm-kitty"));
+        assert!(!p("xterm-256color"));
+        assert!(!p("konsole-direct"));
+        assert!(!p(""));
     }
 
     /// A bar drawn as two rectangles (filled, empty) is as wide whatever
