@@ -14,7 +14,21 @@ pub enum Data {
     /// elements: AnonTW's characters have CFLAG:10000 with about 30 set
     /// below index 9200, 73 KB each held densely and 400 bytes this way.
     Z(Sparse),
-    S(Vec<String>),
+    /// Strings, and for an array FINDELEMENT searches by name, each
+    /// one's [`str_hash`] alongside (empty until then; kept in step by every
+    /// change, so the search compares numbers and only reads the strings
+    /// whose hash matches: pops-tw searches its 1000-name tables millions
+    /// of times)
+    S(Vec<String>, Vec<u32>),
+}
+
+/// A string's hash for [`Data::S`]'s search table.
+pub fn str_hash(s: &str) -> u32 {
+    use std::hash::Hasher;
+    let mut h = crate::fxhash::FxHasher::default();
+    h.write(s.as_bytes());
+    let h = h.finish();
+    (h >> 32) as u32 ^ h as u32
 }
 
 /// Integer arrays this big start sparse (see [`Data::Z`]); character
@@ -93,7 +107,7 @@ impl Arr {
     /// more.
     pub fn sized(is_str: bool, dims: &[usize], sparse: usize) -> Arr {
         let data = if is_str {
-            Data::S(Vec::new())
+            Data::S(Vec::new(), Vec::new())
         } else if !dims.is_empty() && dims.iter().try_fold(1usize, |n, &d| n.checked_mul(d)).is_some_and(|n| n >= sparse && n <= u32::MAX as usize) {
             Data::Z(Sparse::default())
         } else {
@@ -108,7 +122,7 @@ impl Arr {
         match &self.data {
             Data::I(v) => std::borrow::Cow::Borrowed(v),
             Data::Z(z) => std::borrow::Cow::Owned(z.dense()),
-            Data::S(_) => std::borrow::Cow::Borrowed(&[]),
+            Data::S(..) => std::borrow::Cow::Borrowed(&[]),
         }
     }
 
@@ -121,7 +135,7 @@ impl Arr {
     }
 
     pub fn is_str(&self) -> bool {
-        matches!(self.data, Data::S(_))
+        matches!(self.data, Data::S(..))
     }
 
     /// Heap bytes held (strings included).
@@ -129,7 +143,7 @@ impl Arr {
         match &self.data {
             Data::I(v) => v.capacity() * 8,
             Data::Z(z) => z.keys.capacity() * 4 + z.vals.capacity() * 8,
-            Data::S(v) => v.capacity() * 24 + v.iter().map(|s| s.capacity()).sum::<usize>(),
+            Data::S(v, h) => v.capacity() * 24 + v.iter().map(|s| s.capacity()).sum::<usize>() + h.capacity() * 4,
         }
     }
 
@@ -147,7 +161,7 @@ impl Arr {
         match &self.data {
             Data::I(v) => v.len(),
             Data::Z(z) => z.end(),
-            Data::S(v) => v.len(),
+            Data::S(v, _) => v.len(),
         }
     }
 
@@ -184,7 +198,7 @@ impl Arr {
         match &self.data {
             Data::I(v) => Value::Int(v.get(f).copied().unwrap_or(0)),
             Data::Z(z) => Value::Int(z.get(f)),
-            Data::S(v) => Value::Str(v.get(f).cloned().unwrap_or_default()),
+            Data::S(v, _) => Value::Str(v.get(f).cloned().unwrap_or_default()),
         }
     }
 
@@ -216,7 +230,12 @@ impl Arr {
         match &mut self.data {
             Data::I(v) => v.resize(to, 0),
             Data::Z(_) => {}
-            Data::S(v) => v.resize(to, String::new()),
+            Data::S(v, h) => {
+                v.resize(to, String::new());
+                if !h.is_empty() {
+                    h.resize(to, str_hash(""));
+                }
+            }
         }
     }
 
@@ -243,9 +262,12 @@ impl Arr {
                 }
             }
             Data::Z(_) => {}
-            Data::S(v) => {
+            Data::S(v, h) => {
                 if let Some(x) = v.get_mut(f) {
-                    *x = val.into_string()
+                    *x = val.into_string();
+                    if let Some(k) = h.get_mut(f) {
+                        *k = str_hash(x);
+                    }
                 }
             }
         }
@@ -260,7 +282,7 @@ impl Arr {
         // 0 / "" needn't reach past the elements held
         let unset = match &self.data {
             Data::I(_) | Data::Z(_) => val.as_int() == 0,
-            Data::S(_) => val.as_string().is_empty(),
+            Data::S(..) => val.as_string().is_empty(),
         };
         if let Data::Z(z) = &mut self.data {
             if unset {
@@ -286,11 +308,14 @@ impl Arr {
         match &mut self.data {
             Data::I(v) => v[start..end].fill(val.as_int()),
             Data::Z(_) => {}
-            Data::S(v) => {
+            Data::S(v, h) => {
                 let s = val.as_string();
                 for x in &mut v[start..end] {
                     x.clear();
                     x.push_str(&s);
+                }
+                if !h.is_empty() {
+                    h[start..end].fill(str_hash(&s));
                 }
             }
         }
@@ -322,7 +347,12 @@ impl Arr {
         match &mut self.data {
             Data::I(v) => rot(&mut v[start..end], m, k > 0),
             Data::Z(_) => {}
-            Data::S(v) => rot(&mut v[start..end], m, k > 0),
+            Data::S(v, h) => {
+                rot(&mut v[start..end], m, k > 0);
+                if !h.is_empty() {
+                    rot(&mut h[start..end], m, k > 0);
+                }
+            }
         }
         self.fill(if k > 0 { start..start + m } else { end - m..end }, free);
     }
@@ -331,7 +361,7 @@ impl Arr {
         match &self.data {
             Data::I(v) => v.get(f).copied().unwrap_or(0),
             Data::Z(z) => z.get(f),
-            Data::S(v) => v.get(f).map(|s| s.parse().unwrap_or(0)).unwrap_or(0),
+            Data::S(v, _) => v.get(f).map(|s| s.parse().unwrap_or(0)).unwrap_or(0),
         }
     }
 
@@ -344,7 +374,10 @@ impl Arr {
         match &mut self.data {
             Data::I(v) => v.clear(),
             Data::Z(z) => *z = Sparse::default(),
-            Data::S(v) => v.clear(),
+            Data::S(v, h) => {
+                v.clear();
+                h.clear();
+            }
         }
     }
 

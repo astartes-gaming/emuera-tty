@@ -179,6 +179,13 @@ impl Funcs {
         self.first(name).is_some()
     }
 
+    /// Whether the (first) function named `name` is a `#FUNCTION` and
+    /// whether it returns a string, without making it (pops-tw asks
+    /// EXISTFUNCTION about thousands of functions it never calls).
+    pub fn kind(&self, name: &str) -> Option<(bool, bool)> {
+        self.first(name).map(|h| (h.attrs.is_function, h.attrs.returns_str))
+    }
+
     /// How many functions there are.
     pub fn len(&self) -> usize {
         self.heads.len()

@@ -993,6 +993,10 @@ msgid "comma-separated list of function:line breakpoints (debugger)"
 msgstr ""
 
 #: src/settings.rs
+msgid "milliseconds since 1970 (UTC) the game's clock starts from, moving 1 ms per reading (reproducible runs)"
+msgstr ""
+
+#: src/settings.rs
 msgid "MB compiled functions may take (default: 1/16 of the memory); the least recently called are dropped"
 msgstr ""
 

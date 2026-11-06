@@ -143,8 +143,60 @@ mod chrono_like {
         pub ms: i64,
     }
     pub fn now() -> DateTime {
+        if let Some(ms) = test_clock() {
+            return utc(ms);
+        }
         let t = crate::sys::now();
         DateTime { y: t.y, mo: t.mo, d: t.d, h: t.h, mi: t.mi, s: t.s, ms: t.ms }
+    }
+
+    /// Milliseconds since 1970 (GETMILLISECOND).
+    pub fn epoch_ms() -> i64 {
+        test_clock().unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64)
+    }
+
+    /// `EMUERA_CLOCK=<milliseconds since 1970, UTC>`: the game's clock
+    /// starts there and moves on 1 ms each time it is read, so that with
+    /// `EMUERA_SEED` a run repeats exactly (pops-tw picks tips and shop
+    /// staff by the time of day).
+    fn test_clock() -> Option<i64> {
+        static CLOCK: std::sync::OnceLock<Option<crate::atomic64::AtomicU64>> = std::sync::OnceLock::new();
+        let c = CLOCK.get_or_init(|| std::env::var("EMUERA_CLOCK").ok()?.trim().parse::<u64>().ok().map(crate::atomic64::AtomicU64::new));
+        c.as_ref().map(|c| c.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as i64)
+    }
+
+    /// The UTC date and time `ms` milliseconds after 1970 (Howard
+    /// Hinnant's days-to-civil).
+    fn utc(ms: i64) -> DateTime {
+        let (days, rem) = (ms.div_euclid(86_400_000), ms.rem_euclid(86_400_000));
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+        DateTime {
+            y: yoe + era * 400 + (mo <= 2) as i64,
+            mo,
+            d: doy - (153 * mp + 2) / 5 + 1,
+            h: rem / 3_600_000,
+            mi: rem / 60_000 % 60,
+            s: rem / 1000 % 60,
+            ms: rem % 1000,
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn utc_dates() {
+        let d = utc(0);
+        assert_eq!((d.y, d.mo, d.d, d.h, d.mi, d.s, d.ms), (1970, 1, 1, 0, 0, 0, 0));
+        // 2024-02-29 23:59:59.999 UTC
+        let d = utc(1_709_251_199_999);
+        assert_eq!((d.y, d.mo, d.d, d.h, d.mi, d.s, d.ms), (2024, 2, 29, 23, 59, 59, 999));
+        let d = utc(-1);
+        assert_eq!((d.y, d.mo, d.d, d.h), (1969, 12, 31, 23));
     }
 }
 
@@ -3027,7 +3079,7 @@ impl Vm {
                         Value::Int(t) => r.filter(|k| arr.get_i(*k) == *t).count(),
                         Value::Str(t) => r.filter(|k| arr.get_i(*k).to_string() == *t).count(),
                     },
-                    super::vars::Data::S(vs) => {
+                    super::vars::Data::S(vs, _) => {
                         let t = target.as_string();
                         r.filter(|k| vs.get(*k).map_or("", String::as_str) == t).count()
                     }
@@ -3054,25 +3106,40 @@ impl Vm {
                 let arr = self.arr_at(&loc).unwrap();
                 // the stored elements (scanned as a slice), then the part
                 // never written, which reads as 0 / ""
-                fn search<T>(vs: &[T], from: usize, to: usize, last: bool, m: impl Fn(&T) -> bool, unset: bool) -> Option<usize> {
-                    let (lo, hi) = (from.min(vs.len()), to.min(vs.len()));
+                // (`n` elements stored, `m` tells whether the one at a place
+                // matches)
+                fn search(n: usize, from: usize, to: usize, last: bool, m: impl Fn(usize) -> bool, unset: bool) -> Option<usize> {
+                    let (lo, hi) = (from.min(n), to.min(n));
                     let tail = hi.max(from) < to && unset;
                     if last {
                         if tail {
                             Some(to - 1)
                         } else {
-                            vs[lo..hi].iter().rposition(m).map(|p| lo + p)
+                            (lo..hi).rev().find(|&p| m(p))
                         }
                     } else {
-                        vs[lo..hi].iter().position(m).map(|p| lo + p).or(tail.then_some(hi.max(from)))
+                        (lo..hi).find(|&p| m(p)).or(tail.then_some(hi.max(from)))
+                    }
+                }
+                // an exact name in a long array: by its hashes, made on the
+                // first such search and kept in step from then on
+                if let (true, Some(_), super::vars::Data::S(vs, hs)) = (exact, &lit, &mut arr.data) {
+                    if hs.len() != vs.len() && vs.len() >= 32 {
+                        *hs = vs.iter().map(|x| super::vars::str_hash(x)).collect();
                     }
                 }
                 let pos = match &arr.data {
                     super::vars::Data::I(_) | super::vars::Data::Z(_) => {
                         let t = target.as_int();
-                        search(&arr.ints(), base + st, base + en, last, |&x| x == t, t == 0)
+                        let vs = arr.ints();
+                        search(vs.len(), base + st, base + en, last, |p| vs[p] == t, t == 0)
                     }
-                    super::vars::Data::S(vs) => {
+                    super::vars::Data::S(vs, hs) if exact && hs.len() == vs.len() && lit.is_some() => {
+                        let l = lit.as_deref().unwrap_or_default();
+                        let h = super::vars::str_hash(l);
+                        search(vs.len(), base + st, base + en, last, |p| hs[p] == h && vs[p] == l, l.is_empty())
+                    }
+                    super::vars::Data::S(vs, _) => {
                         let m = |x: &str| match (&lit, &re) {
                             (Some(l), _) => {
                                 if exact {
@@ -3090,7 +3157,7 @@ impl Vm {
                             }
                             (None, None) => false,
                         };
-                        search(vs, base + st, base + en, last, |x| m(x), m(""))
+                        search(vs.len(), base + st, base + en, last, |p| m(&vs[p]), m(""))
                     }
                 };
                 i(pos.map_or(-1, |p| (p - base) as i64))
@@ -3425,14 +3492,8 @@ impl Vm {
                 let t = now();
                 s(format!("{:04}/{:02}/{:02} {:02}:{:02}:{:02}", t.y, t.mo, t.d, t.h, t.mi, t.s))
             }
-            "GETMILLISECOND" => {
-                let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                i(d.as_millis() as i64)
-            }
-            "GETSECOND" => {
-                let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                i(d.as_secs() as i64)
-            }
+            "GETMILLISECOND" => i(chrono_like::epoch_ms()),
+            "GETSECOND" => i(chrono_like::epoch_ms() / 1000),
             "GETCOLOR" => i(self.con.style.fg.to_i64()),
             "GETDEFCOLOR" => i(self.con.default_fg.to_i64()),
             "GETBGCOLOR" => i(self.con.screen_bg.to_i64()),
@@ -3512,9 +3573,9 @@ impl Vm {
             }
             "EXISTFUNCTION" => {
                 let n = self.as_(a, 0, "")?.to_uppercase();
-                i(match self.prog.funcs.get(&n) {
-                    Some(f) if f[0].is_function && f[0].returns_str => 3,
-                    Some(f) if f[0].is_function => 2,
+                i(match self.prog.funcs.kind(&n) {
+                    Some((true, true)) => 3,
+                    Some((true, false)) => 2,
                     Some(_) => 1,
                     None => 0,
                 })
@@ -3687,14 +3748,9 @@ impl Vm {
             "EXISTMETH" => {
                 // 1: returns a number, 2: a string, 0: no such function
                 let n = self.as_(a, 0, "")?.to_uppercase();
-                i(match self.prog.funcs.get(&n) {
-                    Some(f) if f[0].is_function => {
-                        if f[0].returns_str {
-                            2
-                        } else {
-                            1
-                        }
-                    }
+                i(match self.prog.funcs.kind(&n) {
+                    Some((true, true)) => 2,
+                    Some((true, false)) => 1,
                     Some(_) => 0,
                     None if is_builtin_function(&n) => {
                         if STR_FUNCTIONS.contains(&n.as_str()) {

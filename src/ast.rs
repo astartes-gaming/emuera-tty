@@ -426,6 +426,9 @@ pub struct Body {
     /// `Vm::statics` slot + 1 of LOCAL, LOCALS, ARG, ARGS and then each
     /// static `#DIM` (0: not known yet), made on first use
     pub static_cache: std::sync::OnceLock<Box<[std::sync::atomic::AtomicU32]>>,
+    /// `vm::name_hash` of each of `dims`' names, made on first use, so
+    /// finding a name among them reads only the names whose hash matches
+    pub dim_hashes: std::sync::OnceLock<Box<[u32]>>,
     /// when the function was last called (the VM's call count; 0: not
     /// since it was compiled), to drop the least used bodies first
     pub used: crate::atomic64::AtomicU64,

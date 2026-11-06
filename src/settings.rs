@@ -173,6 +173,7 @@ pub const ITEMS: &[Item] = &[
 pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_AMBIGUOUS", n!("wide, narrow, single or osc66: how box drawing and symbols get Emuera's two columns")),
     ("EMUERA_BREAKPOINTS", n!("comma-separated list of function:line breakpoints (debugger)")),
+    ("EMUERA_CLOCK", n!("milliseconds since 1970 (UTC) the game's clock starts from, moving 1 ms per reading (reproducible runs)")),
     ("EMUERA_CODE_MB", n!("MB compiled functions may take (default: 1/16 of the memory); the least recently called are dropped")),
     ("EMUERA_COLORS", n!("truecolor, 256 or 16: the colour depth, when detection guesses wrong")),
     ("EMUERA_DEBUG_FRAMES", n!("any value: print each frame drawn (size and picture keys) to stderr (debugging)")),

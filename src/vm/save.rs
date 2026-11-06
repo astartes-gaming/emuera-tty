@@ -280,7 +280,7 @@ fn put(w: &mut Writer, key: &str, a: &Arr, scalar: bool) {
     match &a.data {
         Data::I(v) => w.var(key, &dims, Values::Int(v)),
         Data::Z(_) => w.var(key, &dims, Values::Int(&a.ints())),
-        Data::S(v) => w.var(key, &dims, Values::Str(v)),
+        Data::S(v, _) => w.var(key, &dims, Values::Str(v)),
     }
 }
 

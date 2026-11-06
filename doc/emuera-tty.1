@@ -529,6 +529,12 @@ allows); scripts may nest one call per 16 KB of it, up to 4000.
 .B EMUERA_SEED
 Fix the random number generator (reproducible runs).
 .TP
+.BI EMUERA_CLOCK= ms
+Fix the game's clock: it starts
+.I ms
+milliseconds after 1970 (UTC) and moves on 1 ms per reading, so runs
+that read the time repeat exactly too.
+.TP
 .BI EMUERA_TRACE= name
 Log calls to functions whose name contains
 .IR name ,

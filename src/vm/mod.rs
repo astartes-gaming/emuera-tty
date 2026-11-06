@@ -1047,6 +1047,7 @@ impl Vm {
                     None => Tbl::None,
                 };
                 let n = NameInfo {
+                    hash: name_hash(name),
                     table,
                     // Emuera's LOCAL/ARG family is per-function storage that
                     // persists across calls (reset by RESETDATA / load)
@@ -1069,8 +1070,13 @@ impl Vm {
         };
         // the function's own #DIMs win over everything else
         // skey: its entry in the function's static slot cache
+        let own = |f: &Frame| {
+            let dims = &f.body.dims;
+            let hs = f.body.dim_hashes.get_or_init(|| dims.iter().map(|d| name_hash(&d.name)).collect());
+            hs.iter().zip(dims).position(|(&h, d)| h == ni.hash && d.name == name)
+        };
         let (private, is_static, skey) = match self.frames.last() {
-            Some(f) if !f.body.dims.is_empty() => match f.body.dims.iter().position(|d| d.name.len() == name.len() && d.name == name) {
+            Some(f) if !f.body.dims.is_empty() => match own(f) {
                 Some(k) => (true, f.body.dims[k].is_static, 4 + k as u32),
                 None => (false, ni.local_family != 0, ni.local_family as u32 - (ni.local_family != 0) as u32),
             },
@@ -3255,6 +3261,8 @@ pub enum Tbl {
 /// `VarRef`, packed in a u64; `Vm::var_info` adds the function's own #DIMs).
 #[derive(Clone, Copy)]
 pub struct NameInfo {
+    /// [`name_hash`] of the name
+    hash: u32,
     table: Tbl,
     /// LOCAL 1, LOCALS 2, ARG 3, ARGS 4, else 0
     local_family: u8,
@@ -3262,6 +3270,12 @@ pub struct NameInfo {
     csv_name: bool,
     pseudo: bool,
     system: Option<&'static VarDef>,
+}
+
+/// A variable name's 31-bit hash, kept with what the name means
+/// ([`NameInfo`]) and for each function's `#DIM`s ([`Body::dim_hashes`]).
+fn name_hash(name: &str) -> u32 {
+    vars::str_hash(name) & 0x7FFF_FFFF
 }
 
 /// What a variable name means inside a function (see `Vm::var_info`).
@@ -3282,7 +3296,8 @@ pub struct VarInfo {
 impl NameInfo {
     /// bits 0-5 table (0 none, 1.. TABLE_NAMES + 1, 63 own), 6-8 LOCAL
     /// family, 9 user #DIM, 10 CHARADATA, 11-12 its dimensions, 13 CSV
-    /// name array, 14 pseudo, 16-31 system variable + 1, 63 set
+    /// name array, 14 pseudo, 16-31 system variable + 1, 32-62 the name's
+    /// hash, 63 set
     fn pack(&self) -> u64 {
         let t: u64 = match self.table {
             Tbl::None => 0,
@@ -3298,7 +3313,7 @@ impl NameInfo {
             let i = (d as *const VarDef as usize - SYSTEM_VARS.as_ptr() as usize) / size_of::<VarDef>();
             p |= (i as u64 + 1) << 16;
         }
-        p | 1 << 63
+        p | (self.hash as u64) << 32 | 1 << 63
     }
 
     fn unpack(p: u64) -> NameInfo {
@@ -3309,6 +3324,7 @@ impl NameInfo {
         };
         let sys = (p >> 16) & 0xFFFF;
         NameInfo {
+            hash: (p >> 32) as u32 & 0x7FFF_FFFF,
             table,
             local_family: ((p >> 6) & 7) as u8,
             user: (p & 1 << 9 != 0).then_some((p & 1 << 10 != 0, ((p >> 11) & 3) as usize)),
@@ -3420,10 +3436,18 @@ mod nameinfo_tests {
     fn pack_roundtrip() {
         for t in crate::csvdata::TABLE_NAMES {
             for (local, user) in [(0u8, None), (3, Some((true, 2))), (4, Some((false, 3)))] {
-                let n = NameInfo { table: Tbl::Static(t), local_family: local, user, csv_name: true, pseudo: false, system: system_var("CFLAG") };
+                let n = NameInfo {
+                    hash: 0x1234_5678,
+                    table: Tbl::Static(t),
+                    local_family: local,
+                    user,
+                    csv_name: true,
+                    pseudo: false,
+                    system: system_var("CFLAG"),
+                };
                 let u = NameInfo::unpack(n.pack());
                 assert!(matches!(u.table, Tbl::Static(x) if x == *t));
-                assert_eq!((u.local_family, u.user, u.csv_name, u.pseudo), (local, user, true, false));
+                assert_eq!((u.hash, u.local_family, u.user, u.csv_name, u.pseudo), (0x1234_5678, local, user, true, false));
                 assert!(std::ptr::eq(u.system.unwrap(), system_var("CFLAG").unwrap()));
             }
         }
@@ -3432,9 +3456,9 @@ mod nameinfo_tests {
             assert!(crate::csvdata::TABLE_NAMES.contains(&table_for_var(v).unwrap()), "{}", v);
         }
         for d in SYSTEM_VARS {
-            let n = NameInfo { table: Tbl::Own, local_family: 0, user: None, csv_name: false, pseudo: true, system: Some(d) };
+            let n = NameInfo { hash: 0x7FFF_FFFF, table: Tbl::Own, local_family: 0, user: None, csv_name: false, pseudo: true, system: Some(d) };
             let u = NameInfo::unpack(n.pack());
-            assert!(std::ptr::eq(u.system.unwrap(), d) && matches!(u.table, Tbl::Own) && u.pseudo);
+            assert!(std::ptr::eq(u.system.unwrap(), d) && matches!(u.table, Tbl::Own) && u.pseudo && u.hash == 0x7FFF_FFFF);
         }
     }
 }

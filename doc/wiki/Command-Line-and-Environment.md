@@ -61,6 +61,11 @@ the saved setting. A value can also be written `--colors=256`.
   in use after it.
 - `EMUERA_SEED=N` fixes the random
   number seed, so a run can be repeated exactly (tests, bug reports).
+- `EMUERA_CLOCK=MS` fixes the game's clock too (GETTIME, GETMILLISECOND,
+  GETSECOND, GETTIMES and the save time): it starts at `MS` milliseconds
+  after 1970, read as UTC, and moves on 1 ms each time the game reads it.
+  Some games choose things by the time of day (pops-tw's tips and shop
+  staff), so without it two runs with the same seed can still differ.
 - `EMUERA_TTY_TESTING=1` adds a **Test dialog boxes** entry to the launcher's
   library page. It opens a submenu to try every dialog type (confirmation,
   multi-button, text input, password input, progress bars) and verify they
