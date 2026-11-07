@@ -28,13 +28,20 @@ menu choices in a throwaway copy and reports script errors.
 
 `compat/` is the [eraBasic compatibility suite](https://gitgud.io/era-games/erabasic-compat)
 (mirror: https://github.com/vinumsabbathi789/erabasic-compat),
-a git submodule (clone with `--recurse-submodules`, or run
-`git submodule update --init`): one game of checks, meant for every
+a git submodule (run `git submodule update --init compat`): one game of checks, meant for every
 eraBasic interpreter, whose expected values are Emuera-EM/EE's.
 `cargo test --release --test compat_suite -- --ignored` runs it; it is
 ignored by default but **now passes** (since 679ba6dd). Note that even
 though the compat suite passes, there could still be other bugs — see
 [When something goes wrong](Troubleshooting).
+
+## Emuera documentation
+
+`eraslop/` is the [EraSlop](https://gitgud.io/era-games/EraSlop) repository,
+a git submodule with an offline copy of the Emuera-EM/EE documentation
+(command reference, eramaker spec) in `eraslop/.agents/eradoc/docs`. It is
+private and cloned over SSH, so only those with access get it
+(`git submodule update --init eraslop`); nothing builds or tests from it.
 
 ## Development builds
 

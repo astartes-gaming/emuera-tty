@@ -1,3 +1,6 @@
 [submodule "compat"]
 	path = compat
 	url = https://github.com/vinumsabbathi789/erabasic-compat.git
+[submodule "eraslop"]
+	path = eraslop
+	url = git@ssh.gitgud.io:era-games/EraSlop.git
