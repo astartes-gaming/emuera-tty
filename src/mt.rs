@@ -706,6 +706,8 @@ impl Mt {
                 Ok(t) => {
                     // with the quote marks the original used, not the translator's "
                     let t = restore_quotes(&text, &t);
+                    // with the tilde style the original used
+                    let t = restore_tildes(&text, &t);
                     if let (Some(f), Some((places, from))) = (self.log.as_mut(), self.asked.remove(&text)) {
                         // one line each: tabs and line breaks in the text as spaces
                         let pair = format!("{}>{}", from, self.lang);
@@ -1002,6 +1004,46 @@ pub fn restore_quotes(orig: &str, tr: &str) -> String {
     }
 }
 
+/// Restore fullwidth tildes (`~` U+FF5E) in `tr` to match `orig`:
+/// - If `orig` had fullwidth and `tr` has ASCII -> convert to fullwidth
+/// - If `orig` had ASCII -> leave `tr` as-is
+/// - If mixed and counts match -> retain `tr` as-is
+/// - If mixed and counts differ -> replace all with fullwidth
+pub fn restore_tildes(orig: &str, tr: &str) -> String {
+    let orig_fw = orig.chars().filter(|&c| c == '～').count();
+    let orig_ascii = orig.chars().filter(|&c| c == '~').count();
+    let tr_fw = tr.chars().filter(|&c| c == '～').count();
+    let tr_ascii = tr.chars().filter(|&c| c == '~').count();
+
+    // Original had no tildes at all: nothing to do
+    if orig_fw == 0 && orig_ascii == 0 {
+        return tr.to_string();
+    }
+
+    // Original was all ASCII: leave translation as-is
+    if orig_fw == 0 {
+        return tr.to_string();
+    }
+
+    // Original was all fullwidth: if translation has ASCII, convert them
+    if orig_ascii == 0 {
+        if tr_ascii > 0 {
+            return tr.replace('~', "～");
+        }
+        return tr.to_string();
+    }
+
+    // Mixed in original
+    let orig_total = orig_fw + orig_ascii;
+    let tr_total = tr_fw + tr_ascii;
+    if tr_total == orig_total {
+        // Counts match: retain as-is
+        return tr.to_string();
+    }
+    // Counts differ: replace all ASCII with fullwidth
+    tr.replace('~', "～")
+}
+
 /// What to do with a quote mark of a translation.
 enum Mark {
     Keep,
@@ -1122,6 +1164,30 @@ mod tests {
         assert_eq!(restore_quotes("彼は言った", "He said \"hi\" there"), "He said \"hi\" there");
         // nothing to restore
         assert_eq!(restore_quotes("「おはよう」", "Hi"), "Hi");
+    }
+
+    #[test]
+    fn tildes_of_the_original_come_back() {
+        // Original fullwidth -> translation ASCII: convert back to fullwidth
+        assert_eq!(restore_tildes("おはよう～", "Good morning~"), "Good morning～");
+        assert_eq!(restore_tildes("～test～", "~test~"), "～test～");
+        // Original ASCII -> leave as-is
+        assert_eq!(restore_tildes("hello~", "hello～"), "hello～");
+        assert_eq!(restore_tildes("~test~", "～test～"), "～test～");
+        // No tildes in original -> leave as-is
+        assert_eq!(restore_tildes("hello", "hello～"), "hello～");
+        assert_eq!(restore_tildes("hello", "hello~"), "hello~");
+        // Mixed original, counts match -> retain as-is
+        assert_eq!(restore_tildes("a～b~c", "x～y~z"), "x～y~z");
+        assert_eq!(restore_tildes("a～b~c", "x~y～z"), "x~y～z");
+        assert_eq!(restore_tildes("a～b~c", "x~y~z"), "x~y~z"); // 3 in orig, 3 in tr
+                                                                // Mixed original, counts differ -> replace all with fullwidth
+        assert_eq!(restore_tildes("a～b~c", "xyz"), "xyz"); // 3 in orig, 0 in tr -> orig has FW so convert? No, tr has 0 tildes
+        assert_eq!(restore_tildes("a～b~c", "x～y～z～"), "x～y～z～"); // 3 in orig, 4 in tr
+                                                                        // All fullwidth original, translation has no tildes -> leave as-is (no ASCII to convert)
+        assert_eq!(restore_tildes("～test～", "test"), "test");
+        // All fullwidth original, translation has ASCII -> convert to fullwidth
+        assert_eq!(restore_tildes("～test～", "~test~"), "～test～");
     }
 
     #[test]

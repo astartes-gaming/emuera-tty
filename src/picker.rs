@@ -2599,8 +2599,18 @@ pub fn last_game() -> Option<PathBuf> {
     crate::settings::Settings::load().last.filter(|p| is_game_dir(p))
 }
 
+/// Check if we're running in testing mode (EMUERA_TTY_TESTING=1).
+/// When true, skip saving games to the library to avoid polluting the
+/// launcher's game list with test artifacts.
+pub fn in_testing_mode() -> bool {
+    std::env::var("EMUERA_TTY_TESTING").as_deref() == Ok("1")
+}
+
 /// Remember `game` for the next run without arguments (and in the library).
 pub fn remember(game: &Path) {
+    if in_testing_mode() {
+        return;
+    }
     let mut st = crate::settings::Settings::load();
     st.played(game);
     st.save();

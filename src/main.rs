@@ -769,7 +769,7 @@ fn choose_game(o: &Opts) -> Option<PathBuf> {
             };
         }
         // a game played by path joins the library too (not as the last one)
-        if interactive && picker::is_game_dir(g) {
+        if interactive && picker::is_game_dir(g) && !picker::in_testing_mode() {
             let mut st = settings::Settings::load();
             st.add_game(g);
             st.save();
