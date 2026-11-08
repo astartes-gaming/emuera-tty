@@ -2044,6 +2044,11 @@ impl Parser {
         let is_str = self.is_str_var(b, &v.name);
         // only plain `STR = ...` takes FORM text; `+=` takes a string expression
         if is_str && op == AsgOp::Set {
+            // 文字列変数の代入に文字列式を強制する: only `'=` may assign to a
+            // string variable (Emuera's ArgumentBuilder)
+            if self.cfg.bool("文字列変数の代入に文字列式を強制する") {
+                return Err("文字列代入は禁止されています（'=を用いるかコンフィグオプションを変えてください)".into());
+            }
             // Emuera skips/trims only half-width spaces and tabs here; a
             // leading full-width space is content (map rows start with them).
             // The text runs to the end of the line: a `;` in it is text, not

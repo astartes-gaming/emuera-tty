@@ -96,3 +96,24 @@ fn user_function_arguments_follow_the_settings() {
     let lax = play("cfg-omit-on", "ユーザー関数の全ての引数の省略を許可する:YES\n", &[], omit);
     assert!(lax.contains("k[0]"), "{lax}");
 }
+
+/// キャラクタ変数の引数を補完しない (off unless set): on, `CFLAG:3` (one
+/// index of two) is Emuera's error instead of `CFLAG:TARGET:3`.
+#[test]
+fn character_variables_follow_the_no_target_setting() {
+    let erb = "@SYSTEM_TITLE\nADDVOIDCHARA\nADDVOIDCHARA\nTARGET = 1\nCFLAG:1:3 = 7\nPRINTFORML [{CFLAG:1:3}][{CFLAG:3}]\nQUIT\n";
+    let filled = play("cfg-notarget-off", "", &[], erb);
+    assert!(filled.contains("[7][7]"), "{filled}");
+    let strict = play("cfg-notarget-on", "キャラクタ変数の引数を補完しない:YES\n", &[], erb);
+    assert!(strict.contains("キャラクタ配列変数\"CFLAG\"の引数は省略できません") && !strict.contains("[7]"), "{strict}");
+}
+
+/// 文字列変数の代入に文字列式を強制する (off unless set): on, `STR = text`
+/// is Emuera's error and `STR '= "text"` the way to assign.
+#[test]
+fn string_assignment_follows_the_setting() {
+    let erb = "@SYSTEM_TITLE\nRESULTS '= \"a\"\nPRINTFORML [%RESULTS%]\nRESULTS = b\nPRINTFORML [%RESULTS%]\nQUIT\n";
+    assert!(play("cfg-strset-off", "", &[], erb).contains("[b]"));
+    let strict = play("cfg-strset-on", "文字列変数の代入に文字列式を強制する:YES\n", &[], erb);
+    assert!(strict.contains("[a]") && strict.contains("文字列代入は禁止されています") && !strict.contains("[b]"), "{strict}");
+}

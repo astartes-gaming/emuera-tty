@@ -66,7 +66,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | ユーザー関数の引数に自動的にTOSTRを補完する (`CompatiFuncArgAutoConvert`) | Auto TOSTR conversion for user function arguments | `false` | 25 (YES ×16, NO ×9) | honoured (`Vm::call_func_in`'s parameter binding) |
 | FORM中の三連記号を展開しない (`SystemIgnoreTripleSymbol`) | Do not process triple symbols inside FORM | `false` | 21 (YES ×11, NO ×10) | honoured: `***` `+++` `===` `///` `$$$` expand unless on (`expr::parse_form`) |
 | TIMESの計算をeramakerにあわせる (`TimesNotRigorousCalculation`) | Imitate behavior for TIMES | `false` | 12 (NO ×12) | ignored: Emuera default not followed either (task 2) |
-| キャラクタ変数の引数を補完しない (`SystemNoTarget`) | Do not auto-complete arguments for character variables | `false` | 17 (NO ×16, YES ×1) | ignored: Emuera default not followed either (task 2) |
+| キャラクタ変数の引数を補完しない (`SystemNoTarget`) | Do not auto-complete arguments for character variables | `false` | 17 (NO ×16, YES ×1) | honoured for too few indices (`Vm::locate_chara`); a bare name read as a value still means TARGET's, where Emuera errors |
 | UPDATECHECKを許可しない (`ForbidUpdateCheck`) | Disallow UPDATECHECK | `false` | 10 (NO ×9, YES ×1) | ignored (task 2/3) |
 | ERD機能を利用する (`UseERD`) | Use ERD | `true` | 10 (YES ×9, NO ×1) | ignored: Emuera default not followed either (task 2) |
 | VARSIZEの次元指定をERD機能に合わせる (`VarsizeDimConfig`) | Imitate ERD to VARSIZE dimension specification | `false` | 9 (NO ×8, YES ×1) | ignored: Emuera default not followed either (task 2) |

@@ -463,6 +463,9 @@ pub struct Vm {
     /// keeps a longer answer (else only its first character, as Emuera)
     /// the game's Emuera settings ([`crate::emuconfig::Values`])
     pub cfg: std::sync::Arc<crate::emuconfig::Values>,
+    /// キャラクタ変数の引数を補完しない (cached: read on every character
+    /// variable access without its character)
+    chara_no_target: bool,
     /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
     /// FLOWINPUT / FLOWINPUTS settings for the shop's own input:
@@ -595,6 +598,7 @@ impl Vm {
             big_dropped: HashSet::default(),
             rng: Sfmt::new(seed),
             warned: HashSet::default(),
+            chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
             cfg,
             game_dir,
             strict: false,
@@ -645,6 +649,7 @@ impl Vm {
     /// Read the game's settings again (changed on the settings page).
     pub fn reload_config(&mut self) {
         self.cfg = std::sync::Arc::new(crate::emuconfig::Values::read(&self.game_dir));
+        self.chara_no_target = self.cfg.bool("キャラクタ変数の引数を補完しない");
         crate::emuconfig::load(&self.cfg, &mut self.con, &mut self.text_exts, &mut self.save_opts);
     }
 
@@ -1263,7 +1268,18 @@ impl Vm {
     /// Character variables: `CFLAG:c:i` names the character, `CFLAG:i`
     /// (one index fewer than the variable has) means TARGET's.
     fn locate_chara(&mut self, v: &VarRef, ndim: usize, table: Option<&str>) -> VmResult<Place> {
-        let (c, rest) = if v.idx.len() > ndim { (self.eval(&v.idx[0])?.as_int(), 1) } else { (self.target(), 0) };
+        let (c, rest) = if v.idx.len() > ndim {
+            (self.eval(&v.idx[0])?.as_int(), 1)
+        } else if self.chara_no_target && !v.idx.is_empty() {
+            // キャラクタ変数の引数を補完しない: no TARGET for a missing
+            // character (Emuera's VariableParser; a bare name is left as
+            // TARGET's, see doc/settings-parity.md)
+            // (an array: a character variable without one takes any index
+            // given as the character)
+            return err(format!("キャラクタ配列変数\"{}\"の引数は省略できません(コンフィグにより禁止が選択されています)", v.name));
+        } else {
+            (self.target(), 0)
+        };
         let ci = self.chara_index(c, &v.name)?;
         let idx = self.eval_indices(v, rest, table)?;
         // (the name's number, remembered in the reference)
