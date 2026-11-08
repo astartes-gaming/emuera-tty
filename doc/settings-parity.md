@@ -62,8 +62,8 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | イベント関数のCALLを許可する (`CompatiCallEvent`) | Allow CALL on event functions | `false` | 18 (NO ×18) | ignored: Emuera default not followed either (task 2) |
 | SPキャラを使用する (`CompatiSPChara`) | Allow SP characters | `false` | 19 (NO ×16, YES ×3) | ignored: Emuera default not followed either (task 2) |
 | セーブデータをバイナリ形式で保存する (`SystemSaveInBinary`) | Use the binary format for saving data | `false` | 29 (YES ×26, NO ×3) | honoured (`emuconfig::load`) |
-| ユーザー関数の全ての引数の省略を許可する (`CompatiFuncArgOptional`) | Allow arguments omission for user functions | `false` | 21 (NO ×21) | ignored: Emuera default not followed either (task 2) |
-| ユーザー関数の引数に自動的にTOSTRを補完する (`CompatiFuncArgAutoConvert`) | Auto TOSTR conversion for user function arguments | `false` | 25 (YES ×16, NO ×9) | ignored: Emuera default not followed either (task 2) |
+| ユーザー関数の全ての引数の省略を許可する (`CompatiFuncArgOptional`) | Allow arguments omission for user functions | `false` | 21 (NO ×21) | honoured (`Vm::call_func_in`'s parameter binding) |
+| ユーザー関数の引数に自動的にTOSTRを補完する (`CompatiFuncArgAutoConvert`) | Auto TOSTR conversion for user function arguments | `false` | 25 (YES ×16, NO ×9) | honoured (`Vm::call_func_in`'s parameter binding) |
 | FORM中の三連記号を展開しない (`SystemIgnoreTripleSymbol`) | Do not process triple symbols inside FORM | `false` | 21 (YES ×11, NO ×10) | honoured: `***` `+++` `===` `///` `$$$` expand unless on (`expr::parse_form`) |
 | TIMESの計算をeramakerにあわせる (`TimesNotRigorousCalculation`) | Imitate behavior for TIMES | `false` | 12 (NO ×12) | ignored: Emuera default not followed either (task 2) |
 | キャラクタ変数の引数を補完しない (`SystemNoTarget`) | Do not auto-complete arguments for character variables | `false` | 17 (NO ×16, YES ×1) | ignored: Emuera default not followed either (task 2) |

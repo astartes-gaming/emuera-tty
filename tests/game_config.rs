@@ -74,3 +74,25 @@ fn continuation_joins_with_the_setting() {
     let dash = play("cfg-cont-dash", "行連結の改行コードの置換文字列:\"-\"\n", &[], erb);
     assert!(dash.contains("a-b"), "{dash}");
 }
+
+/// ユーザー関数の引数に自動的にTOSTRを補完する (off unless set): an integer
+/// passed to a string parameter is Emuera's error, or TOSTR'd when on; a
+/// string to an integer parameter is always an error
+/// (Process.CalledFunction.cs, UserDefinedFunctionArgument).
+#[test]
+fn user_function_arguments_follow_the_settings() {
+    let erb = "@SYSTEM_TITLE\nCALL F, 5\nQUIT\n@F, ARGS\nPRINTFORML [%ARGS%]\n";
+    let off = play("cfg-tostr-off", "", &[], erb);
+    assert!(off.contains("\"@F\"の1番目の引数を整数型から文字列型に変換できません") && !off.contains("[5]"), "{off}");
+    let on = play("cfg-tostr-on", "ユーザー関数の引数に自動的にTOSTRを補完する:YES\n", &[], erb);
+    assert!(on.contains("[5]"), "{on}");
+    let str_to_int = play("cfg-tostr-str", "ユーザー関数の引数に自動的にTOSTRを補完する:YES\n", &[], "@SYSTEM_TITLE\nCALL G, \"x\"\nQUIT\n@G, ARG\n");
+    assert!(str_to_int.contains("\"@G\"の1番目の引数を文字列型から整数型に変換できません"), "{str_to_int}");
+    // ユーザー関数の全ての引数の省略を許可する: ARG/ARGS/private parameters
+    // default to 0 / ""; another variable has no default
+    let omit = "@SYSTEM_TITLE\nCALL H\nCALL K\nQUIT\n@H, ARG, ARGS\nPRINTFORML h[{ARG}][%ARGS%]\n@K, FLAG:3\nPRINTFORML k[{FLAG:3}]\n";
+    let strict = play("cfg-omit-off", "", &[], omit);
+    assert!(strict.contains("h[0][]") && strict.contains("\"@K\"の1番目の引数は省略できません") && !strict.contains("k["), "{strict}");
+    let lax = play("cfg-omit-on", "ユーザー関数の全ての引数の省略を許可する:YES\n", &[], omit);
+    assert!(lax.contains("k[0]"), "{lax}");
+}

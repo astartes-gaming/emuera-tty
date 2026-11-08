@@ -1943,6 +1943,30 @@ impl Vm {
         for (i, p) in f.params.iter().enumerate() {
             // (moved out: the arguments aren't used again)
             let v = match args.get_mut(i).and_then(|a| a.take()) {
+                // a value passed: its type checked as Emuera's
+                // UserDefinedFunctionArgument does, into the place found once
+                Some(v) if !matches!(&*p.target.name, "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") => {
+                    let r = self.locate(&p.target).and_then(|place| {
+                        let v = match (self.place_is_str(&place), v) {
+                            (false, Value::Str(_)) => return err(format!("\"@{}\"の{}番目の引数を文字列型から整数型に変換できません", f.name, i + 1)),
+                            (true, Value::Int(_)) if !self.cfg.bool("ユーザー関数の引数に自動的にTOSTRを補完する") => {
+                                return err(format!(
+                                    "\"@{}\"の{}番目の引数を整数型から文字列型に変換できません(この警告は互換性オプション「ユーザー関数の引数に自動的にTOSTRを補完する」により無視できます)",
+                                    f.name,
+                                    i + 1
+                                ));
+                            }
+                            (true, Value::Int(n)) => Value::Str(n.to_string()),
+                            (_, v) => v,
+                        };
+                        self.set_place(&place, v)
+                    });
+                    if let Err(e) = r {
+                        self.frames.pop();
+                        return Err(e);
+                    }
+                    None
+                }
                 Some(v) => Some(v),
                 None => match &p.default {
                     Some(e) => match self.eval(e) {
@@ -1966,6 +1990,16 @@ impl Vm {
                                     return Err(e);
                                 }
                             }
+                        } else if !self.cfg.bool("ユーザー関数の全ての引数の省略を許可する") && !body.dims.iter().any(|d| d.name == n && d.is_ref)
+                        {
+                            // another variable as a parameter has no default:
+                            // omitting it is Emuera's error unless allowed
+                            self.frames.pop();
+                            return err(format!(
+                                "\"@{}\"の{}番目の引数は省略できません(この警告は互換性オプション「ユーザー関数の全ての引数の省略を許可する」により無視できます)",
+                                f.name,
+                                i + 1
+                            ));
                         } else {
                             None
                         }
