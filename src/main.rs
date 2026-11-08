@@ -604,6 +604,8 @@ fn run(o: Opts) -> i32 {
     // CSV/_fixed.config), read once for the loader, parser and VM
     let cfg = std::sync::Arc::new(emuconfig::Values::read(&game));
     let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref(), &cfg);
+    // the code page byte lengths (STRLENS…) are counted in
+    loader::ANSI_LANGUAGE.store(loader::ansi_language(cfg.value("内部で使用する東アジア言語")), std::sync::atomic::Ordering::Relaxed);
     // names are always matched whatever their case (doc/differences.md)
     if !cfg.bool("大文字小文字の違いを無視する") || cfg.bool("関数・属性については大文字小文字を無視しない") {
         eprintln!("emuera-tty: {}", t!("this game's settings ask for names that differ only in letter case to be different; emuera-tty always ignores case"));

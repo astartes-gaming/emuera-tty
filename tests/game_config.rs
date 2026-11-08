@@ -195,3 +195,14 @@ fn erd_files_follow_the_setting() {
     let off = play("cfg-erd-off", "ERD機能を利用する:NO\n", &files, erb);
     assert!(!off.contains("[5]"), "{off}");
 }
+
+/// 内部で使用する東アジア言語: STRLENS counts bytes in that code page, then
+/// Shift_JIS (Emuera's LangManager.GetByteCountLang): Hangul is 2 bytes in
+/// Korean's 949 and 1 (`?`) in Japanese's 932.
+#[test]
+fn byte_lengths_follow_the_language_setting() {
+    let erb = "@SYSTEM_TITLE\nPRINTFORML [{STRLENS(\"한글\")}][{STRLENS(\"あa\")}]\nQUIT\n";
+    assert!(play("cfg-lang-jp", "", &[], erb).contains("[2][3]"));
+    let kr = play("cfg-lang-kr", "内部で使用する東アジア言語:KOREAN\n", &[], erb);
+    assert!(kr.contains("[4][3]"), "{kr}");
+}

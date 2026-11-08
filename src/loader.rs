@@ -310,11 +310,32 @@ pub fn csv_fields(line: &str) -> Vec<String> {
     line.split(',').map(|s| s.trim().to_string()).collect()
 }
 
-/// Shift_JIS byte length, which is what Emuera's STRLENS / alignment use
-/// (`LangManager.GetByteCountLang`): per UTF-16 unit, a character code page
-/// 932 can't encode becomes `?`, one byte, so an unencodable character
-/// counts 1 and an emoji (two UTF-16 units) 2.
+/// 内部で使用する東アジア言語 (Emuera's useLanguage): the code page byte
+/// lengths are counted in. 0 Japanese (932), 1 Korean (949), 2 Simplified
+/// Chinese (936), 3 Traditional Chinese (950). Set from the game's config.
+pub static ANSI_LANGUAGE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The value of 内部で使用する東アジア言語 as [`ANSI_LANGUAGE`] holds it.
+pub fn ansi_language(name: &str) -> u8 {
+    match name.trim().to_uppercase().as_str() {
+        "KOREAN" => 1,
+        "CHINESE_HANS" => 2,
+        "CHINESE_HANT" => 3,
+        _ => 0,
+    }
+}
+
+/// Byte length in the game's code page, which is what Emuera's STRLENS /
+/// alignment use (`LangManager.GetByteCountLang`): a character that code
+/// page lacks is counted in Shift_JIS (932), and one neither has becomes
+/// `?` per UTF-16 unit, so it counts 1 and an emoji (two units) 2.
 pub fn sjis_len(s: &str) -> usize {
+    let lang = match ANSI_LANGUAGE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => Some(encoding_rs::EUC_KR),
+        2 => Some(encoding_rs::GBK),
+        3 => Some(encoding_rs::BIG5),
+        _ => None,
+    };
     s.chars()
         .map(|c| {
             if c.is_ascii() {
@@ -322,6 +343,12 @@ pub fn sjis_len(s: &str) -> usize {
             }
             let mut buf = [0u8; 4];
             let enc = c.encode_utf8(&mut buf);
+            if let Some(l) = lang {
+                let (bytes, _, unmappable) = l.encode(enc);
+                if !unmappable {
+                    return bytes.len();
+                }
+            }
             let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(enc);
             if unmappable {
                 c.len_utf16()

@@ -58,7 +58,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | 関数・属性については大文字小文字を無視しない (`CompatiFunctionNoignoreCase`) | Do not ignore case for functions and attributes | `false` | 18 (NO ×18) | always off; a game turning it on gets a note (`doc/differences.md`) |
 | 全角スペースをホワイトスペースに含める (`SystemAllowFullSpace`) | Whitespace includes full-width space | `true` | 23 (NO ×15, YES ×8) | honoured: off, a full-width space in code is Emuera's error (`expr::check_full_space`, `Parser::statement`) |
 | ver1739以前の非ボタン折り返しを再現する (`CompatiLinefeedAs1739`) | Reproduce wrapping behavior like in pre ver1739 | `false` | 12 (NO ×12) | honoured (`Tty::layout_line_in`, `retro.rs`) |
-| 内部で使用する東アジア言語 (`useLanguage`) | Default ANSI encoding | `UseLanguage.JAPANESE` | 18 (JAPANESE ×16, KOREAN ×1, CHINESE_HANS ×1) | ignored (task 2/3) |
+| 内部で使用する東アジア言語 (`useLanguage`) | Default ANSI encoding | `UseLanguage.JAPANESE` | 18 (JAPANESE ×16, KOREAN ×1, CHINESE_HANS ×1) | honoured: byte lengths in that code page, then Shift_JIS (`loader::sjis_len`) |
 | イベント関数のCALLを許可する (`CompatiCallEvent`) | Allow CALL on event functions | `false` | 18 (NO ×18) | honoured (`Instr::Call`, `Instr::CallList`) |
 | SPキャラを使用する (`CompatiSPChara`) | Allow SP characters | `false` | 19 (NO ×16, YES ×3) | honoured as Emuera-EM does: off, the SP commands and arguments are errors; on, GETCHARA/GETSPCHARA split by CFLAG:0; templates are found by number either way |
 | セーブデータをバイナリ形式で保存する (`SystemSaveInBinary`) | Use the binary format for saving data | `false` | 29 (YES ×26, NO ×3) | honoured (`emuconfig::load`) |
@@ -67,7 +67,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | FORM中の三連記号を展開しない (`SystemIgnoreTripleSymbol`) | Do not process triple symbols inside FORM | `false` | 21 (YES ×11, NO ×10) | honoured: `***` `+++` `===` `///` `$$$` expand unless on (`expr::parse_form`) |
 | TIMESの計算をeramakerにあわせる (`TimesNotRigorousCalculation`) | Imitate behavior for TIMES | `false` | 12 (NO ×12) | honoured: off, TIMES uses .NET's decimal rounding (`builtins::times_decimal`; it used doubles) |
 | キャラクタ変数の引数を補完しない (`SystemNoTarget`) | Do not auto-complete arguments for character variables | `false` | 17 (NO ×16, YES ×1) | honoured for too few indices (`Vm::locate_chara`); a bare name read as a value still means TARGET's, where Emuera errors |
-| UPDATECHECKを許可しない (`ForbidUpdateCheck`) | Disallow UPDATECHECK | `false` | 10 (NO ×9, YES ×1) | ignored (task 2/3) |
+| UPDATECHECKを許可しない (`ForbidUpdateCheck`) | Disallow UPDATECHECK | `false` | 10 (NO ×9, YES ×1) | always as if on: UPDATECHECK never goes online here |
 | ERD機能を利用する (`UseERD`) | Use ERD | `true` | 10 (YES ×9, NO ×1) | honoured (`GameCsv::load`) |
 | VARSIZEの次元指定をERD機能に合わせる (`VarsizeDimConfig`) | Imitate ERD to VARSIZE dimension specification | `false` | 9 (NO ×8, YES ×1) | honoured (`VARSIZE()`) |
 | ERDで定義した識別子とローカル変数の重複を確認する (`CheckDuplicateIdentifier`) | Check duplicate ERD identifier and private variablea | `false` | 8 (NO ×7, YES ×1) | a load warning only in Emuera (task 2.7) |
@@ -75,7 +75,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | 外部プラグインが有効時に警告を表示する (`PluginAvailableWarn`) | If available pllugins, Show warning | `true` | 2 (YES ×2) | not applicable (task 3) |
 | セーブデータを圧縮して保存する (`ZipSaveData`) | Compress save data | `false` | 8 (NO ×8) | honoured (`emuconfig::load`) |
 | CONFIGファイルの内容を英語で保存する (`EnglishConfigOutput`) | Output English items in the config file | `false` | 9 (NO ×5, YES ×4) | ignored (task 2/3) |
-| Emueraの表示言語 (`EmueraLang`) | Emuera interface language | `string.Empty` | 4 (English ×2, 简体中文 ×1, 日本語 ×1) | ignored (task 2/3) |
+| Emueraの表示言語 (`EmueraLang`) | Emuera interface language | `string.Empty` | 4 (English ×2, 简体中文 ×1, 日本語 ×1) | not taken: the interface language is the player's (`doc/differences.md`) |
 | テキスト中の<>タグを無視する (`CBIgnoreTags`) | Clipboard- ignore <> tags in text | `false` | 15 (NO ×10, YES ×5) | honoured (`emuconfig::load`) |
 | <>を次の文で置き換える (`CBReplaceTags`) | Clipboard- Replace <> with this | `"."` | 14 (. ×14) | honoured (`emuconfig::load`) |
 | 新しい行のみコピーする (`CBNewLinesOnly`) | Clipboard- Show new lines only | `true` | 14 (YES ×13, NO ×1) | honoured (`emuconfig::load`) |
