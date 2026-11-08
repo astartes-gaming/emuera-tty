@@ -3618,7 +3618,7 @@ impl Tty {
     /// The line's text, language and first colour if it is dialog to
     /// translate whole: only text (no buttons, pictures), not a drawing,
     /// in a language to translate, and dialog (see `mt::is_dialog`).
-    fn dialog_of(&self, l: &Line) -> Option<(&'static str, String, Style)> {
+    fn dialog_of(&self, l: &Line, force: bool) -> Option<(&'static str, String, Style)> {
         let mut text = String::new();
         let mut style = None;
         for s in &l.segs {
@@ -3633,7 +3633,17 @@ impl Tty {
         if crate::mt::is_drawing(&text) || text.trim().is_empty() {
             return None;
         }
-        let src = crate::mt::source_of(&text, &self.tr_from, &self.tr_to)?;
+        let src: Option<&'static str> = if force {
+            // force-translate: use configured source language, skip detection
+            match self.tr_from.as_str() {
+                "ja" => Some("ja"),
+                "en" => Some("en"),
+                _ => Some("ja"), // "auto" defaults to Japanese
+            }
+        } else {
+            crate::mt::source_of(&text, &self.tr_from, &self.tr_to)
+        };
+        let src = src?;
         crate::mt::is_dialog(&text, l.kojo, src).then(|| (src, text, style.unwrap()))
     }
 
@@ -3659,7 +3669,7 @@ impl Tty {
         let lines = &con.lines;
         // a filtered line stays as it is (a middle-click translates it)
         let dialog: Vec<Option<(&'static str, String, Style)>> = (start..lines.len())
-            .map(|i| self.dialog_of(&lines[i]).filter(|_| self.forced.contains(&line_key(&lines[i])) || !line_filtered(&lines[i], &con.src_files)))
+            .map(|i| self.dialog_of(&lines[i], self.forced.contains(&line_key(&lines[i]))).filter(|_| self.forced.contains(&line_key(&lines[i])) || !line_filtered(&lines[i], &con.src_files)))
             .collect();
         // a speech that began above `start` starts there (unchecked: rare)
         let mut i = 0;
@@ -3712,7 +3722,7 @@ impl Tty {
     /// the log then says so where it can't name the file that printed it.
     fn translated(&mut self, l: &Line, files: &[String], force: bool) -> Option<Line> {
         use crate::mt::{is_drawing, source_of, split_words};
-        if !(self.tr_all || force) || self.dialog_of(l).is_some() {
+        if !(self.tr_all || force) || self.dialog_of(l, force).is_some() {
             return None;
         }
         if !force && line_filtered(l, files) {
@@ -4631,7 +4641,7 @@ impl Frontend for Tty {
                         // a middle click on a translated line flips it
                         // between the original and the translation (also at
                         // a WAIT)
-                        1 if press => redraw |= self.toggle_translation(y),
+                        1 if press => redraw |= self.toggle_translation(y - 1),
                         // a right click: as Emuera, at a WAIT continue and
                         // skip the following waits up to the next choice;
                         // it never chooses a button (Emuera's MainWindow
