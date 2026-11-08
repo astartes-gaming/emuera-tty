@@ -229,3 +229,29 @@ jobs:
           name: emuera-tty-${{ matrix.name }}
           path: dist/emuera-tty-${{ matrix.name }}
           if-no-files-found: error
+
+  package:
+    needs: [build, attempt]
+    if: always()
+    name: package all binaries
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: emuera-tty-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release zip
+        run: |
+          cd artifacts
+          zip -r ../emuera-tty-all-platforms.zip .
+          echo "Created zip with $(find . -type f | wc -l) files:"
+          find . -type f | sort
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: emuera-tty-all-platforms
+          path: emuera-tty-all-platforms.zip
+          if-no-files-found: error
