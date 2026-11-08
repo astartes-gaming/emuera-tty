@@ -56,7 +56,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | セーブデータをsavフォルダ内に作成する (`UseSaveFolder`) | Use sav folder | `false` | 25 (YES ×23, NO ×2) | honoured (`emuconfig::load`) |
 | 擬似変数RANDの仕様をeramakerに合わせる (`CompatiRAND`) | Imitate behavior for RAND | `false` | 13 (NO ×13) | ignored: Emuera default not followed either (task 2) |
 | 関数・属性については大文字小文字を無視しない (`CompatiFunctionNoignoreCase`) | Do not ignore case for functions and attributes | `false` | 18 (NO ×18) | always off; a game turning it on gets a note (`doc/differences.md`) |
-| 全角スペースをホワイトスペースに含める (`SystemAllowFullSpace`) | Whitespace includes full-width space | `true` | 23 (NO ×15, YES ×8) | ignored: Emuera default not followed either (task 2) |
+| 全角スペースをホワイトスペースに含める (`SystemAllowFullSpace`) | Whitespace includes full-width space | `true` | 23 (NO ×15, YES ×8) | honoured: off, a full-width space in code is Emuera's error (`expr::check_full_space`, `Parser::statement`) |
 | ver1739以前の非ボタン折り返しを再現する (`CompatiLinefeedAs1739`) | Reproduce wrapping behavior like in pre ver1739 | `false` | 12 (NO ×12) | ignored: Emuera default not followed either (task 2) |
 | 内部で使用する東アジア言語 (`useLanguage`) | Default ANSI encoding | `UseLanguage.JAPANESE` | 18 (JAPANESE ×16, KOREAN ×1, CHINESE_HANS ×1) | ignored (task 2/3) |
 | イベント関数のCALLを許可する (`CompatiCallEvent`) | Allow CALL on event functions | `false` | 18 (NO ×18) | ignored: Emuera default not followed either (task 2) |
@@ -64,14 +64,14 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | セーブデータをバイナリ形式で保存する (`SystemSaveInBinary`) | Use the binary format for saving data | `false` | 29 (YES ×26, NO ×3) | honoured (`emuconfig::load`) |
 | ユーザー関数の全ての引数の省略を許可する (`CompatiFuncArgOptional`) | Allow arguments omission for user functions | `false` | 21 (NO ×21) | ignored: Emuera default not followed either (task 2) |
 | ユーザー関数の引数に自動的にTOSTRを補完する (`CompatiFuncArgAutoConvert`) | Auto TOSTR conversion for user function arguments | `false` | 25 (YES ×16, NO ×9) | ignored: Emuera default not followed either (task 2) |
-| FORM中の三連記号を展開しない (`SystemIgnoreTripleSymbol`) | Do not process triple symbols inside FORM | `false` | 21 (YES ×11, NO ×10) | ignored: Emuera default not followed either (task 2) |
+| FORM中の三連記号を展開しない (`SystemIgnoreTripleSymbol`) | Do not process triple symbols inside FORM | `false` | 21 (YES ×11, NO ×10) | honoured: `***` `+++` `===` `///` `$$$` expand unless on (`expr::parse_form`) |
 | TIMESの計算をeramakerにあわせる (`TimesNotRigorousCalculation`) | Imitate behavior for TIMES | `false` | 12 (NO ×12) | ignored: Emuera default not followed either (task 2) |
 | キャラクタ変数の引数を補完しない (`SystemNoTarget`) | Do not auto-complete arguments for character variables | `false` | 17 (NO ×16, YES ×1) | ignored: Emuera default not followed either (task 2) |
 | UPDATECHECKを許可しない (`ForbidUpdateCheck`) | Disallow UPDATECHECK | `false` | 10 (NO ×9, YES ×1) | ignored (task 2/3) |
 | ERD機能を利用する (`UseERD`) | Use ERD | `true` | 10 (YES ×9, NO ×1) | ignored: Emuera default not followed either (task 2) |
 | VARSIZEの次元指定をERD機能に合わせる (`VarsizeDimConfig`) | Imitate ERD to VARSIZE dimension specification | `false` | 9 (NO ×8, YES ×1) | ignored: Emuera default not followed either (task 2) |
 | ERDで定義した識別子とローカル変数の重複を確認する (`CheckDuplicateIdentifier`) | Check duplicate ERD identifier and private variablea | `false` | 8 (NO ×7, YES ×1) | ignored: Emuera default not followed either (task 2) |
-| 行連結の改行コードの置換文字列 (`ReplaceContinuationBR`) | String of replacing new line code inside continuation | `"\" \""` | 4 (" " ×4) | ignored: Emuera default not followed either (task 2) |
+| 行連結の改行コードの置換文字列 (`ReplaceContinuationBR`) | String of replacing new line code inside continuation | `"\" \""` | 4 (" " ×4) | honoured (`Parser::logical_lines`) |
 | 外部プラグインが有効時に警告を表示する (`PluginAvailableWarn`) | If available pllugins, Show warning | `true` | 2 (YES ×2) | not applicable (task 3) |
 | セーブデータを圧縮して保存する (`ZipSaveData`) | Compress save data | `false` | 8 (NO ×8) | honoured (`emuconfig::load`) |
 | CONFIGファイルの内容を英語で保存する (`EnglishConfigOutput`) | Output English items in the config file | `false` | 9 (NO ×5, YES ×4) | ignored (task 2/3) |

@@ -16,7 +16,7 @@ The inventory (93 settings in the dialog, plus the debug window's own) is kept a
 
 ### One config model
 
-`emuconfig::Config`: every key from `config_names::NAMES` with its kind and Emuera default (from `ConfigData.cs`), parsed once at load (and on reload). Typed accessors (`cfg.bool(Key::CompatiRAND)`) replace string matching. Parser and lexer settings are needed before the VM exists, and from parse threads, so the parsed `Config` is passed into `Parser::new` and the loader; the few lexer-level flags (full-width space, triple symbols) live in an `Arc<Config>` the lexer reads, not in globals, so `--check` of two games in one process can't mix them.
+`emuconfig::Config`: every key from `config_names::NAMES` with its kind and Emuera default (from `ConfigData.cs`), parsed once at load (and on reload). Typed accessors (`cfg.bool(Key::CompatiRAND)`) replace string matching. Parser and lexer settings are needed before the VM exists, and from parse threads, so the parsed `Config` is passed into `Parser::new` and the loader; the few lexer-level flags (full-width space, triple symbols) are process-wide atomics in `expr.rs`, set from the config before parsing (as `translate::FOLD` already is): the expression parser's free functions have no parser context, and one process runs one game.
 
 ### Defaults where a game sets nothing
 

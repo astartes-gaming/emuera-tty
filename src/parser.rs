@@ -1068,7 +1068,9 @@ impl Parser {
             }
             if let Some((_, s)) = join.as_mut() {
                 if !s.is_empty() {
-                    s.push(' ');
+                    // 行連結の改行コードの置換文字列, quotes taken out as
+                    // Emuera's EraStreamReader does (default `" "`)
+                    s.push_str(&self.cfg.value("行連結の改行コードの置換文字列").replace('"', ""));
                 }
                 s.push_str(&line);
                 continue;
@@ -1146,6 +1148,7 @@ impl Parser {
         let up = line.to_uppercase();
         let is_str = up.starts_with("#DIMS");
         let rest = if is_str { &line[5..] } else { &line[4..] };
+        crate::expr::check_full_space(rest)?;
         let mut p = ExprParser::new(rest, &self.prog.defines);
         let mut d = DimDecl {
             name: String::new(),
@@ -1370,6 +1373,7 @@ impl Parser {
                 parts.pop();
             }
             for part in parts {
+                crate::expr::check_full_space(&part)?;
                 let mut p = ExprParser::new(&part, &self.prog.defines);
                 let mut v = p.var_ref()?;
                 upper_var(&mut v);
@@ -1465,6 +1469,20 @@ impl Parser {
     /// PRINT variants, control flow, other commands, and finally
     /// assignment (anything that isn't a known command).
     fn statement(&mut self, b: &mut FuncBuilder, line: &str) -> Result<(), String> {
+        // a name followed by a full-width space, unless 全角スペースを
+        // ホワイトスペースに含める: Emuera's error after a statement's name
+        // (LogicalLineParser), its lexer's anywhere else (an assignment)
+        if !crate::expr::FULL_SPACE_IS_SPACE.load(std::sync::atomic::Ordering::Relaxed) {
+            let (cmd, _) = split_cmd(line);
+            if !cmd.is_empty() && line.chars().nth(cmd.chars().count()) == Some('\u{3000}') {
+                let statement = is_command(&cmd) || parse_print_name(&cmd).is_some() || FLOW_WORDS.contains(&cmd.as_str());
+                return Err(if statement {
+                    "命令で行が始まっていますが、命令の直後に半角スペース・タブ以外の文字が来ています(この警告はシステムオプション「全角スペースをホワイトスペースに含める」により無視できます)".into()
+                } else {
+                    crate::expr::FULL_SPACE_ERROR.into()
+                });
+            }
+        }
         // Inside PRINTDATA / STRDATA collect DATA lines.
         if let Some(Ctl::Data { .. }) = b.ctl.last() {
             let (cmd, rest) = split_cmd(line);
@@ -1966,6 +1984,15 @@ impl Parser {
     fn assignment(&self, b: &mut FuncBuilder, line: &str) -> Result<(), String> {
         let mut p = ExprParser::new(line, &self.prog.defines);
         let mut v = p.var_ref()?;
+        // the variable and the space before the operator are code (a string
+        // assignment's FORM text after `=` may hold full-width spaces)
+        if !crate::expr::FULL_SPACE_IS_SPACE.load(std::sync::atomic::Ordering::Relaxed) {
+            let rest = p.rest();
+            crate::expr::check_full_space(&line[..line.len().saturating_sub(rest.len())])?;
+            if rest.trim_start_matches([' ', '\t']).starts_with('\u{3000}') {
+                return Err(crate::expr::FULL_SPACE_ERROR.into());
+            }
+        }
         upper_var(&mut v);
         p.skip_ws();
         // `FLAG:X,-= 1`: Emuera reads the left side as an argument list,
@@ -2099,6 +2126,7 @@ impl Parser {
     }
 
     fn var(&self, s: &str) -> Result<Rc<VarRef>, String> {
+        crate::expr::check_full_space(s)?;
         let mut p = ExprParser::new(s, &self.prog.defines);
         let mut v = p.var_ref()?;
         if !p.at_end() {
@@ -2206,7 +2234,8 @@ fn find_word(up: &str, w: &str) -> Option<usize> {
         }
         // (a full-width space is one too, as Emuera's SystemAllowFullSpace
         // has it by default: eTC's `CASE 1　TO 14`)
-        let space = |c: Option<char>| c.is_none_or(|c| c == ' ' || c == '\t' || c == '\u{3000}');
+        let full = crate::expr::FULL_SPACE_IS_SPACE.load(std::sync::atomic::Ordering::Relaxed);
+        let space = |c: Option<char>| c.is_none_or(|c| c == ' ' || c == '\t' || (full && c == '\u{3000}'));
         if space(up[..i].chars().next_back()) && space(up[i + w.len()..].chars().next()) {
             return Some(i);
         }
@@ -2315,6 +2344,15 @@ fn upper_form_in(f: Form) -> Form {
             .collect(),
     }
 }
+
+/// Flow-control statements the parser handles itself (not in COMMANDS).
+const FLOW_WORDS: &[&str] = &[
+    "IF", "ELSEIF", "ELSE", "ENDIF", "SIF", "REPEAT", "REND", "FOR", "NEXT", "WHILE", "WEND", "DO", "LOOP", "SELECTCASE", "CASE", "CASEELSE", "ENDSELECT",
+    "CALL", "CALLF", "CALLFORM", "CALLFORMF", "TRYCALL", "TRYCALLFORM", "TRYCCALL", "TRYCCALLFORM", "CATCH", "ENDCATCH", "JUMP", "JUMPFORM", "TRYJUMP",
+    "TRYJUMPFORM", "TRYCJUMP", "TRYCJUMPFORM", "GOTO", "GOTOFORM", "TRYGOTO", "TRYGOTOFORM", "TRYCGOTO", "TRYCGOTOFORM", "RETURN", "RETURNF", "RETURNFORM",
+    "BREAK", "CONTINUE", "TRYCALLLIST", "TRYJUMPLIST", "TRYGOTOLIST", "FUNC", "ENDFUNC", "PRINTDATA", "STRDATA", "DATA", "DATAFORM", "DATALIST", "ENDLIST",
+    "ENDDATA", "NOSKIP", "ENDNOSKIP", "BEGIN", "RESTART", "QUIT",
+];
 
 /// Known statement-style commands (everything that is not an assignment).
 pub fn is_command(c: &str) -> bool {

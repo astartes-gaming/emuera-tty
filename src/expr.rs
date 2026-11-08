@@ -20,6 +20,98 @@ use std::sync::Arc as Rc;
 
 pub type PResult<T> = Result<T, String>;
 
+/// 全角スペースをホワイトスペースに含める (Emuera's SystemAllowFullSpace,
+/// on unless the game's config says otherwise): off, a full-width space
+/// where Emuera lexes code is an error. Set from the config before
+/// parsing (`main::build_program`).
+pub static FULL_SPACE_IS_SPACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// The opposite of FORM中の三連記号を展開しない (SystemIgnoreTripleSymbol):
+/// `***`, `+++`, `===`, `///`, `$$$` in FORM text are character names.
+pub static EXPAND_TRIPLE_SYMBOLS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Emuera's error for a full-width space in code (trerror.UnexpectedFullWidthSpace).
+pub const FULL_SPACE_ERROR: &str =
+    "予期しない全角スペースを発見しました(この警告はシステムオプション「全角スペースをホワイトスペースに含める」により無視できます)";
+
+/// With 全角スペースをホワイトスペースに含める off: a full-width space in
+/// expression code (outside string literals) is Emuera's error
+/// (LexicalAnalyzer.Analyse).
+pub fn check_full_space(src: &str) -> PResult<()> {
+    if FULL_SPACE_IS_SPACE.load(std::sync::atomic::Ordering::Relaxed) || !src.contains('\u{3000}') {
+        return Ok(());
+    }
+    let ch: Vec<char> = src.chars().collect();
+    let mut i = 0;
+    // inside `\@ cond ? a # b \@`'s condition
+    let mut yen = false;
+    while i < ch.len() {
+        match ch[i] {
+            // a FORM string: its text may hold any space, and the code in
+            // its %…% and {…} is checked when the FORM is parsed
+            '@' if ch.get(i + 1) == Some(&'"') => i = skip_form_string(&ch, i + 2),
+            '"' => i = skip_string(&ch, i + 1),
+            // `\@ cond ? a # b \@`: the branches are FORM text (Emuera's
+            // AnalyseYenAt), only the condition is code
+            '\\' if ch.get(i + 1) == Some(&'@') && !yen => {
+                yen = true;
+                i += 2;
+            }
+            '?' if yen => {
+                yen = false;
+                i += 1;
+                while i < ch.len() && !(ch[i] == '\\' && ch.get(i + 1) == Some(&'@')) {
+                    i += if ch[i] == '\\' { 2 } else { 1 };
+                }
+                i += 2;
+            }
+            '\u{3000}' => return Err(FULL_SPACE_ERROR.into()),
+            _ => i += 1,
+        }
+    }
+    Ok(())
+}
+
+/// The index after the `"` that ends a string literal whose text starts at `i`.
+fn skip_string(ch: &[char], mut i: usize) -> usize {
+    while i < ch.len() {
+        match ch[i] {
+            '\\' => i += 2,
+            '"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    i
+}
+
+/// The index after the `"` that ends a FORM string (`@"…"`) whose text
+/// starts at `i`; quotes inside its `%…%` and `{…}` code don't end it.
+fn skip_form_string(ch: &[char], mut i: usize) -> usize {
+    let (mut pct, mut brace) = (false, 0usize);
+    while i < ch.len() {
+        let code = pct || brace > 0;
+        match ch[i] {
+            '\\' => i += 2,
+            '@' if code && ch.get(i + 1) == Some(&'"') => i = skip_form_string(ch, i + 2),
+            '"' if code => i = skip_string(ch, i + 1),
+            '"' => return i + 1,
+            '%' if brace == 0 => {
+                pct = !pct;
+                i += 1;
+            }
+            '{' if !pct => {
+                brace += 1;
+                i += 1;
+            }
+            '}' if brace > 0 => {
+                brace -= 1;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    i
+}
+
 /// Cursor over one expression's characters. `defs` are the program's
 /// `#DEFINE`s (expanded inline, `depth` guards against runaway recursion).
 pub struct ExprParser<'a> {
@@ -545,6 +637,7 @@ impl<'a> ExprParser<'a> {
 
 /// Parse `src` as exactly one expression (trailing text is an error).
 pub fn parse_expr(src: &str, defs: &HashMap<String, String>) -> PResult<Expr> {
+    check_full_space(src)?;
     let mut p = ExprParser::new(src, defs);
     let e = p.expr()?;
     if !p.at_end() {
@@ -556,6 +649,7 @@ pub fn parse_expr(src: &str, defs: &HashMap<String, String>) -> PResult<Expr> {
 /// Parse a comma list such as command arguments; `a,,b` yields an
 /// [`Expr::Empty`] in the middle.
 pub fn parse_expr_list(src: &str, defs: &HashMap<String, String>) -> PResult<Vec<Expr>> {
+    check_full_space(src)?;
     let mut p = ExprParser::new(src, defs);
     let e = p.expr_list()?;
     if !p.at_end() {
@@ -815,6 +909,7 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
                 continue;
             };
             let inner: String = ch[i + 1..j].iter().collect();
+            check_full_space(&inner)?;
             let sp = split_top(&inner, ',');
             let e = parse_expr(sp[0].trim(), defs)?;
             let (w, a) = width_align(&sp, defs)?;
@@ -822,6 +917,21 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
             let w = w.map(Box::new);
             parts.push(if c == '%' { FormPart::Str(e, w, a) } else { FormPart::Int(e, w, a) });
             i = j + 1;
+            continue;
+        }
+        // `***` and the like: a character's name (Emuera's StrForm,
+        // TripleSymbolSubWord), unless FORM中の三連記号を展開しない
+        if "*+=/$".contains(c) && ch.get(i + 1) == Some(&c) && ch.get(i + 2) == Some(&c) && EXPAND_TRIPLE_SYMBOLS.load(std::sync::atomic::Ordering::Relaxed) {
+            let name = match c {
+                '*' => "NAME:TARGET",
+                '+' => "CALLNAME:MASTER",
+                '=' => "CALLNAME:PLAYER",
+                '/' => "NAME:ASSI",
+                _ => "CALLNAME:TARGET",
+            };
+            flush(&mut lit, &mut parts);
+            parts.push(FormPart::Str(parse_expr(name, defs)?, None, Align::Right));
+            i += 3;
             continue;
         }
         lit.push(c);

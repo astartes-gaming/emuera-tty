@@ -443,6 +443,9 @@ fn build_program(
     lazy: bool,
     phase: &mut dyn FnMut(&str),
 ) -> (parser::Program, usize) {
+    // the settings the lexer reads (see expr.rs)
+    expr::FULL_SPACE_IS_SPACE.store(cfg.bool("全角スペースをホワイトスペースに含める"), std::sync::atomic::Ordering::Relaxed);
+    expr::EXPAND_TRIPLE_SYMBOLS.store(!cfg.bool("FORM中の三連記号を展開しない"), std::sync::atomic::Ordering::Relaxed);
     let mut p = parser::Parser::new(rename, debug, cfg.clone());
     // EMUERA_THREADS=n limits the worker threads (default: all cores)
     let cores = std::env::var("EMUERA_THREADS")
