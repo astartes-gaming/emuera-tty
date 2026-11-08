@@ -9,7 +9,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | _Replace.csvを利用する (`UseReplaceFile`) | Use _Replace.csv file | `true` | 31 (YES ×31) | honoured (`GameCsv::load`) |
 | マウスを使用する (`UseMouse`) | Use mouse | `true` | 19 (YES ×19) | honoured: off, the game's buttons ignore the pointer (`Tty::button_at`); the wheel still scrolls, as in Emuera |
 | メニューを使用する (`UseMenu`) | Show menu | `true` | 18 (YES ×18) | not applicable: emuera-tty's own menu is the settings key (F3), always there |
-| デバッグコマンドを使用する (`UseDebugCommand`) | Allow debug commands | `false` | 19 (NO ×14, YES ×5) | ignored (task 2/3) |
+| デバッグコマンドを使用する (`UseDebugCommand`) | Allow debug commands | `false` | 19 (NO ×14, YES ×5) | to do: `@` debug commands (task 5) |
 | 多重起動を許可する (`AllowMultipleInstances`) | Allow multiple instances | `true` | 19 (YES ×19) | not applicable: nothing stops a second emuera-tty, each in its own terminal |
 | オートセーブを行なう (`AutoSave`) | Make autosaves | `true` | 19 (YES ×18, NO ×1) | honoured (`emuconfig::load`) |
 | キーボードマクロを使用する (`UseKeyMacro`) | Use keyboard macros | `true` | 18 (YES ×18) | honoured (`emuconfig::load`) |
@@ -34,23 +34,23 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | フレーム毎秒 (`FPS`) | FPS | `5` | 20 (5 ×15, 20 ×2, 7 ×2) | not applicable: the terminal is redrawn when something changes |
 | スクロール行数 (`ScrollHeight`) | Lines per scroll | `1` | 19 (1 ×14, 5 ×3, 7 ×1) | honoured as the wheel step unless the player chose one (settings: Wheel scrolls) |
 | 無限ループ警告までのミリ秒数 (`InfiniteLoopAlertTime`) | Milliseconds for infinite loop warning | `5000` | 21 (5000 ×12, 10000 ×6, 20000 ×1) | honoured (`emuconfig::load`) |
-| 表示する最低警告レベル (`DisplayWarningLevel`) | Minimum warning level | `1` | 24 (0 ×15, 1 ×8, 3 ×1) | ignored (task 2/3) |
-| ロード時にレポートを表示する (`DisplayReport`) | Display loading report | `false` | 22 (NO ×22) | ignored (task 2/3) |
-| ロード時に引数を解析する (`ReduceArgumentOnLoad`) | Reduce argument on load | `ReduceArgumentOnLoadFlag.NO` | 25 (YES ×18, NO ×7) | ignored (task 2/3) |
-| 呼び出されなかった関数を無視する (`IgnoreUncalledFunction`) | Ignore uncalled functions | `true` | 22 (YES ×17, NO ×5) | ignored (task 2/3) |
-| 関数が見つからない警告の扱い (`FunctionNotFoundWarning`) | Function is not found warning | `DisplayWarningFlag.IGNORE` | 22 (DISPLAY ×13, IGNORE ×9) | ignored (task 2/3) |
-| 関数が呼び出されなかった警告の扱い (`FunctionNotCalledWarning`) | Function not called warning | `DisplayWarningFlag.IGNORE` | 21 (IGNORE ×19, DISPLAY ×2) | ignored (task 2/3) |
+| 表示する最低警告レベル (`DisplayWarningLevel`) | Minimum warning level | `1` | 24 (0 ×15, 1 ×8, 3 ×1) | load warnings and report: to do (task 2.7) |
+| ロード時にレポートを表示する (`DisplayReport`) | Display loading report | `false` | 22 (NO ×22) | load warnings and report: to do (task 2.7) |
+| ロード時に引数を解析する (`ReduceArgumentOnLoad`) | Reduce argument on load | `ReduceArgumentOnLoadFlag.NO` | 25 (YES ×18, NO ×7) | load warnings and report: to do (task 2.7) |
+| 呼び出されなかった関数を無視する (`IgnoreUncalledFunction`) | Ignore uncalled functions | `true` | 22 (YES ×17, NO ×5) | load warnings and report: to do (task 2.7) |
+| 関数が見つからない警告の扱い (`FunctionNotFoundWarning`) | Function is not found warning | `DisplayWarningFlag.IGNORE` | 22 (DISPLAY ×13, IGNORE ×9) | load warnings and report: to do (task 2.7) |
+| 関数が呼び出されなかった警告の扱い (`FunctionNotCalledWarning`) | Function not called warning | `DisplayWarningFlag.IGNORE` | 21 (IGNORE ×19, DISPLAY ×2) | load warnings and report: to do (task 2.7) |
 | ボタンの途中で行を折りかえさない (`ButtonWrap`) | Button wrapping | `false` | 32 (YES ×28, NO ×4) | honoured (`emuconfig::load`) |
 | サブディレクトリを検索する (`SearchSubdirectory`) | Search subfolders | `false` | 32 (YES ×30, NO ×2) | honoured (`loader::Listing`) |
 | 読み込み順をファイル名順にソートする (`SortWithFilename`) | Sort filenames | `false` | 31 (YES ×27, NO ×4) | honoured (`loader::Listing`) |
 | 表示するセーブデータ数 (`SaveDataNos`) | Save data count per page | `20` | 18 (20 ×16, 80 ×2) | honoured (`emuconfig::load`) |
-| eramaker互換性に関する警告を表示する (`WarnBackCompatibility`) | Eramaker compatibility warning | `true` | 31 (NO ×29, YES ×2) | ignored (task 2/3) |
+| eramaker互換性に関する警告を表示する (`WarnBackCompatibility`) | Eramaker compatibility warning | `true` | 31 (NO ×29, YES ×2) | load warnings and report: to do (task 2.7) |
 | システム関数の上書きを許可する (`AllowFunctionOverloading`) | Allow overriding system functions | `true` | 25 (YES ×18, NO ×7) | no difference in behaviour: a user function wins either way, as in Emuera; only Emuera's load warning level changes (task 2.7) |
-| システム関数が上書きされたとき警告を表示する (`WarnFunctionOverloading`) | System function override warning | `true` | 22 (YES ×21, NO ×1) | ignored (task 2/3) |
+| システム関数が上書きされたとき警告を表示する (`WarnFunctionOverloading`) | System function override warning | `true` | 22 (YES ×21, NO ×1) | load warnings and report: to do (task 2.7) |
 | 関連づけるテキストエディタ (`TextEditor`) | Text editor | `"notepad"` | 17 (notepad ×15, C:\Program Files (x86)\sakura\sakura.exe ×1, C:\Program Files\Notepad++\notepad++.exe ×1) | not applicable for now: Emuera opens an erroring script in this editor (a possible debug-panel feature, `$EDITOR`) |
 | テキストエディタコマンドライン指定 (`EditorType`) | Text editor command line setting | `TextEditorType.USER_SETTING` | 17 (USER_SETTING ×17) | as 関連づけるテキストエディタ |
 | エディタに渡す行指定引数 (`EditorArgument`) | Text editor command line arguments | `""` | 17 ((empty) ×17) | as 関連づけるテキストエディタ |
-| 同名の非イベント関数が複数定義されたとき警告する (`WarnNormalFunctionOverloading`) | Duplicated functions warning | `false` | 22 (YES ×12, NO ×10) | ignored (task 2/3) |
+| 同名の非イベント関数が複数定義されたとき警告する (`WarnNormalFunctionOverloading`) | Duplicated functions warning | `false` | 22 (YES ×12, NO ×10) | load warnings and report: to do (task 2.7) |
 | 解釈不可能な行があっても実行する (`CompatiErrorLine`) | Execute error lines | `false` | 18 (NO ×18) | always as if on (lazy compilation; `doc/differences.md`) |
 | CALLNAMEが空文字列の時にNAMEを代入する (`CompatiCALLNAME`) | Use NAME if CALLNAME is empty | `false` | 18 (NO ×17, YES ×1) | honoured (`GameCsv::load`; NAME was always copied before) |
 | セーブデータをsavフォルダ内に作成する (`UseSaveFolder`) | Use sav folder | `false` | 25 (YES ×23, NO ×2) | honoured (`emuconfig::load`) |
