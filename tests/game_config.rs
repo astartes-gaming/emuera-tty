@@ -117,3 +117,59 @@ fn string_assignment_follows_the_setting() {
     let strict = play("cfg-strset-on", "文字列変数の代入に文字列式を強制する:YES\n", &[], erb);
     assert!(strict.contains("[a]") && strict.contains("文字列代入は禁止されています") && !strict.contains("[b]"), "{strict}");
 }
+
+/// 擬似変数RANDの仕様をeramakerに合わせる (off unless set): RAND:0 is an
+/// error; on, 0 gives 0 and a negative argument counts as positive.
+#[test]
+fn rand_follows_the_setting() {
+    let erb = "@SYSTEM_TITLE\nLOCAL = 0\nPRINTFORML [{RAND:(LOCAL - 3) < 3}]\nPRINTFORML [{RAND:LOCAL}]\nQUIT\n";
+    let strict = play("cfg-rand-off", "", &[], erb);
+    assert!(strict.contains("RANDの引数に0以下の値(-3)が指定されました"), "{strict}");
+    let compat = play("cfg-rand-on", "擬似変数RANDの仕様をeramakerに合わせる:YES\n", &[], erb);
+    assert!(compat.contains("[1]\n") && compat.contains("[0]"), "{compat}");
+}
+
+/// TIMESの計算をeramakerにあわせる (off unless set): off, the factor is a
+/// .NET decimal, so 100 TIMES 0.29 is 29; on, doubles make it 28.
+#[test]
+fn times_follows_the_setting() {
+    let erb = "@SYSTEM_TITLE\nLOCAL = 100\nTIMES LOCAL, 0.29\nPRINTFORML [{LOCAL}]\nQUIT\n";
+    assert!(play("cfg-times-off", "", &[], erb).contains("[29]"));
+    let eramaker = play("cfg-times-on", "TIMESの計算をeramakerにあわせる:YES\n", &[], erb);
+    assert!(eramaker.contains("[28]"), "{eramaker}");
+}
+
+/// CALLNAMEが空文字列の時にNAMEを代入する (off unless set): a character
+/// without 呼び名 has an empty CALLNAME, or its NAME when on.
+#[test]
+fn callname_follows_the_setting() {
+    let files = [("CSV/Chara1.csv", "番号,1\n名前,Reimu\n")];
+    let erb = "@SYSTEM_TITLE\nADDCHARA 1\nPRINTFORML [%CALLNAME:0%]\nQUIT\n";
+    assert!(play("cfg-callname-off", "", &files, erb).contains("[]"));
+    let on = play("cfg-callname-on", "CALLNAMEが空文字列の時にNAMEを代入する:YES\n", &files, erb);
+    assert!(on.contains("[Reimu]"), "{on}");
+}
+
+/// イベント関数のCALLを許可する (off unless set): CALL can't reach an event
+/// function; on, it runs the first definition only.
+#[test]
+fn calling_event_functions_follows_the_setting() {
+    let erb = "@SYSTEM_TITLE\nTRYCALL EVENTEND\nPRINTL after\nCALL EVENTEND\nQUIT\n@EVENTEND\nPRINTL one\n@EVENTEND\nPRINTL two\n";
+    let off = play("cfg-callevent-off", "", &[], erb);
+    assert!(off.contains("after") && off.contains("@EVENTEND not found") && !off.contains("one"), "{off}");
+    let on = play("cfg-callevent-on", "イベント関数のCALLを許可する:YES\n", &[], erb);
+    assert!(on.matches("one").count() == 2 && !on.contains("two"), "{on}");
+}
+
+/// SPキャラを使用する (off unless set): off, ADDSPCHARA, GETSPCHARA and an
+/// SP argument to the CSV functions are Emuera's error; on, a character
+/// whose CFLAG:0 isn't 0 is SP, found by GETSPCHARA, not by GETCHARA.
+#[test]
+fn sp_characters_follow_the_setting() {
+    let files = [("CSV/Chara1.csv", "番号,1\n名前,Reimu\n")];
+    let erb = "@SYSTEM_TITLE\nADDCHARA 1\nADDCHARA 1\nCFLAG:0:0 = 1\nPRINTFORML [{GETCHARA(1)}][{GETCHARA(1, 1)}][%CSVNAME(1)%]\nPRINTFORML [{GETSPCHARA(1)}]\nADDSPCHARA 1\nPRINTFORML [{CHARANUM}]\nQUIT\n";
+    let off = play("cfg-sp-off", "", &files, erb);
+    assert!(off.contains("[0][0][Reimu]") && off.contains("SPキャラ関係の機能は標準では使用できません"), "{off}");
+    let on = play("cfg-sp-on", "SPキャラを使用する:YES\n", &files, erb);
+    assert!(on.contains("[1][1][Reimu]") && on.contains("[0]") && on.contains("[3]"), "{on}");
+}

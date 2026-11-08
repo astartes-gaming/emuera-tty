@@ -538,6 +538,16 @@ impl Vm {
 
     /// Build a character from its Chara*.csv template (ADDCHARA); `-1`
     /// makes an empty one (ADDVOIDCHARA). Arrays get VariableSize.csv sizes.
+    /// A CSV function's SP-character argument (`CSVNAME(no, sp)`…): non-zero
+    /// is Emuera's error unless SPキャラを使用する; templates are found by
+    /// number either way (Emuera-EM's GetCharacterTemplate_UseSp).
+    fn sp_arg(&mut self, a: &[Expr], k: usize) -> VmResult<()> {
+        if self.ai(a, k, 0)? != 0 && !self.cfg.bool("SPキャラを使用する") {
+            return err("SPキャラ関係の機能は標準では使用できません(互換性オプション「SPキャラを使用する」をONにしてください)");
+        }
+        Ok(())
+    }
+
     pub fn new_chara_from_csv(&mut self, no: i64) -> VmResult<Chara> {
         let mut c = Chara::default();
         let varsize = &self.csv.varsize;
@@ -1360,7 +1370,8 @@ impl Vm {
                     let f: f64 = parts.get(1).map(|x| x.trim().parse().unwrap_or(1.0)).unwrap_or(1.0);
                     if let Expr::Var(vr) = v {
                         let cur = self.get_var(&vr)?.as_int();
-                        self.set_var(&vr, Value::Int((cur as f64 * f) as i64))?;
+                        let r = if self.cfg.bool("TIMESの計算をeramakerにあわせる") { (cur as f64 * f) as i64 } else { times_decimal(cur, f) };
+                        self.set_var(&vr, Value::Int(r))?;
                     }
                 }
             }
@@ -1512,6 +1523,12 @@ impl Vm {
                 }
             }
             "ADDCHARA" | "ADDSPCHARA" => {
+                // (SP characters: the same templates, by number, as in
+                // Emuera-EM's GetCharacterTemplate_UseSp; the command needs
+                // SPキャラを使用する)
+                if name == "ADDSPCHARA" && !self.cfg.bool("SPキャラを使用する") {
+                    return err("SPキャラ関係の機能は標準では使用できません(互換性オプション「SPキャラを使用する」をONにしてください)");
+                }
                 for k in 0..a.len() {
                     let no = self.ai(a, k, 0)?;
                     let c = self.new_chara_from_csv(no)?;
@@ -3428,6 +3445,7 @@ impl Vm {
             "LINEISEMPTY" => i(self.con.line_is_empty() as i64),
             "CSVNAME" | "CSVCALLNAME" | "CSVNICKNAME" | "CSVMASTERNAME" => {
                 let no = self.ai(a, 0, 0)?;
+                self.sp_arg(a, 1)?;
                 // (borrowed: templates hold every CSV value of a character)
                 let t = self.chara_no_template(no).map(|k| &self.csv.charas[k]);
                 s(t.map(|t| match name {
@@ -3441,6 +3459,7 @@ impl Vm {
             "CSVBASE" | "CSVABL" | "CSVTALENT" | "CSVEXP" | "CSVMARK" | "CSVJUEL" | "CSVCFLAG" | "CSVEQUIP" | "CSVRELATION" | "CSVEX" | "CSVCSTR" => {
                 let no = self.ai(a, 0, 0)?;
                 let var = &name[3..];
+                self.sp_arg(a, 2)?;
                 let idx = match a.get(1) {
                     Some(e) => self.eval_index_pub(e, var)?,
                     None => 0,
@@ -3454,16 +3473,34 @@ impl Vm {
             }
             "EXISTCSV" => {
                 let no = self.ai(a, 0, 0)?;
+                self.sp_arg(a, 1)?;
                 i(self.chara_no_template(no).is_some() as i64)
             }
             "GETCHARA" | "GETSPCHARA" => {
                 let no = self.ai(a, 0, 0)?;
-                for c in 0..self.charas.len() {
-                    if self.chara_arr(c, "NO").get_i(0) == no {
-                        return i(c as i64);
-                    }
+                let sp_on = self.cfg.bool("SPキャラを使用する");
+                if name == "GETSPCHARA" && !sp_on {
+                    return err("SPキャラ関係の機能は標準では使用できません(互換性オプション「SPキャラを使用する」をONにしてください)");
                 }
-                i(-1)
+                // with SPキャラを使用する, a character is SP when its CFLAG:0
+                // isn't 0 (Emuera's GetChara_UseSp): GETSPCHARA finds those,
+                // GETCHARA the others, then with its second argument an SP one
+                let find = |vm: &mut Vm, sp: Option<bool>| -> i64 {
+                    (0..vm.charas.len())
+                        .find(|&c| vm.chara_arr(c, "NO").get_i(0) == no && sp.is_none_or(|sp| (vm.chara_arr(c, "CFLAG").get_i(0) != 0) == sp))
+                        .map_or(-1, |c| c as i64)
+                };
+                if !sp_on {
+                    return i(find(self, None));
+                }
+                if name == "GETSPCHARA" {
+                    return i(find(self, Some(true)));
+                }
+                let r = find(self, Some(false));
+                if r < 0 && self.ai(a, 1, 0)? != 0 {
+                    return i(find(self, Some(true)));
+                }
+                i(r)
             }
             "FINDCHARA" | "FINDLASTCHARA" => {
                 let v = self.avar(a, 0)?;
@@ -4816,5 +4853,36 @@ mod str_int_tests {
         for bad in ["", " 1", "1 ", "１２", "abc", "0x", "-", "1a", "def", "floras", "12.a"] {
             assert_eq!(emu_str_int(bad, false), None, "{:?}", bad);
         }
+    }
+}
+
+/// TIMES as Emuera computes it by default (TIMES_Instruction): the factor
+/// made a .NET `decimal`, which keeps 15 significant digits, the product
+/// truncated toward zero; out of range, through `double` instead. So
+/// `100 * 0.29` is 29 here, where doubles give 28 (TIMESの計算を
+/// eramakerにあわせる).
+pub fn times_decimal(cur: i64, f: f64) -> i64 {
+    if !f.is_finite() {
+        return (cur as f64 * f) as i64;
+    }
+    // d.dddddddddddddde±x: 15 significant digits
+    let s = format!("{:.14e}", f);
+    let (mant, exp) = s.split_once('e').unwrap_or((&s, "0"));
+    let neg = mant.starts_with('-');
+    let digits: String = mant.chars().filter(|c| c.is_ascii_digit()).collect();
+    let (Ok(m), Ok(e)) = (digits.parse::<i128>(), exp.parse::<i32>()) else { return (cur as f64 * f) as i64 };
+    let m = if neg { -m } else { m };
+    let prod = cur as i128 * m;
+    let p = e - 14;
+    let r = if p >= 0 {
+        10i128.checked_pow(p as u32).and_then(|t| prod.checked_mul(t))
+    } else if p < -38 {
+        Some(0)
+    } else {
+        Some(prod / 10i128.pow((-p) as u32))
+    };
+    match r.and_then(|r| i64::try_from(r).ok()) {
+        Some(r) => r,
+        None => (cur as f64 * f) as i64,
     }
 }

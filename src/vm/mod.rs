@@ -466,6 +466,8 @@ pub struct Vm {
     /// キャラクタ変数の引数を補完しない (cached: read on every character
     /// variable access without its character)
     chara_no_target: bool,
+    /// 擬似変数RANDの仕様をeramakerに合わせる (cached)
+    compat_rand: bool,
     /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
     /// FLOWINPUT / FLOWINPUTS settings for the shop's own input:
@@ -599,6 +601,7 @@ impl Vm {
             rng: Sfmt::new(seed),
             warned: HashSet::default(),
             chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
+            compat_rand: cfg.bool("擬似変数RANDの仕様をeramakerに合わせる"),
             cfg,
             game_dir,
             strict: false,
@@ -650,6 +653,7 @@ impl Vm {
     pub fn reload_config(&mut self) {
         self.cfg = std::sync::Arc::new(crate::emuconfig::Values::read(&self.game_dir));
         self.chara_no_target = self.cfg.bool("キャラクタ変数の引数を補完しない");
+        self.compat_rand = self.cfg.bool("擬似変数RANDの仕様をeramakerに合わせる");
         crate::emuconfig::load(&self.cfg, &mut self.con, &mut self.text_exts, &mut self.save_opts);
     }
 
@@ -1382,8 +1386,22 @@ impl Vm {
             }
         };
         Ok(match name {
+            // Emuera's RandToken: an argument left out or not above 0 is an
+            // error; with 擬似変数RANDの仕様をeramakerに合わせる its
+            // CompatiRandToken: 0 gives 0, a negative counts as positive, and
+            // the value is a 0-32767 draw modulo the argument
+            "RAND" if self.compat_rand => {
+                let n = i0(self)?.unsigned_abs().min(i64::MAX as u64) as i64;
+                Value::Int(if n == 0 { 0 } else { self.rand(32768) % n })
+            }
             "RAND" => {
+                if v.idx.is_empty() {
+                    return err("RANDの引数が省略されています");
+                }
                 let n = i0(self)?;
+                if n <= 0 {
+                    return err(format!("RANDの引数に0以下の値({})が指定されました", n));
+                }
                 Value::Int(self.rand(n))
             }
             "CHARANUM" => Value::Int(self.charas.len() as i64),
@@ -2657,8 +2675,12 @@ impl Vm {
                         &formed
                     }
                 };
-                // one lookup: the function (the first one for event names)
-                let Some((f, single)) = self.prog.funcs.get(name).map(|fs| (fs[0].clone(), fs.len() == 1)) else {
+                // one lookup: the function (the first one for event names).
+                // An event function isn't one CALL can reach (Emuera's
+                // GetNonEventLabel) unless イベント関数のCALLを許可する, and
+                // then only its first definition runs, as in eramaker
+                let callable = !is_event_name(name) || self.cfg.bool("イベント関数のCALLを許可する");
+                let Some((f, single)) = self.prog.funcs.get(name).filter(|_| callable).map(|fs| (fs[0].clone(), fs.len() == 1 || is_event_name(name))) else {
                     if *try_ {
                         if let Some(c) = catch {
                             self.set_pc(*c);
@@ -2681,12 +2703,19 @@ impl Vm {
             Instr::CallList(entries, kind) => {
                 for (t, args) in entries {
                     let name = self.resolve_target(t)?;
-                    if self.has_func(&name) {
+                    // (event functions as for CALL)
+                    let event = is_event_name(&name);
+                    if self.has_func(&name) && (!event || self.cfg.bool("イベント関数のCALLを許可する")) {
                         let mut vals = Vec::new();
                         for a in args {
                             vals.push(Some(self.eval(a)?));
                         }
-                        self.call_name(&name, vals)?;
+                        if event {
+                            let f = self.prog.funcs.get(&name).expect("has_func")[0].clone();
+                            self.call_func(f, vals)?;
+                        } else {
+                            self.call_name(&name, vals)?;
+                        }
                         if *kind == CallKind::Jump {
                             return Ok(Some(None));
                         }

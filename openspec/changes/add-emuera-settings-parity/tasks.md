@@ -11,7 +11,7 @@
 - [x] 2.1 _Rename.csvを利用する, _Replace.csvを利用する, 大文字小文字の違いを無視する, 関数・属性については大文字小文字を無視しない. Done: the two files follow their settings (`tests/game_config.rs`); case-sensitive names are not supported (no local game asks for them), a note at start-up, recorded in `doc/differences.md`.
 - [x] 2.2 全角スペースをホワイトスペースに含める, FORM中の三連記号を展開しない, 行連結の改行コードの置換文字列. Done: full-width spaces in code are Emuera's errors when off (text, string literals, FORM text and `\@` branches stay allowed; `--check` of the 10 local games that turn it off finds no new errors); triple symbols were never expanded before; `tests/game_config.rs`.
 - [x] 2.3 ユーザー関数の引数に自動的にTOSTRを補完する, ユーザー関数の全ての引数の省略を許可する, キャラクタ変数の引数を補完しない, 文字列変数の代入に文字列式を強制する. Done (`tests/game_config.rs`); a bare character variable read as a value with 補完しない on still means TARGET's (Emuera: an error), noted in the parity table.
-- [ ] 2.4 擬似変数RANDの仕様をeramakerに合わせる, TIMESの計算をeramakerにあわせる, CALLNAMEが空文字列の時にNAMEを代入する, SPキャラを使用する, イベント関数のCALLを許可する
+- [x] 2.4 擬似変数RANDの仕様をeramakerに合わせる, TIMESの計算をeramakerにあわせる, CALLNAMEが空文字列の時にNAMEを代入する, SPキャラを使用する, イベント関数のCALLを許可する. Done (`tests/game_config.rs`). Each had been hardwired to its non-default behaviour; the ERB suite's ADDSPCHARA check couldn't pass on Emuera under the sample's config and became an ADDCHARA one.
 - [ ] 2.5 解釈不可能な行があっても実行する, システム関数の上書きを許可する, ver1739以前の非ボタン折り返しを再現する
 - [ ] 2.6 ERD機能を利用する, VARSIZEの次元指定をERD機能に合わせる, ERDで定義した識別子とローカル変数の重複を確認する, サブディレクトリを検索する / 読み込み順をファイル名順にソートする (already read; move onto the model)
 - [ ] 2.7 Warnings and load report: 表示する最低警告レベル, 関数が見つからない/呼び出されなかった警告の扱い, 呼び出されなかった関数を無視する, システム関数が上書きされたとき警告, 同名の非イベント関数警告, eramaker互換性警告, ロード時にレポートを表示する (on `--check` and the load messages)

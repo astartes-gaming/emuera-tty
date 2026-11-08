@@ -275,7 +275,14 @@ impl GameCsv {
             let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
             if stem.starts_with("CHARA") {
                 if let Ok(text) = read_text(&p) {
-                    if let Some(c) = g.parse_chara(&text, &p) {
+                    if let Some(mut c) = g.parse_chara(&text, &p) {
+                        // CALLNAMEが空文字列の時にNAMEを代入する (off unless
+                        // set): an empty CALLNAME is the NAME, set as if the
+                        // CSV had it (Emuera's ConstantData.LoadData)
+                        if c.callname.is_empty() && cfg.bool("CALLNAMEが空文字列の時にNAMEを代入する") {
+                            c.callname = c.name.clone();
+                            c.names_set |= 2;
+                        }
                         g.charas.push(c);
                     }
                 }
@@ -441,9 +448,6 @@ impl GameCsv {
                     }
                 }
             }
-        }
-        if c.callname.is_empty() {
-            c.callname = c.name.clone();
         }
         numbered.then_some(c)
     }
