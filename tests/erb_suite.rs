@@ -56,6 +56,7 @@ fn run(dir: &Path, erb: &Path) -> String {
         .arg("--headless")
         .env("EMUERA_SEED", "1")
         .env("EMUERA_LOG_STYLE", "emuera")
+        .env("EMUERA_TTY_TESTING", "1")
         .env("XDG_CONFIG_HOME", dir.join("config"))
         .env("XDG_DATA_HOME", dir.join("data"))
         .stdin(Stdio::piped())

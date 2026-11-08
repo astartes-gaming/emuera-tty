@@ -119,7 +119,7 @@ fn commands_not_allowed_in_functions() {
     assert!(text.contains("[good]"), "{}", text);
     assert!(text.contains("BEGIN instruction cannot be used in #FUNCTION(S)"), "{}", text);
     assert!(!text.contains("after"), "{}", text);
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty")).arg(&dir).arg("--check").output().unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty")).arg(&dir).arg("--check").env("EMUERA_TTY_TESTING", "1").output().unwrap();
     let check = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
     for c in ["WAIT", "PRINTW", "BEGIN"] {
         assert!(check.contains(&format!("{} instruction cannot be used in #FUNCTION(S)", c)), "{}: {}", c, check);
@@ -211,6 +211,7 @@ fn deep_recursion_on_a_small_stack() {
             .arg(&dir)
             .arg("--headless")
             .env("EMUERA_STACK_MB", "2")
+            .env("EMUERA_TTY_TESTING", "1")
             .env("XDG_DATA_HOME", dir.join("data"))
             .stdin(std::process::Stdio::null())
             .output()

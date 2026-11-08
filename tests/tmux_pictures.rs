@@ -62,6 +62,7 @@ fn run_in_ghostty_tmux(tag: &str, passthrough: bool, args: &str) -> Run {
         .args(["new-session", "-x", "100", "-y", "30", &shell])
         .env("TERM", "xterm-ghostty")
         .env("EMUERA_WARMUP", "0")
+        .env("EMUERA_TTY_TESTING", "1")
         .env_remove("TMUX")
         .env_remove("TERM_PROGRAM")
         .env_remove("GHOSTTY_RESOURCES_DIR")

@@ -9,6 +9,7 @@ fn run_debugger_test(game_dir: &std::path::Path, input: &[u8], breakpoints: &str
         .arg("--echo")
         .env("EMUERA_VM_DEBUG", "1")
         .env("EMUERA_BREAKPOINTS", breakpoints)
+        .env("EMUERA_TTY_TESTING", "1")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
