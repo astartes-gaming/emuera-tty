@@ -191,6 +191,16 @@ fn parse_launch_flags(o: &mut Opts, path: &str) -> bool {
             return false;
         }
     };
+    // Resolve relative paths in the launch flags file against the file's directory.
+    let base = std::path::Path::new(path).parent().unwrap_or(std::path::Path::new(""));
+    let resolve = |p: &str| -> PathBuf {
+        let pb = PathBuf::from(p);
+        if pb.is_relative() {
+            base.join(pb)
+        } else {
+            pb
+        }
+    };
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -224,15 +234,15 @@ fn parse_launch_flags(o: &mut Opts, path: &str) -> bool {
                     }
                 }
             }
-            "translate-log" => o.translate_log = Some(PathBuf::from(value)),
-            "translate-load" => o.translate_load.push(PathBuf::from(value)),
+            "translate-log" => o.translate_log = Some(resolve(value)),
+            "translate-load" => o.translate_load.push(resolve(value)),
             "translate-storage" => {
-                o.translate_load.insert(0, PathBuf::from(value));
+                o.translate_load.insert(0, resolve(value));
                 if o.translate_log.is_none() {
-                    o.translate_log = Some(PathBuf::from(value));
+                    o.translate_log = Some(resolve(value));
                 }
             }
-            "translation-filter" => o.translation_filter.push(PathBuf::from(value)),
+            "translation-filter" => o.translation_filter.push(resolve(value)),
             "colors" => o.colors = Some(value.to_string()),
             "ambiguous" => o.ambiguous = Some(value.to_string()),
             "libretranslate" => o.libretranslate = Some(value.to_string()),
