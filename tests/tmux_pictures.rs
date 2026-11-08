@@ -49,8 +49,8 @@ fn run_in_ghostty_tmux(tag: &str, passthrough: bool, args: &str) -> Run {
     // the terminal: a pseudo-terminal of 100x30 cells, 10x19 px each
     let (mut master, slave) = unsafe {
         let (mut m, mut s) = (0, 0);
-        let ws = libc::winsize { ws_row: 30, ws_col: 100, ws_xpixel: 1000, ws_ypixel: 570 };
-        assert_eq!(libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &ws), 0);
+        let mut ws = libc::winsize { ws_row: 30, ws_col: 100, ws_xpixel: 1000, ws_ypixel: 570 };
+        assert_eq!(libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws), 0);
         (std::fs::File::from_raw_fd(m), s)
     };
     let tty = |fd: i32| unsafe { Stdio::from_raw_fd(libc::dup(fd)) };
