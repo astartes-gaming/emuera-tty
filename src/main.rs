@@ -184,6 +184,18 @@ const LAUNCH_FLAGS_EXCLUDE: &[&str] = &["install", "uninstall", "clone", "reset-
 /// Parse a launch flags file and apply its contents to `o`.
 /// Returns true if the file was read successfully, false on error (with error printed).
 fn parse_launch_flags(o: &mut Opts, path: &str) -> bool {
+    parse_launch_flags_inner(o, path, &mut std::collections::HashSet::new())
+}
+
+fn parse_launch_flags_inner(o: &mut Opts, path: &str, visited: &mut std::collections::HashSet<PathBuf>) -> bool {
+    let canonical = match std::fs::canonicalize(path) {
+        Ok(c) => c,
+        Err(_) => PathBuf::from(path),
+    };
+    if !visited.insert(canonical.clone()) {
+        eprintln!("emuera-tty: --launch-flags: circular include: {}", path);
+        return false;
+    }
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
@@ -204,6 +216,14 @@ fn parse_launch_flags(o: &mut Opts, path: &str) -> bool {
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(include_path) = line.strip_prefix('@') {
+            let include_path = include_path.trim();
+            let resolved = resolve(include_path);
+            if !parse_launch_flags_inner(o, &resolved.to_string_lossy(), visited) {
+                return false;
+            }
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
