@@ -94,6 +94,14 @@ struct Opts {
     translate_log: Option<PathBuf>,
     /// --translation-filter FILE (any number): what is never translated
     translation_filter: Vec<PathBuf>,
+    /// --launch-flags FILE (repeatable): read launch flags from key=value files
+    launch_flags: Vec<PathBuf>,
+    /// Colors setting (truecolor|256|16)
+    colors: Option<String>,
+    /// Ambiguous width setting (wide|narrow|single|osc66)
+    ambiguous: Option<String>,
+    /// LibreTranslate host:port
+    libretranslate: Option<String>,
 }
 
 /// Print help; exit 0 when asked for (--help), 2 on bad options.
@@ -119,6 +127,7 @@ fn usage_exit(code: i32) -> ! {
          \x20 --strict                         unknown commands are errors\n\
          \x20 --game-debug                    enable [IF_DEBUG] / ;#; lines\n\
          \x20 --vm-debug                      enable interactive debugger (breakpoints, step, watches)\n\
+         \x20 --launch-flags FILE            read launch flags from a key=value file (see below; repeatable)\n\
          \n\
          display (each also has an environment variable, which the option overrides):\n\
          \x20 --colors truecolor|256|16        colour depth, when detection guesses wrong (EMUERA_COLORS)\n\
@@ -154,13 +163,83 @@ fn usage_exit(code: i32) -> ! {
          \x20 --upgrade                        fetch, build (git + cargo) and install the latest version\n\
          \x20 --uninstall                      remove the installed copy\n\
          \x20 --reset-data                     forget settings and the game library; saves are kept\n\
-         \x20 --manual                         the full manual (also: man emuera-tty once installed)")
+         \x20 --manual                         the full manual (also: man emuera-tty once installed)\n\
+         \n\
+         launch flags file (--launch-flags):\n\
+         \x20 a file of key=value lines; # comments; repeat keys allowed for translate-load\n\
+         \x20 and translation-filter; booleans are set by presence (e.g. strict=1)\n\
+         \x20 excluded: install, uninstall, clone, reset-data, saves, backup-saves,\n\
+         \x20 manual, headless, check")
     );
     std::process::exit(code)
 }
 
 fn usage() -> ! {
     usage_exit(2)
+}
+
+/// Keys that are not allowed in a launch flags file.
+const LAUNCH_FLAGS_EXCLUDE: &[&str] = &["install", "uninstall", "clone", "reset-data", "saves", "backup-saves", "manual", "headless", "check"];
+
+/// Parse a launch flags file and apply its contents to `o`.
+/// Returns true if the file was read successfully, false on error (with error printed).
+fn parse_launch_flags(o: &mut Opts, path: &str) -> bool {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("emuera-tty: --launch-flags: {}: {}", path, e);
+            return false;
+        }
+    };
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        if LAUNCH_FLAGS_EXCLUDE.contains(&key) {
+            continue;
+        }
+        match key {
+            "gfx" => o.gfx = value.to_string(),
+            "strict" => o.strict = true,
+            "game-debug" => o.game_debug = true,
+            "vm-debug" => o.vm_debug = true,
+            "echo" => o.echo = true,
+            "choose" => o.choose = true,
+            "retro" => o.retro = Some(if value.is_empty() { "screen".into() } else { value.to_string() }),
+            "term" => o.term = Some(value.to_string()),
+            "serial" => o.serial = Some(value.to_string()),
+            "baud" => o.baud = value.parse().unwrap_or(9600),
+            "serial-format" => o.serial_format = value.to_string(),
+            "flow" => o.flow = value.to_string(),
+            "size" => {
+                if let Some((c, r)) = value.split_once(['x', 'X']) {
+                    if let (Ok(cols), Ok(rows)) = (c.parse(), r.parse()) {
+                        o.size = Some((cols, rows));
+                    }
+                }
+            }
+            "translate-log" => o.translate_log = Some(PathBuf::from(value)),
+            "translate-load" => o.translate_load.push(PathBuf::from(value)),
+            "translate-storage" => {
+                o.translate_load.insert(0, PathBuf::from(value));
+                if o.translate_log.is_none() {
+                    o.translate_log = Some(PathBuf::from(value));
+                }
+            }
+            "translation-filter" => o.translation_filter.push(PathBuf::from(value)),
+            "colors" => o.colors = Some(value.to_string()),
+            "ambiguous" => o.ambiguous = Some(value.to_string()),
+            "libretranslate" => o.libretranslate = Some(value.to_string()),
+            _ => {} // ignore unknown keys
+        }
+    }
+    true
 }
 
 /// Parse `std::env::args` (exits with usage on unknown options).
@@ -187,6 +266,10 @@ fn parse_args() -> Opts {
         translate_load: Vec::new(),
         translate_log: None,
         translation_filter: Vec::new(),
+        launch_flags: Vec::new(),
+        colors: None,
+        ambiguous: None,
+        libretranslate: None,
     };
     let mut storage: Option<PathBuf> = None;
     let mut it = std::env::args().skip(1);
@@ -223,6 +306,10 @@ fn parse_args() -> Opts {
             "--vm-debug" => o.vm_debug = true,
             "--echo" => o.echo = true,
             "--choose" => o.choose = true,
+            "--launch-flags" => {
+                let path = it.next().unwrap_or_else(|| usage());
+                o.launch_flags.push(PathBuf::from(path));
+            }
             "--saves" => o.saves = Some("list"),
             "--backup-saves" => o.saves = Some("backup"),
             "--install" | "--uninstall" | "--upgrade" | "--reset-data" => {
@@ -283,6 +370,25 @@ fn parse_args() -> Opts {
         if o.translate_log.is_none() {
             o.translate_log = Some(s);
         }
+    }
+    // Process launch flags files in order (later files win over earlier)
+    let launch_flags = o.launch_flags.to_vec();
+    for path in launch_flags {
+        parse_launch_flags(&mut o, &path.to_string_lossy());
+    }
+    // Apply launch flags file values as env vars (they win over saved settings)
+    if let Some(c) = &o.colors {
+        if matches!(c.as_str(), "truecolor" | "24bit" | "256" | "16") {
+            std::env::set_var("EMUERA_COLORS", c);
+        }
+    }
+    if let Some(a) = &o.ambiguous {
+        if matches!(a.as_str(), "wide" | "narrow" | "single" | "osc66") {
+            std::env::set_var("EMUERA_AMBIGUOUS", a);
+        }
+    }
+    if let Some(l) = &o.libretranslate {
+        std::env::set_var("EMUERA_LIBRETRANSLATE", l);
     }
     // Check env vars for debug flags
     if !o.game_debug {
