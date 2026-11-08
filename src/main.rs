@@ -600,7 +600,11 @@ fn run(o: Opts) -> i32 {
     // the game's Emuera settings (CSV/_default.config, emuera.config,
     // CSV/_fixed.config), read once for the loader, parser and VM
     let cfg = std::sync::Arc::new(emuconfig::Values::read(&game));
-    let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref());
+    let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref(), &cfg);
+    // names are always matched whatever their case (doc/differences.md)
+    if !cfg.bool("大文字小文字の違いを無視する") || cfg.bool("関数・属性については大文字小文字を無視しない") {
+        eprintln!("emuera-tty: {}", t!("this game's settings ask for names that differ only in letter case to be different; emuera-tty always ignores case"));
+    }
     // Emuera-Anchor: the parser marks constants as Anchor folds them
     translate::FOLD.store(csv.tr.active(), std::sync::atomic::Ordering::Relaxed);
     translate::PARAM_RENAME.store(csv.tr.active() || csv.param_csv, std::sync::atomic::Ordering::Relaxed);

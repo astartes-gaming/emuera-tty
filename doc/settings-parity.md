@@ -4,9 +4,9 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 
 | Setting | English key | Emuera's default | Games setting it | emuera-tty |
 |---|---|---|---|---|
-| 大文字小文字の違いを無視する (`IgnoreCase`) | Ignore case | `true` | 32 (YES ×32) | ignored: Emuera default not followed either (task 2) |
-| _Rename.csvを利用する (`UseRenameFile`) | Use _Rename.csv file | `false` | 28 (YES ×20, NO ×8) | ignored: Emuera default not followed either (task 2) |
-| _Replace.csvを利用する (`UseReplaceFile`) | Use _Replace.csv file | `true` | 31 (YES ×31) | ignored: Emuera default not followed either (task 2) |
+| 大文字小文字の違いを無視する (`IgnoreCase`) | Ignore case | `true` | 32 (YES ×32) | always on; a game turning it off gets a note (`doc/differences.md`) |
+| _Rename.csvを利用する (`UseRenameFile`) | Use _Rename.csv file | `false` | 28 (YES ×20, NO ×8) | honoured (`GameCsv::load`; missing file: Emuera's message) |
+| _Replace.csvを利用する (`UseReplaceFile`) | Use _Replace.csv file | `true` | 31 (YES ×31) | honoured (`GameCsv::load`) |
 | マウスを使用する (`UseMouse`) | Use mouse | `true` | 19 (YES ×19) | ignored (task 2/3) |
 | メニューを使用する (`UseMenu`) | Show menu | `true` | 18 (YES ×18) | not applicable (task 3) |
 | デバッグコマンドを使用する (`UseDebugCommand`) | Allow debug commands | `false` | 19 (NO ×14, YES ×5) | ignored (task 2/3) |
@@ -55,7 +55,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | CALLNAMEが空文字列の時にNAMEを代入する (`CompatiCALLNAME`) | Use NAME if CALLNAME is empty | `false` | 18 (NO ×17, YES ×1) | ignored: Emuera default not followed either (task 2) |
 | セーブデータをsavフォルダ内に作成する (`UseSaveFolder`) | Use sav folder | `false` | 25 (YES ×23, NO ×2) | honoured (`emuconfig::load`) |
 | 擬似変数RANDの仕様をeramakerに合わせる (`CompatiRAND`) | Imitate behavior for RAND | `false` | 13 (NO ×13) | ignored: Emuera default not followed either (task 2) |
-| 関数・属性については大文字小文字を無視しない (`CompatiFunctionNoignoreCase`) | Do not ignore case for functions and attributes | `false` | 18 (NO ×18) | ignored: Emuera default not followed either (task 2) |
+| 関数・属性については大文字小文字を無視しない (`CompatiFunctionNoignoreCase`) | Do not ignore case for functions and attributes | `false` | 18 (NO ×18) | always off; a game turning it on gets a note (`doc/differences.md`) |
 | 全角スペースをホワイトスペースに含める (`SystemAllowFullSpace`) | Whitespace includes full-width space | `true` | 23 (NO ×15, YES ×8) | ignored: Emuera default not followed either (task 2) |
 | ver1739以前の非ボタン折り返しを再現する (`CompatiLinefeedAs1739`) | Reproduce wrapping behavior like in pre ver1739 | `false` | 12 (NO ×12) | ignored: Emuera default not followed either (task 2) |
 | 内部で使用する東アジア言語 (`useLanguage`) | Default ANSI encoding | `UseLanguage.JAPANESE` | 18 (JAPANESE ×16, KOREAN ×1, CHINESE_HANS ×1) | ignored (task 2/3) |

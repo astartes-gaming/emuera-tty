@@ -8,7 +8,7 @@
 
 ## 2. Script-behaviour settings (one commit each, Emuera source checked, ERB/inline-game test with the non-default value)
 
-- [ ] 2.1 _Rename.csvを利用する, _Replace.csvを利用する, 大文字小文字の違いを無視する, 関数・属性については大文字小文字を無視しない
+- [x] 2.1 _Rename.csvを利用する, _Replace.csvを利用する, 大文字小文字の違いを無視する, 関数・属性については大文字小文字を無視しない. Done: the two files follow their settings (`tests/game_config.rs`); case-sensitive names are not supported (no local game asks for them), a note at start-up, recorded in `doc/differences.md`.
 - [ ] 2.2 全角スペースをホワイトスペースに含める, FORM中の三連記号を展開しない, 行連結の改行コードの置換文字列
 - [ ] 2.3 ユーザー関数の引数に自動的にTOSTRを補完する, ユーザー関数の全ての引数の省略を許可する, キャラクタ変数の引数を補完しない, 文字列変数の代入に文字列式を強制する
 - [ ] 2.4 擬似変数RANDの仕様をeramakerに合わせる, TIMESの計算をeramakerにあわせる, CALLNAMEが空文字列の時にNAMEを代入する, SPキャラを使用する, イベント関数のCALLを許可する

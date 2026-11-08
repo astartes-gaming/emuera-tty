@@ -165,7 +165,11 @@ fn parse_i64(s: &str) -> Option<i64> {
 impl GameCsv {
     /// Read every CSV the engine knows from `csv_dir` (file names are
     /// matched case-insensitively), plus `*.ERD` tables under `erb_dir`.
-    pub fn load(csv_dir: &Path, erb_dir: Option<&Path>) -> GameCsv {
+    ///
+    /// `_Replace.csv` and `_Rename.csv` only when the game's config says
+    /// to use them (`_Replace.csvを利用する`, on unless set; `_Rename.csv
+    /// を利用する`, off unless set), as Emuera's `Process.Initialize`.
+    pub fn load(csv_dir: &Path, erb_dir: Option<&Path>, cfg: &crate::emuconfig::Values) -> GameCsv {
         // Emuera-Anchor: PARAM.CSV, when there is one, in place of PALAM.CSV
         let mut g = GameCsv { param_csv: find_file_ci(csv_dir, "PARAM.CSV").is_some(), ..Default::default() };
         for (file, key) in TABLE_FILES {
@@ -237,7 +241,7 @@ impl GameCsv {
                 }
             }
         }
-        if let Some(p) = find_file_ci(csv_dir, "_Replace.CSV") {
+        if let Some(p) = find_file_ci(csv_dir, "_Replace.CSV").filter(|_| cfg.bool("_Replace.csvを利用する")) {
             if let Ok(text) = read_text(&p) {
                 for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
@@ -249,7 +253,12 @@ impl GameCsv {
                 }
             }
         }
-        if let Some(p) = find_file_ci(csv_dir, "_Rename.CSV") {
+        let rename = find_file_ci(csv_dir, "_Rename.CSV");
+        if rename.is_none() && cfg.bool("_Rename.csvを利用する") {
+            // Emuera's message (trsl.MissingRename)
+            g.warnings.push("csv\\_Rename.csvが見つかりません".into());
+        }
+        if let Some(p) = rename.filter(|_| cfg.bool("_Rename.csvを利用する")) {
             if let Ok(text) = read_text(&p) {
                 for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
