@@ -85,6 +85,20 @@ pub enum InputResult {
     Quit,
     /// the player pressed an Emuera-Anchor hotkey the VM acts on
     Hotkey(Hotkey),
+    /// the debug panel asks the VM for something; it asks for the input
+    /// again afterwards
+    Debug(DebugAction),
+}
+
+/// What the debug panel asks of the VM.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DebugAction {
+    /// evaluate the watches and read the stack trace again
+    Refresh,
+    /// run a debug command (a statement, or an expression to print)
+    Command(String),
+    /// the panel was closed: save the watch list and the console log
+    Close,
 }
 
 /// Hotkeys handled by the VM (restarting is the frontend's own business).
@@ -145,7 +159,8 @@ pub trait Frontend {
         match self.input(con, res, &req) {
             InputResult::Quit => RawInput::Quit,
             InputResult::Hotkey(h) => RawInput::Hotkey(h),
-            InputResult::Timeout => RawInput::Timeout,
+            // (only the TUI has a debug panel, and it handles its own)
+            InputResult::Timeout | InputResult::Debug(_) => RawInput::Timeout,
             InputResult::Text(t) | InputResult::Line(t) | InputResult::Skip(t) => match t.trim().parse::<i64>() {
                 Ok(v) => RawInput::Click { btn: 0, cell: (0, 0), button: Some(crate::vm::value::Value::Int(v)) },
                 Err(_) => {

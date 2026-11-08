@@ -30,6 +30,7 @@
 pub mod builtins;
 pub mod datatable;
 pub mod debugger;
+pub mod debugwin;
 pub mod erasav;
 mod memstats;
 pub mod save;
@@ -3076,6 +3077,13 @@ impl Vm {
         // Reset infinite loop timer on any input (including timeout/quit)
         self.loop_check_time = std::time::Instant::now();
         let r = match r {
+            // Emuera's system and debug commands: a typed line of more than
+            // the `@`, not for a one-key input (doSystemCommand); the input
+            // is asked for again
+            InputResult::Line(s) if !req.one && s.chars().count() > 1 && s.starts_with('@') => {
+                self.system_command(&s)?;
+                return self.raw_input(req);
+            }
             InputResult::Line(s) => {
                 self.macro_queue = crate::macros::expand(&s).into();
                 let p = self.macro_queue.pop_front().unwrap_or_default();
@@ -3097,6 +3105,10 @@ impl Vm {
             InputResult::Quit => Err(Ctrl::Quit),
             InputResult::Hotkey(h) => {
                 self.hotkey(h)?;
+                self.raw_input(req)
+            }
+            InputResult::Debug(a) => {
+                self.debug_action(a);
                 self.raw_input(req)
             }
         }

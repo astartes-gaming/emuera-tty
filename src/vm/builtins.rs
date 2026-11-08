@@ -1677,6 +1677,16 @@ impl Vm {
                 }
                 self.call_name(&n, vec![])?;
             }
+            // the debug console (debug mode only: vm/debugwin.rs)
+            "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" if self.con.debug.enabled => {
+                let text = match args {
+                    Args::Raw(t) => t.clone(),
+                    Args::Form(f) => self.eval_form(f)?,
+                    _ => String::new(),
+                };
+                self.debug_print(&text, name.ends_with('L'));
+            }
+            "DEBUGCLEAR" if self.con.debug.enabled => self.con.debug.log.clear(),
             "DEBUGPRINT" | "DEBUGPRINTL" | "DEBUGPRINTFORM" | "DEBUGPRINTFORML" | "DEBUGCLEAR" | "ASSERT" | "OUTPUTLOG" | "UPDATECHECK" | "FORCEKANA"
             | "CLEARBUTTON" => {}
             n if n.starts_with("TOOLTIP_") && !matches!(n, "TOOLTIP_SETCOLOR" | "TOOLTIP_SETDELAY" | "TOOLTIP_SETDURATION") => {}

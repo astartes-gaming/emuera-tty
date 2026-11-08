@@ -524,6 +524,8 @@ fn build_program(
         p.parse_erb((n_files - 1) as u32, &src);
     }
     p.prog.funcs.shrink();
+    // (the debug panel compiles its commands with the game's #DEFINEs)
+    p.prog.snippets = Some(std::sync::Arc::new(std::sync::Mutex::new(p.snippet_parser())));
     phase("parse erb");
     (p.prog, n_files - 1)
 }
@@ -740,6 +742,10 @@ fn run(o: Opts) -> i32 {
     // The VM reads EMUERA_VM_DEBUG directly
     let rename = csv.rename.clone();
     let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone(), cfg.clone());
+    // Emuera's -Debug: the debug panel (Ctrl-D) and DEBUGPRINT
+    if o.game_debug {
+        vm.debug_start();
+    }
     // the reload hotkey parses the ERB files again
     {
         let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.game_debug);

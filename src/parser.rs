@@ -44,6 +44,9 @@ pub struct Program {
     pub defines: HashMap<String, String>,
     /// Parse errors, "file:line: message"; shown by `--check`.
     pub errors: Vec<String>,
+    /// A parser that knows the game's `#DEFINE`s and global variables, for
+    /// the debug panel's commands (see [`Parser::compile_snippet`]).
+    pub snippets: Option<Rc<std::sync::Mutex<Parser>>>,
 }
 
 /// Functions by upper-case name; several of one name are an event's
@@ -1090,6 +1093,29 @@ impl Parser {
     /// string-variable names, empty output. Merge back with [`absorb`].
     ///
     /// [`absorb`]: Parser::absorb
+    /// A parser for [`Parser::compile_snippet`], kept in the program.
+    pub fn snippet_parser(&self) -> Parser {
+        let mut q = self.fork();
+        q.lazy = None;
+        q
+    }
+
+    /// `text` compiled now as the body of a function `name` (the debug
+    /// panel's commands): the function, or the first parse error.
+    pub fn compile_snippet(&mut self, name: &str, text: &str) -> Result<Rc<Function>, String> {
+        self.prog.errors.clear();
+        self.prog.funcs = Funcs::default();
+        let src = SourceFile { path: String::new(), text: format!("@{}\n{}\n", name, text) };
+        self.parse_erb(u32::MAX, &src);
+        if let Some(e) = self.prog.errors.first() {
+            // ("file:line: message :: line": the message alone)
+            let e = e.split_once(": ").map_or(e.as_str(), |x| x.1);
+            let e = e.split_once(": ").map_or(e, |x| x.1);
+            return Err(e.split(" :: ").next().unwrap_or(e).to_string());
+        }
+        self.prog.funcs.get(name).and_then(|f| f.first().cloned()).ok_or_else(|| "解釈できない行です".to_string())
+    }
+
     pub fn fork(&self) -> Parser {
         Parser {
             prog: Program { defines: self.prog.defines.clone(), ..Program::default() },
@@ -2351,7 +2377,7 @@ fn upper_form_in(f: Form) -> Form {
 }
 
 /// Flow-control statements the parser handles itself (not in COMMANDS).
-const FLOW_WORDS: &[&str] = &[
+pub(crate) const FLOW_WORDS: &[&str] = &[
     "IF", "ELSEIF", "ELSE", "ENDIF", "SIF", "REPEAT", "REND", "FOR", "NEXT", "WHILE", "WEND", "DO", "LOOP", "SELECTCASE", "CASE", "CASEELSE", "ENDSELECT",
     "CALL", "CALLF", "CALLFORM", "CALLFORMF", "TRYCALL", "TRYCALLFORM", "TRYCCALL", "TRYCCALLFORM", "CATCH", "ENDCATCH", "JUMP", "JUMPFORM", "TRYJUMP",
     "TRYJUMPFORM", "TRYCJUMP", "TRYCJUMPFORM", "GOTO", "GOTOFORM", "TRYGOTO", "TRYGOTOFORM", "TRYCGOTO", "TRYCGOTOFORM", "RETURN", "RETURNF", "RETURNFORM",

@@ -112,6 +112,15 @@ Restart the game (asks first).
 Read the ERB files again and carry on with the game as it is (also F5,
 unless a keyboard macro is stored on it).
 .TP
+.B Ctrl\-D
+In debug mode (\fB\-\-game-debug\fR), the debug panel: Emuera's debug
+window, with the variable watch, the stack trace and the debug console
+(DEBUGPRINT's output; a line typed there runs a statement or prints an
+expression's value). The watch list and the console's log are kept in the
+game's
+.I debug/
+folder, as Emuera keeps them.
+.TP
 .BR F1 " ... " F12 ", " Shift+F1 " ... " F12
 Keyboard macros, while the game's \fBUse keyboard macros\fR is on (as in
 Emuera, the default): Shift+F\fIn\fR stores the line being typed, F\fIn\fR
@@ -253,7 +262,8 @@ Run
 .B [IF_DEBUG]
 blocks and
 .B ;#;
-lines, like Emuera's debug mode. \fBRestart in debug mode\fR in the
+lines, like Emuera's debug mode, and the debug panel (Ctrl\-D) and
+DEBUGPRINT. \fBRestart in debug mode\fR in the
 options overlay restarts the game with it (and \fBRestart without debug
 mode\fR without it).
 .TP

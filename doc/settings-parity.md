@@ -9,7 +9,7 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | _Replace.csvを利用する (`UseReplaceFile`) | Use _Replace.csv file | `true` | 31 (YES ×31) | honoured (`GameCsv::load`) |
 | マウスを使用する (`UseMouse`) | Use mouse | `true` | 19 (YES ×19) | honoured: off, the game's buttons ignore the pointer (`Tty::button_at`); the wheel still scrolls, as in Emuera |
 | メニューを使用する (`UseMenu`) | Show menu | `true` | 18 (YES ×18) | not applicable: emuera-tty's own menu is the settings key (F3), always there |
-| デバッグコマンドを使用する (`UseDebugCommand`) | Allow debug commands | `false` | 19 (NO ×14, YES ×5) | to do: `@` debug commands (task 5) |
+| デバッグコマンドを使用する (`UseDebugCommand`) | Allow debug commands | `false` | 19 (NO ×14, YES ×5) | honoured: `@` commands at the game's input (`Vm::system_command`) |
 | 多重起動を許可する (`AllowMultipleInstances`) | Allow multiple instances | `true` | 19 (YES ×19) | not applicable: nothing stops a second emuera-tty, each in its own terminal |
 | オートセーブを行なう (`AutoSave`) | Make autosaves | `true` | 19 (YES ×18, NO ×1) | honoured (`emuconfig::load`) |
 | キーボードマクロを使用する (`UseKeyMacro`) | Use keyboard macros | `true` | 18 (YES ×18) | honoured (`emuconfig::load`) |
@@ -95,10 +95,10 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | ポップアップの文字色 (`RikaiColorText`) | Rikai- Text Color | `Color.FromArgb(0xFF, 0xFF, 0xFF)` | 12 (255,255,255 ×7, 0,0,0 ×5) | as Rikaichanを使用する |
 | 翻訳中の語句を強調表示する (`RikaiUseSeparateBoxes`) | Rikai- Use Separate Boxes | `true` | 12 (YES ×7, NO ×5) | as Rikaichanを使用する |
 | Ctrl-Zで元に戻す機能を有効にする (`Ctrl_Z_Enabled`) | Enable undo with ctrl-z | `false` | 2 (NO ×2) | not yet: undo by reloading the last save and replaying the inputs (task 3.2); no local game turns it on |
-| 起動時にデバッグウインドウを表示する (`DebugShowWindow`) | Show debug window on startup | `true` |  | to do (task 6) |
-| デバッグウインドウを最前面に表示する (`DebugWindowTopMost`) | Debug window always on top | `true` |  | to do (task 6) |
-| デバッグウィンドウ幅 (`DebugWindowWidth`) | Debug window width | `400` |  | to do (task 6) |
-| デバッグウィンドウ高さ (`DebugWindowHeight`) | Debug window height | `300` |  | to do (task 6) |
-| デバッグウィンドウ位置を指定する (`DebugSetWindowPos`) | Fixed debug window starting position | `false` |  | to do (task 6) |
-| デバッグウィンドウ位置X (`DebugWindowPosX`) | Debug window X position | `0` |  | to do (task 6) |
-| デバッグウィンドウ位置Y (`DebugWindowPosY`) | Debug window Y position | `0` |  | to do (task 6) |
+| 起動時にデバッグウインドウを表示する (`DebugShowWindow`) | Show debug window on startup | `true` |  | not applied: the debug panel covers the game, so it opens on Ctrl-D rather than at start |
+| デバッグウインドウを最前面に表示する (`DebugWindowTopMost`) | Debug window always on top | `true` |  | not applicable: the debug panel fills the terminal |
+| デバッグウィンドウ幅 (`DebugWindowWidth`) | Debug window width | `400` |  | not applicable: the debug panel fills the terminal |
+| デバッグウィンドウ高さ (`DebugWindowHeight`) | Debug window height | `300` |  | not applicable: the debug panel fills the terminal |
+| デバッグウィンドウ位置を指定する (`DebugSetWindowPos`) | Fixed debug window starting position | `false` |  | not applicable: the debug panel fills the terminal |
+| デバッグウィンドウ位置X (`DebugWindowPosX`) | Debug window X position | `0` |  | not applicable: the debug panel fills the terminal |
+| デバッグウィンドウ位置Y (`DebugWindowPosY`) | Debug window Y position | `0` |  | not applicable: the debug panel fills the terminal |

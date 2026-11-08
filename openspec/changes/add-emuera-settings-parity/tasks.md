@@ -28,13 +28,13 @@
 
 ## 5. @ commands
 
-- [ ] 5.1 Recognise `@…` input as Emuera's `doSystemCommand` (typed, length > 1, not ONEINPUT). `@QUIT`/`@EXIT`, `@REBOOT` (reload, as the reload hotkey), `@OUTPUT(LOG)` (as OUTPUTLOG), `@CONFIG` (opens the game settings page). Verify: headless tests for each.
-- [ ] 5.2 Debug commands with Emuera's checks and error messages, expressions printed, state restored, `デバッグコマンドを使用した時にMASTERの名前を変更する`. Verify: headless tests for the spec's scenarios.
+- [ ] 5.1 Recognise `@…` input as Emuera's `doSystemCommand` (typed, length > 1, not ONEINPUT). `@QUIT`/`@EXIT`, `@REBOOT` (reload, as the reload hotkey), `@OUTPUT(LOG)` (as OUTPUTLOG), `@CONFIG` (opens the game settings page). Verify: headless tests for each. In progress: `@QUIT`/`@EXIT` and `@DEBUG` done; `@REBOOT`, `@CONFIG` and `@OUTPUTLOG` only point at Ctrl-R / F3 or say they aren't supported yet.
+- [x] 5.2 Debug commands with Emuera's checks and error messages, expressions printed, state restored, `デバッグコマンドを使用した時にMASTERの名前を変更する`. Verify: headless tests for the spec's scenarios. Done: `Vm::system_command` / `debug_run` (`tests/debug_tools.rs`).
 
 ## 6. Debug panel
 
-- [ ] 6.1 Panel with watch / stack trace / console tabs, opened by `@DEBUG` and a key in debug mode, `起動時にデバッグウインドウを表示する`. Verify: render tests; DEBUGPRINT output appears in the console tab.
-- [ ] 6.2 `debug/watchlist.csv` and `debug/console.log` read and written as Emuera does. Verify: round trip test; file format identical to Emuera's (one expression per line, config encoding).
+- [x] 6.1 Panel with watch / stack trace / console tabs, opened by `@DEBUG` and a key in debug mode, `起動時にデバッグウインドウを表示する`. Verify: render tests; DEBUGPRINT output appears in the console tab. Done as an overlay at inputs (Ctrl-D, `@DEBUG`); 起動時にデバッグウインドウを表示する not applied (the panel would cover the game at start). INPUTMOUSEKEY waits don't open it yet.
+- [x] 6.2 `debug/watchlist.csv` and `debug/console.log` read and written as Emuera does. Verify: round trip test; file format identical to Emuera's (one expression per line, config encoding). Done (`vm::debugwin` test).
 
 ## 7. Docs
 

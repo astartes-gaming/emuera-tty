@@ -18,6 +18,33 @@
   Emuera evaluates both as `<`, a bug as old as vanilla Emuera, so these are
   the lines a fix would change.
 
+## The debug panel
+
+Emuera's debug window, for games run in debug mode (`--game-debug`, or
+*Restart in debug mode* in the settings). At any input, **Ctrl-D** (or
+`@DEBUG` typed at the input) opens it over the game; Esc or Ctrl-D closes
+it. Tab moves between its three tabs, Emuera's:
+
+- **Variable watch**: expressions and their values, worked out again
+  whenever the panel opens or the list changes. Enter edits the selected
+  one (the empty last row adds one), `a` adds, `d` removes, `r` refreshes.
+  An expression can be anything the game could compute: `FLAG:3`,
+  `CFLAG:TARGET:好感度`, a `#FUNCTION`'s result.
+- **Stack trace**: the line the game is waiting at, then the calls that
+  led there, newest first, in Emuera's words (`CALL :@FUNC:file:line行目`).
+- **Console**: what DEBUGPRINT, DEBUGPRINTL, DEBUGPRINTFORM(L) printed
+  (DEBUGCLEAR empties it), and a line to type debug commands in: a
+  statement runs (`FLAG:3 = 5`, `ADDCHARA 1`), anything else is an
+  expression whose value is printed. As in Emuera, flow control, waiting
+  for input, what a `#FUNCTION` can't do and SAVEDATA, PUTFORM, UPCHECK,
+  CUPCHECK are refused. ↑↓ recall earlier commands.
+
+The watch list is kept in the game's `debug/watchlist.csv` and the console
+in `debug/console.log` (on closing), both as Emuera writes them, so they
+carry over to and from Emuera. The same commands can be typed at the
+game's own input with `@` in front when the game's *Allow debug commands*
+is on (see [Playing](Playing)).
+
 ## Interactive Debugger
 
 Enable with `--vm-debug` flag or `EMUERA_VM_DEBUG=1` environment variable.

@@ -25,6 +25,7 @@ use std::io::{self, Write};
 use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+mod debugpanel;
 mod envvars;
 mod gamecfg;
 mod lineedit;
@@ -337,6 +338,8 @@ enum Key {
     Title,
     Restart,
     Reload,
+    /// Ctrl-D: the debug panel (debug mode)
+    Debug,
     /// Tab: continue and skip messages until a choice (as a right click)
     Skip,
     /// F1…F12, with Shift or not: keyboard macros (`macros.rs`), when the
@@ -641,6 +644,8 @@ pub struct Tty {
     scroll: usize,
     /// the input line: what is typed, its cursor, the inputs given before
     line: lineedit::LineEdit,
+    /// the debug panel's own state (selection, its input line)
+    dbg: debugpanel::PanelState,
     /// the last input timed out (TINPUT): what was typed stays for the
     /// next, as Emuera's input box keeps it (AnonTW's animated map is a
     /// TINPUT loop)
@@ -1085,6 +1090,7 @@ impl Tty {
             color,
             scroll: 0,
             line: Default::default(),
+            dbg: Default::default(),
             keep_buf: false,
             keys_down: Default::default(),
             keys_hit: Default::default(),
@@ -1859,6 +1865,7 @@ impl Tty {
             0x14 => (Key::Title, 1),
             0x12 => (Key::Restart, 1),
             0x05 => (Key::Reload, 1),
+            0x04 => (Key::Debug, 1),
             0x09 => (Key::Skip, 1),
             // Ctrl-U: clear the line being typed
             0x15 => (Key::Char('\u{15}'), 1),
@@ -4474,6 +4481,10 @@ impl Frontend for Tty {
     /// click, any key/click for WAIT, or a timeout. Scrolling keys and the
     /// wheel move through the log meanwhile.
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
+        // the debug panel, open again after the VM answered it
+        if con.debug.open {
+            return self.debug_panel(con, res, req);
+        }
         if !std::mem::take(&mut self.keep_buf) || req.kind == InputKind::Wait {
             self.line.clear();
         }
@@ -4567,6 +4578,11 @@ impl Frontend for Tty {
                         return r;
                     }
                     redraw = true;
+                }
+                // Emuera's debug window, in debug mode (--game-debug)
+                Key::Debug if con.debug.enabled => {
+                    con.debug.open = true;
+                    return InputResult::Debug(crate::frontend::DebugAction::Refresh);
                 }
                 Key::Settings => {
                     if let Some(r) = self.open_settings(con, res, req) {
@@ -4718,6 +4734,7 @@ impl Frontend for Tty {
                             | Key::Title
                             | Key::Restart
                             | Key::Reload
+                            | Key::Debug
                             | Key::Settings
                             | Key::F(..)
                             | Key::Group(_)
@@ -4992,7 +5009,8 @@ impl Frontend for Tty {
                 Key::F(n, shift) => self.macro_key(n, shift),
                 Key::Group(g) => self.macro_group(g),
                 // (game_key has made the pad's moves and clicks mouse events)
-                Key::Other | Key::Pad(_) => {}
+                // (the debug panel opens at ordinary inputs only)
+                Key::Other | Key::Pad(_) | Key::Debug => {}
             }
         }
     }
