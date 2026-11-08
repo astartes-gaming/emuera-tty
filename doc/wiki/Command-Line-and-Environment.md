@@ -14,6 +14,7 @@ emuera-tty [GAME_DIR | GIT_URL] [options]
 | `--strict` | unimplemented commands are errors instead of warnings |
 | `--game-debug` | enable `[IF_DEBUG]` blocks and `;#;` lines |
 | `--vm-debug` | enable interactive debugger (breakpoints, step, watches) |
+| `--launch-flags FILE` | read launch flags from a key=value file (repeatable; later files override earlier) |
 | `--colors truecolor\|256\|16` | colour depth, when detection guesses wrong (also `EMUERA_COLORS`) |
 | `--ambiguous wide\|narrow\|single\|osc66` | how box-drawing and symbol characters get Emuera's two columns (also `EMUERA_AMBIGUOUS`) |
 | `--translate-log FILE` | append every new translation to `FILE`, skipping rows it already has (see [A log for translators](Translation#a-log-for-translators)) |
@@ -32,6 +33,39 @@ emuera-tty [GAME_DIR | GIT_URL] [options]
 `--colors`, `--ambiguous` and `--libretranslate` set the matching
 environment variable for the run, so they win over the variable and over
 the saved setting. A value can also be written `--colors=256`.
+
+### Launch flags file (`--launch-flags`)
+
+A `--launch-flags FILE` reads a list of `key=value` lines and applies them
+as if they were command-line options. The flag is repeatable; multiple
+files are processed in order, and later files override earlier ones.
+
+The file format:
+
+```
+# comments start with #
+key=value
+```
+
+Empty lines and lines starting with `#` are ignored. Keys without `=` are
+ignored. Values are trimmed. Repeatable keys (`translate-load`,
+`translation-filter`) can appear multiple times; their values are
+accumulated.
+
+Keys that are **not allowed** in a launch flags file (they are ignored):
+
+`install`, `uninstall`, `clone`, `reset-data`, `saves`, `backup-saves`,
+`manual`, `headless`, `check`
+
+All other command-line options (without the leading `--`) are accepted.
+Boolean flags (`strict`, `game-debug`, `vm-debug`, `echo`, `choose`) are
+set by presence; any value is ignored. For `--retro`, an empty value
+means `screen` (the default), otherwise it is the mode (`line`).
+
+Keys that also set an environment variable when given on the command line
+(`colors`, `ambiguous`, `libretranslate`) do the same when read from a
+launch flags file — the environment variable is set for the run and wins
+over the saved setting.
 
 ### Environment variables
 

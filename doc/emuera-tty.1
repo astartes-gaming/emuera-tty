@@ -259,6 +259,19 @@ mode\fR without it).
 .TP
 .B \-\-vm-debug
 Enable the interactive debugger (breakpoints, stepping, variable inspection).
+.TP
+.BI \-\-launch-flags " FILE"
+Read launch flags from a key=value file. The flag is repeatable; later
+files override earlier ones. The file format: empty lines and lines starting
+with \fB#\fR are ignored; other lines are split at the first \fB=\fR; the
+key (without leading \fB\-\-\fR) must match a command-line option. Values
+are trimmed. Repeatable keys (\fBtranslate-load\fR, \fBtranslation-filter\fR)
+accumulate. Boolean keys (\fBstrict\fR, \fBgame-debug\fR, \fBvm-debug\fR,
+\fBecho\fR, \fBchoose\fR) are set by presence; any value is ignored. Keys
+that set environment variables (\fBcolors\fR, \fBambiguous\fR,
+\fBlibretranslate\fR) do so when read from the file. Excluded keys (ignored):
+\fBinstall\fR, \fBuninstall\fR, \fBclone\fR, \fBreset-data\fR, \fBsaves\fR,
+\fBbackup-saves\fR, \fBmanual\fR, \fBheadless\fR, \fBcheck\fR.
 .SS Interactive Debugger Commands
 When the debugger stops, a prompt \fB(emu-debug)> \fR appears.
 Commands accept an optional numeric argument for multi-step:
