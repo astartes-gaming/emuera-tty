@@ -173,3 +173,25 @@ fn sp_characters_follow_the_setting() {
     let on = play("cfg-sp-on", "SPキャラを使用する:YES\n", &files, erb);
     assert!(on.contains("[1][1][Reimu]") && on.contains("[0]") && on.contains("[3]"), "{on}");
 }
+
+/// VARSIZE(name[, dimension]): the dimension from the left, 0 when left
+/// out; from 1 with VARSIZEの次元指定をERD機能に合わせる.
+#[test]
+fn varsize_follows_the_setting() {
+    let erb = "@SYSTEM_TITLE\n#DIM HOGE, 1, 2, 3\nPRINTFORML [{VARSIZE(\"HOGE\")}][{VARSIZE(\"HOGE\", 1)}][{VARSIZE(\"HOGE\", 2)}]\nPRINTFORML [{VARSIZE(\"HOGE\", 3)}]\nQUIT\n";
+    let zero = play("cfg-varsize-off", "", &[], erb);
+    assert!(zero.contains("[1][2][3]") && zero.contains("存在しない次元の長さを取得しようとしました"), "{zero}");
+    let erd = play("cfg-varsize-on", "VARSIZEの次元指定をERD機能に合わせる:YES\n", &[], erb);
+    assert!(erd.contains("[1][1][2]") && erd.contains("[3]"), "{erd}");
+}
+
+/// ERD機能を利用する (on unless set): off, `RFLAG.csv` and `*.ERD` files give
+/// no index names.
+#[test]
+fn erd_files_follow_the_setting() {
+    let files = [("CSV/RFLAG.csv", "3,さん\n"), ("ERB/T.ERH", "#DIM SAVEDATA RFLAG, 10\n")];
+    let erb = "@SYSTEM_TITLE\nRFLAG:さん = 5\nPRINTFORML [{RFLAG:3}]\nQUIT\n";
+    assert!(play("cfg-erd-on", "", &files, erb).contains("[5]"));
+    let off = play("cfg-erd-off", "ERD機能を利用する:NO\n", &files, erb);
+    assert!(!off.contains("[5]"), "{off}");
+}

@@ -3246,11 +3246,18 @@ impl Vm {
                 i(r as i64)
             }
             "VARSIZE" => {
+                // the dimension from the left, 0 unless given (Emuera's
+                // VarsizeMethod); from 1 with VARSIZEの次元指定をERD機能に合わせる
                 let n = self.as_(a, 0, "")?.to_uppercase();
-                let d = self.ai(a, 1, -1)?;
-                let dims = self.var_dims(n)?;
-                let k = if d < 0 { dims.len() - 1 } else { (d as usize).min(dims.len() - 1) };
-                i(dims[k] as i64)
+                let mut d = self.ai(a, 1, 0)?;
+                if d > 0 && self.cfg.bool("VARSIZEの次元指定をERD機能に合わせる") {
+                    d -= 1;
+                }
+                let dims = self.var_dims(n.clone())?;
+                match usize::try_from(d).ok().and_then(|k| dims.get(k)) {
+                    Some(&len) => i(len as i64),
+                    None => err(format!("配列型変数\"{}\"の存在しない次元の長さを取得しようとしました", n)),
+                }
             }
             "STRLENS" => {
                 let x = self.tr_measured(a)?;

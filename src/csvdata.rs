@@ -298,6 +298,10 @@ impl GameCsv {
         // under ERB, and any CSV directly in the CSV folder named after one
         // (ErhLoader.PrepareERDFileNames: erablue_resort's RFLAG.csv for
         // `#DIM RFLAG`, eraFL's FLconfig.CSV for FLCONFIG)
+        // (all of it Emuera's ERD feature: off with ERD機能を利用する)
+        if !cfg.bool("ERD機能を利用する") {
+            return g;
+        }
         let builtin: std::collections::HashSet<String> = g.tables.keys().cloned().collect();
         let read_names = |p: &Path, t: &mut NameTable| {
             if let Ok(text) = read_text(p) {

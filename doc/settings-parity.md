@@ -68,9 +68,9 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | TIMESの計算をeramakerにあわせる (`TimesNotRigorousCalculation`) | Imitate behavior for TIMES | `false` | 12 (NO ×12) | honoured: off, TIMES uses .NET's decimal rounding (`builtins::times_decimal`; it used doubles) |
 | キャラクタ変数の引数を補完しない (`SystemNoTarget`) | Do not auto-complete arguments for character variables | `false` | 17 (NO ×16, YES ×1) | honoured for too few indices (`Vm::locate_chara`); a bare name read as a value still means TARGET's, where Emuera errors |
 | UPDATECHECKを許可しない (`ForbidUpdateCheck`) | Disallow UPDATECHECK | `false` | 10 (NO ×9, YES ×1) | ignored (task 2/3) |
-| ERD機能を利用する (`UseERD`) | Use ERD | `true` | 10 (YES ×9, NO ×1) | ignored: Emuera default not followed either (task 2) |
-| VARSIZEの次元指定をERD機能に合わせる (`VarsizeDimConfig`) | Imitate ERD to VARSIZE dimension specification | `false` | 9 (NO ×8, YES ×1) | ignored: Emuera default not followed either (task 2) |
-| ERDで定義した識別子とローカル変数の重複を確認する (`CheckDuplicateIdentifier`) | Check duplicate ERD identifier and private variablea | `false` | 8 (NO ×7, YES ×1) | ignored: Emuera default not followed either (task 2) |
+| ERD機能を利用する (`UseERD`) | Use ERD | `true` | 10 (YES ×9, NO ×1) | honoured (`GameCsv::load`) |
+| VARSIZEの次元指定をERD機能に合わせる (`VarsizeDimConfig`) | Imitate ERD to VARSIZE dimension specification | `false` | 9 (NO ×8, YES ×1) | honoured (`VARSIZE()`) |
+| ERDで定義した識別子とローカル変数の重複を確認する (`CheckDuplicateIdentifier`) | Check duplicate ERD identifier and private variablea | `false` | 8 (NO ×7, YES ×1) | a load warning only in Emuera (task 2.7) |
 | 行連結の改行コードの置換文字列 (`ReplaceContinuationBR`) | String of replacing new line code inside continuation | `"\" \""` | 4 (" " ×4) | honoured (`Parser::logical_lines`) |
 | 外部プラグインが有効時に警告を表示する (`PluginAvailableWarn`) | If available pllugins, Show warning | `true` | 2 (YES ×2) | not applicable (task 3) |
 | セーブデータを圧縮して保存する (`ZipSaveData`) | Compress save data | `false` | 8 (NO ×8) | honoured (`emuconfig::load`) |
