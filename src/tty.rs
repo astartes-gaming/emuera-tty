@@ -3669,7 +3669,10 @@ impl Tty {
         let lines = &con.lines;
         // a filtered line stays as it is (a middle-click translates it)
         let dialog: Vec<Option<(&'static str, String, Style)>> = (start..lines.len())
-            .map(|i| self.dialog_of(&lines[i], self.forced.contains(&line_key(&lines[i]))).filter(|_| self.forced.contains(&line_key(&lines[i])) || !line_filtered(&lines[i], &con.src_files)))
+            .map(|i| {
+                self.dialog_of(&lines[i], self.forced.contains(&line_key(&lines[i])))
+                    .filter(|_| self.forced.contains(&line_key(&lines[i])) || !line_filtered(&lines[i], &con.src_files))
+            })
             .collect();
         // a speech that began above `start` starts there (unchecked: rare)
         let mut i = 0;
