@@ -10,23 +10,17 @@ use crate::console::Console;
 use crate::vm::save::SaveOpts;
 use std::path::{Path, PathBuf};
 
-/// Read a few keys from the config files (key:value lines), in Emuera's
-/// order: CSV/_default.config, emuera.config, CSV/_fixed.config (wins).
-/// Returns the configured window width in pixels, if any.
-pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<String>, saves: &mut SaveOpts) -> Option<f32> {
-    let mut paths = vec![crate::loader::find_file_ci(csv_dir, "_default.config"), crate::loader::find_file_ci(game, "emuera.config")];
-    if let Some(d) = crate::loader::find_dir_ci(game, "config") {
-        paths.push(crate::loader::find_file_ci(&d, "emuera.config"));
-    }
-    paths.push(crate::loader::find_file_ci(csv_dir, "_fixed.config"));
+/// Apply the settings emuera-tty's console and saves use, line by line
+/// in the order the files were read (later lines win; a value that doesn't
+/// parse keeps the one before it). Returns the configured window width in
+/// pixels, if any.
+pub fn load(cfg: &Values, con: &mut Console, text_exts: &mut Vec<String>, saves: &mut SaveOpts) -> Option<f32> {
     let mut window_px = None;
     let yes = |v: &str| v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE");
     let mut zip = false;
     let mut binary = false;
-    for p in paths.into_iter().flatten() {
-        let Ok(text) = crate::loader::read_text(&p) else { continue };
-        for line in text.lines() {
-            let Some((k, v)) = line.split_once(':') else { continue };
+    {
+        for (k, v) in cfg.lines() {
             let v = v.trim();
             let rgb = |v: &str| -> Option<crate::console::Rgb> {
                 let n: Vec<u8> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
@@ -36,9 +30,8 @@ pub fn load(game: &Path, csv_dir: &Path, con: &mut Console, text_exts: &mut Vec<
                     None
                 }
             };
-            // keys may be written in Japanese or English (WINDOW WIDTH…)
-            let k = line.trim_start_matches('\u{feff}').split_once(':').map(|x| x.0).unwrap_or(k);
-            match canonical(k) {
+            // (keys already Japanese: Values::read)
+            match k.as_str() {
                 "ウィンドウ幅" => window_px = v.parse().ok().or(window_px),
                 "無限ループ警告までのミリ秒数" => con.infinite_loop_alert_time = v.parse().unwrap_or(5000),
                 "無限ループ警告を無効にする" => con.disable_infinite_loop_detection = yes(v),
@@ -205,6 +198,9 @@ pub struct Values {
     pub path: PathBuf,
     /// write keys in English (the game's files do)
     english: bool,
+    /// every (key, value) line read, in file order, keys Japanese: for
+    /// readers that apply each line as it comes, later lines winning
+    lines: Vec<(String, String)>,
 }
 
 /// `key:value` lines of a config file (BOM, blank and `;` lines skipped).
@@ -224,13 +220,22 @@ fn is_english(key: &str) -> bool {
 }
 
 impl Values {
+    /// No config files: Emuera's defaults throughout (tests).
+    #[cfg(test)]
+    pub fn emuera() -> Values {
+        Values { vals: Default::default(), path: PathBuf::new(), english: false, lines: Vec::new() }
+    }
+
     pub fn read(game: &Path) -> Values {
         let csv = crate::loader::find_dir_ci(game, "CSV");
         let path = crate::loader::find_file_ci(game, "emuera.config").unwrap_or_else(|| game.join("emuera.config"));
-        let mut v = Values { vals: Default::default(), path: path.clone(), english: false };
+        let mut v = Values { vals: Default::default(), path: path.clone(), english: false, lines: Vec::new() };
+        // Emuera's order, the last file winning (Config.cs); EE also reads
+        // config/emuera.config
         let files = [
             (csv.as_deref().and_then(|c| crate::loader::find_file_ci(c, "_default.config")), Source::Game),
             (Some(path), Source::Player),
+            (crate::loader::find_dir_ci(game, "config").and_then(|d| crate::loader::find_file_ci(&d, "emuera.config")), Source::Player),
             (csv.as_deref().and_then(|c| crate::loader::find_file_ci(c, "_fixed.config")), Source::Fixed),
         ];
         let mut seen_keys = (0, 0);
@@ -245,6 +250,7 @@ impl Values {
                     }
                 }
                 v.vals.insert(canonical(k).to_string(), (val.to_string(), src));
+                v.lines.push((canonical(k).to_string(), val.to_string()));
             }
         }
         // write the way the game's files are written (Emuera reads both)
@@ -252,9 +258,33 @@ impl Values {
         v
     }
 
-    /// Is the yes/no setting `jp` (its Japanese key) on? Off when unset.
-    pub fn flag(&self, jp: &str) -> bool {
-        self.vals.get(jp).is_some_and(|(x, _)| x.trim().eq_ignore_ascii_case("YES") || x.trim().eq_ignore_ascii_case("TRUE"))
+    /// The value of `jp` (its Japanese key) in effect: the config files',
+    /// else Emuera's default (`config_names::DEFAULTS`).
+    pub fn value(&self, jp: &str) -> &str {
+        self.vals.get(jp).map_or_else(|| crate::config_names::default(jp), |(v, _)| v.as_str())
+    }
+
+    /// Is the yes/no setting `jp` on, Emuera's default when unset? A value
+    /// that isn't yes or no counts as the default, as Emuera's
+    /// `ConfigItem.TryParse` failing leaves it.
+    pub fn bool(&self, jp: &str) -> bool {
+        let yes = |x: &str| match x.trim().to_uppercase().as_str() {
+            "YES" | "TRUE" => Some(true),
+            "NO" | "FALSE" => Some(false),
+            _ => None,
+        };
+        self.vals.get(jp).and_then(|(x, _)| yes(x)).or_else(|| yes(crate::config_names::default(jp))).unwrap_or(false)
+    }
+
+    /// The number `jp`, Emuera's default when unset or not a number.
+    pub fn int(&self, jp: &str) -> i64 {
+        let n = |x: &str| x.trim().parse::<i64>().ok();
+        self.vals.get(jp).and_then(|(x, _)| n(x)).or_else(|| n(crate::config_names::default(jp))).unwrap_or(0)
+    }
+
+    /// Every (key, value) line of the files, in the order read.
+    pub fn lines(&self) -> &[(String, String)] {
+        &self.lines
     }
 
     /// The value in effect, and where it comes from.
@@ -361,10 +391,39 @@ mod tests {
         // and what the game loads
         let mut con = Console::new();
         let (mut ext, mut so) = (Vec::new(), SaveOpts::default());
-        load(&d, &d.join("CSV"), &mut con, &mut ext, &mut so);
+        load(&Values::read(&d), &mut con, &mut ext, &mut so);
         assert_eq!((con.default_fg.0, con.default_fg.1, con.default_fg.2), (16, 32, 48));
         assert_eq!(so.slots, 80, "clamped as Emuera does");
         assert!(normalize(it("表示するセーブデータ数"), "100").is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn values_in_effect() {
+        let d = std::env::temp_dir().join(format!("emuera-cfg-vals-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("CSV")).unwrap();
+        std::fs::write(
+            d.join("CSV/_default.config"),
+            "\u{feff}; a comment:YES\nWHITESPACE INCLUDES FULL-WIDTH SPACE:NO\nVALID EXTENSIONS FOR LOADTEXT AND SAVETEXT:xml\nスクロール行数:3\n",
+        )
+        .unwrap();
+        std::fs::write(d.join("emuera.config"), "全角スペースをホワイトスペースに含める:YES\nスクロール行数:many\n_Rename.csvを利用する:maybe\n").unwrap();
+        std::fs::write(d.join("CSV/_fixed.config"), "Whitespace includes full-width space:no\n").unwrap();
+        let v = Values::read(&d);
+        // the fixed file wins, English keys any case
+        assert!(!v.bool("全角スペースをホワイトスペースに含める"));
+        // unset: Emuera's default
+        assert!(v.bool("大文字小文字の違いを無視する"));
+        assert_eq!(v.int("PRINTCを並べる数"), 3);
+        assert_eq!(v.value("フォント名"), "ＭＳ ゴシック");
+        // a value that doesn't parse: Emuera's default, not an earlier file's
+        assert_eq!(v.int("スクロール行数"), 1);
+        assert!(!v.bool("_Rename.csvを利用する"));
+        // the English extension key reaches LOADTEXT/SAVETEXT
+        let (mut con, mut ext, mut so) = (Console::new(), Vec::new(), SaveOpts::default());
+        load(&v, &mut con, &mut ext, &mut so);
+        assert_eq!(ext, ["xml"]);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -132,14 +132,13 @@ pub enum Order {
 }
 
 impl Listing {
-    pub fn of(game: &Path) -> Listing {
-        let v = crate::emuconfig::Values::read(game);
-        let order = match v.flag("読み込み順をファイル名順にソートする") {
+    pub fn of(game: &Path, v: &crate::emuconfig::Values) -> Listing {
+        let order = match v.bool("読み込み順をファイル名順にソートする") {
             false => Order::Ntfs,
             true if framework_emuera(game) => Order::Nls,
             true => Order::Icu,
         };
-        Listing { subdirs: v.flag("サブディレクトリを検索する"), order }
+        Listing { subdirs: v.bool("サブディレクトリを検索する"), order }
     }
 }
 

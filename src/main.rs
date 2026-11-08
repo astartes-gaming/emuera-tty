@@ -436,13 +436,14 @@ fn parse_args() -> Opts {
 /// quicker start); else all now (`--check`).
 fn build_program(
     game: &std::path::Path,
+    cfg: &std::sync::Arc<emuconfig::Values>,
     erb_dir: Option<&std::path::Path>,
     rename: &[(String, String)],
     debug: bool,
     lazy: bool,
     phase: &mut dyn FnMut(&str),
 ) -> (parser::Program, usize) {
-    let mut p = parser::Parser::new(rename, debug);
+    let mut p = parser::Parser::new(rename, debug, cfg.clone());
     // EMUERA_THREADS=n limits the worker threads (default: all cores)
     let cores = std::env::var("EMUERA_THREADS")
         .ok()
@@ -453,7 +454,7 @@ fn build_program(
         Some(erb) => {
             // Emuera's order (it decides which of a duplicate wins, the
             // order of event functions, and of #DIMs in saves)
-            let l = loader::Listing::of(game);
+            let l = loader::Listing::of(game, cfg);
             let (erhs, erbs) = (loader::emuera_files(erb, &["erh"], l), loader::erb_files(erb, l));
             if !l.subdirs {
                 let skipped = loader::walk(erb, &["erb", "erh"]).len().saturating_sub(erhs.len() + erbs.len());
@@ -596,6 +597,9 @@ fn run(o: Opts) -> i32 {
         }
         lap = std::time::Instant::now();
     };
+    // the game's Emuera settings (CSV/_default.config, emuera.config,
+    // CSV/_fixed.config), read once for the loader, parser and VM
+    let cfg = std::sync::Arc::new(emuconfig::Values::read(&game));
     let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref());
     // Emuera-Anchor: the parser marks constants as Anchor folds them
     translate::FOLD.store(csv.tr.active(), std::sync::atomic::Ordering::Relaxed);
@@ -607,7 +611,7 @@ fn run(o: Opts) -> i32 {
     // function bodies are compiled when first called, except for --check
     // (or EMUERA_PARSE=all): a game runs a few percent of them
     let lazy = !o.check && std::env::var("EMUERA_PARSE").map_or(true, |v| v != "all");
-    let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.game_debug, lazy, &mut phase);
+    let (prog, n_files) = build_program(&game, &cfg, erb_dir.as_deref(), &csv.rename, o.game_debug, lazy, &mut phase);
     let n_funcs = prog.funcs.len();
     eprintln!(
         "loaded {} files, {} functions, {} chara templates in {:.2?} ({} parse errors)",
@@ -724,16 +728,20 @@ fn run(o: Opts) -> i32 {
     // Enable debugger via --vm-debug flag or EMUERA_VM_DEBUG env var
     // The VM reads EMUERA_VM_DEBUG directly
     let rename = csv.rename.clone();
-    let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone());
+    let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone(), cfg.clone());
     // the reload hotkey parses the ERB files again
     {
         let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.game_debug);
-        vm.reloader = Some(Box::new(move || build_program(&g, erb.as_deref(), &rename, debug, lazy, &mut |_| {}).0));
+        // (the settings page may have changed the config)
+        vm.reloader = Some(Box::new(move || {
+            let cfg = std::sync::Arc::new(emuconfig::Values::read(&g));
+            build_program(&g, &cfg, erb.as_deref(), &rename, debug, lazy, &mut |_| {}).0
+        }));
     }
     if timing {
         eprintln!("timing: {:<12} {:>8.2?}{} (resources, terminal, data init)", "vm ready", lap.elapsed(), rss());
     }
-    if let Some(px) = emuconfig::load(&game, &csv_dir, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
+    if let Some(px) = emuconfig::load(&cfg, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
         // no real terminal to fit: Emuera's width, the half-width cells
         // (font_size/2 px) that fit in its drawable width, the window less
         // max(2, font_size/6) px (Config.DrawableWidth, getStBar: 940 px at

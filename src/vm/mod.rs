@@ -461,7 +461,8 @@ pub struct Vm {
     pub game_dir: PathBuf,
     /// ONEINPUT系命令でマウスによる2文字以上の入力を許可する: a one-key input
     /// keeps a longer answer (else only its first character, as Emuera)
-    long_oneinput: bool,
+    /// the game's Emuera settings ([`crate::emuconfig::Values`])
+    pub cfg: std::sync::Arc<crate::emuconfig::Values>,
     /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
     /// FLOWINPUT / FLOWINPUTS settings for the shop's own input:
@@ -532,7 +533,7 @@ pub static CURRENT_SEED: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64
 pub static INITIAL_SEED: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64::new(0);
 
 impl Vm {
-    pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf) -> Vm {
+    pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf, cfg: std::sync::Arc<crate::emuconfig::Values>) -> Vm {
         if let Ok(p) = std::env::var("EMUERA_PROFILE") {
             prof::start(p);
         }
@@ -594,7 +595,7 @@ impl Vm {
             big_dropped: HashSet::default(),
             rng: Sfmt::new(seed),
             warned: HashSet::default(),
-            long_oneinput: crate::emuconfig::Values::read(&game_dir).flag("ONEINPUT系命令でマウスによる2文字以上の入力を許可する"),
+            cfg,
             game_dir,
             strict: false,
             flow_input: (0, false, false, String::new(), false),
@@ -643,9 +644,8 @@ impl Vm {
 
     /// Read the game's settings again (changed on the settings page).
     pub fn reload_config(&mut self) {
-        if let Some(csv) = crate::loader::find_dir_ci(&self.game_dir, "CSV") {
-            crate::emuconfig::load(&self.game_dir, &csv, &mut self.con, &mut self.text_exts, &mut self.save_opts);
-        }
+        self.cfg = std::sync::Arc::new(crate::emuconfig::Values::read(&self.game_dir));
+        crate::emuconfig::load(&self.cfg, &mut self.con, &mut self.text_exts, &mut self.save_opts);
     }
 
     /// Is `name` a `#DIM CONST` without indices, here (the function's own
@@ -3095,7 +3095,7 @@ impl Vm {
     /// A one-key input (ONEINPUT…) keeps the answer's first character, as
     /// Emuera does unless the config allows longer ones.
     fn one_char(&self, s: String, one: bool) -> String {
-        if one && !self.long_oneinput {
+        if one && !self.cfg.bool("ONEINPUT系命令でマウスによる2文字以上の入力を許可する") {
             s.chars().next().map(String::from).unwrap_or_default()
         } else {
             s

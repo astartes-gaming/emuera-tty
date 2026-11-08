@@ -496,6 +496,9 @@ pub struct Parser {
     global_str: HashSet<String>,
     /// `--debug`: keep `;#;` lines and `[IF_DEBUG]` blocks.
     debug: bool,
+    /// the game's Emuera settings (the System and Compatibility tabs
+    /// change how scripts are read)
+    pub cfg: std::sync::Arc<crate::emuconfig::Values>,
     /// Set: function bodies are compiled on their first call (see
     /// [`LazySrc`]), not at load.
     lazy: Option<Rc<LazyCtx>>,
@@ -903,12 +906,12 @@ fn form_arg_cmd(cmd: &str) -> bool {
 const IGNORED_BLOCKS: &[&str] = &["NOSKIP", "ENDNOSKIP"];
 
 impl Parser {
-    pub fn new(rename: &[(String, String)], debug: bool) -> Self {
+    pub fn new(rename: &[(String, String)], debug: bool, cfg: std::sync::Arc<crate::emuconfig::Values>) -> Self {
         let mut m: HashMap<String, String> = HashMap::default();
         for (k, v) in rename {
             m.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        Parser { prog: Program::default(), rename_map: Rc::new(m), global_str: HashSet::default(), debug, lazy: None }
+        Parser { prog: Program::default(), rename_map: Rc::new(m), global_str: HashSet::default(), debug, lazy: None, cfg }
     }
 
     /// From now on (after the headers), leave function bodies to their
@@ -1092,6 +1095,7 @@ impl Parser {
             global_str: self.global_str.clone(),
             debug: self.debug,
             lazy: self.lazy.clone(),
+            cfg: self.cfg.clone(),
         }
     }
 
@@ -2330,7 +2334,7 @@ mod tests {
         let path = dir.join("A.ERB");
         let src = "@EVENTFIRST\n#PRI\nPRINTL a\n@F(X, S = \"q\")\n#FUNCTIONS\n#LOCALSIZE 5\nRETURNF \"x\"\n@EVENTFIRST\nPRINTL b\n@G\nPRINTL c\n";
         std::fs::write(&path, src).unwrap();
-        let mut p = super::Parser::new(&[], false);
+        let mut p = super::Parser::new(&[], false, std::sync::Arc::new(crate::emuconfig::Values::emuera()));
         p.prog.files.push("A.ERB".into());
         p.compile_lazily(1);
         p.parse_erb_file(0, "A.ERB", &path, src.as_bytes());
