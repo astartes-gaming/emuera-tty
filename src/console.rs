@@ -183,6 +183,11 @@ pub struct Console {
     /// ver1739以前の非ボタン折り返しを再現する: with `button_wrap`, text that
     /// isn't a button is kept whole too (Emuera's PrintStringBuffer)
     pub wrap_1739: bool,
+    /// マウスを使用する: off, the game's buttons don't react to the mouse
+    /// (Emuera's MainWindow mouse handlers; the wheel still scrolls)
+    pub use_mouse: bool,
+    /// スクロール行数, if the game sets it: lines per wheel step
+    pub scroll_lines: Option<usize>,
     /// "キーボードマクロを使用する": F1…F12 are macro keys (`macros.rs`)
     pub key_macro: bool,
     /// Generation stamped on new lines (Emuera's `newButtonGeneration`).
@@ -277,6 +282,8 @@ impl Console {
             printc_per_line: 3,
             button_wrap: false,
             wrap_1739: false,
+            use_mouse: true,
+            scroll_lines: None,
             key_macro: true,
             gen: 0,
             tooltips: std::collections::HashMap::new(),

@@ -19,7 +19,8 @@
 
 ## 3. Terminal equivalents and not-applicable settings
 
-- [ ] 3.1 マウスを使用する (mouse off), スクロール行数 (wheel step when the player hasn't set one), Ctrl-Z, クリップボード scroll lines; record window/FPS/drawing/menu/instances/editor/Rikai/plugin settings as not applicable. Verify: each row of the parity table filled.
+- [x] 3.1 マウスを使用する (mouse off), スクロール行数 (wheel step when the player hasn't set one), Ctrl-Z, クリップボード scroll lines; record window/FPS/drawing/menu/instances/editor/Rikai/plugin settings as not applicable. Done: mouse off and the wheel step honoured, English config output honoured on the settings page, the clipboard's scroll lines is unused in Emuera too; every other row of the parity table says why it doesn't apply.
+- [ ] 3.2 Ctrl-Zで元に戻す機能を有効にする: undo the last input by reloading the last save or load and replaying the inputs since, the last one left out, with the random state restored (Emuera's `CtrlZ.cs`). Verify: a headless test that saves, makes three choices, undoes one and ends where two choices would.
 
 ## 4. Game settings page
 

@@ -776,6 +776,10 @@ pub struct Tty {
     /// the game's "ボタンの途中で行を折りかえさない" setting (per frame)
     button_wrap: bool,
     wrap_1739: bool,
+    use_mouse: bool,
+    /// the player chose the wheel step (settings): the game's スクロール行数
+    /// doesn't override it
+    pub wheel_chosen: bool,
     /// Emuera pixels per text cell: half the font size, the width of a
     /// half-width character, which shapes are measured against
     text_px: f32,
@@ -1164,6 +1168,8 @@ impl Tty {
             row_all: Vec::new(),
             button_wrap: false,
             wrap_1739: false,
+            use_mouse: true,
+            wheel_chosen: false,
             text_px: 9.0,
         }
     }
@@ -2169,6 +2175,10 @@ impl Tty {
         con.width = cols.saturating_sub(1).max(20);
         self.button_wrap = con.button_wrap;
         self.wrap_1739 = con.wrap_1739;
+        self.use_mouse = con.use_mouse;
+        if let (Some(n), false) = (con.scroll_lines, self.wheel_chosen) {
+            self.wheel = n;
+        }
         self.text_px = (con.font_size / 2.0).max(1.0);
         self.yen = match self.yen_mode.as_str() {
             "on" => true,
@@ -3528,7 +3538,10 @@ impl Tty {
                 self.redraw_all.set(true);
             }
             "contrast" => self.contrast = st.contrast_ratio(),
-            "wheel" => self.wheel = v.parse().unwrap_or(3),
+            "wheel" => {
+                self.wheel = v.parse().unwrap_or(3);
+                self.wheel_chosen = true;
+            }
             "scroll_end_on_key" => self.scroll_end_on_key = v == "on",
             "yen" => {
                 self.yen_mode = v.to_string();
@@ -4120,7 +4133,8 @@ impl Tty {
     /// (`<nonbutton>` tooltip areas included).
     fn button_at(&self, x: usize, y: usize) -> Option<usize> {
         let row = self.btn_map.get(y)?;
-        row.iter().find(|(s, e, _)| x >= *s && x < *e).map(|(_, _, b)| *b)
+        // (マウスを使用する off: only emuera-tty's own buttons answer)
+        row.iter().find(|(s, e, _)| x >= *s && x < *e).map(|(_, _, b)| *b).filter(|&b| self.use_mouse || b == SETTINGS_BUTTON)
     }
 
     /// The Keyboard pointer setting: on, off, or auto (on on the Linux
@@ -5536,6 +5550,17 @@ pub(crate) mod render_tests {
     /// ver1739以前の非ボタン折り返しを再現する, with ボタンの途中で行を
     /// 折りかえさない: a piece of plain text that doesn't fit the rest of the
     /// row starts the next one, as a button does.
+    /// マウスを使用する off: the game's buttons don't answer the pointer;
+    /// emuera-tty's own do.
+    #[test]
+    fn game_buttons_ignore_the_mouse_when_off() {
+        let mut t = Tty::blank(None, 20, 10, ColorMode::True);
+        t.btn_map = vec![vec![(0, 5, 3), (6, 9, SETTINGS_BUTTON)]];
+        assert_eq!((t.button_at(1, 0), t.button_at(7, 0)), (Some(3), Some(SETTINGS_BUTTON)));
+        t.use_mouse = false;
+        assert_eq!((t.button_at(1, 0), t.button_at(7, 0)), (None, Some(SETTINGS_BUTTON)));
+    }
+
     #[test]
     fn wrap_1739_keeps_text_pieces_whole() {
         let rows = |w1739: bool| -> Vec<String> {

@@ -7,20 +7,20 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | 大文字小文字の違いを無視する (`IgnoreCase`) | Ignore case | `true` | 32 (YES ×32) | always on; a game turning it off gets a note (`doc/differences.md`) |
 | _Rename.csvを利用する (`UseRenameFile`) | Use _Rename.csv file | `false` | 28 (YES ×20, NO ×8) | honoured (`GameCsv::load`; missing file: Emuera's message) |
 | _Replace.csvを利用する (`UseReplaceFile`) | Use _Replace.csv file | `true` | 31 (YES ×31) | honoured (`GameCsv::load`) |
-| マウスを使用する (`UseMouse`) | Use mouse | `true` | 19 (YES ×19) | ignored (task 2/3) |
-| メニューを使用する (`UseMenu`) | Show menu | `true` | 18 (YES ×18) | not applicable (task 3) |
+| マウスを使用する (`UseMouse`) | Use mouse | `true` | 19 (YES ×19) | honoured: off, the game's buttons ignore the pointer (`Tty::button_at`); the wheel still scrolls, as in Emuera |
+| メニューを使用する (`UseMenu`) | Show menu | `true` | 18 (YES ×18) | not applicable: emuera-tty's own menu is the settings key (F3), always there |
 | デバッグコマンドを使用する (`UseDebugCommand`) | Allow debug commands | `false` | 19 (NO ×14, YES ×5) | ignored (task 2/3) |
-| 多重起動を許可する (`AllowMultipleInstances`) | Allow multiple instances | `true` | 19 (YES ×19) | not applicable (task 3) |
+| 多重起動を許可する (`AllowMultipleInstances`) | Allow multiple instances | `true` | 19 (YES ×19) | not applicable: nothing stops a second emuera-tty, each in its own terminal |
 | オートセーブを行なう (`AutoSave`) | Make autosaves | `true` | 19 (YES ×18, NO ×1) | honoured (`emuconfig::load`) |
 | キーボードマクロを使用する (`UseKeyMacro`) | Use keyboard macros | `true` | 18 (YES ×18) | honoured (`emuconfig::load`) |
-| ウィンドウの高さを可変にする (`SizableWindow`) | Changeable window height | `true` | 18 (YES ×18) | not applicable (task 3) |
+| ウィンドウの高さを可変にする (`SizableWindow`) | Changeable window height | `true` | 18 (YES ×18) | not applicable: the terminal's window is the player's |
 | 描画インターフェース (`TextDrawingMode`) | Drawing interface | `TextDrawingMode.TEXTRENDERER` | 28 (TEXTRENDERER ×23, WINAPI ×3, GRAPHICS ×2) | not applicable; GETCONFIG answers TEXTRENDERER (games check it isn't WINAPI) |
 | ウィンドウ幅 (`WindowX`) | Window width | `760` | 31 (1200 ×7, 800 ×4, 1000 ×3) | honoured (`emuconfig::load`) |
-| ウィンドウ高さ (`WindowY`) | Window height | `480` | 32 (800 ×11, 720 ×3, 1080 ×3) | not applicable (task 3) |
-| ウィンドウ位置X (`WindowPosX`) | Window X position | `0` | 18 (0 ×12, 200 ×2, 210 ×1) | not applicable (task 3) |
-| ウィンドウ位置Y (`WindowPosY`) | Window Y position | `0` | 18 (0 ×16, 50 ×1, 1 ×1) | not applicable (task 3) |
-| 起動時のウィンドウ位置を指定する (`SetWindowPos`) | Fixed window starting position | `false` | 18 (NO ×14, YES ×4) | not applicable (task 3) |
-| 起動時にウィンドウを最大化する (`WindowMaximixed`) | Maximize window on startup | `false` | 17 (NO ×16, YES ×1) | not applicable (task 3) |
+| ウィンドウ高さ (`WindowY`) | Window height | `480` | 32 (800 ×11, 720 ×3, 1080 ×3) | not applicable: the terminal's window is the player's |
+| ウィンドウ位置X (`WindowPosX`) | Window X position | `0` | 18 (0 ×12, 200 ×2, 210 ×1) | not applicable: the terminal's window is the player's |
+| ウィンドウ位置Y (`WindowPosY`) | Window Y position | `0` | 18 (0 ×16, 50 ×1, 1 ×1) | not applicable: the terminal's window is the player's |
+| 起動時のウィンドウ位置を指定する (`SetWindowPos`) | Fixed window starting position | `false` | 18 (NO ×14, YES ×4) | not applicable: the terminal's window is the player's |
+| 起動時にウィンドウを最大化する (`WindowMaximixed`) | Maximize window on startup | `false` | 17 (NO ×16, YES ×1) | not applicable: the terminal's window is the player's |
 | 履歴ログの行数 (`MaxLog`) | Max history log lines | `5000` | 22 (5000 ×11, 10000 ×7, 1000 ×1) | honoured (`emuconfig::load`) |
 | PRINTCを並べる数 (`PrintCPerLine`) | Items per line for PRINTC | `3` | 32 (5 ×13, 3 ×12, 4 ×7) | honoured (`emuconfig::load`) |
 | PRINTCの文字数 (`PrintCLength`) | Number of Item characters for PRINTC | `25` | 30 (25 ×10, 29 ×9, 26 ×4) | honoured (`emuconfig::load`) |
@@ -31,8 +31,8 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | 背景色 (`BackColor`) | Background color | `Color.FromArgb(0, 0, 0)` | 31 (0,0,0 ×28, 10,10,10 ×1, 25,25,25 ×1) | honoured (`emuconfig::load`) |
 | 選択中文字色 (`FocusColor`) | Highlight color | `Color.FromArgb(255, 255, 0)` | 31 (255,255,0 ×28, 255,0,0 ×3) | honoured (`emuconfig::load`) |
 | 履歴文字色 (`LogColor`) | History log color | `Color.FromArgb(192, 192, 192)` | 31 (192,192,192 ×26, 128,128,128 ×3, 91,91,91 ×1) | honoured (`emuconfig::load`) |
-| フレーム毎秒 (`FPS`) | FPS | `5` | 20 (5 ×15, 20 ×2, 7 ×2) | not applicable (task 3) |
-| スクロール行数 (`ScrollHeight`) | Lines per scroll | `1` | 19 (1 ×14, 5 ×3, 7 ×1) | ignored (task 2/3) |
+| フレーム毎秒 (`FPS`) | FPS | `5` | 20 (5 ×15, 20 ×2, 7 ×2) | not applicable: the terminal is redrawn when something changes |
+| スクロール行数 (`ScrollHeight`) | Lines per scroll | `1` | 19 (1 ×14, 5 ×3, 7 ×1) | honoured as the wheel step unless the player chose one (settings: Wheel scrolls) |
 | 無限ループ警告までのミリ秒数 (`InfiniteLoopAlertTime`) | Milliseconds for infinite loop warning | `5000` | 21 (5000 ×12, 10000 ×6, 20000 ×1) | honoured (`emuconfig::load`) |
 | 表示する最低警告レベル (`DisplayWarningLevel`) | Minimum warning level | `1` | 24 (0 ×15, 1 ×8, 3 ×1) | ignored (task 2/3) |
 | ロード時にレポートを表示する (`DisplayReport`) | Display loading report | `false` | 22 (NO ×22) | ignored (task 2/3) |
@@ -47,9 +47,9 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | eramaker互換性に関する警告を表示する (`WarnBackCompatibility`) | Eramaker compatibility warning | `true` | 31 (NO ×29, YES ×2) | ignored (task 2/3) |
 | システム関数の上書きを許可する (`AllowFunctionOverloading`) | Allow overriding system functions | `true` | 25 (YES ×18, NO ×7) | no difference in behaviour: a user function wins either way, as in Emuera; only Emuera's load warning level changes (task 2.7) |
 | システム関数が上書きされたとき警告を表示する (`WarnFunctionOverloading`) | System function override warning | `true` | 22 (YES ×21, NO ×1) | ignored (task 2/3) |
-| 関連づけるテキストエディタ (`TextEditor`) | Text editor | `"notepad"` | 17 (notepad ×15, C:\Program Files (x86)\sakura\sakura.exe ×1, C:\Program Files\Notepad++\notepad++.exe ×1) | not applicable (task 3) |
-| テキストエディタコマンドライン指定 (`EditorType`) | Text editor command line setting | `TextEditorType.USER_SETTING` | 17 (USER_SETTING ×17) | not applicable (task 3) |
-| エディタに渡す行指定引数 (`EditorArgument`) | Text editor command line arguments | `""` | 17 ((empty) ×17) | not applicable (task 3) |
+| 関連づけるテキストエディタ (`TextEditor`) | Text editor | `"notepad"` | 17 (notepad ×15, C:\Program Files (x86)\sakura\sakura.exe ×1, C:\Program Files\Notepad++\notepad++.exe ×1) | not applicable for now: Emuera opens an erroring script in this editor (a possible debug-panel feature, `$EDITOR`) |
+| テキストエディタコマンドライン指定 (`EditorType`) | Text editor command line setting | `TextEditorType.USER_SETTING` | 17 (USER_SETTING ×17) | as 関連づけるテキストエディタ |
+| エディタに渡す行指定引数 (`EditorArgument`) | Text editor command line arguments | `""` | 17 ((empty) ×17) | as 関連づけるテキストエディタ |
 | 同名の非イベント関数が複数定義されたとき警告する (`WarnNormalFunctionOverloading`) | Duplicated functions warning | `false` | 22 (YES ×12, NO ×10) | ignored (task 2/3) |
 | 解釈不可能な行があっても実行する (`CompatiErrorLine`) | Execute error lines | `false` | 18 (NO ×18) | always as if on (lazy compilation; `doc/differences.md`) |
 | CALLNAMEが空文字列の時にNAMEを代入する (`CompatiCALLNAME`) | Use NAME if CALLNAME is empty | `false` | 18 (NO ×17, YES ×1) | honoured (`GameCsv::load`; NAME was always copied before) |
@@ -72,9 +72,9 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | VARSIZEの次元指定をERD機能に合わせる (`VarsizeDimConfig`) | Imitate ERD to VARSIZE dimension specification | `false` | 9 (NO ×8, YES ×1) | honoured (`VARSIZE()`) |
 | ERDで定義した識別子とローカル変数の重複を確認する (`CheckDuplicateIdentifier`) | Check duplicate ERD identifier and private variablea | `false` | 8 (NO ×7, YES ×1) | a load warning only in Emuera (task 2.7) |
 | 行連結の改行コードの置換文字列 (`ReplaceContinuationBR`) | String of replacing new line code inside continuation | `"\" \""` | 4 (" " ×4) | honoured (`Parser::logical_lines`) |
-| 外部プラグインが有効時に警告を表示する (`PluginAvailableWarn`) | If available pllugins, Show warning | `true` | 2 (YES ×2) | not applicable (task 3) |
+| 外部プラグインが有効時に警告を表示する (`PluginAvailableWarn`) | If available pllugins, Show warning | `true` | 2 (YES ×2) | not applicable: no .NET plugins |
 | セーブデータを圧縮して保存する (`ZipSaveData`) | Compress save data | `false` | 8 (NO ×8) | honoured (`emuconfig::load`) |
-| CONFIGファイルの内容を英語で保存する (`EnglishConfigOutput`) | Output English items in the config file | `false` | 9 (NO ×5, YES ×4) | ignored (task 2/3) |
+| CONFIGファイルの内容を英語で保存する (`EnglishConfigOutput`) | Output English items in the config file | `false` | 9 (NO ×5, YES ×4) | honoured: the settings page writes English keys (`Values::set`) |
 | Emueraの表示言語 (`EmueraLang`) | Emuera interface language | `string.Empty` | 4 (English ×2, 简体中文 ×1, 日本語 ×1) | not taken: the interface language is the player's (`doc/differences.md`) |
 | テキスト中の<>タグを無視する (`CBIgnoreTags`) | Clipboard- ignore <> tags in text | `false` | 15 (NO ×10, YES ×5) | honoured (`emuconfig::load`) |
 | <>を次の文で置き換える (`CBReplaceTags`) | Clipboard- Replace <> with this | `"."` | 14 (. ×14) | honoured (`emuconfig::load`) |
@@ -87,14 +87,14 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | INPUTをトリガーにする (`CBTriggerInputWait`) | Clipboard- Wait for Input Trigger | `true` | 14 (YES ×11, NO ×3) | honoured (`emuconfig::load`) |
 | クリップボードに貼り付ける行数 (`CBMaxCB`) | Clipboard- Length of Clipboard | `25` | 14 (25 ×14) | honoured (`emuconfig::load`) |
 | 総バッファサイズ (`CBBufferSize`) | Clipboard- Buffer Size | `300` | 14 (300 ×14) | honoured (`emuconfig::load`) |
-| スクロールの行数 (`CBScrollCount`) | Clipboard- Scrolled Lines per Key | `5` | 15 (5 ×15) | honoured (`emuconfig::load`) |
+| スクロールの行数 (`CBScrollCount`) | Clipboard- Scrolled Lines per Key | `5` | 15 (5 ×15) | no effect in Emuera either (`Clipboard.cs`: "FIXIT - Actually use it") |
 | クリップボードの更新間隔(ミリ秒) (`CBMinTimer`) | Clipboard- min time between pastes | `800` | 14 (800 ×13, 300 ×1) | honoured (`emuconfig::load`) |
-| Rikaichanを使用する (`RikaiEnabled`) | Rikai- Enabled | `false` | 3 (NO ×3) | not applicable (task 3) |
-| Rikaichanのファイルパス (`RikaiFilename`) | Rikai- Dictionary Filename | `"Emuera-Rikai-edict.txt-eucjp"` | 3 (Emuera-Rikai-edict.txt-eucjp ×2, Emuera-Rikai-dictionaries\Emuera-Rikai-edict.txt-eucjp ×1) | not applicable (task 3) |
-| ポップアップの背景色 (`RikaiColorBack`) | Rikai- Back Color | `Color.FromArgb(0, 0, 0x8B)` | 12 (0,0,139 ×7, 255,255,255 ×5) | not applicable (task 3) |
-| ポップアップの文字色 (`RikaiColorText`) | Rikai- Text Color | `Color.FromArgb(0xFF, 0xFF, 0xFF)` | 12 (255,255,255 ×7, 0,0,0 ×5) | not applicable (task 3) |
-| 翻訳中の語句を強調表示する (`RikaiUseSeparateBoxes`) | Rikai- Use Separate Boxes | `true` | 12 (YES ×7, NO ×5) | not applicable (task 3) |
-| Ctrl-Zで元に戻す機能を有効にする (`Ctrl_Z_Enabled`) | Enable undo with ctrl-z | `false` | 2 (NO ×2) | ignored (task 2/3) |
+| Rikaichanを使用する (`RikaiEnabled`) | Rikai- Enabled | `false` | 3 (NO ×3) | not implemented: Rikaichan's dictionary popup (a possible later feature) |
+| Rikaichanのファイルパス (`RikaiFilename`) | Rikai- Dictionary Filename | `"Emuera-Rikai-edict.txt-eucjp"` | 3 (Emuera-Rikai-edict.txt-eucjp ×2, Emuera-Rikai-dictionaries\Emuera-Rikai-edict.txt-eucjp ×1) | as Rikaichanを使用する |
+| ポップアップの背景色 (`RikaiColorBack`) | Rikai- Back Color | `Color.FromArgb(0, 0, 0x8B)` | 12 (0,0,139 ×7, 255,255,255 ×5) | as Rikaichanを使用する |
+| ポップアップの文字色 (`RikaiColorText`) | Rikai- Text Color | `Color.FromArgb(0xFF, 0xFF, 0xFF)` | 12 (255,255,255 ×7, 0,0,0 ×5) | as Rikaichanを使用する |
+| 翻訳中の語句を強調表示する (`RikaiUseSeparateBoxes`) | Rikai- Use Separate Boxes | `true` | 12 (YES ×7, NO ×5) | as Rikaichanを使用する |
+| Ctrl-Zで元に戻す機能を有効にする (`Ctrl_Z_Enabled`) | Enable undo with ctrl-z | `false` | 2 (NO ×2) | not yet: undo by reloading the last save and replaying the inputs (task 3.2); no local game turns it on |
 | 起動時にデバッグウインドウを表示する (`DebugShowWindow`) | Show debug window on startup | `true` |  | to do (task 6) |
 | デバッグウインドウを最前面に表示する (`DebugWindowTopMost`) | Debug window always on top | `true` |  | to do (task 6) |
 | デバッグウィンドウ幅 (`DebugWindowWidth`) | Debug window width | `400` |  | to do (task 6) |

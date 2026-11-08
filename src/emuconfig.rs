@@ -42,6 +42,8 @@ pub fn load(cfg: &Values, con: &mut Console, text_exts: &mut Vec<String>, saves:
                 }
                 "ボタンの途中で行を折りかえさない" => con.button_wrap = yes(v),
                 "ver1739以前の非ボタン折り返しを再現する" => con.wrap_1739 = yes(v),
+                "マウスを使用する" => con.use_mouse = !(v.eq_ignore_ascii_case("NO") || v.eq_ignore_ascii_case("FALSE")),
+                "スクロール行数" => con.scroll_lines = v.parse::<usize>().ok().filter(|&n| n > 0).or(con.scroll_lines),
                 "キーボードマクロを使用する" => con.key_macro = yes(v),
                 "セーブデータをsavフォルダ内に作成する" => saves.in_folder = yes(v),
                 "セーブデータをバイナリ形式で保存する" => binary = yes(v),
@@ -254,8 +256,12 @@ impl Values {
                 v.lines.push((canonical(k).to_string(), val.to_string()));
             }
         }
-        // write the way the game's files are written (Emuera reads both)
-        v.english = seen_keys.1 > seen_keys.0;
+        // write the way the game's files are written (Emuera reads both),
+        // or as CONFIGファイルの内容を英語で保存する says if a file sets it
+        v.english = match v.vals.get("CONFIGファイルの内容を英語で保存する") {
+            Some((x, _)) => x.trim().eq_ignore_ascii_case("YES") || x.trim().eq_ignore_ascii_case("TRUE"),
+            None => seen_keys.1 > seen_keys.0,
+        };
         v
     }
 
@@ -425,6 +431,12 @@ mod tests {
         let (mut con, mut ext, mut so) = (Console::new(), Vec::new(), SaveOpts::default());
         load(&v, &mut con, &mut ext, &mut so);
         assert_eq!(ext, ["xml"]);
+        // CONFIGファイルの内容を英語で保存する decides the keys written
+        std::fs::write(d.join("CSV/_fixed.config"), "CONFIGファイルの内容を英語で保存する:NO\n").unwrap();
+        let mut v = Values::read(&d);
+        let it = ITEMS.iter().find(|i| i.jp == "PRINTCを並べる数").unwrap();
+        v.set(it, Some("4")).unwrap();
+        assert!(String::from_utf8_lossy(&std::fs::read(d.join("emuera.config")).unwrap()).contains("PRINTCを並べる数:4"));
         let _ = std::fs::remove_dir_all(&d);
     }
 }

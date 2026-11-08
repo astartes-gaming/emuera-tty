@@ -715,6 +715,8 @@ fn run(o: Opts) -> i32 {
                 t.contrast = st.contrast_ratio();
                 t.set_recolor(&std::env::var("EMUERA_RECOLOR").unwrap_or_else(|_| st.get("recolor").to_string()));
                 t.wheel = st.get("wheel").parse().unwrap_or(3);
+                // (else the game's スクロール行数 may set it)
+                t.wheel_chosen = st.is_set("wheel");
                 t.yen_mode = st.get("yen").to_string();
                 t.letters_mode = st.get("letters").to_string();
                 t.status_info = st.get("statusbar") == "on";
