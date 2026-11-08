@@ -180,6 +180,9 @@ pub struct Console {
     /// "ボタンの途中で行を折りかえさない": a button that doesn't fit the
     /// rest of the line moves to the next one whole
     pub button_wrap: bool,
+    /// ver1739以前の非ボタン折り返しを再現する: with `button_wrap`, text that
+    /// isn't a button is kept whole too (Emuera's PrintStringBuffer)
+    pub wrap_1739: bool,
     /// "キーボードマクロを使用する": F1…F12 are macro keys (`macros.rs`)
     pub key_macro: bool,
     /// Generation stamped on new lines (Emuera's `newButtonGeneration`).
@@ -273,6 +276,7 @@ impl Console {
             printc_len: 25,
             printc_per_line: 3,
             button_wrap: false,
+            wrap_1739: false,
             key_macro: true,
             gen: 0,
             tooltips: std::collections::HashMap::new(),

@@ -820,8 +820,10 @@ impl Retro {
                     let starts =
                         button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
                     let used = rows.last().unwrap().len();
-                    if con.button_wrap && starts && used > 0 {
-                        let w: usize = line.segs[si..]
+                    // (ver1739以前の非ボタン折り返しを再現する: other text too)
+                    let plain = con.wrap_1739 && button.is_none();
+                    if con.button_wrap && (starts || plain) && used > 0 {
+                        let w: usize = line.segs[si..if plain { si + 1 } else { line.segs.len() }]
                             .iter()
                             .map_while(|s2| match s2 {
                                 Seg::Text { text: t2, button: b2, .. } if b2 == button => {

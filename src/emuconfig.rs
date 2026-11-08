@@ -41,6 +41,7 @@ pub fn load(cfg: &Values, con: &mut Console, text_exts: &mut Vec<String>, saves:
                     con.font_name = v.to_string();
                 }
                 "ボタンの途中で行を折りかえさない" => con.button_wrap = yes(v),
+                "ver1739以前の非ボタン折り返しを再現する" => con.wrap_1739 = yes(v),
                 "キーボードマクロを使用する" => con.key_macro = yes(v),
                 "セーブデータをsavフォルダ内に作成する" => saves.in_folder = yes(v),
                 "セーブデータをバイナリ形式で保存する" => binary = yes(v),

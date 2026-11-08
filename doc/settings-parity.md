@@ -45,19 +45,19 @@ Every setting of Emuera-EM/EE's settings window (`UI/Framework/Forms/ConfigDialo
 | 読み込み順をファイル名順にソートする (`SortWithFilename`) | Sort filenames | `false` | 31 (YES ×27, NO ×4) | honoured (`loader::Listing`) |
 | 表示するセーブデータ数 (`SaveDataNos`) | Save data count per page | `20` | 18 (20 ×16, 80 ×2) | honoured (`emuconfig::load`) |
 | eramaker互換性に関する警告を表示する (`WarnBackCompatibility`) | Eramaker compatibility warning | `true` | 31 (NO ×29, YES ×2) | ignored (task 2/3) |
-| システム関数の上書きを許可する (`AllowFunctionOverloading`) | Allow overriding system functions | `true` | 25 (YES ×18, NO ×7) | ignored: Emuera default not followed either (task 2) |
+| システム関数の上書きを許可する (`AllowFunctionOverloading`) | Allow overriding system functions | `true` | 25 (YES ×18, NO ×7) | no difference in behaviour: a user function wins either way, as in Emuera; only Emuera's load warning level changes (task 2.7) |
 | システム関数が上書きされたとき警告を表示する (`WarnFunctionOverloading`) | System function override warning | `true` | 22 (YES ×21, NO ×1) | ignored (task 2/3) |
 | 関連づけるテキストエディタ (`TextEditor`) | Text editor | `"notepad"` | 17 (notepad ×15, C:\Program Files (x86)\sakura\sakura.exe ×1, C:\Program Files\Notepad++\notepad++.exe ×1) | not applicable (task 3) |
 | テキストエディタコマンドライン指定 (`EditorType`) | Text editor command line setting | `TextEditorType.USER_SETTING` | 17 (USER_SETTING ×17) | not applicable (task 3) |
 | エディタに渡す行指定引数 (`EditorArgument`) | Text editor command line arguments | `""` | 17 ((empty) ×17) | not applicable (task 3) |
 | 同名の非イベント関数が複数定義されたとき警告する (`WarnNormalFunctionOverloading`) | Duplicated functions warning | `false` | 22 (YES ×12, NO ×10) | ignored (task 2/3) |
-| 解釈不可能な行があっても実行する (`CompatiErrorLine`) | Execute error lines | `false` | 18 (NO ×18) | ignored: Emuera default not followed either (task 2) |
+| 解釈不可能な行があっても実行する (`CompatiErrorLine`) | Execute error lines | `false` | 18 (NO ×18) | always as if on (lazy compilation; `doc/differences.md`) |
 | CALLNAMEが空文字列の時にNAMEを代入する (`CompatiCALLNAME`) | Use NAME if CALLNAME is empty | `false` | 18 (NO ×17, YES ×1) | honoured (`GameCsv::load`; NAME was always copied before) |
 | セーブデータをsavフォルダ内に作成する (`UseSaveFolder`) | Use sav folder | `false` | 25 (YES ×23, NO ×2) | honoured (`emuconfig::load`) |
 | 擬似変数RANDの仕様をeramakerに合わせる (`CompatiRAND`) | Imitate behavior for RAND | `false` | 13 (NO ×13) | honoured (`Vm::pseudo_value`); off, RAND without an argument or with one ≤ 0 is Emuera's error (it was 0) |
 | 関数・属性については大文字小文字を無視しない (`CompatiFunctionNoignoreCase`) | Do not ignore case for functions and attributes | `false` | 18 (NO ×18) | always off; a game turning it on gets a note (`doc/differences.md`) |
 | 全角スペースをホワイトスペースに含める (`SystemAllowFullSpace`) | Whitespace includes full-width space | `true` | 23 (NO ×15, YES ×8) | honoured: off, a full-width space in code is Emuera's error (`expr::check_full_space`, `Parser::statement`) |
-| ver1739以前の非ボタン折り返しを再現する (`CompatiLinefeedAs1739`) | Reproduce wrapping behavior like in pre ver1739 | `false` | 12 (NO ×12) | ignored: Emuera default not followed either (task 2) |
+| ver1739以前の非ボタン折り返しを再現する (`CompatiLinefeedAs1739`) | Reproduce wrapping behavior like in pre ver1739 | `false` | 12 (NO ×12) | honoured (`Tty::layout_line_in`, `retro.rs`) |
 | 内部で使用する東アジア言語 (`useLanguage`) | Default ANSI encoding | `UseLanguage.JAPANESE` | 18 (JAPANESE ×16, KOREAN ×1, CHINESE_HANS ×1) | ignored (task 2/3) |
 | イベント関数のCALLを許可する (`CompatiCallEvent`) | Allow CALL on event functions | `false` | 18 (NO ×18) | honoured (`Instr::Call`, `Instr::CallList`) |
 | SPキャラを使用する (`CompatiSPChara`) | Allow SP characters | `false` | 19 (NO ×16, YES ×3) | honoured as Emuera-EM does: off, the SP commands and arguments are errors; on, GETCHARA/GETSPCHARA split by CFLAG:0; templates are found by number either way |

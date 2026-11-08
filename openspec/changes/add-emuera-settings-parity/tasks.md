@@ -12,7 +12,7 @@
 - [x] 2.2 全角スペースをホワイトスペースに含める, FORM中の三連記号を展開しない, 行連結の改行コードの置換文字列. Done: full-width spaces in code are Emuera's errors when off (text, string literals, FORM text and `\@` branches stay allowed; `--check` of the 10 local games that turn it off finds no new errors); triple symbols were never expanded before; `tests/game_config.rs`.
 - [x] 2.3 ユーザー関数の引数に自動的にTOSTRを補完する, ユーザー関数の全ての引数の省略を許可する, キャラクタ変数の引数を補完しない, 文字列変数の代入に文字列式を強制する. Done (`tests/game_config.rs`); a bare character variable read as a value with 補完しない on still means TARGET's (Emuera: an error), noted in the parity table.
 - [x] 2.4 擬似変数RANDの仕様をeramakerに合わせる, TIMESの計算をeramakerにあわせる, CALLNAMEが空文字列の時にNAMEを代入する, SPキャラを使用する, イベント関数のCALLを許可する. Done (`tests/game_config.rs`). Each had been hardwired to its non-default behaviour; the ERB suite's ADDSPCHARA check couldn't pass on Emuera under the sample's config and became an ADDCHARA one.
-- [ ] 2.5 解釈不可能な行があっても実行する, システム関数の上書きを許可する, ver1739以前の非ボタン折り返しを再現する
+- [x] 2.5 解釈不可能な行があっても実行する, システム関数の上書きを許可する, ver1739以前の非ボタン折り返しを再現する. Done: the first is always on here (lazy compile; `doc/differences.md`); the second changes only Emuera's load warning (a user function wins either way), left to 2.7; the third honoured in both frontends (render test).
 - [ ] 2.6 ERD機能を利用する, VARSIZEの次元指定をERD機能に合わせる, ERDで定義した識別子とローカル変数の重複を確認する, サブディレクトリを検索する / 読み込み順をファイル名順にソートする (already read; move onto the model)
 - [ ] 2.7 Warnings and load report: 表示する最低警告レベル, 関数が見つからない/呼び出されなかった警告の扱い, 呼び出されなかった関数を無視する, システム関数が上書きされたとき警告, 同名の非イベント関数警告, eramaker互換性警告, ロード時にレポートを表示する (on `--check` and the load messages)
 - [ ] 2.8 UPDATECHECKを許可しない, 内部で使用する東アジア言語 (ANSI file decoding), Emueraの表示言語 (map to the interface language when the player hasn't chosen one)

@@ -775,6 +775,7 @@ pub struct Tty {
     force_frame: bool,
     /// the game's "ボタンの途中で行を折りかえさない" setting (per frame)
     button_wrap: bool,
+    wrap_1739: bool,
     /// Emuera pixels per text cell: half the font size, the width of a
     /// half-width character, which shapes are measured against
     text_px: f32,
@@ -1162,6 +1163,7 @@ impl Tty {
             forced: std::collections::HashSet::new(),
             row_all: Vec::new(),
             button_wrap: false,
+            wrap_1739: false,
             text_px: 9.0,
         }
     }
@@ -1926,9 +1928,13 @@ impl Tty {
                     // whole (its pieces in other colours count with it)
                     let starts_button =
                         button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
-                    if self.button_wrap && starts_button && col > 0 {
+                    // (ver1739以前の非ボタン折り返しを再現する: other text too, a
+                    // piece at a time)
+                    let plain = self.wrap_1739 && button.is_none();
+                    if self.button_wrap && (starts_button || plain) && col > 0 {
                         let mut w = 0;
-                        for s2 in &line.segs[si..] {
+                        let run = if plain { &line.segs[si..=si] } else { &line.segs[si..] };
+                        for s2 in run {
                             match s2 {
                                 Seg::Text { text: t2, button: b2, .. } if b2 == button => {
                                     w += letter_widths(t2, self.letters)
@@ -2162,6 +2168,7 @@ impl Tty {
         }
         con.width = cols.saturating_sub(1).max(20);
         self.button_wrap = con.button_wrap;
+        self.wrap_1739 = con.wrap_1739;
         self.text_px = (con.font_size / 2.0).max(1.0);
         self.yen = match self.yen_mode.as_str() {
             "on" => true,
@@ -5526,6 +5533,28 @@ pub(crate) mod render_tests {
 
     /// Choosing a language in the overlay translates the next frame (a
     /// one-message catalogue stands in for a real translation)
+    /// ver1739以前の非ボタン折り返しを再現する, with ボタンの途中で行を
+    /// 折りかえさない: a piece of plain text that doesn't fit the rest of the
+    /// row starts the next one, as a button does.
+    #[test]
+    fn wrap_1739_keeps_text_pieces_whole() {
+        let rows = |w1739: bool| -> Vec<String> {
+            let mut t = Tty::blank(None, 20, 10, ColorMode::True);
+            t.button_wrap = true;
+            t.wrap_1739 = w1739;
+            let mut con = Console::new();
+            // (a line has width + 1 columns: Emuera's drawable width)
+            con.width = 19;
+            con.print("0123456789ABCDEF");
+            con.style.fg = crate::console::Rgb(255, 0, 0);
+            con.print("xyzwv");
+            con.newline();
+            t.layout_line(&con.lines[0], 0, 1.0).iter().map(|r| r.cells.iter().map(|c| c.ch).collect::<String>().trim_end().to_string()).collect()
+        };
+        assert_eq!(rows(false), ["0123456789ABCDEFxyzw", "v"]);
+        assert_eq!(rows(true), ["0123456789ABCDEF", "xyzwv"]);
+    }
+
     #[test]
     fn language_setting_applies_at_once() {
         crate::i18n::install("ja", "msgid \"emuera-tty settings\"\nmsgstr \"emuera-tty の設定\"\n");
