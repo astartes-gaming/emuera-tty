@@ -283,12 +283,6 @@ impl Values {
         self.vals.get(jp).and_then(|(x, _)| yes(x)).or_else(|| yes(crate::config_names::default(jp))).unwrap_or(false)
     }
 
-    /// The number `jp`, Emuera's default when unset or not a number.
-    pub fn int(&self, jp: &str) -> i64 {
-        let n = |x: &str| x.trim().parse::<i64>().ok();
-        self.vals.get(jp).and_then(|(x, _)| n(x)).or_else(|| n(crate::config_names::default(jp))).unwrap_or(0)
-    }
-
     /// Every (key, value) line of the files, in the order read.
     pub fn lines(&self) -> &[(String, String)] {
         &self.lines
@@ -422,10 +416,9 @@ mod tests {
         assert!(!v.bool("全角スペースをホワイトスペースに含める"));
         // unset: Emuera's default
         assert!(v.bool("大文字小文字の違いを無視する"));
-        assert_eq!(v.int("PRINTCを並べる数"), 3);
+        assert_eq!(v.value("PRINTCを並べる数"), "3");
         assert_eq!(v.value("フォント名"), "ＭＳ ゴシック");
-        // a value that doesn't parse: Emuera's default, not an earlier file's
-        assert_eq!(v.int("スクロール行数"), 1);
+        // a yes/no that doesn't parse: Emuera's default, not an earlier file's
         assert!(!v.bool("_Rename.csvを利用する"));
         // the English extension key reaches LOADTEXT/SAVETEXT
         let (mut con, mut ext, mut so) = (Console::new(), Vec::new(), SaveOpts::default());
