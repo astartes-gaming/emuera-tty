@@ -1454,8 +1454,9 @@ impl Vm {
                 }
             }
             "RANDOMIZE" => {
-                // Optional seed argument; if omitted, use time-based seed like Emuera
-                let s = self.ai(a, 0, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))?;
+                // an omitted seed is 0, as in Emuera (INT_EXPRESSION_NULLABLE
+                // builds SingleLongTerm(0)), not the clock
+                let s = self.ai(a, 0, 0)?;
                 self.seed(s);
             }
             "INITRAND" => {

@@ -20,3 +20,14 @@ RANDOMIZE 7
 LOCAL:4 = RAND:1000000
 RANDOMIZE 7
 CALL CHECK, "randomize repeats", RAND:1000000 == LOCAL:4
+;--- Emuera's MTRandom is SFMT-19937: SFMT's own test vector for
+;--- init_gen_rand(1234) starts 3440181298 1564997079 1510669302 2930277156;
+;--- RAND is ((first << 32) + second) % max (SFMT.cs NextInt64)
+RANDOMIZE 1234
+CALL CHECKS, "sfmt vector, both words", RAND:9223372036854775807, 5552094131931051480
+CALL CHECKS, "sfmt vector, low word", RAND:4294967296, 2930277156
+;--- an omitted RANDOMIZE argument is 0 (INT_EXPRESSION_NULLABLE), not the clock
+RANDOMIZE
+LOCAL:5 = RAND:1000000
+RANDOMIZE 0
+CALL CHECKS, "randomize without argument is 0", RAND:1000000, LOCAL:5
