@@ -31,6 +31,7 @@ mod gfx;
 mod html;
 mod json;
 mod lint;
+mod loadcheck;
 mod loader;
 mod macros;
 #[cfg(target_os = "linux")]
@@ -524,6 +525,8 @@ fn build_program(
         p.parse_erb((n_files - 1) as u32, &src);
     }
     p.prog.funcs.shrink();
+    // Emuera's load warnings the function headers tell
+    loadcheck::at_load(&mut p.prog, cfg);
     // (the debug panel compiles its commands with the game's #DEFINEs)
     p.prog.snippets = Some(std::sync::Arc::new(std::sync::Mutex::new(p.snippet_parser())));
     phase("parse erb");
@@ -639,6 +642,10 @@ fn run(o: Opts) -> i32 {
         eprintln!("... {} more parse errors (run with --check to list all)", prog.errors.len() - 30);
     }
     if o.check {
+        // what Emuera reports while loading, as the game's settings ask
+        for l in loadcheck::check(&prog, &csv, &cfg) {
+            eprintln!("{}", l);
+        }
         if std::env::var_os("EMUERA_LINT").is_some() {
             for l in lint::lint(&prog) {
                 eprintln!("lint: {}", l);
@@ -745,6 +752,10 @@ fn run(o: Opts) -> i32 {
     // Emuera's -Debug: the debug panel (Ctrl-D) and DEBUGPRINT
     if o.game_debug {
         vm.debug_start();
+        // (the load warnings Emuera shows: in the debug console)
+        for l in loadcheck::load_warnings(&vm.prog, &vm.cfg) {
+            vm.debug_print(&l, true);
+        }
     }
     // the reload hotkey parses the ERB files again
     {

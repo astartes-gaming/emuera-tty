@@ -220,3 +220,53 @@ fn indices_out_of_range_are_errors() {
     let last = play("oor-last", "", &[], "@SYSTEM_TITLE\nFLAG:9999 = 4\nPRINTFORML [{FLAG:9999}]\nQUIT\n");
     assert!(last.contains("[4]"), "{last}");
 }
+
+/// `--check` reports what Emuera reports while loading, filtered by the
+/// game's warning settings.
+fn check(tag: &str, config: &str, erb: &str) -> String {
+    let dir = temp_dir(tag);
+    game(&dir, &[("emuera.config", config), ("ERB/T.ERB", erb)]);
+    let o = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty")).arg(&dir).arg("--check").env("EMUERA_TTY_TESTING", "1").output().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr)
+}
+
+#[test]
+fn load_warnings_follow_the_settings() {
+    let erb = "@SYSTEM_TITLE\nCALL A\nCALL NOPE\nTRYCALL ALSO_NOPE\nQUIT\n@A\nRETURN\n@LONELY\nRETURN\n@A\nRETURN\n";
+    // Emuera's defaults: missing and uncalled functions ignored, no
+    // duplicate warning
+    let quiet = check("lw-default", "", erb);
+    assert!(!quiet.contains("警告"), "{quiet}");
+    let all = check(
+        "lw-all",
+        "関数が見つからない警告の扱い:DISPLAY\n関数が呼び出されなかった警告の扱い:DISPLAY\n同名の非イベント関数が複数定義されたとき警告する:YES\nロード時にレポートを表示する:YES\n",
+        erb,
+    );
+    for want in [
+        "警告Lv2:ERB/T.ERB:3行目:指定された関数名\"@NOPE\"は存在しません",
+        "警告Lv1:ERB/T.ERB:8行目:関数\"@LONELY\"は定義されていますが一度も呼び出されません",
+        "警告Lv1:ERB/T.ERB:10行目:関数\"@A\"は既に定義(ERB/T.ERBの6行目)されています",
+        "全関数合計:3, 被呼出関数合計:2",
+    ] {
+        assert!(all.contains(want), "{want:?} missing:\n{all}");
+    }
+    assert!(!all.contains("ALSO_NOPE"), "{all}");
+    // only level 2 and up shown
+    let lv2 = check("lw-level", "関数が見つからない警告の扱い:DISPLAY\n関数が呼び出されなかった警告の扱い:DISPLAY\n表示する最低警告レベル:2\n", erb);
+    assert!(lv2.contains("@NOPE") && !lv2.contains("@LONELY"), "{lv2}");
+    // a CALLFORM: every function counts as called, as in Emuera
+    let form = check("lw-callform", "関数が呼び出されなかった警告の扱い:DISPLAY\n", "@SYSTEM_TITLE\nCALLFORM A%\"\"%\nQUIT\n@A\n@LONELY\n");
+    assert!(!form.contains("一度も呼び出されません"), "{form}");
+}
+
+/// システム関数の上書きを許可する off (with its warning on): a function
+/// named like a built-in expression function is Emuera's error, and the
+/// built-in is used.
+#[test]
+fn overriding_built_in_functions_follows_the_setting() {
+    let erb = "@SYSTEM_TITLE\nPRINTFORML [{ABS(-3)}]\nQUIT\n@ABS(X)\n#FUNCTION\nRETURNF 42\n";
+    assert!(play("ov-on", "", &[], erb).contains("[42]"));
+    let off = play("ov-off", "システム関数の上書きを許可する:NO\n", &[], erb);
+    assert!(off.contains("[3]") && off.contains("関数名\"ABS\"はEmueraの式中関数名として使われています"), "{off}");
+}

@@ -44,6 +44,8 @@ pub struct Program {
     pub defines: HashMap<String, String>,
     /// Parse errors, "file:line: message"; shown by `--check`.
     pub errors: Vec<String>,
+    /// Emuera's load warnings found while reading (see `loadcheck.rs`)
+    pub warnings: Vec<crate::loadcheck::Warning>,
     /// A parser that knows the game's `#DEFINE`s and global variables, for
     /// the debug panel's commands (see [`Parser::compile_snippet`]).
     pub snippets: Option<Rc<std::sync::Mutex<Parser>>>,
@@ -192,6 +194,27 @@ impl Funcs {
     /// How many functions there are.
     pub fn len(&self) -> usize {
         self.heads.len()
+    }
+
+    /// Every name defined more than once: the name, where its first
+    /// definition is, and where each later one is (file, line).
+    pub fn defined_again(&self) -> Vec<(&str, (u32, u32), (u32, u32))> {
+        let mut out = Vec::new();
+        for &e in self.table.iter().filter(|&&e| e != FREE) {
+            let first = &self.heads[e as u32 as usize];
+            let mut at = first.next;
+            while at != NONE {
+                let h = &self.heads[at as usize];
+                out.push((self.name_of(first), (first.src.file, first.src.line), (h.src.file, h.src.line)));
+                at = h.next;
+            }
+        }
+        out
+    }
+
+    /// Every function's name and where it is (file, line), made or not.
+    pub fn where_defined(&self) -> impl Iterator<Item = (&str, u32, u32)> {
+        self.heads.iter().map(|h| (self.name_of(h), h.src.file, h.src.line))
     }
 
     /// The functions made so far (all of them when compiled at load).
@@ -1132,6 +1155,7 @@ impl Parser {
     pub fn absorb(&mut self, other: Program) {
         self.prog.funcs.absorb(other.funcs);
         self.prog.errors.extend(other.errors);
+        self.prog.warnings.extend(other.warnings);
     }
 
     /// Header file: `#DEFINE`s and global `#DIM`s only. All headers are
@@ -1281,7 +1305,23 @@ impl Parser {
         for (k, &i0) in starts.iter().enumerate() {
             let i1 = starts.get(k + 1).copied().unwrap_or(lines.len());
             let (no, head) = &lines[i0];
-            let mut b = match self.func_header(&head[1..], file_idx, *no) {
+            // a function named like a built-in expression function (Emuera's
+            // CheckUserLabelName, checked only with システム関数が上書きされた
+            // とき警告を表示する): an error unless システム関数の上書きを許可する,
+            // else a warning
+            let header = self.func_header(&head[1..], file_idx, *no).and_then(|b| {
+                if !crate::vm::builtins::is_builtin_function(&b.f.name) || !self.cfg.bool("システム関数が上書きされたとき警告を表示する")
+                {
+                    return Ok(b);
+                }
+                if !self.cfg.bool("システム関数の上書きを許可する") {
+                    return Err(format!("関数名\"{}\"はEmueraの式中関数名として使われています", b.f.name));
+                }
+                let msg = format!("関数名\"{}\"はEmueraの式中関数を上書きします", b.f.name);
+                self.prog.warnings.push(crate::loadcheck::Warning { level: 1, file: file_idx, line: *no, msg });
+                Ok(b)
+            });
+            let mut b = match header {
                 Ok(b) => b,
                 Err(e) => {
                     self.prog.errors.push(format!("{}:{}: {}", path, no, e));

@@ -121,7 +121,7 @@ pub fn table_for_var(var: &str) -> Option<&'static str> {
     })
 }
 
-const TABLE_FILES: &[(&str, &str)] = &[
+pub const TABLE_FILES: &[(&str, &str)] = &[
     ("ABL.CSV", "ABL"),
     ("TALENT.CSV", "TALENT"),
     ("EXP.CSV", "EXP"),

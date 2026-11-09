@@ -18,6 +18,21 @@
   Emuera evaluates both as `<`, a bug as old as vanilla Emuera, so these are
   the lines a fix would change.
 
+## Emuera's load warnings
+
+`emuera-tty GAME --check` compiles every function and reports what Emuera
+reports while loading, in its words (`警告Lv2:ERB/X.ERB:12行目:…`), as the
+game's settings ask (*Minimum warning level*, *Function is not found
+warning*, *Function not called warning*, *Duplicated functions warning*,
+*System function override warning*, *Check duplicate ERD identifier*,
+*Display loading report*): calls to functions that don't exist, functions
+nothing calls, functions defined twice, built-in functions the game
+replaces. A game whose settings leave these at Emuera's defaults shows
+none; set them in the game's `emuera.config` (or F3 → game settings) to
+see them. The warnings the function headers alone tell (duplicates,
+replaced built-ins) are also in the debug panel's console when the game
+starts in debug mode.
+
 ## The debug panel
 
 Emuera's debug window, for games run in debug mode (`--game-debug`, or
