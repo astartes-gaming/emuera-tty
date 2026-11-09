@@ -1113,7 +1113,7 @@ impl Vm {
         if let Some(loc) = self.frames.last().and_then(|f| if f.refs.is_empty() { None } else { f.refs.get(name) }).cloned() {
             let idx = self.eval_indices(v, 0, table)?;
             let a = self.arr_at(&loc).ok_or_else(|| Ctrl::Error(format!("{}: referenced variable is gone", name), false))?;
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc, flat });
         }
         // 1. frame-local
@@ -1162,7 +1162,7 @@ impl Vm {
                 self.statics[slot] = Some(a);
             }
             let idx = self.eval_indices(v, 0, table)?;
-            let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Static(slot), flat });
         }
         // DYNAMIC privates: allocated per call by `call_func`
@@ -1170,7 +1170,7 @@ impl Vm {
             let idx = self.eval_indices(v, 0, table)?;
             let f = self.frames.last().unwrap();
             let a = f.vars.get(name).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Frame(v.name.clone()), flat });
         }
         // 2. user globals
@@ -1181,7 +1181,7 @@ impl Vm {
             let idx = self.eval_indices(v, 0, table)?;
             let slot = self.global_slot(v);
             let a = self.globals.at_ref(slot).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Global(slot), flat });
         }
         // 3a. CSV name tables (ABLNAME, BASENAME, …) as real string arrays,
@@ -1192,11 +1192,19 @@ impl Vm {
                 if self.globals.at_ref(slot).is_none() {
                     let tbl = self.csv.tables.get(t);
                     let max = tbl.and_then(|t| t.by_index.keys().max().copied()).unwrap_or(-1) + 1;
-                    let size = match system_var(t) {
-                        Some(def) => self.var_def_dims(t, def).last().copied().unwrap_or(0),
-                        None => 0,
-                    }
-                    .max(max.max(1) as usize);
+                    // Emuera's decideActualArraySize: the name array's own
+                    // VariableSize.csv entry, else its variable's size
+                    // (TRAINNAME has none: 1000; STRNAME follows STR)
+                    let main = match t {
+                        "STRNAME" => "STR",
+                        t => t,
+                    };
+                    let own = self.csv.varsize.get(name).and_then(|d| d.first().copied());
+                    let size = own
+                        .or_else(|| system_var(main).map(|def| self.var_def_dims(main, def).last().copied().unwrap_or(0)))
+                        .unwrap_or(if t == "TRAIN" { 1000 } else { 0 })
+                        // (names past it kept, rather than lost)
+                        .max(max.max(1) as usize);
                     let mut a = Arr::new(true, &[size]);
                     if let Some(tbl) = tbl {
                         for (i, s) in &tbl.by_index {
@@ -1206,7 +1214,7 @@ impl Vm {
                     self.globals.insert(name.to_string(), a);
                 }
                 let idx = self.eval_indices(v, 0, table)?;
-                let flat = self.globals.at_ref(slot).unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+                let flat = self.globals.at_ref(slot).unwrap().flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
                 return Ok(Place { loc: Loc::Global(slot), flat });
             }
         }
@@ -1226,7 +1234,7 @@ impl Vm {
                 self.global_arr(name);
             }
             let a = self.globals.at_ref(slot).unwrap();
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Global(slot), flat });
         }
         if let Some((base, func)) = name.split_once('@') {
@@ -1266,7 +1274,7 @@ impl Vm {
             });
         }
         let idx = self.eval_indices(v, 0, None)?;
-        let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", v.name, e), false))?;
+        let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(&v.name, &e, false), false))?;
         Ok(Place { loc: Loc::Static(slot), flat })
     }
 
@@ -1297,7 +1305,7 @@ impl Vm {
             s => s - 1,
         };
         let a = self.chara_arr_id(ci, id);
-        let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", v.name, e), false))?;
+        let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(&v.name, &e, true), false))?;
         Ok(Place { loc: Loc::Chara(ci, id), flat })
     }
 

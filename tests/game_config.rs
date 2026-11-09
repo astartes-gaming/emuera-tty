@@ -206,3 +206,17 @@ fn byte_lengths_follow_the_language_setting() {
     let kr = play("cfg-lang-kr", "内部で使用する東アジア言語:KOREAN\n", &[], erb);
     assert!(kr.contains("[4][3]"), "{kr}");
 }
+
+/// An index outside an array is Emuera's error, read or write, 1-D arrays
+/// included (emuera-tty used to grow them).
+#[test]
+fn indices_out_of_range_are_errors() {
+    let write = play("oor-write", "", &[], "@SYSTEM_TITLE\nFLAG:10000 = 1\nPRINTL after\nQUIT\n");
+    assert!(write.contains("配列変数\"FLAG\"の第1引数(10000)は配列の範囲外です") && !write.contains("after"), "{write}");
+    let read = play("oor-read", "", &[], "@SYSTEM_TITLE\n#DIM ARR, 3\nPRINTFORML {ARR:3}\nQUIT\n");
+    assert!(read.contains("配列変数\"ARR\"の第1引数(3)は配列の範囲外です"), "{read}");
+    let chara = play("oor-chara", "", &[], "@SYSTEM_TITLE\nADDVOIDCHARA\nPRINTFORML {CFLAG:0:-1}\nQUIT\n");
+    assert!(chara.contains("キャラクタ配列変数\"CFLAG\"の第2引数(-1)はキャラ登録番号または配列の範囲外です"), "{chara}");
+    let last = play("oor-last", "", &[], "@SYSTEM_TITLE\nFLAG:9999 = 4\nPRINTFORML [{FLAG:9999}]\nQUIT\n");
+    assert!(last.contains("[4]"), "{last}");
+}
