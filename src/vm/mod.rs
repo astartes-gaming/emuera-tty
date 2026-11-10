@@ -1806,13 +1806,14 @@ impl Vm {
             // runScriptProc(translate)); both come back whatever happens
             let (run, eval, line) = (self.tr_run, self.tr_eval, self.tr_line);
             self.tr_eval = false;
+            let returns_str = f.returns_str;
             let r = self.call_args(&f, args).and_then(|(vals, refs)| {
                 self.pending_refs = refs;
                 self.tr_run = eval;
-                self.call_func(f.clone(), vals)
+                self.call_func(f, vals)
             });
             (self.tr_run, self.tr_eval, self.tr_line) = (run, eval, line);
-            return Ok(r?.unwrap_or(if f.returns_str { Value::Str(String::new()) } else { Value::Int(0) }));
+            return Ok(r?.unwrap_or(if returns_str { Value::Str(String::new()) } else { Value::Int(0) }));
         }
         match self.builtin_fn(name, args)? {
             Some(v) => Ok(v),

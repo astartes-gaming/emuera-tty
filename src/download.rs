@@ -295,7 +295,8 @@ pub fn repo_of(link: &str) -> Option<Repo> {
         _ => return None,
     };
     let project = project.strip_suffix(".git").unwrap_or(&project).to_string();
-    if project.split('/').count() < 2 || project.starts_with("groups/") || project.split('/').any(str::is_empty) {
+    // (`.` / `..` would make the clone's folder name climb out of the games folder)
+    if project.split('/').count() < 2 || project.starts_with("groups/") || project.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
         return None;
     }
     let seg: Vec<&str> = tail.split('/').filter(|s| !s.is_empty()).collect();
@@ -446,6 +447,10 @@ mod tests {
         let r = |l: &str| repo_of(l).map(|r| (r.url, r.branch));
         let gg = |p: &str, b: &str| Some((format!("https://gitgud.io/{}.git", p), b.to_string()));
         assert_eq!(r("https://gitgud.io/Legis1998/anon-tw"), gg("Legis1998/anon-tw", ""));
+        // dot segments would name a folder outside the games folder
+        assert_eq!(r("https://github.com/a/.."), None);
+        assert_eq!(r("https://gitgud.io/../x"), None);
+        assert_eq!(r("https://gitlab.com/a/./b"), None);
         assert_eq!(r("https://gitgud.io/era-games/EraMeiQGaiden/"), gg("era-games/EraMeiQGaiden", ""));
         assert_eq!(
             r("https://gitgud.io/era-games/eraAkumaMaid/-/tree/game/eng-translation?ref_type=heads"),
