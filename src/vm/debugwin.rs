@@ -151,6 +151,22 @@ impl Vm {
         Ok(())
     }
 
+    /// The load warnings, in the game's console before it starts, as
+    /// Emuera's PrintWarning: the warning in red, then the line it is about.
+    pub fn show_load_warnings(&mut self) {
+        let shown: Vec<(String, String, u32)> = crate::loadcheck::load_warnings(&self.prog, &self.cfg)
+            .into_iter()
+            .map(|w| (crate::loadcheck::format(&self.prog, w), self.prog.files.get(w.file as usize).cloned().unwrap_or_default(), w.line))
+            .collect();
+        for (msg, file, line) in shown {
+            self.print_error(&msg);
+            if let Some(src) = self.source_line(&file, line) {
+                self.con.print(src.trim());
+                self.con.newline();
+            }
+        }
+    }
+
     /// A line in the game's console in red, as Emuera's PrintError.
     fn print_error(&mut self, msg: &str) {
         let fg = self.con.style.fg;

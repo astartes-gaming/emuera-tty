@@ -29,9 +29,9 @@ warning*, *Function not called warning*, *Duplicated functions warning*,
 nothing calls, functions defined twice, built-in functions the game
 replaces. A game whose settings leave these at Emuera's defaults shows
 none; set them in the game's `emuera.config` (or F3 → game settings) to
-see them. The warnings the function headers alone tell (duplicates,
-replaced built-ins) are also in the debug panel's console when the game
-starts in debug mode.
+see them. In debug mode, the warnings the function headers alone tell
+(duplicates, replaced built-ins) are printed in the game's console before
+it starts, each in red followed by the line it is about, as Emuera does.
 
 ## The debug panel
 

@@ -9,7 +9,7 @@
 //! every body (calls to functions that don't exist, functions never
 //! called) is worked out by `--check`; what the function headers tell
 //! (duplicates, built-in functions overridden) is known at every start and
-//! goes to the debug console in debug mode.
+//! is printed in the game's console at start in debug mode.
 
 use crate::ast::*;
 use crate::emuconfig::Values;
@@ -54,9 +54,10 @@ pub fn at_load(prog: &mut Program, cfg: &Values) {
     prog.warnings.sort_by_key(|w| (w.file, w.line));
 }
 
-/// The load warnings shown, formatted (the debug console's, at start).
-pub fn load_warnings(prog: &Program, cfg: &Values) -> Vec<String> {
-    prog.warnings.iter().filter(|w| shown(cfg, w.level)).map(|w| format(prog, w)).collect()
+/// The load warnings the game's 表示する最低警告レベル lets through (shown
+/// in the console at start: `Vm::show_load_warnings`).
+pub fn load_warnings<'a>(prog: &'a Program, cfg: &Values) -> Vec<&'a Warning> {
+    prog.warnings.iter().filter(|w| shown(cfg, w.level)).collect()
 }
 
 /// Functions the system calls itself, and so called at load whether any

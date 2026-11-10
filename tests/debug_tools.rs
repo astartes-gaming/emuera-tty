@@ -53,3 +53,31 @@ fn at_commands_follow_the_settings() {
     let debug = play("at-debug", "", b"@DEBUG\n7\n", true);
     assert!(!debug.contains("デバッグウインドウは") && debug.contains("got 7"), "{debug}");
 }
+
+/// In debug mode the load warnings come first in the game's console, each
+/// followed by the line it is about (Emuera's PrintWarning).
+#[test]
+fn load_warnings_are_printed_in_debug_mode() {
+    let dir = temp_dir("load-warnings-debug");
+    game(
+        &dir,
+        &[
+            ("emuera.config", "同名の非イベント関数が複数定義されたとき警告する:YES\n"),
+            ("ERB/T.ERB", "@SYSTEM_TITLE\nPRINTL title\nQUIT\n@A\nRETURN\n@A\nRETURN 1\n"),
+        ],
+    );
+    let o = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty"))
+        .arg(&dir)
+        .args(["--headless", "--echo", "--game-debug"])
+        .env("EMUERA_TTY_TESTING", "1")
+        .env("XDG_DATA_HOME", dir.join("data"))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    let warn = "警告Lv1:ERB/T.ERB:6行目:関数\"@A\"は既に定義(ERB/T.ERBの4行目)されています\n@A\n";
+    assert!(out.find(warn).is_some_and(|w| out.find("title").is_some_and(|t| w < t)), "{out}");
+    // not in normal play
+    assert!(!run(&dir, b"", None).contains("警告"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

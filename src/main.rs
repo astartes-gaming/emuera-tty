@@ -752,10 +752,8 @@ fn run(o: Opts) -> i32 {
     // Emuera's -Debug: the debug panel (Ctrl-D) and DEBUGPRINT
     if o.game_debug {
         vm.debug_start();
-        // (the load warnings Emuera shows: in the debug console)
-        for l in loadcheck::load_warnings(&vm.prog, &vm.cfg) {
-            vm.debug_print(&l, true);
-        }
+        // the load warnings, in the game's console as Emuera prints them
+        vm.show_load_warnings();
     }
     // the reload hotkey parses the ERB files again
     {
