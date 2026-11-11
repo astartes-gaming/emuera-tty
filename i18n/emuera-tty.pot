@@ -245,6 +245,10 @@ msgid "{dir}: no CSV directory found"
 msgstr ""
 
 #: src/main.rs
+msgid "this game's settings ask for names that differ only in letter case to be different; emuera-tty always ignores case"
+msgstr ""
+
+#: src/main.rs
 msgid "inside tmux, pictures in Ghostty or kitty need `set -g allow-passthrough all` (in ~/.tmux.conf, then `tmux source-file ~/.tmux.conf`); `--gfx none` plays without pictures"
 msgstr ""
 
@@ -1171,6 +1175,42 @@ msgstr ""
 msgid "default for --gfx: kitty, iterm, sixel, fb or none"
 msgstr ""
 
+#: src/tty/debugpanel.rs
+msgid "Variable watch"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "Stack trace"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "Console"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "Expression (empty: remove):"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "Debug  (Emuera's debug window)"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "(new: Enter)"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "Tab tab  ↑↓ choose  Enter edit  a add  d remove  r refresh  Esc close"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "Tab tab  ↑↓ PgUp PgDn scroll  r refresh  Esc close"
+msgstr ""
+
+#: src/tty/debugpanel.rs
+msgid "Tab tab  Enter run  ↑↓ history  PgUp PgDn scroll  Esc close"
+msgstr ""
+
 #: src/tty/envvars.rs
 msgid "Normal users shouldn't need these: they are mostly for debugging and testing. ● set  ○ not set. Enter: what a variable does. They are read when emuera-tty starts, so set them in the shell before launching."
 msgstr ""
@@ -1786,6 +1826,18 @@ msgstr ""
 
 #: src/tty.rs
 msgid "Wait for the line to finish"
+msgstr ""
+
+#: src/vm/debugwin.rs
+msgid "@REBOOT: Ctrl-R restarts the game"
+msgstr ""
+
+#: src/vm/debugwin.rs
+msgid "@CONFIG: F3 opens the settings"
+msgstr ""
+
+#: src/vm/debugwin.rs
+msgid "@OUTPUTLOG isn't supported yet"
 msgstr ""
 
 #: src/vm/mod.rs

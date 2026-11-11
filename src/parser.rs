@@ -44,6 +44,11 @@ pub struct Program {
     pub defines: HashMap<String, String>,
     /// Parse errors, "file:line: message"; shown by `--check`.
     pub errors: Vec<String>,
+    /// Emuera's load warnings found while reading (see `loadcheck.rs`)
+    pub warnings: Vec<crate::loadcheck::Warning>,
+    /// A parser that knows the game's `#DEFINE`s and global variables, for
+    /// the debug panel's commands (see [`Parser::compile_snippet`]).
+    pub snippets: Option<Rc<std::sync::Mutex<Parser>>>,
 }
 
 /// Functions by upper-case name; several of one name are an event's
@@ -189,6 +194,27 @@ impl Funcs {
     /// How many functions there are.
     pub fn len(&self) -> usize {
         self.heads.len()
+    }
+
+    /// Every name defined more than once: the name, where its first
+    /// definition is, and where each later one is (file, line).
+    pub fn defined_again(&self) -> Vec<(&str, (u32, u32), (u32, u32))> {
+        let mut out = Vec::new();
+        for &e in self.table.iter().filter(|&&e| e != FREE) {
+            let first = &self.heads[e as u32 as usize];
+            let mut at = first.next;
+            while at != NONE {
+                let h = &self.heads[at as usize];
+                out.push((self.name_of(first), (first.src.file, first.src.line), (h.src.file, h.src.line)));
+                at = h.next;
+            }
+        }
+        out
+    }
+
+    /// Every function's name and where it is (file, line), made or not.
+    pub fn where_defined(&self) -> impl Iterator<Item = (&str, u32, u32)> {
+        self.heads.iter().map(|h| (self.name_of(h), h.src.file, h.src.line))
     }
 
     /// The functions made so far (all of them when compiled at load).
@@ -496,6 +522,9 @@ pub struct Parser {
     global_str: HashSet<String>,
     /// `--debug`: keep `;#;` lines and `[IF_DEBUG]` blocks.
     debug: bool,
+    /// the game's Emuera settings (the System and Compatibility tabs
+    /// change how scripts are read)
+    pub cfg: std::sync::Arc<crate::emuconfig::Values>,
     /// Set: function bodies are compiled on their first call (see
     /// [`LazySrc`]), not at load.
     lazy: Option<Rc<LazyCtx>>,
@@ -903,12 +932,12 @@ fn form_arg_cmd(cmd: &str) -> bool {
 const IGNORED_BLOCKS: &[&str] = &["NOSKIP", "ENDNOSKIP"];
 
 impl Parser {
-    pub fn new(rename: &[(String, String)], debug: bool) -> Self {
+    pub fn new(rename: &[(String, String)], debug: bool, cfg: std::sync::Arc<crate::emuconfig::Values>) -> Self {
         let mut m: HashMap<String, String> = HashMap::default();
         for (k, v) in rename {
             m.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        Parser { prog: Program::default(), rename_map: Rc::new(m), global_str: HashSet::default(), debug, lazy: None }
+        Parser { prog: Program::default(), rename_map: Rc::new(m), global_str: HashSet::default(), debug, lazy: None, cfg }
     }
 
     /// From now on (after the headers), leave function bodies to their
@@ -1065,7 +1094,9 @@ impl Parser {
             }
             if let Some((_, s)) = join.as_mut() {
                 if !s.is_empty() {
-                    s.push(' ');
+                    // 行連結の改行コードの置換文字列, quotes taken out as
+                    // Emuera's EraStreamReader does (default `" "`)
+                    s.push_str(&self.cfg.value("行連結の改行コードの置換文字列").replace('"', ""));
                 }
                 s.push_str(&line);
                 continue;
@@ -1085,6 +1116,29 @@ impl Parser {
     /// string-variable names, empty output. Merge back with [`absorb`].
     ///
     /// [`absorb`]: Parser::absorb
+    /// A parser for [`Parser::compile_snippet`], kept in the program.
+    pub fn snippet_parser(&self) -> Parser {
+        let mut q = self.fork();
+        q.lazy = None;
+        q
+    }
+
+    /// `text` compiled now as the body of a function `name` (the debug
+    /// panel's commands): the function, or the first parse error.
+    pub fn compile_snippet(&mut self, name: &str, text: &str) -> Result<Rc<Function>, String> {
+        self.prog.errors.clear();
+        self.prog.funcs = Funcs::default();
+        let src = SourceFile { path: String::new(), text: format!("@{}\n{}\n", name, text) };
+        self.parse_erb(u32::MAX, &src);
+        if let Some(e) = self.prog.errors.first() {
+            // ("file:line: message :: line": the message alone)
+            let e = e.split_once(": ").map_or(e.as_str(), |x| x.1);
+            let e = e.split_once(": ").map_or(e, |x| x.1);
+            return Err(e.split(" :: ").next().unwrap_or(e).to_string());
+        }
+        self.prog.funcs.get(name).and_then(|f| f.first().cloned()).ok_or_else(|| "解釈できない行です".to_string())
+    }
+
     pub fn fork(&self) -> Parser {
         Parser {
             prog: Program { defines: self.prog.defines.clone(), ..Program::default() },
@@ -1092,6 +1146,7 @@ impl Parser {
             global_str: self.global_str.clone(),
             debug: self.debug,
             lazy: self.lazy.clone(),
+            cfg: self.cfg.clone(),
         }
     }
 
@@ -1100,6 +1155,7 @@ impl Parser {
     pub fn absorb(&mut self, other: Program) {
         self.prog.funcs.absorb(other.funcs);
         self.prog.errors.extend(other.errors);
+        self.prog.warnings.extend(other.warnings);
     }
 
     /// Header file: `#DEFINE`s and global `#DIM`s only. All headers are
@@ -1142,6 +1198,7 @@ impl Parser {
         let up = line.to_uppercase();
         let is_str = up.starts_with("#DIMS");
         let rest = if is_str { &line[5..] } else { &line[4..] };
+        crate::expr::check_full_space(rest)?;
         let mut p = ExprParser::new(rest, &self.prog.defines);
         let mut d = DimDecl {
             name: String::new(),
@@ -1248,7 +1305,23 @@ impl Parser {
         for (k, &i0) in starts.iter().enumerate() {
             let i1 = starts.get(k + 1).copied().unwrap_or(lines.len());
             let (no, head) = &lines[i0];
-            let mut b = match self.func_header(&head[1..], file_idx, *no) {
+            // a function named like a built-in expression function (Emuera's
+            // CheckUserLabelName, checked only with システム関数が上書きされた
+            // とき警告を表示する): an error unless システム関数の上書きを許可する,
+            // else a warning
+            let header = self.func_header(&head[1..], file_idx, *no).and_then(|b| {
+                if !crate::vm::builtins::is_builtin_function(&b.f.name) || !self.cfg.bool("システム関数が上書きされたとき警告を表示する")
+                {
+                    return Ok(b);
+                }
+                if !self.cfg.bool("システム関数の上書きを許可する") {
+                    return Err(format!("関数名\"{}\"はEmueraの式中関数名として使われています", b.f.name));
+                }
+                let msg = format!("関数名\"{}\"はEmueraの式中関数を上書きします", b.f.name);
+                self.prog.warnings.push(crate::loadcheck::Warning { level: 1, file: file_idx, line: *no, msg });
+                Ok(b)
+            });
+            let mut b = match header {
                 Ok(b) => b,
                 Err(e) => {
                     self.prog.errors.push(format!("{}:{}: {}", path, no, e));
@@ -1366,6 +1439,7 @@ impl Parser {
                 parts.pop();
             }
             for part in parts {
+                crate::expr::check_full_space(&part)?;
                 let mut p = ExprParser::new(&part, &self.prog.defines);
                 let mut v = p.var_ref()?;
                 upper_var(&mut v);
@@ -1461,6 +1535,20 @@ impl Parser {
     /// PRINT variants, control flow, other commands, and finally
     /// assignment (anything that isn't a known command).
     fn statement(&mut self, b: &mut FuncBuilder, line: &str) -> Result<(), String> {
+        // a name followed by a full-width space, unless 全角スペースを
+        // ホワイトスペースに含める: Emuera's error after a statement's name
+        // (LogicalLineParser), its lexer's anywhere else (an assignment)
+        if !crate::expr::FULL_SPACE_IS_SPACE.load(std::sync::atomic::Ordering::Relaxed) {
+            let (cmd, _) = split_cmd(line);
+            if !cmd.is_empty() && line.chars().nth(cmd.chars().count()) == Some('\u{3000}') {
+                let statement = is_command(&cmd) || parse_print_name(&cmd).is_some() || FLOW_WORDS.contains(&cmd.as_str());
+                return Err(if statement {
+                    "命令で行が始まっていますが、命令の直後に半角スペース・タブ以外の文字が来ています(この警告はシステムオプション「全角スペースをホワイトスペースに含める」により無視できます)".into()
+                } else {
+                    crate::expr::FULL_SPACE_ERROR.into()
+                });
+            }
+        }
         // Inside PRINTDATA / STRDATA collect DATA lines.
         if let Some(Ctl::Data { .. }) = b.ctl.last() {
             let (cmd, rest) = split_cmd(line);
@@ -1962,6 +2050,15 @@ impl Parser {
     fn assignment(&self, b: &mut FuncBuilder, line: &str) -> Result<(), String> {
         let mut p = ExprParser::new(line, &self.prog.defines);
         let mut v = p.var_ref()?;
+        // the variable and the space before the operator are code (a string
+        // assignment's FORM text after `=` may hold full-width spaces)
+        if !crate::expr::FULL_SPACE_IS_SPACE.load(std::sync::atomic::Ordering::Relaxed) {
+            let rest = p.rest();
+            crate::expr::check_full_space(&line[..line.len().saturating_sub(rest.len())])?;
+            if rest.trim_start_matches([' ', '\t']).starts_with('\u{3000}') {
+                return Err(crate::expr::FULL_SPACE_ERROR.into());
+            }
+        }
         upper_var(&mut v);
         p.skip_ws();
         // `FLAG:X,-= 1`: Emuera reads the left side as an argument list,
@@ -2013,6 +2110,11 @@ impl Parser {
         let is_str = self.is_str_var(b, &v.name);
         // only plain `STR = ...` takes FORM text; `+=` takes a string expression
         if is_str && op == AsgOp::Set {
+            // 文字列変数の代入に文字列式を強制する: only `'=` may assign to a
+            // string variable (Emuera's ArgumentBuilder)
+            if self.cfg.bool("文字列変数の代入に文字列式を強制する") {
+                return Err("文字列代入は禁止されています（'=を用いるかコンフィグオプションを変えてください)".into());
+            }
             // Emuera skips/trims only half-width spaces and tabs here; a
             // leading full-width space is content (map rows start with them).
             // The text runs to the end of the line: a `;` in it is text, not
@@ -2095,6 +2197,7 @@ impl Parser {
     }
 
     fn var(&self, s: &str) -> Result<Rc<VarRef>, String> {
+        crate::expr::check_full_space(s)?;
         let mut p = ExprParser::new(s, &self.prog.defines);
         let mut v = p.var_ref()?;
         if !p.at_end() {
@@ -2202,7 +2305,8 @@ fn find_word(up: &str, w: &str) -> Option<usize> {
         }
         // (a full-width space is one too, as Emuera's SystemAllowFullSpace
         // has it by default: eTC's `CASE 1　TO 14`)
-        let space = |c: Option<char>| c.is_none_or(|c| c == ' ' || c == '\t' || c == '\u{3000}');
+        let full = crate::expr::FULL_SPACE_IS_SPACE.load(std::sync::atomic::Ordering::Relaxed);
+        let space = |c: Option<char>| c.is_none_or(|c| c == ' ' || c == '\t' || (full && c == '\u{3000}'));
         if space(up[..i].chars().next_back()) && space(up[i + w.len()..].chars().next()) {
             return Some(i);
         }
@@ -2312,6 +2416,15 @@ fn upper_form_in(f: Form) -> Form {
     }
 }
 
+/// Flow-control statements the parser handles itself (not in COMMANDS).
+pub(crate) const FLOW_WORDS: &[&str] = &[
+    "IF", "ELSEIF", "ELSE", "ENDIF", "SIF", "REPEAT", "REND", "FOR", "NEXT", "WHILE", "WEND", "DO", "LOOP", "SELECTCASE", "CASE", "CASEELSE", "ENDSELECT",
+    "CALL", "CALLF", "CALLFORM", "CALLFORMF", "TRYCALL", "TRYCALLFORM", "TRYCCALL", "TRYCCALLFORM", "CATCH", "ENDCATCH", "JUMP", "JUMPFORM", "TRYJUMP",
+    "TRYJUMPFORM", "TRYCJUMP", "TRYCJUMPFORM", "GOTO", "GOTOFORM", "TRYGOTO", "TRYGOTOFORM", "TRYCGOTO", "TRYCGOTOFORM", "RETURN", "RETURNF", "RETURNFORM",
+    "BREAK", "CONTINUE", "TRYCALLLIST", "TRYJUMPLIST", "TRYGOTOLIST", "FUNC", "ENDFUNC", "PRINTDATA", "STRDATA", "DATA", "DATAFORM", "DATALIST", "ENDLIST",
+    "ENDDATA", "NOSKIP", "ENDNOSKIP", "BEGIN", "RESTART", "QUIT",
+];
+
 /// Known statement-style commands (everything that is not an assignment).
 pub fn is_command(c: &str) -> bool {
     crate::vm::builtins::is_builtin_command(c) || crate::vm::builtins::is_builtin_function(c)
@@ -2330,7 +2443,7 @@ mod tests {
         let path = dir.join("A.ERB");
         let src = "@EVENTFIRST\n#PRI\nPRINTL a\n@F(X, S = \"q\")\n#FUNCTIONS\n#LOCALSIZE 5\nRETURNF \"x\"\n@EVENTFIRST\nPRINTL b\n@G\nPRINTL c\n";
         std::fs::write(&path, src).unwrap();
-        let mut p = super::Parser::new(&[], false);
+        let mut p = super::Parser::new(&[], false, std::sync::Arc::new(crate::emuconfig::Values::emuera()));
         p.prog.files.push("A.ERB".into());
         p.compile_lazily(1);
         p.parse_erb_file(0, "A.ERB", &path, src.as_bytes());

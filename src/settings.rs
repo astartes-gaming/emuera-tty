@@ -317,6 +317,11 @@ impl Settings {
         out
     }
 
+    /// Did the player choose this setting (it's in their config file)?
+    pub fn is_set(&self, key: &str) -> bool {
+        self.values.contains_key(key)
+    }
+
     /// A setting's value (its default if unset or not a known choice).
     pub fn get(&self, key: &str) -> &str {
         let item = ITEMS.iter().find(|i| i.key == key);

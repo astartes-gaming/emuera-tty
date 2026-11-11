@@ -30,6 +30,7 @@
 pub mod builtins;
 pub mod datatable;
 pub mod debugger;
+pub mod debugwin;
 pub mod erasav;
 mod memstats;
 pub mod save;
@@ -461,7 +462,13 @@ pub struct Vm {
     pub game_dir: PathBuf,
     /// ONEINPUT系命令でマウスによる2文字以上の入力を許可する: a one-key input
     /// keeps a longer answer (else only its first character, as Emuera)
-    long_oneinput: bool,
+    /// the game's Emuera settings ([`crate::emuconfig::Values`])
+    pub cfg: std::sync::Arc<crate::emuconfig::Values>,
+    /// キャラクタ変数の引数を補完しない (cached: read on every character
+    /// variable access without its character)
+    chara_no_target: bool,
+    /// 擬似変数RANDの仕様をeramakerに合わせる (cached)
+    compat_rand: bool,
     /// `--strict`: unimplemented commands are errors, not warnings.
     pub strict: bool,
     /// FLOWINPUT / FLOWINPUTS settings for the shop's own input:
@@ -532,7 +539,7 @@ pub static CURRENT_SEED: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64
 pub static INITIAL_SEED: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64::new(0);
 
 impl Vm {
-    pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf) -> Vm {
+    pub fn new(prog: Program, csv: GameCsv, res: Resources, fe: Box<dyn Frontend>, game_dir: PathBuf, cfg: std::sync::Arc<crate::emuconfig::Values>) -> Vm {
         if let Ok(p) = std::env::var("EMUERA_PROFILE") {
             prof::start(p);
         }
@@ -594,7 +601,9 @@ impl Vm {
             big_dropped: HashSet::default(),
             rng: Sfmt::new(seed),
             warned: HashSet::default(),
-            long_oneinput: crate::emuconfig::Values::read(&game_dir).flag("ONEINPUT系命令でマウスによる2文字以上の入力を許可する"),
+            chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
+            compat_rand: cfg.bool("擬似変数RANDの仕様をeramakerに合わせる"),
+            cfg,
             game_dir,
             strict: false,
             flow_input: (0, false, false, String::new(), false),
@@ -643,9 +652,10 @@ impl Vm {
 
     /// Read the game's settings again (changed on the settings page).
     pub fn reload_config(&mut self) {
-        if let Some(csv) = crate::loader::find_dir_ci(&self.game_dir, "CSV") {
-            crate::emuconfig::load(&self.game_dir, &csv, &mut self.con, &mut self.text_exts, &mut self.save_opts);
-        }
+        self.cfg = std::sync::Arc::new(crate::emuconfig::Values::read(&self.game_dir));
+        self.chara_no_target = self.cfg.bool("キャラクタ変数の引数を補完しない");
+        self.compat_rand = self.cfg.bool("擬似変数RANDの仕様をeramakerに合わせる");
+        crate::emuconfig::load(&self.cfg, &mut self.con, &mut self.text_exts, &mut self.save_opts);
     }
 
     /// Is `name` a `#DIM CONST` without indices, here (the function's own
@@ -1103,7 +1113,7 @@ impl Vm {
         if let Some(loc) = self.frames.last().and_then(|f| if f.refs.is_empty() { None } else { f.refs.get(name) }).cloned() {
             let idx = self.eval_indices(v, 0, table)?;
             let a = self.arr_at(&loc).ok_or_else(|| Ctrl::Error(format!("{}: referenced variable is gone", name), false))?;
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc, flat });
         }
         // 1. frame-local
@@ -1152,7 +1162,7 @@ impl Vm {
                 self.statics[slot] = Some(a);
             }
             let idx = self.eval_indices(v, 0, table)?;
-            let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Static(slot), flat });
         }
         // DYNAMIC privates: allocated per call by `call_func`
@@ -1160,7 +1170,7 @@ impl Vm {
             let idx = self.eval_indices(v, 0, table)?;
             let f = self.frames.last().unwrap();
             let a = f.vars.get(name).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Frame(v.name.clone()), flat });
         }
         // 2. user globals
@@ -1171,7 +1181,7 @@ impl Vm {
             let idx = self.eval_indices(v, 0, table)?;
             let slot = self.global_slot(v);
             let a = self.globals.at_ref(slot).ok_or_else(|| Ctrl::Error(format!("{} not allocated", name), false))?;
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Global(slot), flat });
         }
         // 3a. CSV name tables (ABLNAME, BASENAME, …) as real string arrays,
@@ -1182,11 +1192,19 @@ impl Vm {
                 if self.globals.at_ref(slot).is_none() {
                     let tbl = self.csv.tables.get(t);
                     let max = tbl.and_then(|t| t.by_index.keys().max().copied()).unwrap_or(-1) + 1;
-                    let size = match system_var(t) {
-                        Some(def) => self.var_def_dims(t, def).last().copied().unwrap_or(0),
-                        None => 0,
-                    }
-                    .max(max.max(1) as usize);
+                    // Emuera's decideActualArraySize: the name array's own
+                    // VariableSize.csv entry, else its variable's size
+                    // (TRAINNAME has none: 1000; STRNAME follows STR)
+                    let main = match t {
+                        "STRNAME" => "STR",
+                        t => t,
+                    };
+                    let own = self.csv.varsize.get(name).and_then(|d| d.first().copied());
+                    let size = own
+                        .or_else(|| system_var(main).map(|def| self.var_def_dims(main, def).last().copied().unwrap_or(0)))
+                        .unwrap_or(if t == "TRAIN" { 1000 } else { 0 })
+                        // (names past it kept, rather than lost)
+                        .max(max.max(1) as usize);
                     let mut a = Arr::new(true, &[size]);
                     if let Some(tbl) = tbl {
                         for (i, s) in &tbl.by_index {
@@ -1196,7 +1214,7 @@ impl Vm {
                     self.globals.insert(name.to_string(), a);
                 }
                 let idx = self.eval_indices(v, 0, table)?;
-                let flat = self.globals.at_ref(slot).unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+                let flat = self.globals.at_ref(slot).unwrap().flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
                 return Ok(Place { loc: Loc::Global(slot), flat });
             }
         }
@@ -1216,7 +1234,7 @@ impl Vm {
                 self.global_arr(name);
             }
             let a = self.globals.at_ref(slot).unwrap();
-            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", name, e), false))?;
+            let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(name, &e, false), false))?;
             return Ok(Place { loc: Loc::Global(slot), flat });
         }
         if let Some((base, func)) = name.split_once('@') {
@@ -1256,14 +1274,25 @@ impl Vm {
             });
         }
         let idx = self.eval_indices(v, 0, None)?;
-        let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", v.name, e), false))?;
+        let flat = self.statics[slot].as_ref().unwrap().flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(&v.name, &e, false), false))?;
         Ok(Place { loc: Loc::Static(slot), flat })
     }
 
     /// Character variables: `CFLAG:c:i` names the character, `CFLAG:i`
     /// (one index fewer than the variable has) means TARGET's.
     fn locate_chara(&mut self, v: &VarRef, ndim: usize, table: Option<&str>) -> VmResult<Place> {
-        let (c, rest) = if v.idx.len() > ndim { (self.eval(&v.idx[0])?.as_int(), 1) } else { (self.target(), 0) };
+        let (c, rest) = if v.idx.len() > ndim {
+            (self.eval(&v.idx[0])?.as_int(), 1)
+        } else if self.chara_no_target && !v.idx.is_empty() {
+            // キャラクタ変数の引数を補完しない: no TARGET for a missing
+            // character (Emuera's VariableParser; a bare name is left as
+            // TARGET's, see doc/settings-parity.md)
+            // (an array: a character variable without one takes any index
+            // given as the character)
+            return err(format!("キャラクタ配列変数\"{}\"の引数は省略できません(コンフィグにより禁止が選択されています)", v.name));
+        } else {
+            (self.target(), 0)
+        };
         let ci = self.chara_index(c, &v.name)?;
         let idx = self.eval_indices(v, rest, table)?;
         // (the name's number, remembered in the reference)
@@ -1276,7 +1305,7 @@ impl Vm {
             s => s - 1,
         };
         let a = self.chara_arr_id(ci, id);
-        let flat = a.flat(&idx).map_err(|e| Ctrl::Error(format!("{}: {}", v.name, e), false))?;
+        let flat = a.flat(&idx).map_err(|e| Ctrl::Error(vars::index_error(&v.name, &e, true), false))?;
         Ok(Place { loc: Loc::Chara(ci, id), flat })
     }
 
@@ -1366,8 +1395,22 @@ impl Vm {
             }
         };
         Ok(match name {
+            // Emuera's RandToken: an argument left out or not above 0 is an
+            // error; with 擬似変数RANDの仕様をeramakerに合わせる its
+            // CompatiRandToken: 0 gives 0, a negative counts as positive, and
+            // the value is a 0-32767 draw modulo the argument
+            "RAND" if self.compat_rand => {
+                let n = i0(self)?.unsigned_abs().min(i64::MAX as u64) as i64;
+                Value::Int(if n == 0 { 0 } else { self.rand(32768) % n })
+            }
             "RAND" => {
+                if v.idx.is_empty() {
+                    return err("RANDの引数が省略されています");
+                }
                 let n = i0(self)?;
+                if n <= 0 {
+                    return err(format!("RANDの引数に0以下の値({})が指定されました", n));
+                }
                 Value::Int(self.rand(n))
             }
             "CHARANUM" => Value::Int(self.charas.len() as i64),
@@ -1944,6 +1987,30 @@ impl Vm {
         for (i, p) in f.params.iter().enumerate() {
             // (moved out: the arguments aren't used again)
             let v = match args.get_mut(i).and_then(|a| a.take()) {
+                // a value passed: its type checked as Emuera's
+                // UserDefinedFunctionArgument does, into the place found once
+                Some(v) if !matches!(&*p.target.name, "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") => {
+                    let r = self.locate(&p.target).and_then(|place| {
+                        let v = match (self.place_is_str(&place), v) {
+                            (false, Value::Str(_)) => return err(format!("\"@{}\"の{}番目の引数を文字列型から整数型に変換できません", f.name, i + 1)),
+                            (true, Value::Int(_)) if !self.cfg.bool("ユーザー関数の引数に自動的にTOSTRを補完する") => {
+                                return err(format!(
+                                    "\"@{}\"の{}番目の引数を整数型から文字列型に変換できません(この警告は互換性オプション「ユーザー関数の引数に自動的にTOSTRを補完する」により無視できます)",
+                                    f.name,
+                                    i + 1
+                                ));
+                            }
+                            (true, Value::Int(n)) => Value::Str(n.to_string()),
+                            (_, v) => v,
+                        };
+                        self.set_place(&place, v)
+                    });
+                    if let Err(e) = r {
+                        self.frames.pop();
+                        return Err(e);
+                    }
+                    None
+                }
                 Some(v) => Some(v),
                 None => match &p.default {
                     Some(e) => match self.eval(e) {
@@ -1967,6 +2034,16 @@ impl Vm {
                                     return Err(e);
                                 }
                             }
+                        } else if !self.cfg.bool("ユーザー関数の全ての引数の省略を許可する") && !body.dims.iter().any(|d| d.name == n && d.is_ref)
+                        {
+                            // another variable as a parameter has no default:
+                            // omitting it is Emuera's error unless allowed
+                            self.frames.pop();
+                            return err(format!(
+                                "\"@{}\"の{}番目の引数は省略できません(この警告は互換性オプション「ユーザー関数の全ての引数の省略を許可する」により無視できます)",
+                                f.name,
+                                i + 1
+                            ));
                         } else {
                             None
                         }
@@ -2608,8 +2685,12 @@ impl Vm {
                         &formed
                     }
                 };
-                // one lookup: the function (the first one for event names)
-                let Some((f, single)) = self.prog.funcs.get(name).map(|fs| (fs[0].clone(), fs.len() == 1)) else {
+                // one lookup: the function (the first one for event names).
+                // An event function isn't one CALL can reach (Emuera's
+                // GetNonEventLabel) unless イベント関数のCALLを許可する, and
+                // then only its first definition runs, as in eramaker
+                let callable = !is_event_name(name) || self.cfg.bool("イベント関数のCALLを許可する");
+                let Some((f, single)) = self.prog.funcs.get(name).filter(|_| callable).map(|fs| (fs[0].clone(), fs.len() == 1 || is_event_name(name))) else {
                     if *try_ {
                         if let Some(c) = catch {
                             self.set_pc(*c);
@@ -2632,12 +2713,19 @@ impl Vm {
             Instr::CallList(entries, kind) => {
                 for (t, args) in entries {
                     let name = self.resolve_target(t)?;
-                    if self.has_func(&name) {
+                    // (event functions as for CALL)
+                    let event = is_event_name(&name);
+                    if self.has_func(&name) && (!event || self.cfg.bool("イベント関数のCALLを許可する")) {
                         let mut vals = Vec::new();
                         for a in args {
                             vals.push(Some(self.eval(a)?));
                         }
-                        self.call_name(&name, vals)?;
+                        if event {
+                            let f = self.prog.funcs.get(&name).expect("has_func")[0].clone();
+                            self.call_func(f, vals)?;
+                        } else {
+                            self.call_name(&name, vals)?;
+                        }
                         if *kind == CallKind::Jump {
                             return Ok(Some(None));
                         }
@@ -2998,6 +3086,13 @@ impl Vm {
         // Reset infinite loop timer on any input (including timeout/quit)
         self.loop_check_time = std::time::Instant::now();
         let r = match r {
+            // Emuera's system and debug commands: a typed line of more than
+            // the `@`, not for a one-key input (doSystemCommand); the input
+            // is asked for again
+            InputResult::Line(s) if !req.one && s.chars().count() > 1 && s.starts_with('@') => {
+                self.system_command(&s)?;
+                return self.raw_input(req);
+            }
             InputResult::Line(s) => {
                 self.macro_queue = crate::macros::expand(&s).into();
                 let p = self.macro_queue.pop_front().unwrap_or_default();
@@ -3019,6 +3114,10 @@ impl Vm {
             InputResult::Quit => Err(Ctrl::Quit),
             InputResult::Hotkey(h) => {
                 self.hotkey(h)?;
+                self.raw_input(req)
+            }
+            InputResult::Debug(a) => {
+                self.debug_action(a);
                 self.raw_input(req)
             }
         }
@@ -3096,7 +3195,7 @@ impl Vm {
     /// A one-key input (ONEINPUT…) keeps the answer's first character, as
     /// Emuera does unless the config allows longer ones.
     fn one_char(&self, s: String, one: bool) -> String {
-        if one && !self.long_oneinput {
+        if one && !self.cfg.bool("ONEINPUT系命令でマウスによる2文字以上の入力を許可する") {
             s.chars().next().map(String::from).unwrap_or_default()
         } else {
             s

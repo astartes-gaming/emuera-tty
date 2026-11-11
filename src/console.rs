@@ -142,6 +142,29 @@ pub struct Line {
     pub wait: u32,
 }
 
+/// The debug panel's contents (Emuera's DebugDialog): the VM fills them in,
+/// the frontend shows and edits them.
+#[derive(Default, Clone, Debug)]
+pub struct DebugView {
+    /// debug mode (`--game-debug`, Emuera's `-Debug`): the panel, DEBUGPRINT
+    pub enabled: bool,
+    /// the panel is showing: the frontend opens it again after the VM has
+    /// answered one of its requests
+    pub open: bool,
+    /// the tab shown: 0 variable watch, 1 stack trace, 2 console
+    pub tab: usize,
+    /// the watched expressions (`debug/watchlist.csv`)
+    pub watches: Vec<String>,
+    /// their values (or errors) as of the last refresh
+    pub values: Vec<String>,
+    /// the running line and the calls that led to it
+    pub trace: String,
+    /// the debug console: DEBUGPRINT output and debug commands
+    pub log: String,
+    /// commands entered in the console, oldest first
+    pub history: Vec<String>,
+}
+
 pub struct Console {
     /// Finished lines (scrollback, capped at `max_lines`).
     pub lines: Vec<Line>,
@@ -180,6 +203,17 @@ pub struct Console {
     /// "ボタンの途中で行を折りかえさない": a button that doesn't fit the
     /// rest of the line moves to the next one whole
     pub button_wrap: bool,
+    /// ver1739以前の非ボタン折り返しを再現する: with `button_wrap`, text that
+    /// isn't a button is kept whole too (Emuera's PrintStringBuffer)
+    pub wrap_1739: bool,
+    /// マウスを使用する: off, the game's buttons don't react to the mouse
+    /// (Emuera's MainWindow mouse handlers; the wheel still scrolls)
+    pub use_mouse: bool,
+    /// Emuera's debug window (`--game-debug`): what the debug panel shows,
+    /// filled in by the VM (see `vm/debugwin.rs`)
+    pub debug: DebugView,
+    /// スクロール行数, if the game sets it: lines per wheel step
+    pub scroll_lines: Option<usize>,
     /// "キーボードマクロを使用する": F1…F12 are macro keys (`macros.rs`)
     pub key_macro: bool,
     /// Generation stamped on new lines (Emuera's `newButtonGeneration`).
@@ -273,6 +307,10 @@ impl Console {
             printc_len: 25,
             printc_per_line: 3,
             button_wrap: false,
+            wrap_1739: false,
+            use_mouse: true,
+            debug: DebugView::default(),
+            scroll_lines: None,
             key_macro: true,
             gen: 0,
             tooltips: std::collections::HashMap::new(),

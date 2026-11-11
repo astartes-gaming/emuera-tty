@@ -165,19 +165,26 @@ impl Arr {
         }
     }
 
-    /// Flatten indices. 1-D (and scalar) arrays accept out-of-range indices
-    /// (auto-grow on write, default on read); multi-D arrays are bounds checked.
+    /// Flatten indices, bounds checked as Emuera does (an index outside
+    /// the array is an error, read or write: [`OUT_OF_RANGE`]). A scalar
+    /// takes any index (left as it was: Emuera refuses one when parsing).
     pub fn flat(&self, idx: &[i64]) -> Result<usize, String> {
-        for &i in idx {
+        for (d, &i) in idx.iter().enumerate() {
             if i < 0 {
-                return Err(format!("negative array index {}", i));
+                return Err(out_of_range(d, i));
             }
         }
         if self.dims.len() <= 1 {
             if idx.len() > 1 && idx[1..].iter().any(|&x| x != 0) {
                 return Err(format!("too many indices ({}) for 1-D array", idx.len()));
             }
-            return Ok(idx.first().copied().unwrap_or(0) as usize);
+            let i = idx.first().copied().unwrap_or(0);
+            if let [n] = self.dims[..] {
+                if i as usize >= n {
+                    return Err(out_of_range(0, i));
+                }
+            }
+            return Ok(i as usize);
         }
         if idx.len() > self.dims.len() {
             return Err(format!("too many indices ({}) for {}-D array", idx.len(), self.dims.len()));
@@ -186,7 +193,7 @@ impl Arr {
         for (d, &size) in self.dims.iter().enumerate() {
             let i = idx.get(d).copied().unwrap_or(0) as usize;
             if i >= size {
-                return Err(format!("index {} out of range (dim {} size {})", i, d, size));
+                return Err(out_of_range(d, i as i64));
             }
             f = f * size + i;
         }
@@ -576,6 +583,27 @@ impl std::ops::Index<&str> for Globals {
     type Output = Arr;
     fn index(&self, name: &str) -> &Arr {
         self.get(name).expect("no such global")
+    }
+}
+
+/// [`Arr::flat`]'s error for an index outside the array: a marker, the
+/// dimension (0-based) and the index, made into Emuera's message with the
+/// variable's name by [`index_error`].
+pub const OUT_OF_RANGE: char = '\u{1}';
+
+fn out_of_range(dim: usize, i: i64) -> String {
+    format!("{}{}{}{}", OUT_OF_RANGE, dim, OUT_OF_RANGE, i)
+}
+
+/// An error from [`Arr::flat`] for variable `name`: Emuera's message for an
+/// index out of range (OoRVarArg, or OoRCharaVarArg when `chara`: the
+/// character is the first argument), else `name: error`.
+pub fn index_error(name: &str, e: &str, chara: bool) -> String {
+    let mut parts = e.split(OUT_OF_RANGE).skip(1);
+    match (parts.next().and_then(|d| d.parse::<usize>().ok()), parts.next()) {
+        (Some(d), Some(i)) if chara => format!("キャラクタ配列変数\"{}\"の第{}引数({})はキャラ登録番号または配列の範囲外です", name, d + 2, i),
+        (Some(d), Some(i)) => format!("配列変数\"{}\"の第{}引数({})は配列の範囲外です", name, d + 1, i),
+        _ => format!("{}: {}", name, e),
     }
 }
 

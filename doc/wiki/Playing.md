@@ -36,7 +36,14 @@ Emuera games are menus of numbered choices like `[100] Wake Up`.
   with the new code (Emuera-Anchor's hotkeys, as in Emuera-EE; also in
   the settings). *Restart in debug mode* in the settings restarts with
   `--game-debug` (Emuera's debug mode: `[IF_DEBUG]` blocks and `;#;` lines run),
-  and *Restart without debug mode* turns it off again.
+  and *Restart without debug mode* turns it off again. In debug mode,
+  Ctrl-D opens the debug panel (see [Debugging](Debugging#the-debug-panel)).
+- **`@` commands**: a line typed at the game's input that starts with `@`
+  is Emuera's system command: `@QUIT`, `@DEBUG` (the debug panel), and,
+  when the game's *Allow debug commands* (デバッグコマンドを使用する) is on,
+  any statement (`@FLAG:3 = 5`) or expression (`@FLAG:3 * 2`) of the
+  game's. As in Emuera, using one renames MASTER イカサマ unless the
+  game's settings say otherwise.
 - **Redraw** a garbled screen: Ctrl-L. **Quit**: Ctrl-C (save first!).
   Ctrl-C also works while the game is busy computing, so a script stuck
   in a loop can always be stopped; the screen keeps updating meanwhile.

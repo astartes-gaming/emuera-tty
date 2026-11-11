@@ -25,6 +25,7 @@ use std::io::{self, Write};
 use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+mod debugpanel;
 mod envvars;
 mod gamecfg;
 mod lineedit;
@@ -337,6 +338,8 @@ enum Key {
     Title,
     Restart,
     Reload,
+    /// Ctrl-D: the debug panel (debug mode)
+    Debug,
     /// Tab: continue and skip messages until a choice (as a right click)
     Skip,
     /// F1…F12, with Shift or not: keyboard macros (`macros.rs`), when the
@@ -641,6 +644,8 @@ pub struct Tty {
     scroll: usize,
     /// the input line: what is typed, its cursor, the inputs given before
     line: lineedit::LineEdit,
+    /// the debug panel's own state (selection, its input line)
+    dbg: debugpanel::PanelState,
     /// the last input timed out (TINPUT): what was typed stays for the
     /// next, as Emuera's input box keeps it (AnonTW's animated map is a
     /// TINPUT loop)
@@ -775,6 +780,11 @@ pub struct Tty {
     force_frame: bool,
     /// the game's "ボタンの途中で行を折りかえさない" setting (per frame)
     button_wrap: bool,
+    wrap_1739: bool,
+    use_mouse: bool,
+    /// the player chose the wheel step (settings): the game's スクロール行数
+    /// doesn't override it
+    pub wheel_chosen: bool,
     /// Emuera pixels per text cell: half the font size, the width of a
     /// half-width character, which shapes are measured against
     text_px: f32,
@@ -1080,6 +1090,7 @@ impl Tty {
             color,
             scroll: 0,
             line: Default::default(),
+            dbg: Default::default(),
             keep_buf: false,
             keys_down: Default::default(),
             keys_hit: Default::default(),
@@ -1162,6 +1173,9 @@ impl Tty {
             forced: std::collections::HashSet::new(),
             row_all: Vec::new(),
             button_wrap: false,
+            wrap_1739: false,
+            use_mouse: true,
+            wheel_chosen: false,
             text_px: 9.0,
         }
     }
@@ -1851,6 +1865,7 @@ impl Tty {
             0x14 => (Key::Title, 1),
             0x12 => (Key::Restart, 1),
             0x05 => (Key::Reload, 1),
+            0x04 => (Key::Debug, 1),
             0x09 => (Key::Skip, 1),
             // Ctrl-U: clear the line being typed
             0x15 => (Key::Char('\u{15}'), 1),
@@ -1926,9 +1941,13 @@ impl Tty {
                     // whole (its pieces in other colours count with it)
                     let starts_button =
                         button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
-                    if self.button_wrap && starts_button && col > 0 {
+                    // (ver1739以前の非ボタン折り返しを再現する: other text too, a
+                    // piece at a time)
+                    let plain = self.wrap_1739 && button.is_none();
+                    if self.button_wrap && (starts_button || plain) && col > 0 {
                         let mut w = 0;
-                        for s2 in &line.segs[si..] {
+                        let run = if plain { &line.segs[si..=si] } else { &line.segs[si..] };
+                        for s2 in run {
                             match s2 {
                                 Seg::Text { text: t2, button: b2, .. } if b2 == button => {
                                     w += letter_widths(t2, self.letters)
@@ -2162,6 +2181,11 @@ impl Tty {
         }
         con.width = cols.saturating_sub(1).max(20);
         self.button_wrap = con.button_wrap;
+        self.wrap_1739 = con.wrap_1739;
+        self.use_mouse = con.use_mouse;
+        if let (Some(n), false) = (con.scroll_lines, self.wheel_chosen) {
+            self.wheel = n;
+        }
         self.text_px = (con.font_size / 2.0).max(1.0);
         self.yen = match self.yen_mode.as_str() {
             "on" => true,
@@ -3521,7 +3545,10 @@ impl Tty {
                 self.redraw_all.set(true);
             }
             "contrast" => self.contrast = st.contrast_ratio(),
-            "wheel" => self.wheel = v.parse().unwrap_or(3),
+            "wheel" => {
+                self.wheel = v.parse().unwrap_or(3);
+                self.wheel_chosen = true;
+            }
             "scroll_end_on_key" => self.scroll_end_on_key = v == "on",
             "yen" => {
                 self.yen_mode = v.to_string();
@@ -4113,7 +4140,8 @@ impl Tty {
     /// (`<nonbutton>` tooltip areas included).
     fn button_at(&self, x: usize, y: usize) -> Option<usize> {
         let row = self.btn_map.get(y)?;
-        row.iter().find(|(s, e, _)| x >= *s && x < *e).map(|(_, _, b)| *b)
+        // (マウスを使用する off: only emuera-tty's own buttons answer)
+        row.iter().find(|(s, e, _)| x >= *s && x < *e).map(|(_, _, b)| *b).filter(|&b| self.use_mouse || b == SETTINGS_BUTTON)
     }
 
     /// The Keyboard pointer setting: on, off, or auto (on on the Linux
@@ -4453,6 +4481,10 @@ impl Frontend for Tty {
     /// click, any key/click for WAIT, or a timeout. Scrolling keys and the
     /// wheel move through the log meanwhile.
     fn input(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
+        // the debug panel, open again after the VM answered it
+        if con.debug.open {
+            return self.debug_panel(con, res, req);
+        }
         if !std::mem::take(&mut self.keep_buf) || req.kind == InputKind::Wait {
             self.line.clear();
         }
@@ -4546,6 +4578,11 @@ impl Frontend for Tty {
                         return r;
                     }
                     redraw = true;
+                }
+                // Emuera's debug window, in debug mode (--game-debug)
+                Key::Debug if con.debug.enabled => {
+                    con.debug.open = true;
+                    return InputResult::Debug(crate::frontend::DebugAction::Refresh);
                 }
                 Key::Settings => {
                     if let Some(r) = self.open_settings(con, res, req) {
@@ -4697,6 +4734,7 @@ impl Frontend for Tty {
                             | Key::Title
                             | Key::Restart
                             | Key::Reload
+                            | Key::Debug
                             | Key::Settings
                             | Key::F(..)
                             | Key::Group(_)
@@ -4971,7 +5009,8 @@ impl Frontend for Tty {
                 Key::F(n, shift) => self.macro_key(n, shift),
                 Key::Group(g) => self.macro_group(g),
                 // (game_key has made the pad's moves and clicks mouse events)
-                Key::Other | Key::Pad(_) => {}
+                // (the debug panel opens at ordinary inputs only)
+                Key::Other | Key::Pad(_) | Key::Debug => {}
             }
         }
     }
@@ -5526,6 +5565,39 @@ pub(crate) mod render_tests {
 
     /// Choosing a language in the overlay translates the next frame (a
     /// one-message catalogue stands in for a real translation)
+    /// ver1739以前の非ボタン折り返しを再現する, with ボタンの途中で行を
+    /// 折りかえさない: a piece of plain text that doesn't fit the rest of the
+    /// row starts the next one, as a button does.
+    /// マウスを使用する off: the game's buttons don't answer the pointer;
+    /// emuera-tty's own do.
+    #[test]
+    fn game_buttons_ignore_the_mouse_when_off() {
+        let mut t = Tty::blank(None, 20, 10, ColorMode::True);
+        t.btn_map = vec![vec![(0, 5, 3), (6, 9, SETTINGS_BUTTON)]];
+        assert_eq!((t.button_at(1, 0), t.button_at(7, 0)), (Some(3), Some(SETTINGS_BUTTON)));
+        t.use_mouse = false;
+        assert_eq!((t.button_at(1, 0), t.button_at(7, 0)), (None, Some(SETTINGS_BUTTON)));
+    }
+
+    #[test]
+    fn wrap_1739_keeps_text_pieces_whole() {
+        let rows = |w1739: bool| -> Vec<String> {
+            let mut t = Tty::blank(None, 20, 10, ColorMode::True);
+            t.button_wrap = true;
+            t.wrap_1739 = w1739;
+            let mut con = Console::new();
+            // (a line has width + 1 columns: Emuera's drawable width)
+            con.width = 19;
+            con.print("0123456789ABCDEF");
+            con.style.fg = crate::console::Rgb(255, 0, 0);
+            con.print("xyzwv");
+            con.newline();
+            t.layout_line(&con.lines[0], 0, 1.0).iter().map(|r| r.cells.iter().map(|c| c.ch).collect::<String>().trim_end().to_string()).collect()
+        };
+        assert_eq!(rows(false), ["0123456789ABCDEFxyzw", "v"]);
+        assert_eq!(rows(true), ["0123456789ABCDEF", "xyzwv"]);
+    }
+
     #[test]
     fn language_setting_applies_at_once() {
         crate::i18n::install("ja", "msgid \"emuera-tty settings\"\nmsgstr \"emuera-tty の設定\"\n");

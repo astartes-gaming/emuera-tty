@@ -13,6 +13,8 @@ CALL CHECKS, "getvars", GETVARS("SAVESTR:1"), "abc"
 CALL CHECK, "existvar", EXISTVAR("FLAG") != 0 && EXISTVAR("NO_SUCH_VAR") == 0
 CALL CHECK, "isdefined", ISDEFINED("NO_SUCH_MACRO") == 0
 CALL CHECK, "varsize", VARSIZE("ARR") == 5 && VARSIZE("FLAG") == 10000
+; name arrays: their own size, else their variable's (TRAINNAME: 1000, STRNAME as STR)
+CALL CHECK, "varsize name arrays", VARSIZE("TRAINNAME") == 1000 && VARSIZE("STRNAME") == VARSIZE("STR") && VARSIZE("ABLNAME") == VARSIZE("ABL")
 ; eraSekaQ, eraTohoLoA: the statement takes a variable, sizes into RESULT:0, :1…
 CALL VS_GRID
 CALL CHECK, "VARSIZE statement", RESULT == 34

@@ -16,8 +16,9 @@ CALL CHECK, "getexplv getpalamlv", GETEXPLV(0, 1) >= 0 && GETPALAMLV(0, 1) >= 0
 ;--- characters made other ways
 ADDDEFCHARA
 CALL CHECK, "adddefchara", CHARANUM == 1 && NO:0 == 0
-ADDSPCHARA 2
-CALL CHECK, "addspchara getspchara", CHARANUM == 2 && GETSPCHARA(2) == 1
+; (ADDSPCHARA and GETSPCHARA need SPキャラを使用する: tests/game_config.rs)
+ADDCHARA 2
+CALL CHECK, "addchara getchara", CHARANUM == 2 && GETCHARA(2) == 1
 ;--- the console
 CALL CHECK, "client size", CLIENTWIDTH() > 0 && CLIENTHEIGHT() > 0
 CALL CHECK, "isactive", ISACTIVE() == 1

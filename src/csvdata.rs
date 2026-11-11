@@ -121,7 +121,7 @@ pub fn table_for_var(var: &str) -> Option<&'static str> {
     })
 }
 
-const TABLE_FILES: &[(&str, &str)] = &[
+pub const TABLE_FILES: &[(&str, &str)] = &[
     ("ABL.CSV", "ABL"),
     ("TALENT.CSV", "TALENT"),
     ("EXP.CSV", "EXP"),
@@ -165,7 +165,11 @@ fn parse_i64(s: &str) -> Option<i64> {
 impl GameCsv {
     /// Read every CSV the engine knows from `csv_dir` (file names are
     /// matched case-insensitively), plus `*.ERD` tables under `erb_dir`.
-    pub fn load(csv_dir: &Path, erb_dir: Option<&Path>) -> GameCsv {
+    ///
+    /// `_Replace.csv` and `_Rename.csv` only when the game's config says
+    /// to use them (`_Replace.csvを利用する`, on unless set; `_Rename.csv
+    /// を利用する`, off unless set), as Emuera's `Process.Initialize`.
+    pub fn load(csv_dir: &Path, erb_dir: Option<&Path>, cfg: &crate::emuconfig::Values) -> GameCsv {
         // Emuera-Anchor: PARAM.CSV, when there is one, in place of PALAM.CSV
         let mut g = GameCsv { param_csv: find_file_ci(csv_dir, "PARAM.CSV").is_some(), ..Default::default() };
         for (file, key) in TABLE_FILES {
@@ -237,7 +241,7 @@ impl GameCsv {
                 }
             }
         }
-        if let Some(p) = find_file_ci(csv_dir, "_Replace.CSV") {
+        if let Some(p) = find_file_ci(csv_dir, "_Replace.CSV").filter(|_| cfg.bool("_Replace.csvを利用する")) {
             if let Ok(text) = read_text(&p) {
                 for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
@@ -249,7 +253,12 @@ impl GameCsv {
                 }
             }
         }
-        if let Some(p) = find_file_ci(csv_dir, "_Rename.CSV") {
+        let rename = find_file_ci(csv_dir, "_Rename.CSV");
+        if rename.is_none() && cfg.bool("_Rename.csvを利用する") {
+            // Emuera's message (trsl.MissingRename)
+            g.warnings.push("csv\\_Rename.csvが見つかりません".into());
+        }
+        if let Some(p) = rename.filter(|_| cfg.bool("_Rename.csvを利用する")) {
             if let Ok(text) = read_text(&p) {
                 for line in crate::loader::emuera_lines(&text) {
                     let f = csv_fields(line);
@@ -266,7 +275,14 @@ impl GameCsv {
             let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
             if stem.starts_with("CHARA") {
                 if let Ok(text) = read_text(&p) {
-                    if let Some(c) = g.parse_chara(&text, &p) {
+                    if let Some(mut c) = g.parse_chara(&text, &p) {
+                        // CALLNAMEが空文字列の時にNAMEを代入する (off unless
+                        // set): an empty CALLNAME is the NAME, set as if the
+                        // CSV had it (Emuera's ConstantData.LoadData)
+                        if c.callname.is_empty() && cfg.bool("CALLNAMEが空文字列の時にNAMEを代入する") {
+                            c.callname = c.name.clone();
+                            c.names_set |= 2;
+                        }
                         g.charas.push(c);
                     }
                 }
@@ -282,6 +298,10 @@ impl GameCsv {
         // under ERB, and any CSV directly in the CSV folder named after one
         // (ErhLoader.PrepareERDFileNames: erablue_resort's RFLAG.csv for
         // `#DIM RFLAG`, eraFL's FLconfig.CSV for FLCONFIG)
+        // (all of it Emuera's ERD feature: off with ERD機能を利用する)
+        if !cfg.bool("ERD機能を利用する") {
+            return g;
+        }
         let builtin: std::collections::HashSet<String> = g.tables.keys().cloned().collect();
         let read_names = |p: &Path, t: &mut NameTable| {
             if let Ok(text) = read_text(p) {
@@ -432,9 +452,6 @@ impl GameCsv {
                     }
                 }
             }
-        }
-        if c.callname.is_empty() {
-            c.callname = c.name.clone();
         }
         numbered.then_some(c)
     }

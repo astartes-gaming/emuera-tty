@@ -31,6 +31,7 @@ mod gfx;
 mod html;
 mod json;
 mod lint;
+mod loadcheck;
 mod loader;
 mod macros;
 #[cfg(target_os = "linux")]
@@ -436,13 +437,17 @@ fn parse_args() -> Opts {
 /// quicker start); else all now (`--check`).
 fn build_program(
     game: &std::path::Path,
+    cfg: &std::sync::Arc<emuconfig::Values>,
     erb_dir: Option<&std::path::Path>,
     rename: &[(String, String)],
     debug: bool,
     lazy: bool,
     phase: &mut dyn FnMut(&str),
 ) -> (parser::Program, usize) {
-    let mut p = parser::Parser::new(rename, debug);
+    // the settings the lexer reads (see expr.rs)
+    expr::FULL_SPACE_IS_SPACE.store(cfg.bool("全角スペースをホワイトスペースに含める"), std::sync::atomic::Ordering::Relaxed);
+    expr::EXPAND_TRIPLE_SYMBOLS.store(!cfg.bool("FORM中の三連記号を展開しない"), std::sync::atomic::Ordering::Relaxed);
+    let mut p = parser::Parser::new(rename, debug, cfg.clone());
     // EMUERA_THREADS=n limits the worker threads (default: all cores)
     let cores = std::env::var("EMUERA_THREADS")
         .ok()
@@ -453,7 +458,7 @@ fn build_program(
         Some(erb) => {
             // Emuera's order (it decides which of a duplicate wins, the
             // order of event functions, and of #DIMs in saves)
-            let l = loader::Listing::of(game);
+            let l = loader::Listing::of(game, cfg);
             let (erhs, erbs) = (loader::emuera_files(erb, &["erh"], l), loader::erb_files(erb, l));
             if !l.subdirs {
                 let skipped = loader::walk(erb, &["erb", "erh"]).len().saturating_sub(erhs.len() + erbs.len());
@@ -520,6 +525,10 @@ fn build_program(
         p.parse_erb((n_files - 1) as u32, &src);
     }
     p.prog.funcs.shrink();
+    // Emuera's load warnings the function headers tell
+    loadcheck::at_load(&mut p.prog, cfg);
+    // (the debug panel compiles its commands with the game's #DEFINEs)
+    p.prog.snippets = Some(std::sync::Arc::new(std::sync::Mutex::new(p.snippet_parser())));
     phase("parse erb");
     (p.prog, n_files - 1)
 }
@@ -596,7 +605,16 @@ fn run(o: Opts) -> i32 {
         }
         lap = std::time::Instant::now();
     };
-    let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref());
+    // the game's Emuera settings (CSV/_default.config, emuera.config,
+    // CSV/_fixed.config), read once for the loader, parser and VM
+    let cfg = std::sync::Arc::new(emuconfig::Values::read(&game));
+    let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref(), &cfg);
+    // the code page byte lengths (STRLENS…) are counted in
+    loader::ANSI_LANGUAGE.store(loader::ansi_language(cfg.value("内部で使用する東アジア言語")), std::sync::atomic::Ordering::Relaxed);
+    // names are always matched whatever their case (doc/differences.md)
+    if !cfg.bool("大文字小文字の違いを無視する") || cfg.bool("関数・属性については大文字小文字を無視しない") {
+        eprintln!("emuera-tty: {}", t!("this game's settings ask for names that differ only in letter case to be different; emuera-tty always ignores case"));
+    }
     // Emuera-Anchor: the parser marks constants as Anchor folds them
     translate::FOLD.store(csv.tr.active(), std::sync::atomic::Ordering::Relaxed);
     translate::PARAM_RENAME.store(csv.tr.active() || csv.param_csv, std::sync::atomic::Ordering::Relaxed);
@@ -607,7 +625,7 @@ fn run(o: Opts) -> i32 {
     // function bodies are compiled when first called, except for --check
     // (or EMUERA_PARSE=all): a game runs a few percent of them
     let lazy = !o.check && std::env::var("EMUERA_PARSE").map_or(true, |v| v != "all");
-    let (prog, n_files) = build_program(&game, erb_dir.as_deref(), &csv.rename, o.game_debug, lazy, &mut phase);
+    let (prog, n_files) = build_program(&game, &cfg, erb_dir.as_deref(), &csv.rename, o.game_debug, lazy, &mut phase);
     let n_funcs = prog.funcs.len();
     eprintln!(
         "loaded {} files, {} functions, {} chara templates in {:.2?} ({} parse errors)",
@@ -624,6 +642,10 @@ fn run(o: Opts) -> i32 {
         eprintln!("... {} more parse errors (run with --check to list all)", prog.errors.len() - 30);
     }
     if o.check {
+        // what Emuera reports while loading, as the game's settings ask
+        for l in loadcheck::check(&prog, &csv, &cfg) {
+            eprintln!("{}", l);
+        }
         if std::env::var_os("EMUERA_LINT").is_some() {
             for l in lint::lint(&prog) {
                 eprintln!("lint: {}", l);
@@ -702,6 +724,8 @@ fn run(o: Opts) -> i32 {
                 t.contrast = st.contrast_ratio();
                 t.set_recolor(&std::env::var("EMUERA_RECOLOR").unwrap_or_else(|_| st.get("recolor").to_string()));
                 t.wheel = st.get("wheel").parse().unwrap_or(3);
+                // (else the game's スクロール行数 may set it)
+                t.wheel_chosen = st.is_set("wheel");
                 t.yen_mode = st.get("yen").to_string();
                 t.letters_mode = st.get("letters").to_string();
                 t.status_info = st.get("statusbar") == "on";
@@ -724,16 +748,26 @@ fn run(o: Opts) -> i32 {
     // Enable debugger via --vm-debug flag or EMUERA_VM_DEBUG env var
     // The VM reads EMUERA_VM_DEBUG directly
     let rename = csv.rename.clone();
-    let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone());
+    let mut vm = vm::Vm::new(prog, csv, res, fe, game.clone(), cfg.clone());
+    // Emuera's -Debug: the debug panel (Ctrl-D) and DEBUGPRINT
+    if o.game_debug {
+        vm.debug_start();
+        // the load warnings, in the game's console as Emuera prints them
+        vm.show_load_warnings();
+    }
     // the reload hotkey parses the ERB files again
     {
         let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.game_debug);
-        vm.reloader = Some(Box::new(move || build_program(&g, erb.as_deref(), &rename, debug, lazy, &mut |_| {}).0));
+        // (the settings page may have changed the config)
+        vm.reloader = Some(Box::new(move || {
+            let cfg = std::sync::Arc::new(emuconfig::Values::read(&g));
+            build_program(&g, &cfg, erb.as_deref(), &rename, debug, lazy, &mut |_| {}).0
+        }));
     }
     if timing {
         eprintln!("timing: {:<12} {:>8.2?}{} (resources, terminal, data init)", "vm ready", lap.elapsed(), rss());
     }
-    if let Some(px) = emuconfig::load(&game, &csv_dir, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
+    if let Some(px) = emuconfig::load(&cfg, &mut vm.con, &mut vm.text_exts, &mut vm.save_opts) {
         // no real terminal to fit: Emuera's width, the half-width cells
         // (font_size/2 px) that fit in its drawable width, the window less
         // max(2, font_size/6) px (Config.DrawableWidth, getStBar: 940 px at
