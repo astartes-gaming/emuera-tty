@@ -86,7 +86,13 @@ fn load_warnings_are_printed_in_debug_mode() {
 #[test]
 fn at_reboot_reloads_erb() {
     let dir = temp_dir("at-reboot");
-    game(&dir, &[("emuera.config", "デバッグコマンドを使用する:YES\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nADDVOIDCHARA\nNAME:0 = Reimu\nFLAG:3 = 10\nINPUT\nPRINTFORML flag={FLAG:3}\nQUIT\n")]);
+    game(
+        &dir,
+        &[
+            ("emuera.config", "デバッグコマンドを使用する:YES\n"),
+            ("ERB/T.ERB", "@SYSTEM_TITLE\nADDVOIDCHARA\nNAME:0 = Reimu\nFLAG:3 = 10\nINPUT\nPRINTFORML flag={FLAG:3}\nQUIT\n"),
+        ],
+    );
     let out = run(&dir, b"@REBOOT\n7\n", None);
     assert!(out.contains("Reloading ERB"));
     assert!(out.contains("flag=10"), "state preserved after reboot: {out}");
