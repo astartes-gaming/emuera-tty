@@ -75,8 +75,14 @@ fn load_warnings_are_printed_in_debug_mode() {
         .output()
         .unwrap();
     let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    // Accept both forward and backslash path separators (Windows vs Unix)
     let warn = "警告Lv1:ERB/T.ERB:6行目:関数\"@A\"は既に定義(ERB/T.ERBの4行目)されています\n@A\n";
-    assert!(out.find(warn).is_some_and(|w| out.find("title").is_some_and(|t| w < t)), "{out}");
+    let warn_alt = "警告Lv1:ERB\\T.ERB:6行目:関数\"@A\"は既に定義(ERB\\T.ERBの4行目)されています\n@A\n";
+    assert!(
+        out.find(warn).is_some_and(|w| out.find("title").is_some_and(|t| w < t))
+            || out.find(warn_alt).is_some_and(|w| out.find("title").is_some_and(|t| w < t)),
+        "{out}"
+    );
     // not in normal play
     assert!(!run(&dir, b"", None).contains("警告"));
     let _ = std::fs::remove_dir_all(&dir);

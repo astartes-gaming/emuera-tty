@@ -249,7 +249,9 @@ fn load_warnings_follow_the_settings() {
         "警告Lv1:ERB/T.ERB:10行目:関数\"@A\"は既に定義(ERB/T.ERBの6行目)されています",
         "全関数合計:3, 被呼出関数合計:2",
     ] {
-        assert!(all.contains(want), "{want:?} missing:\n{all}");
+        // Accept both forward and backslash path separators (Windows vs Unix)
+        let want_alt = want.replace('/', "\\");
+        assert!(all.contains(want) || all.contains(&want_alt), "{want:?} missing (tried {want_alt:?}):\n{all}");
     }
     assert!(!all.contains("ALSO_NOPE"), "{all}");
     // only level 2 and up shown
