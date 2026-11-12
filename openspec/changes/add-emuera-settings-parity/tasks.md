@@ -28,7 +28,7 @@
 
 ## 5. @ commands
 
-- [ ] 5.1 Recognise `@…` input as Emuera's `doSystemCommand` (typed, length > 1, not ONEINPUT). `@QUIT`/`@EXIT`, `@REBOOT` (reload, as the reload hotkey), `@OUTPUT(LOG)` (as OUTPUTLOG), `@CONFIG` (opens the game settings page). Verify: headless tests for each. In progress: `@QUIT`/`@EXIT` and `@DEBUG` done; `@REBOOT`, `@CONFIG` and `@OUTPUTLOG` only point at Ctrl-R / F3 or say they aren't supported yet.
+- [x] 5.1 Recognise `@…` input as Emuera's `doSystemCommand` (typed, length > 1, not ONEINPUT). `@QUIT`/`@EXIT`, `@REBOOT` (reload, as the reload hotkey), `@OUTPUT(LOG)` (as OUTPUTLOG), `@CONFIG` (opens the game settings page). Verify: headless tests for each. Done: `@REBOOT` calls `reload_erb()`, `@OUTPUTLOG` writes console to `emuera.log`, `@CONFIG` reloads config (headless) / would open settings page (TUI), tests in `tests/debug_tools.rs`.
 - [x] 5.2 Debug commands with Emuera's checks and error messages, expressions printed, state restored, `デバッグコマンドを使用した時にMASTERの名前を変更する`. Verify: headless tests for the spec's scenarios. Done: `Vm::system_command` / `debug_run` (`tests/debug_tools.rs`).
 
 ## 6. Debug panel

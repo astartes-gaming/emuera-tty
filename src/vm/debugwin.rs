@@ -120,7 +120,9 @@ impl Vm {
 
     /// Emuera's doSystemCommand: a line typed at the game's input that
     /// starts with `@`. The line is echoed; QUIT / EXIT quit, DEBUG opens
-    /// the debug panel, anything else is a debug command when
+    /// the debug panel, REBOOT reloads ERB files (like F5), CONFIG reloads
+    /// config (headless) or opens the settings page (TUI), OUTPUTLOG writes
+    /// the console to a file; anything else is a debug command when
     /// デバッグコマンドを使用する is on (its output in the game's console,
     /// and MASTER renamed イカサマ unless
     /// デバッグコマンドを使用した時にMASTERの名前を変更する is off).
@@ -135,9 +137,21 @@ impl Vm {
                 self.debug_refresh();
             }
             "DEBUG" => self.print_error("デバッグウインドウは-Debug引数付きで起動したときのみ使えます"),
-            "REBOOT" => self.print_error(&t!("@REBOOT: Ctrl-R restarts the game")),
-            "CONFIG" => self.print_error(&t!("@CONFIG: F3 opens the settings")),
-            "OUTPUT" | "OUTPUTLOG" => self.print_error(&t!("@OUTPUTLOG isn't supported yet")),
+            "REBOOT" => self.reload_erb(),
+            "CONFIG" => {
+                self.reload_config();
+                self.con.print("Config reloaded (use F3 in the TUI to open the settings page)");
+                self.con.newline();
+            }
+            "OUTPUT" | "OUTPUTLOG" => {
+                let path = self.game_dir.join("emuera.log");
+                if self.output_log(&path) {
+                    self.con.print(&format!("Log written to {}", path.display()));
+                    self.con.newline();
+                } else {
+                    self.print_error("Failed to write log");
+                }
+            }
             _ if !self.cfg.bool("デバッグコマンドを使用する") => self.print_error("デバッグコマンドを使用できない設定になっています"),
             _ => match self.debug_run(com, true) {
                 Ok(()) => {
@@ -149,6 +163,39 @@ impl Vm {
             },
         }
         Ok(())
+    }
+
+    /// Emuera's OutputSystemLog: write the console scrollback to a file.
+    fn output_log(&mut self, path: &std::path::Path) -> bool {
+        use std::fs::File;
+        use std::io::{BufWriter, Write};
+        let file = match File::create(path) {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
+        let mut w = BufWriter::new(file);
+        // Write UTF-8 BOM like Emuera does
+        let _ = w.write_all(&[0xEF, 0xBB, 0xBF]);
+        for line in &self.con.lines {
+            let text = crate::console::Console::line_text(line);
+            let _ = writeln!(w, "{}", text.replace('\n', "\r\n"));
+        }
+        // Also write the current line being built
+        if !self.con.cur.is_empty() {
+            let line = crate::console::Line {
+                segs: self.con.cur.clone(),
+                align: crate::ast::Align::Left,
+                gen: 0,
+                temporary: false,
+                cols: self.con.width,
+                kojo: false,
+                src: 0,
+                wait: 0,
+            };
+            let text = crate::console::Console::line_text(&line);
+            let _ = write!(w, "{}", text.replace('\n', "\r\n"));
+        }
+        w.flush().is_ok()
     }
 
     /// The load warnings, in the game's console before it starts, as

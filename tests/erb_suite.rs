@@ -26,6 +26,11 @@ fn game_for(erb: &Path) -> PathBuf {
         let e = e.unwrap();
         std::fs::copy(e.path(), dir.join("CSV").join(e.file_name())).unwrap();
     }
+    // optional test-specific config file (e.g. time_rand.config -> emuera.config)
+    let config = erb.with_extension("config");
+    if config.exists() {
+        std::fs::copy(&config, dir.join("emuera.config")).unwrap();
+    }
     let helpers = Path::new(ROOT).join("tests/erb");
     // (a Windows checkout may have CRLF line ends)
     let text = std::fs::read_to_string(erb).unwrap().replace("\r\n", "\n");

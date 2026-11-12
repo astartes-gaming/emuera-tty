@@ -81,3 +81,37 @@ fn load_warnings_are_printed_in_debug_mode() {
     assert!(!run(&dir, b"", None).contains("警告"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// @REBOOT reloads ERB files (like F5), preserving game state.
+#[test]
+fn at_reboot_reloads_erb() {
+    let dir = temp_dir("at-reboot");
+    game(&dir, &[("emuera.config", "デバッグコマンドを使用する:YES\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nADDVOIDCHARA\nNAME:0 = Reimu\nFLAG:3 = 10\nINPUT\nPRINTFORML flag={FLAG:3}\nQUIT\n")]);
+    let out = run(&dir, b"@REBOOT\n7\n", None);
+    assert!(out.contains("Reloading ERB"));
+    assert!(out.contains("flag=10"), "state preserved after reboot: {out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// @CONFIG reloads config in headless mode.
+#[test]
+fn at_config_reloads_config() {
+    let dir = temp_dir("at-config");
+    game(&dir, &[("emuera.config", "デバッグコマンドを使用する:YES\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nADDVOIDCHARA\nINPUT\nPRINTFORML done\nQUIT\n")]);
+    let out = run(&dir, b"@CONFIG\n7\n", None);
+    assert!(out.contains("Config reloaded"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// @OUTPUTLOG writes the console to a file.
+#[test]
+fn at_outputlog_writes_file() {
+    let dir = temp_dir("at-outputlog");
+    game(&dir, &[("emuera.config", "デバッグコマンドを使用する:YES\n"), ("ERB/T.ERB", "@SYSTEM_TITLE\nADDVOIDCHARA\nPRINTL hello\n@OUTPUTLOG\nQUIT\n")]);
+    let out = run(&dir, b"@OUTPUTLOG\n", None);
+    assert!(out.contains("Log written to"), "{out}");
+    let log = std::fs::read_to_string(dir.join("emuera.log")).unwrap();
+    assert!(log.contains("hello"), "log content: {log}");
+    assert!(log.contains("@OUTPUTLOG"), "log content: {log}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

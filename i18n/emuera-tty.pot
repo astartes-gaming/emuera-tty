@@ -1828,18 +1828,6 @@ msgstr ""
 msgid "Wait for the line to finish"
 msgstr ""
 
-#: src/vm/debugwin.rs
-msgid "@REBOOT: Ctrl-R restarts the game"
-msgstr ""
-
-#: src/vm/debugwin.rs
-msgid "@CONFIG: F3 opens the settings"
-msgstr ""
-
-#: src/vm/debugwin.rs
-msgid "@OUTPUTLOG isn't supported yet"
-msgstr ""
-
 #: src/vm/mod.rs
 #, no-c-format
 msgid ""
