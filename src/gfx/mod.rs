@@ -194,6 +194,34 @@ impl Merger {
 }
 
 impl Merger {
+    /// `p` cut at the screen's right edge (`cols` columns of `cw` pixels):
+    /// a picture wider than what's left of the screen would otherwise run
+    /// past it, and tmux's placeholder cells wrap onto the next line (the
+    /// logo's right half showing at the left). None: nothing of it shows.
+    pub fn clip_right(&mut self, p: Placement, cols: usize, cw: u32) -> Option<Placement> {
+        let room = (cols as i64 - p.col as i64) * cw.max(1) as i64;
+        if room <= 0 {
+            return None;
+        }
+        if p.img.width() as i64 <= room {
+            return Some(p);
+        }
+        let w = room as u32;
+        let key = format!("{}|clip{}", p.key, w);
+        let img = match self.cache.get(&key) {
+            Some(i) => i.clone(),
+            None => {
+                let i = Rc::new(image::imageops::crop_imm(&*p.img, 0, 0, w, p.img.height()).to_image());
+                if self.cache.len() >= 48 {
+                    self.cache.clear();
+                }
+                self.cache.insert(key.clone(), i.clone());
+                i
+            }
+        };
+        Some(Placement { key, img, ..p })
+    }
+
     /// `p` with the pixels under the cells `cells` (columns, rows: start
     /// inclusive, end exclusive, 0-based) made transparent. A tooltip is
     /// text, and pictures sit above text: cut out of the picture, it
@@ -285,6 +313,18 @@ mod merge_tests {
 
     fn place(key: &str, c: [u8; 4], w: u32, h: u32, col: i32, row: i32, below: bool) -> Placement {
         Placement { key: key.into(), img: Rc::new(RgbaImage::from_pixel(w, h, image::Rgba(c))), col, row, y_off: 0, crop_top: 0, crop_h: h, below }
+    }
+
+    /// A picture past the right edge is cut there; one starting past it
+    /// is dropped.
+    #[test]
+    fn pictures_are_clipped_at_the_right_edge() {
+        let mut m = Merger::default();
+        let p = place("a", [255, 0, 0, 255], 100, 20, 5, 0, false);
+        let c = m.clip_right(p.clone(), 10, 10).unwrap();
+        assert_eq!((c.img.width(), c.img.height(), c.col), (50, 20, 5));
+        assert_eq!(m.clip_right(p.clone(), 20, 10).unwrap().img.width(), 100);
+        assert!(m.clip_right(p, 5, 10).is_none());
     }
 
     #[test]
