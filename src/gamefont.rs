@@ -58,6 +58,16 @@ pub fn is_private_use(ch: char) -> bool {
     matches!(ch as u32, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD)
 }
 
+/// Is `ch` drawn from the game's font as a picture (where pictures show)?
+/// Its private-use symbols, which no other font has, and the characters
+/// games draw grids with: box drawing, block elements and geometric shapes
+/// (U+2500-25FF). Their size and shape decide whether a map's tiles meet:
+/// eraMegatenP's dungeon floor is `□`, EraMTFont's fills its two cells,
+/// a terminal font's is a small box with a gap. Other text stays text.
+pub fn draws_as_picture(ch: char) -> bool {
+    is_private_use(ch) || matches!(ch as u32, 0x2500..=0x25FF)
+}
+
 /// Does `font` have a glyph of its own for `ch`?
 pub fn has_glyph(font: &FontVec, ch: char) -> bool {
     font.glyph_id(ch).0 != 0
@@ -172,6 +182,9 @@ mod tests {
         assert!(names.iter().any(|n| n == "EraMTFont"), "{names:?}");
         let font = FontVec::try_from_vec(data).unwrap();
         assert!(has_glyph(&font, '\u{F003}'));
+        // the dungeon floor: a square filling two cells
+        assert!(draws_as_picture('□') && has_glyph(&font, '□') && cells(&font, '□') == 2);
+        assert!(!draws_as_picture('あ') && !draws_as_picture('♡'));
         let pic = glyph_picture(&font, '\u{F003}', (200, 100, 0), cells(&font, '\u{F003}'));
         assert!(pic.pixels().any(|p| p.0[3] > 0), "the glyph drew nothing");
         // through its picture name, as the TUI asks for it

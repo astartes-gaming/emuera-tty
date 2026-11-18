@@ -4271,7 +4271,7 @@ impl Tty {
     /// pictures on. None: an ordinary character.
     fn glyph_cells(&self, ch: char) -> Option<usize> {
         let (_, font) = self.glyph_font.as_ref()?;
-        if !crate::gamefont::is_private_use(ch) || self.gfx.name() == "none" || !crate::gamefont::has_glyph(font, ch) {
+        if !crate::gamefont::draws_as_picture(ch) || self.gfx.name() == "none" || !crate::gamefont::has_glyph(font, ch) {
             return None;
         }
         Some(crate::gamefont::cells(font, ch))
@@ -5740,12 +5740,14 @@ pub(crate) mod render_tests {
             let mut con = Console::new();
             con.width = 39;
             con.style.fg = Rgb(200, 100, 0);
-            con.print("a\u{F003}b\u{E7FF}");
+            con.print("a\u{F003}b\u{E7FF}□");
             con.newline();
             t.layout_line(&con.lines[0], 0, 1.0)
         };
         let rows = layout(true);
-        assert_eq!(rows[0].imgs.len(), 1, "one glyph picture");
+        // the tile and the floor square; U+E7FF isn't in the font: text
+        assert_eq!(rows[0].imgs.len(), 2, "two glyph pictures");
+        assert!(rows[0].imgs[1].name.starts_with(&format!("{}25A1|", crate::gamefont::PICTURE_PREFIX)), "{}", rows[0].imgs[1].name);
         let im = &rows[0].imgs[0];
         assert!(im.name.starts_with(crate::gamefont::PICTURE_PREFIX) && im.name.contains("|C86400|"), "{}", im.name);
         assert_eq!(im.col, 1);
