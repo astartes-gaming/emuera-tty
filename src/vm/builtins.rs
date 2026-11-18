@@ -539,6 +539,19 @@ impl Vm {
 
     /// Build a character from its Chara*.csv template (ADDCHARA); `-1`
     /// makes an empty one (ADDVOIDCHARA). Arrays get VariableSize.csv sizes.
+    /// The font GETFONT and GETCONFIG("フォント名") report: `name`, else
+    /// Emuera's default; also the default when `name` is one of the game's
+    /// own fonts and the frontend shows no pictures, since its symbols
+    /// can't be drawn then (a game that checks for its font, as
+    /// eraMegatenP's map does, falls back to text).
+    pub fn reported_font(&self, name: &str) -> String {
+        if name.is_empty() || (self.hide_game_fonts && crate::gamefont::find(name).is_some()) {
+            "ＭＳ ゴシック".into()
+        } else {
+            name.to_string()
+        }
+    }
+
     /// A CSV function's SP-character argument (`CSVNAME(no, sp)`…): non-zero
     /// is Emuera's error unless SPキャラを使用する; templates are found by
     /// number either way (Emuera-EM's GetCharacterTemplate_UseSp).
@@ -1994,7 +2007,7 @@ impl Vm {
         } else if names("お金の単位", "Currency symbol", "MoneyLabel") {
             Some(Value::Str(self.money_label().0))
         } else if names("フォント名", "Font name", "FontName") {
-            Some(Value::Str(if self.con.default_font.is_empty() { "ＭＳ ゴシック".into() } else { self.con.default_font.clone() }))
+            Some(Value::Str(self.reported_font(&self.con.default_font.clone())))
         } else if names("描画インターフェース", "Drawing interface", "TextDrawingMode") {
             // Emuera's default; games check it isn't WINAPI
             Some(Value::Str("TEXTRENDERER".into()))
@@ -3617,15 +3630,10 @@ impl Vm {
                 let st = &self.con.style;
                 i(st.bold as i64 | (st.italic as i64) << 1 | (st.strike as i64) << 2 | (st.underline as i64) << 3)
             }
-            "GETFONT" => s(if self.con.font_name.is_empty() {
-                if self.con.default_font.is_empty() {
-                    "ＭＳ ゴシック".into()
-                } else {
-                    self.con.default_font.clone()
-                }
-            } else {
-                self.con.font_name.clone()
-            }),
+            "GETFONT" => {
+                let f = if self.con.font_name.is_empty() { self.con.default_font.clone() } else { self.con.font_name.clone() };
+                s(self.reported_font(&f))
+            }
             // a string in Emuera
             "CURRENTALIGN" => s(match self.con.align {
                 Align::Left => "LEFT",

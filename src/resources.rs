@@ -523,6 +523,10 @@ pub fn draw_rotated(dst: &mut RgbaImage, src: &RgbaImage, deg: f32, (px, py): (f
 /// System fonts by name (looked up through fontconfig once each).
 fn font_for(name: &str) -> Option<std::sync::Arc<ab_glyph::FontVec>> {
     use std::sync::{Arc, Mutex, OnceLock};
+    // the game's own fonts first (its font/ folder, as Emuera.NET)
+    if let Some(f) = crate::gamefont::find(name) {
+        return Some(f);
+    }
     static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<ab_glyph::FontVec>>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(f) = cache.lock().ok()?.get(name) {
@@ -1478,6 +1482,16 @@ impl Resources {
 
     /// The sprite's pixels (cropped from its sheet).
     pub fn sprite(&mut self, name: &str) -> Option<Rc<RgbaImage>> {
+        // a glyph of a game-folder font, drawn as a picture (gamefont.rs)
+        if name.starts_with(crate::gamefont::PICTURE_PREFIX) {
+            let key = name.to_uppercase();
+            if let Some(v) = self.cropped.get(&key) {
+                return v.clone();
+            }
+            let out = crate::gamefont::picture_for(name).map(Rc::new);
+            self.cropped.insert(key, out.clone());
+            return out;
+        }
         if self.anime.contains_key(&name.to_uppercase()) {
             let f = self.frame_name(name);
             return self.sprite(&f);

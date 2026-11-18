@@ -24,6 +24,7 @@ mod emuconfig;
 mod expr;
 mod frontend;
 mod fxhash;
+mod gamefont;
 #[cfg(target_os = "linux")]
 mod gamepad;
 #[cfg(not(target_os = "linux"))]
@@ -642,6 +643,8 @@ fn run(o: Opts) -> i32 {
     // the game's Emuera settings (CSV/_default.config, emuera.config,
     // CSV/_fixed.config), read once for the loader, parser and VM
     let cfg = std::sync::Arc::new(emuconfig::Values::read(&game));
+    // the game's own fonts (its font/ folder, as Emuera.NET)
+    gamefont::load(&game);
     let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref(), &cfg);
     // the code page byte lengths (STRLENS…) are counted in
     loader::ANSI_LANGUAGE.store(loader::ansi_language(cfg.value("内部で使用する東アジア言語")), std::sync::atomic::Ordering::Relaxed);
@@ -794,6 +797,9 @@ fn run(o: Opts) -> i32 {
     if o.mcp && !o.game_debug {
         vm.debug_start();
     }
+    // without pictures, a game-folder font's symbols can't be shown: the
+    // game is told its font isn't in use (gamefont.rs)
+    vm.hide_game_fonts = !vm.fe.shows_pictures();
     if o.game_debug {
         vm.debug_start();
         // the load warnings, in the game's console as Emuera prints them

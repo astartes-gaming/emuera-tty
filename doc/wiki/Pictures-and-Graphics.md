@@ -76,3 +76,16 @@ picture through tmux).
 The in-kernel console can't draw CJK glyphs. For
 eratohoTW's Japanese/Chinese text on a bare VT, run under **fbterm** (still
 uses the fb backend) or **yaft** (sixel).
+
+## Fonts a game ships
+
+A game can ship fonts in a `font/` folder (Emuera.NET loads every `.ttf`
+and `.otf` there), and name one as its font in `emuera.config`
+(`フォント名`). emuera-tty reads them too: text drawn into pictures
+(GDRAWTEXT) uses them, and the symbols only such a font has (its
+private-use characters; eraMegatenP draws its dungeon maps with
+EraMTFont's tiles) are shown as pictures of their glyphs, in the text's
+colour, wherever the terminal shows pictures. Where it doesn't (`--gfx
+none`, a plain terminal, headless), the game is told its font isn't in
+use (GETFONT reports Emuera's default), so a game with a text version of
+those symbols, as eraMegatenP has, prints that instead.

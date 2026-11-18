@@ -296,6 +296,10 @@ the target is Emuera-EM/EE, and its C# source wins over the docs.
 Real games used for testing are big eraTW variants (AnonTW: ~3,500 files,
 90,000 functions; pops-tw: 100,000 functions). Rules learnt the hard way:
 
+- **Tests that use real games' files** (eraMegatenP's font, AnonTW's folder)
+  read them under `EMUERA_TEST_GAMES` (the folder holding the game
+  folders: `$EMUERA_TEST_GAMES/eraMegatenP/Data/font/…`) and skip when it
+  isn't set. Never write a path from your own machine into the repo.
 - **Never touch the real game folders.** Games write saves and `global.sav`
   on start. Copy `ERB/` and `CSV/` (plus `sav/` if needed) to a scratch
   folder; `resources/` and `sound/` only when pictures or sound matter.
