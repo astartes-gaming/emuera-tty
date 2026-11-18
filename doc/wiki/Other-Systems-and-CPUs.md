@@ -81,7 +81,7 @@ under emulation (`qemu-user`), not on real machines.**
 The emulated builds are static musl programs, made on a PC with Rust's own
 linker (no cross compiler needed): add the target with `rustup target add`,
 then build with `RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes
--C target-feature=+crt-static" cargo build --release --target …` for
+-C target-feature=+crt-static" cargo build --release --no-default-features --target …` for
 `i586-unknown-linux-musl`, `arm-unknown-linux-musleabihf`,
 `armv5te-unknown-linux-musleabi`, `armv7-unknown-linux-musleabihf`,
 `aarch64-unknown-linux-musl`, `riscv64gc-unknown-linux-musl`,
@@ -114,8 +114,12 @@ rustup target add arm-unknown-linux-musleabihf
 ```
 
 ```bash
-RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static" cargo build --release --target arm-unknown-linux-musleabihf
+RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static" cargo build --release --no-default-features --target arm-unknown-linux-musleabihf
 ```
+
+(`--no-default-features` leaves out SQLite, which is compiled from C and
+would need a cross C compiler; only Emuera.NET games that use its SQL
+functions, such as eraKATANA, need it.)
 
 then copy `target/arm-unknown-linux-musleabihf/release/emuera-tty` to the
 Pi (use `aarch64-unknown-linux-musl` for a 64-bit Pi OS) and run

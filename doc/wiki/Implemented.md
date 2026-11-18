@@ -93,7 +93,10 @@ and [doc/anchor.md](https://github.com/astartes-gaming/emuera-tty/blob/master/do
   hotkeys, the clipboard.
 - Emuera.NET (the engine eraMegatenP is written for), the parts its
   games use: `GETCSVNOBYNAME` / `GETCSVNOBYCALLNAME` / `GETCSVNOBYNICKNAME`
-  / `GETCSVNOBYMASTERNAME`, `HASH_XXH32`, `MATCHALL`, and its `<div>`
+  / `GETCSVNOBYMASTERNAME`, `HASH_XXH32`, `MATCHALL`, the SQLite functions
+  `SQL_*` (eraKATANA; the databases are kept in `sav/temp_db/` and copied
+  beside each save as Emuera.NET does; not in builds made with
+  `--no-default-features`), and its `<div>`
   attribute names (`border_width`, `border_color`, `background_color`).
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,

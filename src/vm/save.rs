@@ -488,6 +488,8 @@ impl Vm {
         self.put_em(&mut w, &ve.save_maps, &ve.save_xmls, &ve.save_dts);
         w.eof();
         let path = self.save_path(n);
+        // Emuera.NET's SQL databases go beside the save (vm/sql.rs)
+        super::sql::on_save(&self.save_dir(), &path).map_err(|e| Ctrl::Error(e, false))?;
         self.write_file(&path, w.finish(self.save_opts.zip))
     }
 
@@ -633,6 +635,11 @@ impl Vm {
     /// False if there is nothing loadable there.
     pub fn load_slot(&mut self, n: i64) -> VmResult<bool> {
         let path = self.save_path(n);
+        // Emuera.NET's SQL databases come back with it (vm/sql.rs)
+        if path.exists() {
+            let save_dir = self.save_dir();
+            super::sql::on_load(&mut self.sql, &save_dir, &path).map_err(|e| Ctrl::Error(e, false))?;
+        }
         if !path.exists() && self.old_save_path(n).exists() {
             return self.load_old_slot(n);
         }

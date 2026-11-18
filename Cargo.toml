@@ -33,9 +33,15 @@ zip = { version = "9.0.0", default-features = false, features = ["deflate"] }
 # `cargo build --features profile`: EMUERA_PPROF=<file> samples where the
 # interpreter spends its time (development only)
 pprof = { version = "0.15", optional = true }
+# Emuera.NET's SQL_* functions (eraKATANA): SQLite compiled from C, so
+# builds without a C compiler (the cross / odd-CPU ones) leave it out:
+# --no-default-features
+rusqlite = { version = "=0.37.0", features = ["bundled"], optional = true }
 
 [features]
+default = ["sqlite"]
 profile = ["dep:pprof"]
+sqlite = ["dep:rusqlite"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"

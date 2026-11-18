@@ -3,7 +3,7 @@
 ## 1. Built-ins
 
 - [x] 1.1 `GETCSVNOBYNAME` / `CALLNAME` / `NICKNAME` / `MASTERNAME`, `HASH_XXH32`, `MATCHALL` (`7df26ec`, `tests/emuera_net.rs`).
-- [ ] 1.2 Re-run the built-in survey over every local game shipping Emuera.NET; implement any others they use.
+- [x] 1.2 Re-run the built-in survey over every local game shipping Emuera.NET; implement any others they use. Done: Emuera.NET games found by their files (eraMegatenP; eraKATANA, eraBEMANI, eraDaL as single-file or DLL builds), the survey run over era-games and era-archive (278 folders): only eraKATANA uses more, the `SQL_*` functions, now in `vm/sql.rs` behind the default `sqlite` feature (rusqlite, bundled). eraKATANA, eraBEMANI and eraDaL smoke-play clean.
 
 ## 2. HTML dialect
 
