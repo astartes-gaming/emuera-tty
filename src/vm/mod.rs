@@ -471,6 +471,9 @@ pub struct Vm {
     /// the frontend shows no pictures: a font from the game's font/ folder
     /// is reported as not in use (`Vm::reported_font`, gamefont.rs)
     pub hide_game_fonts: bool,
+    /// the game ships Emuera.NET (`loader::ships_emuera_net`): its
+    /// `<div>`s show all their content (html.rs)
+    pub emuera_net: bool,
     /// Emuera.NET's SQLite databases (sql.rs)
     pub sql: sql::Sql,
     /// 擬似変数RANDの仕様をeramakerに合わせる (cached)
@@ -609,6 +612,7 @@ impl Vm {
             warned: HashSet::default(),
             chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
             hide_game_fonts: false,
+            emuera_net: false,
             sql: sql::Sql::default(),
             compat_rand: cfg.bool("擬似変数RANDの仕様をeramakerに合わせる"),
             cfg,

@@ -880,7 +880,7 @@ impl Retro {
                     let cell = self.cs.alt(b'0').unwrap_or(RCell { ch: b'#', ..BLANK });
                     push(&mut rows, vec![cell; n]);
                 }
-                Seg::Div { dx, dy, cols, rows: max_rows, lines, .. } => {
+                Seg::Div { dx, dy, cols, rows: max_rows, lines, place, .. } => {
                     let mut inner = Vec::new();
                     for l in lines {
                         inner.extend(self.layout(l, con, *cols));
@@ -888,7 +888,8 @@ impl Retro {
                     if let Some(m) = max_rows {
                         inner.truncate(*m);
                     }
-                    let at = (rows.last().unwrap().len() as i64 + *dx as i64).max(0) as usize;
+                    let from = if *place == crate::console::DivPlace::Relative { rows.last().unwrap().len() as i64 } else { 0 };
+                    let at = (from + *dx as i64).max(0) as usize;
                     divs.push((rows.len() - 1, at, *dy, inner));
                 }
             }

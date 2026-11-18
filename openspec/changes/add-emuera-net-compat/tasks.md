@@ -8,8 +8,10 @@
 ## 2. HTML dialect
 
 - [x] 2.1 HTML_PRINT lines start left-aligned; `border_width` / `border_color` / `background_color` on `<div>` (`b132a79`).
-- [ ] 2.2 `<div>` without width / height sizes to its content (ConsoleDivElement). Verify: unit test; eraMegatenP's title faces framed as in Emuera.
-- [ ] 2.3 `display` (relative / absolute modes), `hover-background-color`, `<img xpos display>`. Verify: unit tests against HtmlManager.cs.
+- [x] 2.2 `<div>` without width / height sizes to its content (ConsoleDivElement). Verify: unit test; eraMegatenP's title faces framed as in Emuera. Done: `div_sizes_to_its_content_and_nests`; a game recognised as Emuera.NET (`loader::ships_emuera_net`) also grows a div that is too small for its content, as Emuera.NET draws content past the box (`emuera_net_divs_hold_their_content`).
+- [x] 2.3 `display` (relative / absolute modes), `hover-background-color`, `<img xpos display>`. Verify: unit tests against HtmlManager.cs. Done: `DivPlace` on `Seg::Div`, painted against the window by `paint_on_window` (`div_display_modes`, `window_placed_divs_and_island`); an absolute `<img>` is a div holding it; `hover-background-color` is accepted but not drawn (only commented-out eraMegatenP lines use it).
+- [x] 2.4 Divs inside divs (eraMegatenP's message log): `div_content_end`, nested divs painted after their parent (`paint_div`).
+- [x] 2.5 `HTML_PRINT_ISLAND` as a layer over the window (Emuera.NET's `_htmlElementListDict`, with depths), out of the log, buttons always live; `HTML_PRINT_ISLAND_CLEAR [depth]`. Verify: `html_island_layers`; eraMegatenP's INPUT_YN_POPUP by hand (drawn at the bottom, `[1] No` clicked, cleared).
 
 ## 3. Game fonts
 

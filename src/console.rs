@@ -91,7 +91,22 @@ pub enum Seg {
         lines: Vec<Line>,
         html: String,
         deco: Box<DivBox>,
+        place: DivPlace,
     },
+}
+
+/// What a `<div>`'s `dx` / `dy` count from (its `display`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DivPlace {
+    /// where the div sits in its line (`relative`, the default)
+    #[default]
+    Relative,
+    /// the window's top-left corner (Emuera.NET's `absolute-lefttop`)
+    Top,
+    /// the window's bottom-left corner, `dy` (negative) rows below it to
+    /// the div's top (Emuera.NET's `absolute-leftbottom`; Emuera-EM's
+    /// `absolute`, measured to the div's bottom, is turned into this)
+    Bottom,
 }
 
 /// A `<div>`'s background, border and padding, in cells.
@@ -285,6 +300,11 @@ pub struct Console {
     pub low_water: usize,
     /// lines dropped from the front so far (history limit)
     pub dropped_front: usize,
+    /// HTML_PRINT_ISLAND's lines by layer (Emuera.NET's depth; Emuera-EM
+    /// has only 0): drawn over the window from its top row, in increasing
+    /// depth, outside the log; their buttons stay clickable until
+    /// HTML_PRINT_ISLAND_CLEAR
+    pub island: std::collections::BTreeMap<i64, Vec<Line>>,
 }
 
 impl Console {
@@ -347,6 +367,7 @@ impl Console {
             disable_infinite_loop_detection: false,
             low_water: usize::MAX,
             dropped_front: 0,
+            island: std::collections::BTreeMap::new(),
         }
     }
 
@@ -557,6 +578,9 @@ impl Console {
             }
             Self::collect_buttons(&l.segs, &mut out);
         }
+        for l in self.island.values().flatten() {
+            Self::collect_buttons(&l.segs, &mut out);
+        }
         out
     }
 
@@ -588,7 +612,7 @@ impl Console {
                 }
             }
         }
-        for l in &self.lines[start..] {
+        for l in self.lines[start..].iter().chain(self.island.values().flatten()) {
             walk(&l.segs, &mut out);
         }
         for (_, t) in out.iter_mut() {

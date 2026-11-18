@@ -990,15 +990,30 @@ impl Vm {
                 self.con.print(&out);
                 self.con.newline();
             }
-            // Emuera-EM's fixed overlay; the terminal prints it in the log
+            // the HTML island: lines drawn over the window from its top,
+            // outside the log, kept until cleared; Emuera.NET adds layers
+            // (a depth, drawn in increasing order)
             "HTML_PRINT_ISLAND" => {
                 let s = self.as_(a, 0, "")?;
-                self.html_print(&s);
+                let depth = if a.len() > 1 { self.ai(a, 1, 0)? } else { 0 };
+                if !self.con.skip_disp && !s.is_empty() {
+                    let lines = self.html_apart(&s, self.con.width);
+                    self.con.island.entry(depth).or_default().extend(lines);
+                    self.con.dirty = true;
+                }
+            }
+            "HTML_PRINT_ISLAND_CLEAR" => {
+                if a.is_empty() {
+                    self.con.island.clear();
+                } else {
+                    let depth = self.ai(a, 0, 0)?;
+                    self.con.island.remove(&depth);
+                }
+                self.con.dirty = true;
             }
             // window chrome a terminal doesn't have: tooltips, the input
             // box's position, background images and layers
-            "HTML_PRINT_ISLAND_CLEAR"
-            | "MOVETEXTBOX"
+            "MOVETEXTBOX"
             | "RESUMETEXTBOX"
             | "SETBGIMAGE"
             | "REMOVEBGIMAGE"

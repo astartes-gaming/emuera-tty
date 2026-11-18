@@ -178,11 +178,13 @@ struct DRow {
 }
 
 /// A laid-out `<div>`: its rows, drawn from column `col`, `dy` rows below
-/// (negative: above) the row it is anchored on.
+/// (negative: above) the row it is anchored on, or the window's top or
+/// bottom edge (`place`, its `display`).
 struct DivAt {
     col: usize,
     dy: i32,
     rows: Vec<DRow>,
+    place: crate::console::DivPlace,
 }
 
 /// A div's rows inside its background, padding and border: `cols` wide,
@@ -228,7 +230,9 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
                     row.imgs.push(im);
                 }
                 for mut d in c.divs {
-                    d.col += start;
+                    if d.place == crate::console::DivPlace::Relative {
+                        d.col += start;
+                    }
                     row.divs.push(d);
                 }
             }
@@ -270,6 +274,69 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
 
 /// Paint `cells` over `row` from screen column `col`: covered cells (and
 /// wide characters cut in half) give way, the row is padded if short.
+/// Paint what is placed against the window, whose rows are `all[start..end]`:
+/// the divs with an absolute `display` (`fixed`, each with the row it was
+/// printed on: as in Emuera.NET, drawn only while that row is on screen),
+/// then the HTML island's rows from the window's top, over everything
+/// (Emuera.NET's OnPaint draws the island after the lines).
+fn paint_on_window(all: &mut [DRow], fixed: Vec<(usize, DivAt)>, island: Vec<DRow>, start: usize, end: usize) {
+    use crate::console::DivPlace;
+    let edge = |d: &DivAt, row: usize| match d.place {
+        DivPlace::Relative => row,
+        DivPlace::Top => start,
+        DivPlace::Bottom => end,
+    };
+    // absolute divs found inside others go against the window too
+    let paint_all = |all: &mut [DRow], first: Vec<(usize, DivAt)>| {
+        let mut work = std::collections::VecDeque::from(first);
+        let mut inside = Vec::new();
+        while let Some((row, d)) = work.pop_front() {
+            let at = edge(&d, row);
+            paint_div(all, at as i64, d, &mut inside);
+            work.extend(inside.drain(..));
+        }
+    };
+    paint_all(all, fixed.into_iter().filter(|(row, _)| (start..end).contains(row)).collect());
+    for (k, mut r) in island.into_iter().enumerate() {
+        let y = start + k;
+        let divs: Vec<(usize, DivAt)> = std::mem::take(&mut r.divs).into_iter().map(|d| (y, d)).collect();
+        if y < end {
+            all[y].imgs.extend(r.imgs);
+            paint_cells(&mut all[y], 0, r.cells);
+        }
+        paint_all(all, divs);
+    }
+}
+
+/// Paint `d` over `all`, its first row at `anchor + d.dy`; divs inside it
+/// are painted after it, over its rows (relative ones), or handed back in
+/// `fixed` with the row they belong to (absolute ones).
+fn paint_div(all: &mut [DRow], anchor: i64, d: DivAt, fixed: &mut Vec<(usize, DivAt)>) {
+    let mut queue = std::collections::VecDeque::from([(anchor, d)]);
+    while let Some((anchor, d)) = queue.pop_front() {
+        for (k, r) in d.rows.into_iter().enumerate() {
+            let t = anchor + d.dy as i64 + k as i64;
+            if t < 0 || t as usize >= all.len() {
+                continue;
+            }
+            let t = t as usize;
+            for mut im in r.imgs {
+                im.col += d.col;
+                all[t].imgs.push(im);
+            }
+            paint_cells(&mut all[t], d.col, r.cells);
+            for mut n in r.divs {
+                if n.place == crate::console::DivPlace::Relative {
+                    n.col += d.col;
+                    queue.push_back((t as i64, n));
+                } else {
+                    fixed.push((t, n));
+                }
+            }
+        }
+    }
+}
+
 fn paint_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
     if cells.is_empty() {
         return;
@@ -1912,6 +1979,31 @@ impl Tty {
     /// with (`Line::cols`) and apply its alignment. Rows wider than the
     /// current screen are clipped by `render`. Buttons get ids (indices into
     /// `self.buttons`) only if the line belongs to the current input generation.
+    /// The HTML island's lines laid out, layer after layer each from the
+    /// top; their buttons are always live (Emuera.NET searches the island
+    /// first for the button under the pointer).
+    fn island_rows(&mut self, con: &Console, scale: f32) -> Vec<DRow> {
+        let mut out: Vec<DRow> = Vec::new();
+        for lines in con.island.values() {
+            let mut layer = Vec::new();
+            for l in lines {
+                layer.extend(self.layout_line(l, l.gen, scale));
+            }
+            // a later layer is drawn over the earlier ones' rows
+            for (k, r) in layer.into_iter().enumerate() {
+                match out.get_mut(k) {
+                    Some(o) => {
+                        o.imgs.extend(r.imgs);
+                        paint_cells(o, 0, r.cells);
+                        o.divs.extend(r.divs);
+                    }
+                    None => out.push(r),
+                }
+            }
+        }
+        out
+    }
+
     fn layout_line(&mut self, line: &Line, cur_gen: u64, scale: f32) -> Vec<DRow> {
         let screen = self.cols.max(1);
         self.layout_line_in(line, cur_gen, scale, screen)
@@ -2073,7 +2165,7 @@ impl Tty {
                     }
                     col += cells.min(width);
                 }
-                Seg::Div { dx, dy, cols, rows: max_rows, lines, deco, .. } => {
+                Seg::Div { dx, dy, cols, rows: max_rows, lines, deco, place, .. } => {
                     let ins = deco.insets();
                     let in_w = cols.saturating_sub(ins[1] + ins[3]).max(1);
                     let mut inner = Vec::new();
@@ -2086,8 +2178,10 @@ impl Tty {
                     if deco.bg.is_some() || deco.border.iter().any(|b| *b) || ins.iter().any(|n| *n > 0) {
                         inner = boxed_div(inner, deco, *cols, *max_rows);
                     }
-                    let at = (col as i64 + *dx as i64).max(0) as usize;
-                    rows.last_mut().unwrap().divs.push(DivAt { col: at, dy: *dy, rows: inner });
+                    // an absolute div counts its columns from the window's left
+                    let from = if *place == crate::console::DivPlace::Relative { col as i64 } else { 0 };
+                    let at = (from + *dx as i64).max(0) as usize;
+                    rows.last_mut().unwrap().divs.push(DivAt { col: at, dy: *dy, rows: inner, place: *place });
                 }
             }
         }
@@ -2108,7 +2202,7 @@ impl Tty {
                     for im in r.imgs.iter_mut() {
                         im.col += pad;
                     }
-                    for d in r.divs.iter_mut() {
+                    for d in r.divs.iter_mut().filter(|d| d.place == crate::console::DivPlace::Relative) {
                         d.col += pad;
                     }
                 }
@@ -2302,29 +2396,25 @@ impl Tty {
             all.extend(c);
         }
         // <div> content: painted over the rows it reaches (Emuera draws a
-        // div on top of whatever lines are there)
+        // div on top of whatever lines are there); one placed against the
+        // window waits until the window's rows are known
+        let mut fixed: Vec<(usize, DivAt)> = Vec::new();
         for idx in 0..all.len() {
             if all[idx].divs.is_empty() {
                 continue;
             }
-            for d in std::mem::take(&mut all[idx].divs) {
-                for (k, r) in d.rows.into_iter().enumerate() {
-                    let t = idx as i64 + d.dy as i64 + k as i64;
-                    if t < 0 || t as usize >= all.len() {
-                        continue;
-                    }
-                    let t = t as usize;
-                    for mut im in r.imgs {
-                        im.col += d.col;
-                        all[t].imgs.push(im);
-                    }
-                    paint_cells(&mut all[t], d.col, r.cells);
+            let divs = std::mem::take(&mut all[idx].divs);
+            for d in divs {
+                if d.place == crate::console::DivPlace::Relative {
+                    paint_div(&mut all, idx as i64, d, &mut fixed);
+                } else {
+                    fixed.push((idx, d));
                 }
             }
         }
-        // a picture menu (CBG layers) may draw anywhere on the screen:
-        // give it rows to draw text into below short content
-        if !res.cbg.is_empty() && self.scroll == 0 {
+        // a picture menu (CBG layers) or a div placed against the window
+        // may draw anywhere on the screen: give it rows below short content
+        if (!res.cbg.is_empty() || !fixed.is_empty() || !con.island.is_empty()) && self.scroll == 0 {
             while all.len() < view_h {
                 all.push(DRow::default());
             }
@@ -2335,6 +2425,8 @@ impl Tty {
         }
         let end = all.len() - self.scroll.min(all.len());
         let start = end.saturating_sub(view_h);
+        let island_rows = self.island_rows(con, scale);
+        paint_on_window(&mut all, fixed, island_rows, start, end);
         let cbg_places = if res.cbg.is_empty() { Vec::new() } else { self.cbg_layers(con, res, &mut all[start..end]) };
         let visible = &all[start..end];
         self.row_lines = (start..end).map(|i| row_keys.get(i).copied().flatten()).collect();
@@ -5634,7 +5726,10 @@ pub(crate) mod render_tests {
     #[test]
     fn game_font_symbols_become_pictures() {
         let p = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default()).join("eraMegatenP/Data/font/EraMTFontMedium.ttf");
-        let Ok(data) = std::fs::read(p) else { return };
+        let Ok(data) = std::fs::read(p) else {
+            eprintln!("skipped: {} not here", p.display());
+            return;
+        };
         let font = std::sync::Arc::new(ab_glyph::FontVec::try_from_vec(data).unwrap());
         let layout = |pictures: bool| {
             let mut t = Tty::blank(None, 40, 10, ColorMode::True);
@@ -5656,6 +5751,45 @@ pub(crate) mod render_tests {
         assert_eq!(im.col, 1);
         assert!(rows[0].cells[1..].iter().take(crate::gamefont::cells(&font, '\u{F003}')).all(|c| c.ch == ' '));
         assert!(layout(false)[0].imgs.is_empty(), "no pictures: text");
+    }
+
+    /// Divs placed against the window and the HTML island land on the
+    /// window's rows whatever the scroll, over the log; a relative div
+    /// inside an island line counts from that line's row.
+    #[test]
+    fn window_placed_divs_and_island() {
+        use crate::console::DivPlace;
+        let row = |text: &str| DRow {
+            cells: text
+                .chars()
+                .map(|ch| Cell {
+                    ch,
+                    w: 1,
+                    style: Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false },
+                    button: None,
+                    marks: None,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let div = |text: &str, col: usize, dy: i32, place: DivPlace| DivAt { col, dy, rows: vec![row(text)], place };
+        let text = |r: &DRow| r.cells.iter().map(|c| c.ch).collect::<String>();
+        // a 12-row log, the window showing rows 4..10
+        let mut all: Vec<DRow> = (0..12).map(|k| row(&format!("line{k:02}"))).collect();
+        let fixed = vec![
+            (5, div("T", 1, 0, DivPlace::Top)),
+            (6, div("B", 2, -1, DivPlace::Bottom)),
+            // printed on a row scrolled out of the window: not drawn
+            (1, div("X", 0, 0, DivPlace::Top)),
+        ];
+        let mut island_row = row("isle");
+        island_row.divs.push(div("R", 5, 1, DivPlace::Relative));
+        paint_on_window(&mut all, fixed, vec![DRow::default(), island_row], 4, 10);
+        assert_eq!(text(&all[4]), "lTne04");
+        assert_eq!(text(&all[9]), "liBe09");
+        assert_eq!(text(&all[5]), "isle05", "island row 1 is window row 1");
+        assert_eq!(text(&all[6]), "line0R");
+        assert!(all.iter().all(|r| !text(r).contains('X')));
     }
 
     /// マウスを使用する off: the game's buttons don't answer the pointer;

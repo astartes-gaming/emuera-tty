@@ -86,6 +86,16 @@ pub fn decode_as(bytes: &[u8], sjis: bool) -> String {
 }
 
 /// Find a direct child directory by case-insensitive name.
+/// Does the game ship Emuera.NET? Its .NET build's files, or its own
+/// settings files, beside the game or one folder up (eraMegatenP keeps
+/// `Emuera.exe` above its `Data/`). A single-file build (eraKATANA) has
+/// none of them and isn't recognised.
+pub fn ships_emuera_net(game_dir: &Path) -> bool {
+    const SIGNS: [&str; 4] = ["Emuera.runtimeconfig.json", "Emuera.dll", "setting.json", "setting_user.json"];
+    let dirs = std::iter::once(game_dir).chain(game_dir.parent());
+    dirs.flat_map(|d| SIGNS.iter().map(move |f| d.join(f))).any(|p| p.is_file())
+}
+
 pub fn find_dir_ci(base: &Path, name: &str) -> Option<PathBuf> {
     let rd = fs::read_dir(base).ok()?;
     for e in rd.flatten() {

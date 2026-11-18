@@ -96,8 +96,18 @@ and [doc/anchor.md](https://github.com/astartes-gaming/emuera-tty/blob/master/do
   / `GETCSVNOBYMASTERNAME`, `HASH_XXH32`, `MATCHALL`, the SQLite functions
   `SQL_*` (eraKATANA; the databases are kept in `sav/temp_db/` and copied
   beside each save as Emuera.NET does; not in builds made with
-  `--no-default-features`), and its `<div>`
-  attribute names (`border_width`, `border_color`, `background_color`).
+  `--no-default-features`), and its HTML: `<div>` attribute names
+  (`border_width`, `border_color`, `background_color`), divs without a
+  `width` sized to their content, divs inside divs, `display`
+  (`absolute-lefttop` / `absolute-leftbottom` place a div against the
+  window; Emuera-EM's `absolute` too), and `HTML_PRINT_ISLAND`'s layers
+  (`HTML_PRINT_ISLAND html, depth`, `HTML_PRINT_ISLAND_CLEAR depth`):
+  the island is drawn over the window from its top row and stays out of
+  the log, its buttons clickable until it is cleared (eraMegatenP's
+  popups, message log and dungeon overlays). A game counts as Emuera.NET
+  when `Emuera.runtimeconfig.json`, `Emuera.dll`, `setting.json` or
+  `setting_user.json` is in its folder or the one above; its divs then
+  show all their content, as Emuera.NET draws it past the box.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,

@@ -53,7 +53,10 @@ fn matchall() {
 #[test]
 fn game_folder_font_hidden_without_pictures() {
     let font = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default()).join("eraMegatenP/Data/font/EraMTFontMedium.ttf");
-    let Ok(ttf) = std::fs::read(font) else { return };
+    let Ok(ttf) = std::fs::read(font) else {
+        eprintln!("skipped: {} not here", font.display());
+        return;
+    };
     let dir = temp_dir("net-gamefont");
     game(
         &dir,
@@ -70,4 +73,22 @@ fn game_folder_font_hidden_without_pictures() {
     let out = run(&dir, b"", None);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(out.contains("[ＭＳ ゴシック][ＭＳ ゴシック]") && out.contains("[Some Other Font]"), "{out}");
+}
+
+/// HTML_PRINT_ISLAND: drawn over the window, not printed in the log; its
+/// buttons answer an input; HTML_PRINT_ISLAND_CLEAR with a depth clears
+/// that layer only, without one every layer.
+#[test]
+fn html_island_layers() {
+    let erb = "@SYSTEM_TITLE\nHTML_PRINT_ISLAND \"<button value='7'>island-seven</button>\"\n\
+        HTML_PRINT_ISLAND \"<button value='8'>island-eight</button>\", 2\n\
+        HTML_PRINT_ISLAND_CLEAR 2\nBINPUT\nPRINTFORML [got {RESULT}]\n\
+        HTML_PRINT_ISLAND_CLEAR\nBINPUT\nQUIT\n";
+    let dir = temp_dir("net-island");
+    game(&dir, &[("ERB/T.ERB", erb)]);
+    let out = run(&dir, b"8\n7\n", None);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(out.contains("[got 7]"), "{out}");
+    assert!(!out.contains("island-"), "the island went into the log:\n{out}");
+    assert!(out.contains("no buttons to choose"), "{out}");
 }

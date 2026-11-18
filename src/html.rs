@@ -242,15 +242,28 @@ impl Vm {
                         ("button", true) | ("nonbutton", true) => button = None,
                         ("clearbutton", c) => clear = !c,
                         ("div", false) => {
-                            // the content up to </div> (divs don't nest)
-                            let lower = rest.to_ascii_lowercase();
-                            let end = lower.find("</div").unwrap_or(rest.len());
+                            // the content up to its own </div> (Emuera.NET's
+                            // divs nest: eraMegatenP's message log)
+                            let (end, after) = div_content_end(rest);
                             let inner = rest[..end].to_string();
-                            rest = match rest[end..].find('>') {
-                                Some(j) => &rest[end + j + 1..],
-                                None => "",
-                            };
+                            rest = &rest[after..];
                             self.html_div(&attrs, tag, &inner);
+                            first_text = false;
+                        }
+                        // Emuera.NET: a picture placed against the window
+                        // (`xpos` counts only there) is a div holding it
+                        ("img", _) if attrs.get("display").is_some_and(|d| d.trim().to_ascii_lowercase().starts_with("absolute-")) => {
+                            let mut div = HashMap::default();
+                            for k in ["display", "xpos", "ypos"] {
+                                if let Some(v) = attrs.get(k) {
+                                    div.insert(k.to_string(), v.clone());
+                                }
+                            }
+                            let img: String = ["src", "srcb", "width", "height"]
+                                .iter()
+                                .filter_map(|k| attrs.get(*k).map(|v| format!(" {}='{}'", k, v.replace('\'', "&#39;"))))
+                                .collect();
+                            self.html_div(&div, "div", &format!("<img{}>", img));
                             first_text = false;
                         }
                         ("img", _) => {
@@ -365,32 +378,54 @@ impl Vm {
         let ins = deco.insets();
         x += margin[3] as f32 * cell_px;
         y += margin[0] as f32 * lh;
-        let w = w.unwrap_or(self.con.width as f32 * cell_px).max(cell_px) - (margin[1] + margin[3]) as f32 * cell_px;
+        // no width: as wide as its widest line (Emuera.NET's ConsoleDivElement;
+        // Emuera-EM requires a width)
+        let auto_width = w.is_none();
+        let screen_px = self.con.width as f32 * cell_px;
+        let w = w.unwrap_or(screen_px).max(cell_px) - (margin[1] + margin[3]) as f32 * cell_px;
         let w = w.max(cell_px * (ins[1] + ins[3] + 1) as f32);
         let h = h.map(|h| (h - (margin[0] + margin[2]) as f32 * lh).max(lh));
-        // lay the content out as lines of its own
+        let saved_width = self.con.width;
+        // (Emuera.NET doesn't wrap a div's content either)
+        let wrap_at = if self.emuera_net { saved_width } else { ((w / cell_px).floor() as usize).saturating_sub(1 + ins[1] + ins[3]).max(1) };
+        let lines = self.html_apart(inner, wrap_at);
+        let widest = lines.iter().map(|l| line_cells(l, cell_px)).max().unwrap_or(0);
+        let fits = ((widest + ins[1] + ins[3]).clamp(1, saved_width.max(1)), lines.len() + ins[0] + ins[2]);
+        let mut cols = if auto_width { fits.0 } else { (w / cell_px).floor().max(1.0) as usize };
+        let mut rows = h.map(|h| (h / lh).round().max(1.0) as usize);
+        // Emuera.NET doesn't clip a div: its content runs past the box
+        // (eraMegatenP's popups are sized in pixels for text that spills).
+        // The box grows to hold it instead, the border and padding taking
+        // whole cells here.
+        if self.emuera_net {
+            cols = cols.max(fits.0);
+            rows = rows.map(|r| r.max(fits.1));
+        }
+        let (place, mut dy) = div_place(attrs.get("display").map(String::as_str), (y / lh).round() as i32, rows.unwrap_or(fits.1));
+        // ...and one placed above the window's bottom edge stays above it
+        if self.emuera_net && place == crate::console::DivPlace::Bottom && dy < 0 {
+            dy = dy.min(-(rows.unwrap_or(fits.1) as i32));
+        }
+        let html = format!("<{}>{}</div>", tag, inner);
+        self.con.push_seg(Seg::Div { dx: (x / cell_px).round() as i32, dy, cols, rows, lines, html, deco: Box::new(deco), place });
+    }
+
+    /// `src` printed as lines of their own, `width` cells wide, and taken
+    /// back out of the log (a div's content, the HTML island's lines).
+    pub fn html_apart(&mut self, src: &str, width: usize) -> Vec<crate::console::Line> {
         let saved_cur = std::mem::take(&mut self.con.cur);
         let saved_cur_align = self.con.cur_align.take();
         let saved_width = self.con.width;
         let (n0, dropped0) = (self.con.lines.len(), self.con.dropped_front);
-        self.con.width = ((w / cell_px).floor() as usize).saturating_sub(1 + ins[1] + ins[3]).max(1);
-        self.html_print(inner);
+        self.con.width = width;
+        self.html_print(src);
         let start = n0.saturating_sub(self.con.dropped_front - dropped0).min(self.con.lines.len());
         let lines = self.con.lines.split_off(start);
         self.con.low_water = self.con.low_water.min(start);
         self.con.width = saved_width;
         self.con.cur = saved_cur;
         self.con.cur_align = saved_cur_align;
-        let html = format!("<{}>{}</div>", tag, inner);
-        self.con.push_seg(Seg::Div {
-            dx: (x / cell_px).round() as i32,
-            dy: (y / lh).round() as i32,
-            cols: (w / cell_px).floor().max(1.0) as usize,
-            rows: h.map(|h| (h / lh).round().max(1.0) as usize),
-            lines,
-            html,
-            deco: Box::new(deco),
-        });
+        lines
     }
 
     /// Text between tags; a newline in it breaks the line like `<br>`
@@ -420,6 +455,63 @@ impl Vm {
             }
         }
     }
+}
+
+/// Where a `<div>`'s content ends in `rest` (the text after its opening
+/// tag), counting the divs opened inside it: (end of the content, start of
+/// what follows its `</div>`). Without a closing tag the div runs to the end.
+fn div_content_end(rest: &str) -> (usize, usize) {
+    let lower = rest.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    // `<div` followed by a space, `>` or `/` (not `<divider>`)
+    let opens_at = |i: usize| lower[i..].starts_with("<div") && matches!(bytes.get(i + 4), Some(b' ' | b'\t' | b'\r' | b'\n' | b'>' | b'/'));
+    let mut depth = 0usize;
+    let mut i = 0usize;
+    while let Some(j) = lower[i..].find('<') {
+        let at = i + j;
+        if lower[at..].starts_with("</div") {
+            if depth == 0 {
+                let after = lower[at..].find('>').map_or(rest.len(), |k| at + k + 1);
+                return (at, after);
+            }
+            depth -= 1;
+        } else if opens_at(at) {
+            depth += 1;
+        }
+        i = at + 1;
+    }
+    (rest.len(), rest.len())
+}
+
+/// A `<div>`'s `display` and its `ypos` in rows (`rows` high) as the
+/// placement it is drawn with and the row offset from that place.
+/// Emuera-EM's `absolute` measures `ypos` up from the window's bottom to
+/// the div's bottom (ConsoleDivPart.DrawTo); Emuera.NET's
+/// `absolute-leftbottom` measures it down from the bottom to the div's top,
+/// `absolute-lefttop` from the top. A value neither knows is `relative`.
+fn div_place(display: Option<&str>, ypos_rows: i32, rows: usize) -> (crate::console::DivPlace, i32) {
+    use crate::console::DivPlace;
+    match display.map(|d| d.trim().to_ascii_lowercase()).as_deref() {
+        Some("absolute") => (DivPlace::Bottom, -ypos_rows - rows as i32),
+        Some("absolute-leftbottom") => (DivPlace::Bottom, ypos_rows),
+        Some("absolute-lefttop") => (DivPlace::Top, ypos_rows),
+        _ => (DivPlace::Relative, ypos_rows),
+    }
+}
+
+/// A laid-out line's width in half-width cells of `cell_px` pixels, as an
+/// auto-sized `<div>` measures its content: text by its Shift-JIS width,
+/// pictures and shapes by their pixel width; a nested div takes none.
+fn line_cells(line: &crate::console::Line, cell_px: f32) -> usize {
+    let px_cells = |w: f32| (w.abs() / cell_px).round() as usize;
+    line.segs
+        .iter()
+        .map(|s| match s {
+            Seg::Text { text, .. } => crate::loader::sjis_len(text),
+            Seg::Image { w, .. } | Seg::Space { w } | Seg::Rect { w, .. } => px_cells(*w),
+            Seg::Div { .. } => 0,
+        })
+        .sum()
 }
 
 /// Emuera-EM's `MixedNum`: `300px` is pixels, a bare number is percent of
@@ -517,6 +609,7 @@ fn with_emuera_net_names(attrs: &HashMap<String, String>) -> HashMap<String, Str
 #[cfg(test)]
 mod tests {
     use crate::ast::Align;
+    use crate::console::Seg;
     use std::sync::Arc;
 
     fn vm() -> crate::vm::Vm {
@@ -538,6 +631,97 @@ mod tests {
         vm.html_print("<p align='right'>r</p>");
         assert_eq!(vm.con.lines.last().map(|l| l.align), Some(Align::Right));
         assert_eq!(vm.con.align, Align::Center);
+    }
+
+    /// The last line's div segments, in order (nested ones after their parent).
+    fn divs(vm: &crate::vm::Vm) -> Vec<(usize, i32, i32, crate::console::DivPlace)> {
+        fn walk(segs: &[Seg], out: &mut Vec<(usize, i32, i32, crate::console::DivPlace)>) {
+            for s in segs {
+                if let Seg::Div { cols, dx, dy, place, lines, .. } = s {
+                    out.push((*cols, *dx, *dy, *place));
+                    for l in lines {
+                        walk(&l.segs, out);
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&vm.con.lines.last().unwrap().segs, &mut out);
+        out
+    }
+
+    /// A div's content ends at its own `</div>`, past the ones nested in it.
+    #[test]
+    fn div_content_end_skips_nested_divs() {
+        let rest = "a<div x='1'>b<DIV>c</div></div>d</div>tail";
+        let (end, after) = super::div_content_end(rest);
+        assert_eq!(&rest[..end], "a<div x='1'>b<DIV>c</div></div>d");
+        assert_eq!(&rest[after..], "tail");
+        // <divider> opens no div
+        let rest = "x<divider>y</div>t";
+        let (end, after) = super::div_content_end(rest);
+        assert_eq!((&rest[..end], &rest[after..]), ("x<divider>y", "t"));
+        assert_eq!(super::div_content_end("open"), (4, 4));
+    }
+
+    /// Emuera.NET: a div without a width is as wide as its widest line
+    /// (plus its border); nested divs keep their own place.
+    #[test]
+    fn div_sizes_to_its_content_and_nests() {
+        let mut vm = vm();
+        vm.html_print("<div>abc<br>abcdef</div>");
+        assert_eq!(divs(&vm)[0].0, 6);
+        vm.html_print("<div border_width='1px'>ab</div>");
+        assert_eq!(divs(&vm)[0].0, 4);
+        vm.html_print("<div width='200px'>ab</div>");
+        assert_eq!(divs(&vm)[0].0, (200.0 / (vm.con.font_size / 2.0)).floor() as usize);
+        vm.html_print("<div xpos='0'>a<div xpos='90px'>b</div>c</div>");
+        let d = divs(&vm);
+        assert_eq!(d.len(), 2, "{d:?}");
+        assert_eq!(d[1].1, (90.0 / (vm.con.font_size / 2.0)).round() as i32);
+    }
+
+    /// `display`: Emuera.NET's absolute-lefttop / absolute-leftbottom count
+    /// `ypos` from the window's top / bottom to the div's top; Emuera-EM's
+    /// absolute counts it up from the bottom to the div's bottom.
+    #[test]
+    fn div_display_modes() {
+        use crate::console::DivPlace;
+        let mut vm = vm();
+        let lh = vm.con.line_height;
+        let rows = |px: f32| (px / lh).round() as i32;
+        vm.html_print(&format!("<div display='absolute-leftbottom' ypos='{}px' xpos='36px'>x</div>", -10.0 * lh));
+        assert_eq!(divs(&vm)[0], (1, 4, rows(-10.0 * lh), DivPlace::Bottom));
+        vm.html_print("<div display='absolute-lefttop' ypos='0'>x</div>");
+        assert_eq!(divs(&vm)[0].3, DivPlace::Top);
+        vm.html_print(&format!("<div display='absolute' ypos='{}px' width='90px' height='{}px'>x</div>", 2.0 * lh, 3.0 * lh));
+        assert_eq!((divs(&vm)[0].2, divs(&vm)[0].3), (-5, DivPlace::Bottom));
+        vm.html_print("<div display='relative' ypos='0'>x</div>");
+        assert_eq!(divs(&vm)[0].3, DivPlace::Relative);
+        // a picture placed against the window: a div holding it
+        vm.html_print("<img src='none' display='absolute-lefttop' xpos='18px'>");
+        assert_eq!((divs(&vm)[0].1, divs(&vm)[0].3), (2, DivPlace::Top));
+    }
+
+    /// An Emuera.NET game's div shows all its content: the box grows to
+    /// hold it, and one placed against the window's bottom stays above it
+    /// (eraMegatenP's INPUT_YN_POPUP, sized for text that spills out).
+    #[test]
+    fn emuera_net_divs_hold_their_content() {
+        use crate::console::DivPlace;
+        let popup = "<div display='absolute-leftbottom' xpos='0px' ypos='-72px' height='72px' width='117px' padding='60' border_width='30'>Test popup?<br>[0] Yes<br>[1] No</div>";
+        let mut vm = vm();
+        vm.con.font_size = 18.0;
+        vm.con.line_height = 18.0;
+        vm.html_print(popup);
+        assert_eq!(divs(&vm)[0], (13, 0, -4, DivPlace::Bottom), "Emuera-EM: as declared, clipped");
+        vm.emuera_net = true;
+        vm.html_print(popup);
+        // 11 columns of text and 3 lines inside a border and padding of a cell each
+        assert_eq!(divs(&vm)[0], (15, 0, -7, DivPlace::Bottom));
+        // its lines aren't wrapped at the declared width
+        let Some(Seg::Div { lines, .. }) = vm.con.lines.last().unwrap().segs.first() else { panic!("no div") };
+        assert!(lines.iter().all(|l| l.cols >= vm.con.width), "{:?}", lines.iter().map(|l| l.cols).collect::<Vec<_>>());
     }
 
     /// Emuera.NET's div attribute names stand for Emuera-EM's.
