@@ -175,6 +175,10 @@ struct DRow {
     /// `<div>` content anchored on this row, painted over the rows at its
     /// offset once the screen is laid out
     divs: Vec<DivAt>,
+    /// columns that something drawn over the window (the island, a div
+    /// with an absolute `display`) filled with a background: pictures of
+    /// the log under them are hidden there, as Emuera paints over them
+    covers: Vec<std::ops::Range<usize>>,
 }
 
 /// A laid-out `<div>`: its rows, drawn from column `col`, `dy` rows below
@@ -292,7 +296,7 @@ fn paint_on_window(all: &mut [DRow], fixed: Vec<(usize, DivAt)>, island: Vec<DRo
         let mut inside = Vec::new();
         while let Some((row, d)) = work.pop_front() {
             let at = edge(&d, row);
-            paint_div(all, at as i64, d, &mut inside);
+            paint_div(all, at as i64, d, &mut inside, true);
             work.extend(inside.drain(..));
         }
     };
@@ -302,6 +306,7 @@ fn paint_on_window(all: &mut [DRow], fixed: Vec<(usize, DivAt)>, island: Vec<DRo
         let divs: Vec<(usize, DivAt)> = std::mem::take(&mut r.divs).into_iter().map(|d| (y, d)).collect();
         if y < end {
             all[y].imgs.extend(r.imgs);
+            all[y].covers.extend(filled_ranges(0, &r.cells));
             paint_cells(&mut all[y], 0, r.cells);
         }
         paint_all(all, divs);
@@ -310,8 +315,9 @@ fn paint_on_window(all: &mut [DRow], fixed: Vec<(usize, DivAt)>, island: Vec<DRo
 
 /// Paint `d` over `all`, its first row at `anchor + d.dy`; divs inside it
 /// are painted after it, over its rows (relative ones), or handed back in
-/// `fixed` with the row they belong to (absolute ones).
-fn paint_div(all: &mut [DRow], anchor: i64, d: DivAt, fixed: &mut Vec<(usize, DivAt)>) {
+/// `fixed` with the row they belong to (absolute ones). `cover`: it is
+/// drawn over the window, so its filled cells hide the log's pictures.
+fn paint_div(all: &mut [DRow], anchor: i64, d: DivAt, fixed: &mut Vec<(usize, DivAt)>, cover: bool) {
     let mut queue = std::collections::VecDeque::from([(anchor, d)]);
     while let Some((anchor, d)) = queue.pop_front() {
         for (k, r) in d.rows.into_iter().enumerate() {
@@ -324,7 +330,11 @@ fn paint_div(all: &mut [DRow], anchor: i64, d: DivAt, fixed: &mut Vec<(usize, Di
                 im.col += d.col;
                 all[t].imgs.push(im);
             }
-            paint_cells(&mut all[t], d.col, r.cells);
+            if cover {
+                let filled = filled_ranges(d.col, &r.cells);
+                all[t].covers.extend(filled);
+            }
+            paint_div_cells(&mut all[t], d.col, r.cells);
             for mut n in r.divs {
                 if n.place == crate::console::DivPlace::Relative {
                     n.col += d.col;
@@ -334,6 +344,131 @@ fn paint_div(all: &mut [DRow], anchor: i64, d: DivAt, fixed: &mut Vec<(usize, Di
                 }
             }
         }
+    }
+}
+
+/// `c` seen through `tint` (RGBA), as Emuera blends a see-through picture.
+fn blend(c: Rgb, tint: [u8; 4]) -> Rgb {
+    let a = tint[3] as u32;
+    let mix = |below: u8, over: u8| ((below as u32 * (255 - a) + over as u32 * a + 127) / 255) as u8;
+    Rgb(mix(c.0, tint[0]), mix(c.1, tint[1]), mix(c.2, tint[2]))
+}
+
+/// Colour the columns `cols` of `row` through `tint`: text and background,
+/// a missing background being the window's (`window`). A short row is
+/// padded with blanks when the tint changes the window's colour.
+fn tint_cells(row: &mut DRow, cols: std::ops::Range<usize>, tint: [u8; 4], window: Rgb) {
+    let tinted_window = blend(window, tint);
+    let mut width: usize = row.cells.iter().map(|c| c.w.max(1) as usize).sum();
+    if tinted_window != window {
+        let plain = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
+        while width < cols.end {
+            row.cells.push(Cell { ch: ' ', w: 1, style: plain.clone(), button: None, marks: None });
+            width += 1;
+        }
+    }
+    let mut at = 0usize;
+    for c in row.cells.iter_mut() {
+        let w = c.w.max(1) as usize;
+        if at + w > cols.start && at < cols.end {
+            c.style.fg = blend(c.style.fg, tint);
+            let below = c.style.bg.unwrap_or(window);
+            let bg = blend(below, tint);
+            if c.style.bg.is_some() || bg != window {
+                c.style.bg = Some(bg);
+            }
+        }
+        at += w;
+    }
+}
+
+/// The screen columns of `cells` (painted from column `col`) that have a
+/// background, as ranges.
+fn filled_ranges(col: usize, cells: &[Cell]) -> Vec<std::ops::Range<usize>> {
+    let mut out: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut at = col;
+    for c in cells {
+        let w = c.w.max(1) as usize;
+        if c.style.bg.is_some() {
+            match out.last_mut() {
+                Some(r) if r.end == at => r.end = at + w,
+                _ => out.push(at..at + w),
+            }
+        }
+        at += w;
+    }
+    out
+}
+
+/// The pixel rows `y0..y1` of a picture less the cell rows (`ch` pixels
+/// high) at its top and bottom that `hidden` says are covered; None when
+/// nothing is left.
+fn uncovered_span(mut y0: i32, mut y1: i32, ch: i32, hidden: impl Fn(i32) -> bool) -> Option<(i32, i32)> {
+    while y0 < y1 && hidden(y0) {
+        y0 = (y0 / ch + 1) * ch;
+    }
+    while y0 < y1 && hidden(y1 - 1) {
+        y1 = (y1 - 1) / ch * ch;
+    }
+    (y0 < y1).then_some((y0, y1))
+}
+
+/// Are all the columns `cols` inside the ranges `covers`?
+fn covered(covers: &[std::ops::Range<usize>], cols: std::ops::Range<usize>) -> bool {
+    cols.clone().all(|c| covers.iter().any(|r| r.contains(&c)))
+}
+
+/// A cell that draws nothing: a blank without a background.
+fn see_through(cell: &Cell) -> bool {
+    cell.ch == ' ' && cell.style.bg.is_none() && cell.marks.is_none()
+}
+
+/// Paint a div's `cells` over `row` from column `col` the way Emuera
+/// draws a div: only what it draws covers what is there. A blank cell
+/// without a background (a gap between words, the room a picture takes)
+/// leaves the cell under it showing, and lends it its button if it has
+/// none. (eraMegatenP lays a dimming picture's div over an empty battle
+/// slot's text; the picture's blank row used to wipe the slot's name.)
+fn paint_div_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
+    // what each column of the row shows before the div is painted
+    let mut shown: Vec<bool> = Vec::new();
+    for c in &row.cells {
+        let drawn = !see_through(c);
+        shown.extend(std::iter::repeat_n(drawn, c.w.max(1) as usize));
+    }
+    let mut run: Vec<Cell> = Vec::new();
+    let mut run_at = col;
+    let mut at = col;
+    for cell in cells {
+        let w = cell.w.max(1) as usize;
+        let keeps_below = see_through(&cell) && shown.get(at).copied().unwrap_or(false);
+        if keeps_below {
+            paint_cells(row, run_at, std::mem::take(&mut run));
+            if let Some(b) = cell.button {
+                lend_button(row, at, b);
+            }
+        } else {
+            if run.is_empty() {
+                run_at = at;
+            }
+            run.push(cell);
+        }
+        at += w;
+    }
+    paint_cells(row, run_at, run);
+}
+
+/// Give the cell at screen column `col` of `row` the button `b`, unless it
+/// already has one.
+fn lend_button(row: &mut DRow, col: usize, b: usize) {
+    let mut at = 0usize;
+    for c in row.cells.iter_mut() {
+        let w = c.w.max(1) as usize;
+        if col < at + w {
+            c.button.get_or_insert(b);
+            return;
+        }
+        at += w;
     }
 }
 
@@ -2406,7 +2541,7 @@ impl Tty {
             let divs = std::mem::take(&mut all[idx].divs);
             for d in divs {
                 if d.place == crate::console::DivPlace::Relative {
-                    paint_div(&mut all, idx as i64, d, &mut fixed);
+                    paint_div(&mut all, idx as i64, d, &mut fixed, false);
                 } else {
                     fixed.push((idx, d));
                 }
@@ -2426,7 +2561,11 @@ impl Tty {
         let end = all.len() - self.scroll.min(all.len());
         let start = end.saturating_sub(view_h);
         let island_rows = self.island_rows(con, scale);
+        // (each row's pictures so far are the log's: what is drawn over the
+        // window next can hide them)
+        let log_imgs: Vec<usize> = all.iter().map(|r| r.imgs.len()).collect();
         paint_on_window(&mut all, fixed, island_rows, start, end);
+        self.apply_tints(&mut all, start, end, res, scale);
         let cbg_places = if res.cbg.is_empty() { Vec::new() } else { self.cbg_layers(con, res, &mut all[start..end]) };
         let visible = &all[start..end];
         self.row_lines = (start..end).map(|i| row_keys.get(i).copied().flatten()).collect();
@@ -2527,7 +2666,7 @@ impl Tty {
         let mut pending: Vec<(String, u32, u32, i32, i32, u32, u32)> = Vec::new();
         for idx in start.saturating_sub(IMG_REACH)..all.len().min(end + IMG_REACH) {
             let sr = idx as i32 - start as i32;
-            for im in all[idx].imgs.iter().filter(|im| im.col < cols) {
+            for (k, im) in all[idx].imgs.iter().enumerate().filter(|(_, im)| im.col < cols) {
                 let pw = (im.w * scale).round().max(1.0) as u32;
                 let ph = (im.h * scale).round().max(1.0) as u32;
                 // sr=0 corresponds to cell row 1 (pixel `ch`), so add `ch` to top
@@ -2541,6 +2680,22 @@ impl Tty {
                 if crop_h == 0 {
                     continue;
                 }
+                // a picture of the log under the island or an absolute div's
+                // background: only the rows out from under it show
+                let (top, crop_top, crop_h) = if k < log_imgs.get(idx).copied().unwrap_or(0) {
+                    let cw = self.cell.0.max(1) as usize;
+                    let span = im.col..(im.col + (pw as usize).div_ceil(cw)).min(cols);
+                    let hidden = |y: i32| {
+                        let r = (y / ch) as usize; // screen row; 1 is all[start]
+                        r >= 1 && all.get(start + r - 1).is_some_and(|row| covered(&row.covers, span.clone()))
+                    };
+                    match uncovered_span(top, top + crop_h as i32, ch, hidden) {
+                        Some((y0, y1)) => (y0, crop_top + (y0 - top) as u32, (y1 - y0) as u32),
+                        None => continue,
+                    }
+                } else {
+                    (top, crop_top, crop_h)
+                };
                 // a picture in a button: all of it is the button (hover,
                 // tooltip, click), as in Emuera, not just its text row
                 if let Some(b) = im.button {
@@ -2557,6 +2712,10 @@ impl Tty {
                 // images off (or hidden under the overlay): nothing is decoded
                 // or scaled, so no picture is read until a backend is chosen
                 if self.no_images || self.gfx.name() == "none" {
+                    continue;
+                }
+                // (a see-through colour: drawn as a tint of the cells)
+                if res.tint(&im.name).is_some() {
                     continue;
                 }
                 // srcb: the hover picture while the pointer is on its button
@@ -3291,6 +3450,35 @@ impl Tty {
             }
             self.gfx.after_flush(&hit, self.cell);
             self.pointer_over_images(&hit);
+        }
+    }
+
+    /// Pictures of one see-through colour ([`Resources::tint`]) colour the
+    /// cells they cover instead of being drawn: as a picture over text they
+    /// would hide the text in tmux and sixel terminals, where Emuera shows
+    /// it through, darkened. Rows `start..end` are on screen; pictures a
+    /// few rows above can reach into them.
+    fn apply_tints(&self, all: &mut [DRow], start: usize, end: usize, res: &mut Resources, scale: f32) {
+        if self.no_images || self.gfx.name() == "none" {
+            return;
+        }
+        let (cw, ch) = (self.cell.0.max(1) as f32, self.cell.1.max(1) as f32);
+        let mut areas = Vec::new();
+        for (idx, row) in all.iter().enumerate().take(end).skip(start.saturating_sub(IMG_REACH)) {
+            for im in row.imgs.iter().filter(|im| im.w > 0.0 && im.h > 0.0) {
+                let Some(tint) = res.tint(&im.name) else { continue };
+                let top = idx as f32 * ch + im.ypos * scale;
+                let first = (top / ch).round().max(0.0) as usize;
+                let last = ((top + im.h * scale) / ch).round().max(0.0) as usize;
+                let cols = ((im.w * scale) / cw).round().max(1.0) as usize;
+                areas.push((first.max(start)..last.min(end), im.col..im.col + cols, tint));
+            }
+        }
+        let window = self.screen_bg.unwrap_or(self.game_bg);
+        for (rows, cols, tint) in areas {
+            for r in rows {
+                tint_cells(&mut all[r], cols.clone(), tint, window);
+            }
         }
     }
 
@@ -4581,6 +4769,60 @@ mod colour_tests {
         let mut r = row("a漢b");
         paint_cells(&mut r, 2, row("Q").cells);
         assert_eq!(text(&r), "a Qb");
+    }
+
+    #[test]
+    fn a_div_shows_what_is_under_its_blanks() {
+        // eraMegatenP: a picture's blank row over an empty slot's name
+        let mut r = row("[12] EMPTY");
+        paint_div_cells(&mut r, 0, row("    X").cells);
+        assert_eq!(text(&r), "[12]XEMPTY");
+        // past the row's end the blanks are kept (padding)
+        let mut r = row("ab");
+        paint_div_cells(&mut r, 0, row("a  Z").cells);
+        assert_eq!(text(&r), "ab Z");
+        // a blank with a background covers
+        let mut r = row("abc");
+        let mut cells = row(" ").cells;
+        cells[0].style.bg = Some(Rgb(9, 9, 9));
+        paint_div_cells(&mut r, 1, cells);
+        assert_eq!(text(&r), "a c");
+        // a blank in a button lends the button to the text under it
+        let mut r = row("abc");
+        let mut cells = row(" ").cells;
+        cells[0].button = Some(4);
+        paint_div_cells(&mut r, 1, cells);
+        assert_eq!((text(&r).as_str(), r.cells[1].button), ("abc", Some(4)));
+    }
+
+    #[test]
+    fn a_see_through_picture_tints_the_cells() {
+        // 0x95000000: 58% black over light grey text on the window's black
+        let mut r = row("ab");
+        r.cells[0].style.fg = Rgb(200, 200, 200);
+        r.cells[1].style.fg = Rgb(200, 200, 200);
+        tint_cells(&mut r, 1..2, [0, 0, 0, 0x95], Rgb(0, 0, 0));
+        assert_eq!((r.cells[0].style.fg, r.cells[1].style.fg), (Rgb(200, 200, 200), Rgb(83, 83, 83)));
+        // (black over black: the background stays the terminal's)
+        assert_eq!(r.cells[1].style.bg, None);
+        // a white window is darkened, short rows padded to the picture's width
+        let mut r = row("a");
+        tint_cells(&mut r, 0..3, [0, 0, 0, 0x95], Rgb(255, 255, 255));
+        assert_eq!(r.cells.len(), 3);
+        assert!(r.cells.iter().all(|c| c.style.bg == Some(Rgb(106, 106, 106))));
+    }
+
+    #[test]
+    fn pictures_lose_the_rows_drawn_over_them() {
+        // 10-pixel rows; rows 2 and 3 (pixels 20..40) covered
+        let hidden = |y: i32| (20..40).contains(&y);
+        assert_eq!(uncovered_span(0, 30, 10, hidden), Some((0, 20)));
+        assert_eq!(uncovered_span(25, 60, 10, hidden), Some((40, 60)));
+        assert_eq!(uncovered_span(20, 40, 10, hidden), None);
+        assert_eq!(uncovered_span(5, 15, 10, hidden), Some((5, 15)));
+        // covered ranges join
+        assert!(covered(&[0..3, 3..6], 1..5));
+        assert!(!covered(&[0..3, 4..6], 1..5));
     }
 
     #[test]

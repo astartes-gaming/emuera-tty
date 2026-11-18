@@ -64,6 +64,8 @@ pub struct Resources {
     pos_override: HashMap<String, (i64, i64)>,
     /// when each buffer last changed (`gen` values)
     g_gen: HashMap<i64, u64>,
+    /// [`Resources::tint`]'s answers, by sprite and its version
+    tints: HashMap<String, (u64, Option<[u8; 4]>)>,
     /// prepared (cut, scaled) parts of draws, by source, its version, the
     /// rectangle and size: a picture redrawn every frame is scaled once
     parts: HashMap<(String, u64, (i32, i32, i32, i32), i32, i32), Rc<RgbaImage>>,
@@ -1178,6 +1180,35 @@ impl Resources {
         self.cropped.retain(|k, _| !from_g(k));
     }
 
+    /// The colour of a see-through picture of one colour, or None: a
+    /// dimming filter, such as eraMegatenP's buffer GCLEARed to
+    /// 0x95000000 and stretched over an empty battle slot. In Emuera the
+    /// text under it shows through, darkened; a terminal picture over text
+    /// hides the text (tmux, sixel), so the frontend tints the cells instead.
+    pub fn tint(&mut self, name: &str) -> Option<[u8; 4]> {
+        let name = self.frame_name(name);
+        // (a piece set into a bigger canvas isn't one colour all over)
+        if self.placement(&name).is_some() {
+            return None;
+        }
+        let key = name.to_uppercase();
+        // (only sprites of graphics buffers: a filter is made with GCLEAR,
+        // and an image file would be decoded here, off the cores the
+        // frame's pictures are decoded on)
+        if !self.g_sprites.contains_key(&key) {
+            return None;
+        }
+        let version = self.version(&name);
+        if let Some((v, t)) = self.tints.get(&key) {
+            if *v == version {
+                return *t;
+            }
+        }
+        let t = self.sprite(&name).and_then(|img| one_see_through_colour(&img));
+        self.tints.insert(key, (version, t));
+        t
+    }
+
     /// Cache version of `name`'s pixels: 0 for image files (they never
     /// change), its buffer's last change for SPRITECREATE sprites.
     pub fn version(&self, name: &str) -> u64 {
@@ -1709,6 +1740,16 @@ impl Resources {
         self.scaled.insert(key, out.clone());
         Some(out)
     }
+}
+
+/// The RGBA of `img` when every pixel has it and it is partly see-through
+/// (alpha 1..=254); None otherwise. Stops at the first pixel that differs,
+/// so a portrait costs almost nothing.
+fn one_see_through_colour(img: &RgbaImage) -> Option<[u8; 4]> {
+    let mut pixels = img.pixels();
+    let first = pixels.next()?.0;
+    let see_through = first[3] > 0 && first[3] < 255;
+    (see_through && pixels.all(|p| p.0 == first)).then_some(first)
 }
 
 /// `base/rel` matching each path component case-insensitively and

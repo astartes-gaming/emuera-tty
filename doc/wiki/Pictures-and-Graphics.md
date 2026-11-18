@@ -71,6 +71,18 @@ picture again. Inside tmux a tooltip simply covers the placeholders,
 rather than being cut out of the picture (which would mean sending a new
 picture through tmux).
 
+A sprite of a graphics buffer that is one see-through colour all over (a dimming filter,
+such as eraMegatenP's 58% black laid over an empty battle slot) isn't
+sent as a picture: the cells under it are coloured through it instead,
+so the text there stays readable, darkened as in Emuera, in every
+terminal (a picture over text would hide it in tmux and sixel ones).
+
+A `<div>` drawn over other output covers only what it draws: its blank
+cells without a background let the text under them show, as in Emuera.
+What is drawn over the window (an `HTML_PRINT_ISLAND` layer, a div with
+an absolute `display`) and has a background hides the pictures of the
+log under it; a picture partly under it keeps the rows that show.
+
 ### Linux console caveat
 
 The in-kernel console can't draw CJK glyphs. For
