@@ -91,6 +91,10 @@ and [doc/anchor.md](https://github.com/astartes-gaming/emuera-tty/blob/master/do
   files and `TR_NAME`, `PARAM.CSV` (read in place of `PALAM.CSV`, with
   `PARAM` usable for `PALAM` in scripts), the Ctrl-T / Ctrl-R / Ctrl-E
   hotkeys, the clipboard.
+- Emuera.NET (the engine eraMegatenP is written for), the parts its
+  games use: `GETCSVNOBYNAME` / `GETCSVNOBYCALLNAME` / `GETCSVNOBYNICKNAME`
+  / `GETCSVNOBYMASTERNAME`, `HASH_XXH32`, `MATCHALL`, and its `<div>`
+  attribute names (`border_width`, `border_color`, `background_color`).
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,

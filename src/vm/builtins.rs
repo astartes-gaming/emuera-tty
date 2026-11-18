@@ -38,12 +38,12 @@ pub const COMMANDS: &[&str] = &[
     "HTML_PRINT_ISLAND_CLEAR", "MOVETEXTBOX", "RESUMETEXTBOX", "SETBGIMAGE", "REMOVEBGIMAGE", "CLEARBGIMAGE", "FORCE_QUIT_AND_RESTART", "CALLSHARP", "REF",
     "REFBYNAME", "SAVEVAR", "LOADVAR", "WAIT", "FORCEWAIT", "TWAIT", "WAITANYKEY", "INPUTMOUSEKEY", "DOTRAIN", "CALLTRAIN", "STOPCALLTRAIN", "SAVEGAME",
     "LOADGAME", "SAVEDATA", "LOADDATA", "DELDATA", "SAVEGLOBAL", "LOADGLOBAL", "RESETDATA", "RESETGLOBAL", "VARSET", "CVARSET", "ARRAYSHIFT", "ARRAYREMOVE",
-    "ARRAYSORT", "ARRAYCOPY", "SWAP", "TIMES", "SETBIT", "CLEARBIT", "INVERTBIT", "SPLIT", "RANDOMIZE", "INITRAND", "DUMPRAND", "STRLEN", "STRLENU",
-    "STRLENFORM", "STRLENFORMU", "PUTFORM", "ADDCHARA", "ADDSPCHARA", "ADDDEFCHARA", "ADDVOIDCHARA", "DELCHARA", "DELALLCHARA", "PICKUPCHARA", "SWAPCHARA",
-    "COPYCHARA", "ADDCOPYCHARA", "SORTCHARA", "RESET_STAIN", "UPCHECK", "CUPCHECK", "CALLEVENT", "CLEARBUTTON", "SAVECHARA", "LOADCHARA", "MOUSESKIP_",
-    "BITMAP_CACHE_ENABLE", "FORCEKANA", "SETCOLOR_", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON", "CBGSETBUTTONSPRITE",
-    "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_", "DT_COLUMN_OPTIONS", "PRINT_SHOPITEM", "AWAIT",
-    "VARSETEX", "SPRITEANIMECREATE", "SPRITEANIMEADDFRAME",
+    "ARRAYSORT", "ARRAYCOPY", "MATCHALL", "SWAP", "TIMES", "SETBIT", "CLEARBIT", "INVERTBIT", "SPLIT", "RANDOMIZE", "INITRAND", "DUMPRAND", "STRLEN",
+    "STRLENU", "STRLENFORM", "STRLENFORMU", "PUTFORM", "ADDCHARA", "ADDSPCHARA", "ADDDEFCHARA", "ADDVOIDCHARA", "DELCHARA", "DELALLCHARA", "PICKUPCHARA",
+    "SWAPCHARA", "COPYCHARA", "ADDCOPYCHARA", "SORTCHARA", "RESET_STAIN", "UPCHECK", "CUPCHECK", "CALLEVENT", "CLEARBUTTON", "SAVECHARA", "LOADCHARA",
+    "MOUSESKIP_", "BITMAP_CACHE_ENABLE", "FORCEKANA", "SETCOLOR_", "SPRITESETPOS", "CBGSETG", "CBGSETSPRITE", "CBGCLEAR", "CBGCLEARBUTTON",
+    "CBGSETBUTTONSPRITE", "CBGREMOVERANGE", "CBGREMOVEBMAP", "CBGSETBMAPG", "SETTEXTBOX", "QUIT_AND_RESTART", "RESETBGCOLOR_", "DT_COLUMN_OPTIONS",
+    "PRINT_SHOPITEM", "AWAIT", "VARSETEX", "SPRITEANIMECREATE", "SPRITEANIMEADDFRAME",
 ];
 
 pub const FUNCTIONS: &[&str] = &[
@@ -52,20 +52,21 @@ pub const FUNCTIONS: &[&str] = &[
     "INRANGECARRAY", "VARSIZE", "STRLENS", "STRLENSU", "SUBSTRING", "SUBSTRINGU", "STRFIND", "STRFINDU", "STRCOUNT", "REPLACE", "TOSTR", "TOINT", "ISNUMERIC",
     "TOUPPER", "TOLOWER", "TOHALF", "TOFULL", "CHARATU", "STRJOIN", "ESCAPE", "UNICODE", "ENCODETOUNI", "CONVERT", "STRFORM", "MONEYSTR", "BARSTR",
     "LINEISEMPTY", "CSVNAME", "CSVCALLNAME", "CSVNICKNAME", "CSVMASTERNAME", "CSVBASE", "CSVABL", "CSVTALENT", "CSVEXP", "CSVMARK", "CSVJUEL", "CSVCFLAG",
-    "CSVCSTR", "CSVEQUIP", "CSVRELATION", "CSVEX", "FINDCHARA", "FINDLASTCHARA", "EXISTCSV", "GETCHARA", "GETSPCHARA", "GETTIME", "GETTIMES", "GETMILLISECOND",
-    "GETSECOND", "GETCOLOR", "GETDEFCOLOR", "GETBGCOLOR", "GETDEFBGCOLOR", "GETFOCUSCOLOR", "GETSTYLE", "GETFONT", "CURRENTALIGN", "CURRENTREDRAW", "CHKFONT",
-    "ISSKIP", "MOUSESKIP", "MESSKIP", "GETKEY", "GETKEYTRIGGERED", "MOUSEX", "MOUSEY", "ISACTIVE", "PRINTCPERLINE", "PRINTCLENGTH", "SAVENOS", "GETNUM",
-    "GETPALAMLV", "GETEXPLV", "CHKDATA", "SPRITECREATED", "SPRITEWIDTH", "SPRITEHEIGHT", "GETCONFIG", "GETCONFIGS", "HTML_ESCAPE", "HTML_TOPLAINTEXT",
-    "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR", "HTML_TAGSPLIT", "EXISTFUNCTION", "EXISTVAR", "GETVAR", "GETVARS", "SETVAR", "ISDEFINED", "STRREPEAT",
-    "GETLINESTR", "REGEXPMATCH", "CHKCHARADATA", "FIND_CHARADATA", "GCREATED", "GWIDTH", "GHEIGHT", "GETCHARA_", "__FORMS", "ARRAYMSORTEX", "GETMEMORYUSAGE",
-    "CLEARMEMORY", "TRIM", "EXISTSOUND", "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH",
-    "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE", "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE", "MAP_GETKEYS", "MAP_TOXML",
-    "COLOR_FROMNAME", "COLOR_FROMRGB", "HTML_STRINGLEN", "GETMETH", "GETMETHS", "GETDOINGFUNCTION", "TR_NAME", "CLIENTWIDTH", "CLIENTHEIGHT", "EXISTFILE",
-    "SPRITEPOSX", "SPRITEPOSY", "GGETCOLOR", "GETTEXTBOX", "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES",
-    "DT_COLUMN_EXIST", "DT_COLUMN_REMOVE", "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET", "DT_CELL_ISNULL",
-    "DT_CELL_GETS", "DT_CELL_SET", "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT", "XML_DOCUMENT", "XML_RELEASE", "XML_EXIST", "XML_TOSTR",
-    "XML_GET", "XML_GET_BYNAME", "XML_SET", "XML_SET_BYNAME", "XML_ADDNODE", "XML_ADDNODE_BYNAME", "XML_REMOVENODE", "XML_REMOVENODE_BYNAME", "XML_REPLACE",
-    "XML_REPLACE_BYNAME", "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
+    "CSVCSTR", "CSVEQUIP", "CSVRELATION", "CSVEX", "GETCSVNOBYNAME", "GETCSVNOBYCALLNAME", "GETCSVNOBYNICKNAME", "GETCSVNOBYMASTERNAME", "HASH_XXH32",
+    "FINDCHARA", "FINDLASTCHARA", "EXISTCSV", "GETCHARA", "GETSPCHARA", "GETTIME", "GETTIMES", "GETMILLISECOND", "GETSECOND", "GETCOLOR", "GETDEFCOLOR",
+    "GETBGCOLOR", "GETDEFBGCOLOR", "GETFOCUSCOLOR", "GETSTYLE", "GETFONT", "CURRENTALIGN", "CURRENTREDRAW", "CHKFONT", "ISSKIP", "MOUSESKIP", "MESSKIP",
+    "GETKEY", "GETKEYTRIGGERED", "MOUSEX", "MOUSEY", "ISACTIVE", "PRINTCPERLINE", "PRINTCLENGTH", "SAVENOS", "GETNUM", "GETPALAMLV", "GETEXPLV", "CHKDATA",
+    "SPRITECREATED", "SPRITEWIDTH", "SPRITEHEIGHT", "GETCONFIG", "GETCONFIGS", "HTML_ESCAPE", "HTML_TOPLAINTEXT", "HTML_GETPRINTEDSTR", "HTML_POPPRINTINGSTR",
+    "HTML_TAGSPLIT", "EXISTFUNCTION", "EXISTVAR", "GETVAR", "GETVARS", "SETVAR", "ISDEFINED", "STRREPEAT", "GETLINESTR", "REGEXPMATCH", "CHKCHARADATA",
+    "FIND_CHARADATA", "GCREATED", "GWIDTH", "GHEIGHT", "GETCHARA_", "__FORMS", "ARRAYMSORTEX", "GETMEMORYUSAGE", "CLEARMEMORY", "TRIM", "EXISTSOUND",
+    "PLAYSOUND", "STOPSOUND", "PLAYBGM", "STOPBGM", "SETSOUNDVOLUME", "SETBGMVOLUME", "MOUSEB", "ENUMFUNCBEGINSWITH", "MAP_CREATE", "MAP_EXIST", "MAP_RELEASE",
+    "MAP_GET", "MAP_CLEAR", "MAP_SIZE", "MAP_HAS", "MAP_SET", "MAP_REMOVE", "MAP_GETKEYS", "MAP_TOXML", "COLOR_FROMNAME", "COLOR_FROMRGB", "HTML_STRINGLEN",
+    "GETMETH", "GETMETHS", "GETDOINGFUNCTION", "TR_NAME", "CLIENTWIDTH", "CLIENTHEIGHT", "EXISTFILE", "SPRITEPOSX", "SPRITEPOSY", "GGETCOLOR", "GETTEXTBOX",
+    "DT_CREATE", "DT_EXIST", "DT_RELEASE", "DT_NOCASE", "DT_CLEAR", "DT_COLUMN_ADD", "DT_COLUMN_NAMES", "DT_COLUMN_EXIST", "DT_COLUMN_REMOVE",
+    "DT_COLUMN_LENGTH", "DT_ROW_ADD", "DT_ROW_SET", "DT_ROW_REMOVE", "DT_ROW_LENGTH", "DT_CELL_GET", "DT_CELL_ISNULL", "DT_CELL_GETS", "DT_CELL_SET",
+    "DT_SELECT", "DT_TOXML", "DT_FROMXML", "LOADTEXT", "SAVETEXT", "XML_DOCUMENT", "XML_RELEASE", "XML_EXIST", "XML_TOSTR", "XML_GET", "XML_GET_BYNAME",
+    "XML_SET", "XML_SET_BYNAME", "XML_ADDNODE", "XML_ADDNODE_BYNAME", "XML_REMOVENODE", "XML_REMOVENODE_BYNAME", "XML_REPLACE", "XML_REPLACE_BYNAME",
+    "XML_ADDATTRIBUTE", "XML_ADDATTRIBUTE_BYNAME", "XML_REMOVEATTRIBUTE", "XML_REMOVEATTRIBUTE_BYNAME",
     // graphics buffers (methods, usable as statements: result in RESULT)
     "GCREATE", "GCREATEFROMFILE", "GDISPOSE", "GCLEAR", "GFILLRECTANGLE", "GDRAWSPRITE", "GDRAWG", "GDRAWGWITHMASK", "GSETCOLOR", "GSETBRUSH", "GSAVE", "GLOAD",
     "SPRITECREATE", "SPRITEDISPOSE", "ARRAYMSORT", "GDRAWLINE", "GDRAWTEXT", "GDASHSTYLE", "GDRAWGWITHROTATE", "GSETPEN", "GSETFONT", "GGETBRUSH", "GGETPEN",
@@ -1319,6 +1320,44 @@ impl Vm {
                 if start < len {
                     arr.shift(base + start..base + len, -(cnt.min(len) as i64), &blank);
                 }
+            }
+            // Emuera.NET: MATCHALL var[, index], value[, start[, end]]: the
+            // indices of a 1-D array (or characters, for a character
+            // variable at `index`) holding `value`, into RESULT:1…, their
+            // number into RESULT (MATCHALL_Instruction)
+            "MATCHALL" => {
+                let v = self.avar(a, 0)?;
+                let chara = super::vars::system_var(&v.name).is_some_and(|d| d.chara) || self.user_dims.get(&*v.name).is_some_and(|d| d.is_chara);
+                let (at, element) = if chara { (2, Some(self.ai(a, 1, 0)?)) } else { (1, None) };
+                let want = self.arg(a, at)?.unwrap_or(Value::Int(0));
+                let row = if chara { None } else { Some(self.array_row(&v)?) };
+                let len = row.as_ref().map_or(self.charas.len(), |r| r.2) as i64;
+                let (beg, end) = (self.ai(a, at + 1, 0)?, self.ai(a, at + 2, len)?);
+                if beg < 0 || end < 0 {
+                    return err("検索範囲に負の値が渡されました");
+                }
+                if beg > end {
+                    return err("検索範囲の指定が不正です");
+                }
+                if end > len {
+                    return err("検索範囲が変数のサイズを超えています");
+                }
+                let mut hits = Vec::new();
+                for k in beg..end {
+                    let got = match (&row, element) {
+                        (Some((loc, base, _)), _) => self.arr_at(loc).map(|arr| arr.get(base + k as usize)).unwrap_or(Value::Int(0)),
+                        (None, Some(e)) => self.chara_arr(k as usize, &v.name).get(e.max(0) as usize),
+                        (None, None) => Value::Int(0),
+                    };
+                    if got == want {
+                        hits.push(k);
+                    }
+                }
+                let room = self.global_arr("RESULT").len().saturating_sub(1);
+                for (n, k) in hits.iter().take(room).enumerate() {
+                    self.set_global_i("RESULT", n + 1, *k);
+                }
+                self.set_global_i("RESULT", 0, hits.len() as i64);
             }
             "ARRAYSORT" => {
                 let v = self.avar(a, 0)?;
@@ -3490,6 +3529,25 @@ impl Vm {
                 }
                 i(t.and_then(|t| t.ints.iter().find(|(v, i, _)| *i == idx && v == var).map(|x| x.2)).unwrap_or(0))
             }
+            // Emuera.NET: the CSV character with this exact name (the lowest
+            // number when several share it), -1 if none (GetCsvNoMethod)
+            "GETCSVNOBYNAME" | "GETCSVNOBYCALLNAME" | "GETCSVNOBYNICKNAME" | "GETCSVNOBYMASTERNAME" => {
+                let want = self.as_(a, 0, "")?;
+                let (bit, field): (u8, fn(&crate::csvdata::CharaTemplate) -> &str) = match name {
+                    "GETCSVNOBYNAME" => (1, |t| &t.name),
+                    "GETCSVNOBYCALLNAME" => (2, |t| &t.callname),
+                    "GETCSVNOBYNICKNAME" => (4, |t| &t.nickname),
+                    _ => (8, |t| &t.mastername),
+                };
+                // (a name the CSV never set is null there, and matches nothing)
+                let found = self.csv.charas.iter().filter(|t| t.names_set & bit != 0 && field(t) == want).map(|t| t.no).min();
+                i(found.unwrap_or(-1))
+            }
+            // Emuera.NET: XXH32 (seed 0) of the string's UTF-8 bytes
+            "HASH_XXH32" => {
+                let x = self.as_(a, 0, "")?;
+                i(xxh32(x.as_bytes()) as i64)
+            }
             "EXISTCSV" => {
                 let no = self.ai(a, 0, 0)?;
                 self.sp_arg(a, 1)?;
@@ -4760,6 +4818,14 @@ mod tests {
         assert!(super::NOT_IN_FUNCTION.windows(2).all(|w| w[0] < w[1]));
     }
 
+    /// XXH32's reference vectors (seed 0).
+    #[test]
+    fn xxh32_reference_values() {
+        assert_eq!(super::xxh32(b""), 0x02CC5D05);
+        assert_eq!(super::xxh32(b"abc"), 0x32D153FF);
+        assert_eq!(super::xxh32(b"Nobody inspects the spammish repetition"), 0xE2293B2F);
+    }
+
     /// HTML colours as Emuera reads them: names, `#` and hex (0x allowed).
     #[test]
     fn html_colors() {
@@ -4905,4 +4971,42 @@ pub fn times_decimal(cur: i64, f: f64) -> i64 {
         Some(r) => r,
         None => (cur as f64 * f) as i64,
     }
+}
+
+/// XXH32 with seed 0 (Emuera.NET's HASH_XXH32, .NET's XxHash32).
+pub fn xxh32(data: &[u8]) -> u32 {
+    const P1: u32 = 2654435761;
+    const P2: u32 = 2246822519;
+    const P3: u32 = 3266489917;
+    const P4: u32 = 668265263;
+    const P5: u32 = 374761393;
+    let word = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+    let round = |acc: u32, lane: u32| acc.wrapping_add(lane.wrapping_mul(P2)).rotate_left(13).wrapping_mul(P1);
+    let mut rest = data;
+    let mut h = if data.len() >= 16 {
+        let (mut v1, mut v2, mut v3, mut v4) = (P1.wrapping_add(P2), P2, 0u32, 0u32.wrapping_sub(P1));
+        while rest.len() >= 16 {
+            v1 = round(v1, word(&rest[0..]));
+            v2 = round(v2, word(&rest[4..]));
+            v3 = round(v3, word(&rest[8..]));
+            v4 = round(v4, word(&rest[12..]));
+            rest = &rest[16..];
+        }
+        v1.rotate_left(1).wrapping_add(v2.rotate_left(7)).wrapping_add(v3.rotate_left(12)).wrapping_add(v4.rotate_left(18))
+    } else {
+        P5
+    };
+    h = h.wrapping_add(data.len() as u32);
+    while rest.len() >= 4 {
+        h = h.wrapping_add(word(rest).wrapping_mul(P3)).rotate_left(17).wrapping_mul(P4);
+        rest = &rest[4..];
+    }
+    for &b in rest {
+        h = h.wrapping_add((b as u32).wrapping_mul(P5)).rotate_left(11).wrapping_mul(P1);
+    }
+    h ^= h >> 15;
+    h = h.wrapping_mul(P2);
+    h ^= h >> 13;
+    h = h.wrapping_mul(P3);
+    h ^ (h >> 16)
 }
