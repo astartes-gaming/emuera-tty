@@ -30,8 +30,11 @@ menu choices in a throwaway copy and reports script errors.
 (mirror: https://github.com/vinumsabbathi789/erabasic-compat),
 a git submodule (run `git submodule update --init compat`): one game of checks, meant for every
 eraBasic interpreter, whose expected values are Emuera-EM/EE's.
-`cargo test --release --test compat_suite -- --ignored` runs it; it is
-ignored by default but **now passes** (since 679ba6dd). Note that even
+`cargo test --release --test compat_suite` runs it; it **passes**
+(since 679ba6dd). Its second game, `compat/net`, checks what the
+Emuera.NET fork (eraMegatenP, eraKATANA) adds, with that fork's values;
+the same test runs it, leaving out the topics for what emuera-tty doesn't
+have yet (`DICT_*`, `HASH_XXH3`, `G_POLYGON_*`). Note that even
 though the compat suite passes, there could still be other bugs — see
 [When something goes wrong](Troubleshooting).
 

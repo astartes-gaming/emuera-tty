@@ -1371,8 +1371,20 @@ impl Vm {
             // number into RESULT (MATCHALL_Instruction)
             "MATCHALL" => {
                 let v = self.avar(a, 0)?;
-                let chara = super::vars::system_var(&v.name).is_some_and(|d| d.chara) || self.user_dims.get(&*v.name).is_some_and(|d| d.is_chara);
-                let (at, element) = if chara { (2, Some(self.ai(a, 1, 0)?)) } else { (1, None) };
+                // a character variable is searched across the characters: a
+                // 1-D one (CFLAG) at the constant index after its name, a
+                // per-character value (NO, NAME) with no index (Emuera.NET's
+                // SP_MATCHALL_ArgumentBuilder)
+                let chara_dims = match super::vars::system_var(&v.name) {
+                    Some(d) if d.chara => Some(d.dims.len()),
+                    _ => self.user_dims.get(&*v.name).filter(|d| d.is_chara).map(|d| d.dims.len()),
+                };
+                let chara = chara_dims.is_some();
+                let (at, element) = match chara_dims {
+                    Some(0) => (1, Some(0)),
+                    Some(_) => (2, Some(self.ai(a, 1, 0)?)),
+                    None => (1, None),
+                };
                 let want = self.arg(a, at)?.unwrap_or(Value::Int(0));
                 let row = if chara { None } else { Some(self.array_row(&v)?) };
                 let len = row.as_ref().map_or(self.charas.len(), |r| r.2) as i64;
@@ -3626,8 +3638,10 @@ impl Vm {
                 })
             }
             "SQL_READER_READ" => {
+                // 0 when a row was read, 1 at the end (Emuera.NET's
+                // SQLReaderRead; eraKATANA loops `WHILE RESULT == 0`)
                 let id = self.ai(a, 0, 0)?;
-                i(self.sql.read(id)? as i64)
+                i(if self.sql.read(id)? { 0 } else { 1 })
             }
             "SQL_READER_GET_LONG" => {
                 let (id, k) = (self.ai(a, 0, 0)?, self.ai(a, 1, 0)?);
