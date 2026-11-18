@@ -136,11 +136,22 @@ impl Vm {
     /// HTML_PRINT: render `src` as its own line(s). Style and alignment
     /// changes don't leak out: both are restored afterwards.
     pub fn html_print(&mut self, src: &str) {
+        self.html_print_ex(src, true);
+    }
+
+    /// HTML_PRINT with its second argument: non-zero leaves the line open,
+    /// so what is printed next goes on the same line (Emuera-EM puts the
+    /// HTML into the print buffer; Emuera.NET marks the line not ended and
+    /// merges the next one into it). eraMegatenP prints each dungeon map
+    /// row as `HTML_PRINT row, -1` and a PRINTL: ending the line here made
+    /// that PRINTL a blank line under every row.
+    pub fn html_print_ex(&mut self, src: &str, end_line: bool) {
         // (Emuera's PrintHtml prints nothing for "")
         if src.is_empty() {
             return;
         }
-        if !self.con.cur.is_empty() {
+        // an open line keeps what was printed before it on the same line
+        if end_line && !self.con.cur.is_empty() {
             self.con.newline();
         }
         let saved_style = self.con.style.clone();
@@ -149,8 +160,11 @@ impl Vm {
         // align> changes that (Emuera-EM's HtmlManager state, Emuera.NET's
         // Html2DisplayLine): eraMegatenP centres its title logo itself,
         // inside a centred ALIGNMENT
-        self.con.align = Align::Left;
-        self.con.cur_align = Some(Align::Left);
+        // (an open line gets its alignment when it ends)
+        if end_line {
+            self.con.align = Align::Left;
+            self.con.cur_align = Some(Align::Left);
+        }
         let mut style_stack: Vec<Style> = Vec::new();
         let mut button: Option<Value> = None;
         // inside <clearbutton>: buttons are shown but not clickable
@@ -317,10 +331,12 @@ impl Vm {
         // the text adds one only if something follows the last `<br>`:
         // `HTML_PRINT "<br>"` is one line, not two. (AnonTW's animations
         // print a picture and nine of those, then CLEARLINE 10.)
-        if self.con.cur.is_empty() {
-            self.con.cur_align = None;
-        } else {
-            self.con.newline();
+        if end_line {
+            if self.con.cur.is_empty() {
+                self.con.cur_align = None;
+            } else {
+                self.con.newline();
+            }
         }
         self.con.style = saved_style;
         self.con.align = saved_align;

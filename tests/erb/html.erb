@@ -23,6 +23,16 @@ CALL CHECK, "html_print trailing br", LINECOUNT - LOCAL == 1
 LOCAL = LINECOUNT
 HTML_PRINT "a<br>b"
 CALL CHECK, "html_print br between", LINECOUNT - LOCAL == 2
+; a non-zero 2nd argument leaves the line open (eraMegatenP's map rows)
+LOCAL = LINECOUNT
+HTML_PRINT "<b>open</b>", 1
+PRINTL  and closed
+LOCALS '= HTML_TOPLAINTEXT(HTML_GETPRINTEDSTR(0))
+CALL CHECK, "html_print left open", LINECOUNT - LOCAL == 1
+CALL CHECKS, "html_print open line text", LOCALS, "open and closed"
+LOCAL = LINECOUNT
+HTML_PRINT "<b>closed</b>", 0
+CALL CHECK, "html_print second argument 0 ends the line", LINECOUNT - LOCAL == 1
 LOCAL = LINECOUNT
 HTML_PRINT "<br><br>"
 CALL CHECK, "html_print two br", LINECOUNT - LOCAL == 2

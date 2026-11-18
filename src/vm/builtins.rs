@@ -793,7 +793,9 @@ impl Vm {
             "HTML_PRINT" => {
                 // (Emuera-Anchor: read with the translate flag, set in `step`)
                 let s = self.as_(a, 0, "")?;
-                self.html_print(&s);
+                // a non-zero second argument leaves the line open
+                let end_line = a.len() < 2 || self.ai(a, 1, 0)? == 0;
+                self.html_print_ex(&s, end_line);
             }
             "BAR" | "BARL" => {
                 let v = self.ai(a, 0, 0)?;
