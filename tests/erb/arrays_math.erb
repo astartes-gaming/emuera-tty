@@ -20,6 +20,16 @@ LOCAL:1 = 1 !| BUMP()
 LOCAL:2 = 1 ^^ BUMP()
 CALL CHECK, "!& !| stop early, ^^ reads both", FLAG:0 == 1 && LOCAL == 1 && LOCAL:1 == 0 && LOCAL:2 == 0
 CALL CHECK, "getbit", GETBIT(5, 0) == 1 && GETBIT(5, 1) == 0
+;--- a statement that reads and writes a variable works its index out once
+FLAG:0 = 0
+LOCAL = 10
+LOCAL:1 = 20
+SWAP LOCAL, LOCAL:BUMP()
+CALL CHECK, "swap index evaluated once", FLAG:0 == 1 && LOCAL == 20 && LOCAL:1 == 10
+SETBIT LOCAL:BUMP(), 0
+CALL CHECK, "setbit index evaluated once", FLAG:0 == 2 && LOCAL:1 == 11
+TIMES LOCAL:BUMP(), 2.0
+CALL CHECK, "times index evaluated once", FLAG:0 == 3 && LOCAL:1 == 22
 LOCAL = 0
 SETBIT LOCAL, 3
 CALL CHECK, "setbit", LOCAL == 8

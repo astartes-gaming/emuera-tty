@@ -1387,6 +1387,20 @@ impl Vm {
         self.set_place(&p, val)
     }
 
+    /// Write `val` to a variable the same statement already located as `p`,
+    /// without working its indices out again: a statement that reads and
+    /// writes one (SWAP, SETBIT, TIMES) must name one element even when an
+    /// index is `RAND(…)`, as Emuera fixes it once (GetFixedVariableTerm).
+    /// eraMegatenP shuffles enemy positions with `SWAP L_POS:LCOUNT,
+    /// L_POS:RAND(7, 12)`.
+    pub fn set_located(&mut self, v: &VarRef, p: &Place, val: Value) -> VmResult<()> {
+        // (set_var's writable pseudo variables are scalars: no index)
+        if matches!(&*v.name, "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") {
+            return self.set_var(v, val);
+        }
+        self.set_place(p, val)
+    }
+
     /// Whether the variable holds strings (decides parameter defaults etc.).
     pub fn var_is_str(&mut self, v: &VarRef) -> VmResult<bool> {
         let p = self.locate(v)?;

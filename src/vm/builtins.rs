@@ -1437,12 +1437,13 @@ impl Vm {
                 }
             }
             "SWAP" => {
+                // each side located once (its indices may be RAND)
                 let x = self.avar(a, 0)?;
                 let y = self.avar(a, 1)?;
-                let vx = self.get_var(&x)?;
-                let vy = self.get_var(&y)?;
-                self.set_var(&x, vy)?;
-                self.set_var(&y, vx)?;
+                let (px, py) = (self.locate(&x)?, self.locate(&y)?);
+                let (vx, vy) = (self.get_place(&px), self.get_place(&py));
+                self.set_located(&x, &px, vy)?;
+                self.set_located(&y, &py, vx)?;
             }
             "TIMES" => {
                 if let Args::Raw(s) = args {
@@ -1453,15 +1454,17 @@ impl Vm {
                     let v = crate::parser::upper_expr(v);
                     let f: f64 = parts.get(1).map(|x| x.trim().parse().unwrap_or(1.0)).unwrap_or(1.0);
                     if let Expr::Var(vr) = v {
-                        let cur = self.get_var(&vr)?.as_int();
+                        let p = self.locate(&vr)?;
+                        let cur = self.get_place(&p).as_int();
                         let r = if self.cfg.bool("TIMESの計算をeramakerにあわせる") { (cur as f64 * f) as i64 } else { times_decimal(cur, f) };
-                        self.set_var(&vr, Value::Int(r))?;
+                        self.set_located(&vr, &p, Value::Int(r))?;
                     }
                 }
             }
             "SETBIT" | "CLEARBIT" | "INVERTBIT" => {
                 let v = self.avar(a, 0)?;
-                let mut x = self.get_var(&v)?.as_int();
+                let p = self.locate(&v)?;
+                let mut x = self.get_place(&p).as_int();
                 for k in 1..a.len().max(2) {
                     let b = self.ai(a, k, 0)?;
                     if !(0..64).contains(&b) {
@@ -1473,7 +1476,7 @@ impl Vm {
                         _ => x ^= 1 << b,
                     }
                 }
-                self.set_var(&v, Value::Int(x))?;
+                self.set_located(&v, &p, Value::Int(x))?;
             }
             "SPLIT" => {
                 let s = self.as_(a, 0, "")?;
