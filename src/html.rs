@@ -145,6 +145,12 @@ impl Vm {
         }
         let saved_style = self.con.style.clone();
         let saved_align = self.con.align;
+        // its lines start left-aligned whatever ALIGNMENT says; only <p
+        // align> changes that (Emuera-EM's HtmlManager state, Emuera.NET's
+        // Html2DisplayLine): eraMegatenP centres its title logo itself,
+        // inside a centred ALIGNMENT
+        self.con.align = Align::Left;
+        self.con.cur_align = Some(Align::Left);
         let mut style_stack: Vec<Style> = Vec::new();
         let mut button: Option<Value> = None;
         // inside <clearbutton>: buttons are shown but not clickable
@@ -310,6 +316,7 @@ impl Vm {
     /// `<div>`: print `inner` as lines of its own, wrapped at the div's
     /// width, and put them in a zero-width segment drawn at its offset.
     fn html_div(&mut self, attrs: &HashMap<String, String>, tag: &str, inner: &str) {
+        let attrs = &with_emuera_net_names(attrs);
         let fs = self.con.font_size;
         let px = |v: &str| mixed_num(v.trim()).map(|(v, is_px)| if is_px { v } else { fs * v / 100.0 });
         let get = |k: &str| attrs.get(k).and_then(|v| px(v));
@@ -490,4 +497,58 @@ pub fn html_substring(src: &str, cols: usize) -> (String, String) {
         second = if cut + skip_br >= src.len() { String::new() } else { second };
     }
     (first, second)
+}
+
+/// A `<div>`'s attributes with Emuera.NET's names (`border_width`,
+/// `border_color`, `background_color`, its HtmlManager's) made Emuera-EM's
+/// (`border`, `bcolor`, `color`); EM's own names win where both are given.
+/// eraMegatenP is written for Emuera.NET; EM rejects these names, so no EM
+/// game has them.
+fn with_emuera_net_names(attrs: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut out = attrs.clone();
+    for (net, em) in [("border_width", "border"), ("border_color", "bcolor"), ("background_color", "color")] {
+        if let Some(v) = attrs.get(net) {
+            out.entry(em.to_string()).or_insert_with(|| v.clone());
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::Align;
+    use std::sync::Arc;
+
+    fn vm() -> crate::vm::Vm {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let cfg = Arc::new(crate::emuconfig::Values::emuera());
+        let csv = crate::csvdata::GameCsv::load(&root.join("sample/CSV"), None, &cfg);
+        let fe = Box::new(crate::frontend::Headless::new(false));
+        crate::vm::Vm::new(crate::parser::Program::default(), csv, crate::resources::Resources::default(), fe, root.join("sample"), cfg)
+    }
+
+    /// HTML_PRINT's lines start left-aligned whatever ALIGNMENT says (only
+    /// `<p align>` changes them), and the script's ALIGNMENT is kept.
+    #[test]
+    fn html_lines_ignore_the_scripts_alignment() {
+        let mut vm = vm();
+        vm.con.align = Align::Center;
+        vm.html_print("logo");
+        assert_eq!(vm.con.lines.last().map(|l| l.align), Some(Align::Left));
+        vm.html_print("<p align='right'>r</p>");
+        assert_eq!(vm.con.lines.last().map(|l| l.align), Some(Align::Right));
+        assert_eq!(vm.con.align, Align::Center);
+    }
+
+    /// Emuera.NET's div attribute names stand for Emuera-EM's.
+    #[test]
+    fn emuera_net_div_names() {
+        let mut a = crate::fxhash::HashMap::default();
+        a.insert("border_width".to_string(), "2px".to_string());
+        a.insert("background_color".to_string(), "#102030".to_string());
+        a.insert("bcolor".to_string(), "#FFFFFF".to_string());
+        a.insert("border_color".to_string(), "#000000".to_string());
+        let b = super::with_emuera_net_names(&a);
+        assert_eq!((b["border"].as_str(), b["color"].as_str(), b["bcolor"].as_str()), ("2px", "#102030", "#FFFFFF"));
+    }
 }
