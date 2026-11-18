@@ -86,14 +86,97 @@ pub fn decode_as(bytes: &[u8], sjis: bool) -> String {
 }
 
 /// Find a direct child directory by case-insensitive name.
-/// Does the game ship Emuera.NET? Its .NET build's files, or its own
-/// settings files, beside the game or one folder up (eraMegatenP keeps
-/// `Emuera.exe` above its `Data/`). A single-file build (eraKATANA) has
-/// none of them and isn't recognised.
-pub fn ships_emuera_net(game_dir: &Path) -> bool {
-    const SIGNS: [&str; 4] = ["Emuera.runtimeconfig.json", "Emuera.dll", "setting.json", "setting_user.json"];
-    let dirs = std::iter::once(game_dir).chain(game_dir.parent());
-    dirs.flat_map(|d| SIGNS.iter().map(move |f| d.join(f))).any(|p| p.is_file())
+/// The switches in Emuera.NET's `setting.json` (JSONConfig, read from the
+/// exe's folder: the game's, or the one above as for eraMegatenP's `Data/`)
+/// that change how a game loads. Emuera-EE's .NET builds write the same
+/// file. `UseScopedVariableInstruction` needs nothing: EE's VARI / VARS
+/// always work here. No local game sets `UseNewRandom`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NetSettings {
+    /// `UseRenameInCharaCSV`: `[[name]]` in Chara*.csv is renamed
+    pub rename_in_chara_csv: bool,
+    /// `CheckUTF8withBOM`: a level-0 load warning for each script file
+    /// without a UTF-8 BOM
+    pub check_utf8_bom: bool,
+}
+
+pub fn net_settings(game_dir: &Path) -> NetSettings {
+    let file = std::iter::once(game_dir).chain(game_dir.parent()).map(|d| d.join("setting.json")).find(|p| p.is_file());
+    let Some(text) = file.and_then(|p| fs::read(p).ok()) else { return NetSettings::default() };
+    let text = String::from_utf8_lossy(&text);
+    NetSettings {
+        rename_in_chara_csv: json_bool(&text, "UseRenameInCharaCSV").unwrap_or(false),
+        check_utf8_bom: json_bool(&text, "CheckUTF8withBOM").unwrap_or(false),
+    }
+}
+
+/// A `"key": true|false` property's value, wherever it is in the JSON
+/// (the keys are unique to that file).
+fn json_bool(text: &str, key: &str) -> Option<bool> {
+    let quoted = format!("\"{}\"", key);
+    let mut rest = text;
+    while let Some(i) = rest.find(&quoted) {
+        rest = &rest[i + quoted.len()..];
+        let Some(value) = rest.trim_start().strip_prefix(':') else { continue };
+        let value = value.trim_start();
+        if value.starts_with("true") {
+            return Some(true);
+        }
+        if value.starts_with("false") {
+            return Some(false);
+        }
+    }
+    None
+}
+
+/// Does the game ship epizo12345's Emuera.NET fork (eraMegatenP,
+/// eraKATANA), whose HTML is parsed by AngleSharp and laid out its own way?
+/// Its `Emuera.dll` or exe has AngleSharp inside. Nothing simpler tells:
+/// Emuera-EE's .NET builds are also called Emuera.NET and also ship
+/// `Emuera.dll`, `Emuera.runtimeconfig.json` and `setting.json`. The
+/// game's folder is looked in, else (no exe there) the one above, where
+/// eraMegatenP keeps its exe beside `Data/`.
+pub fn ships_net_fork(game_dir: &Path) -> bool {
+    let engines = |dir: &Path| -> Vec<PathBuf> {
+        let Ok(rd) = fs::read_dir(dir) else { return Vec::new() };
+        rd.flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .filter(|p| {
+                let name = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                name.ends_with(".exe") || name == "emuera.dll"
+            })
+            .collect()
+    };
+    let mut found = engines(game_dir);
+    if found.is_empty() {
+        found = game_dir.parent().map(engines).unwrap_or_default();
+    }
+    found.iter().any(|p| file_contains(p, b"AngleSharp", 64 << 20))
+}
+
+/// Does the file's first `limit` bytes contain `needle`? Read in pieces,
+/// not whole (a single-file .NET exe is 20 MB).
+fn file_contains(path: &Path, needle: &[u8], limit: u64) -> bool {
+    use std::io::Read;
+    let Ok(f) = fs::File::open(path) else { return false };
+    let mut f = f.take(limit);
+    let mut buf = vec![0u8; 1 << 20];
+    let mut kept = 0usize;
+    loop {
+        let n = match f.read(&mut buf[kept..]) {
+            Ok(0) | Err(_) => return false,
+            Ok(n) => n,
+        };
+        let end = kept + n;
+        if buf[..end].windows(needle.len()).any(|w| w == needle) {
+            return true;
+        }
+        // keep the tail: the needle may straddle two pieces
+        let tail = needle.len().saturating_sub(1).min(end);
+        buf.copy_within(end - tail..end, 0);
+        kept = tail;
+    }
 }
 
 pub fn find_dir_ci(base: &Path, name: &str) -> Option<PathBuf> {
@@ -419,5 +502,50 @@ mod sjis_tests {
         assert_eq!(sjis_len("♂"), 2); // in JIS X 0208
         assert_eq!(sjis_len("한"), 1); // not in code page 932: "?"
         assert_eq!(sjis_len("😀"), 2); // two UTF-16 units, two "?"
+    }
+}
+
+#[cfg(test)]
+mod net_tests {
+    use super::*;
+
+    #[test]
+    fn setting_json_switches() {
+        let t = "\u{feff}{\n  \"UseNewRandom\": false,\n  \"UseRenameInCharaCSV\" : true, \"CheckUTF8withBOM\":false }";
+        assert_eq!(json_bool(t, "UseRenameInCharaCSV"), Some(true));
+        assert_eq!(json_bool(t, "CheckUTF8withBOM"), Some(false));
+        assert_eq!(json_bool(t, "Missing"), None);
+        // a key quoted as a value isn't the property
+        assert_eq!(json_bool("{\"a\": \"UseRenameInCharaCSV\", \"UseRenameInCharaCSV\": true}", "UseRenameInCharaCSV"), Some(true));
+    }
+
+    /// The search reads in 1 MB pieces: a needle across two is found.
+    #[test]
+    fn file_contains_across_pieces() {
+        let dir = std::env::temp_dir().join(format!("emuera-tty-contains-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("big.bin");
+        let mut data = vec![0u8; (1 << 20) - 4];
+        data.extend_from_slice(b"AngleSharp");
+        fs::write(&p, &data).unwrap();
+        assert!(file_contains(&p, b"AngleSharp", 64 << 20));
+        assert!(!file_contains(&p, b"AngleSharp", 1 << 20), "past the limit");
+        assert!(!file_contains(&p, b"Emuera.NET", 64 << 20));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// epizo12345's fork told from Emuera-EE's .NET build, on the games on
+    /// this machine: eraMegatenP (exe above Data/) yes, AnonTW (EE's
+    /// "Emuera.NET") no.
+    #[test]
+    fn net_fork_on_local_games() {
+        let megaten = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default()).join("eraMegatenP/Data");
+        let anon = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default()).join("anon-tw");
+        if !megaten.is_dir() || !anon.is_dir() {
+            eprintln!("skipped: eraMegatenP or AnonTW not here");
+            return;
+        }
+        assert!(ships_net_fork(megaten));
+        assert!(!ships_net_fork(anon));
     }
 }

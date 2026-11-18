@@ -513,6 +513,35 @@ impl FuncBuilder {
     }
 }
 
+/// `[[name]]` → its `_Rename.csv` replacement (`map`: names without the
+/// brackets), in one pass; a name the table lacks is left as it is.
+pub fn rename_text(text: &str, map: &HashMap<String, String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("[[") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 2..];
+        match after.find("]]") {
+            Some(j) => match map.get(&after[..j]) {
+                Some(v) => {
+                    out.push_str(v);
+                    rest = &after[j + 2..];
+                }
+                None => {
+                    out.push_str("[[");
+                    rest = after;
+                }
+            },
+            None => {
+                out.push_str(&rest[i..]);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 pub struct Parser {
     pub prog: Program,
     /// `_Rename.csv` pairs by name, for `[[name]]` substitution (the first
@@ -955,30 +984,7 @@ impl Parser {
 
     /// `[[name]]` → its `_Rename.csv` replacement, in one pass over the line.
     fn apply_rename(&self, line: &str) -> String {
-        let mut out = String::with_capacity(line.len());
-        let mut rest = line;
-        while let Some(i) = rest.find("[[") {
-            out.push_str(&rest[..i]);
-            let after = &rest[i + 2..];
-            match after.find("]]") {
-                Some(j) => match self.rename_map.get(&after[..j]) {
-                    Some(v) => {
-                        out.push_str(v);
-                        rest = &after[j + 2..];
-                    }
-                    None => {
-                        out.push_str("[[");
-                        rest = after;
-                    }
-                },
-                None => {
-                    out.push_str(&rest[i..]);
-                    rest = "";
-                }
-            }
-        }
-        out.push_str(rest);
-        out
+        rename_text(line, &self.rename_map)
     }
 
     /// Preprocess raw text into logical (line_no, text) pairs. `first_no`:

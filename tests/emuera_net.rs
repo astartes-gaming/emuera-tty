@@ -92,3 +92,51 @@ fn html_island_layers() {
     assert!(!out.contains("island-"), "the island went into the log:\n{out}");
     assert!(out.contains("no buttons to choose"), "{out}");
 }
+
+/// setting.json's UseRenameInCharaCSV: `[[name]]` in a Chara*.csv takes
+/// its _Rename.csv value (eraMegatenP's skills and clothes); without the
+/// setting the CSV is read as written.
+#[test]
+fn rename_in_chara_csv() {
+    let files = |on: bool| -> Vec<(&'static str, &'static str)> {
+        let mut f = vec![
+            ("emuera.config", "_Rename.csvを利用する:YES\n"),
+            ("CSV/_Rename.csv", "77,[[スキル:気合]]\n"),
+            ("CSV/CFLAG.csv", "3,技\n"),
+            ("CSV/Chara1.csv", "番号,1\n名前,A\nフラグ,技,[[スキル:気合]]\n"),
+            ("ERB/T.ERB", "@SYSTEM_TITLE\nADDCHARA 1\nPRINTFORML [cflag {CFLAG:0:3}]\nQUIT\n"),
+        ];
+        if on {
+            f.push(("setting.json", "\u{feff}{\n  \"UseRenameInCharaCSV\": true\n}"));
+        }
+        f
+    };
+    for (on, want) in [(true, "[cflag 77]"), (false, "[cflag 0]")] {
+        let dir = temp_dir(if on { "net-rename-on" } else { "net-rename-off" });
+        game(&dir, &files(on));
+        let out = run(&dir, b"", None);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(out.contains(want), "setting {on}: {want:?} missing:\n{out}");
+    }
+}
+
+/// setting.json's CheckUTF8withBOM: a level-0 load warning for a script
+/// file without a BOM, listed by --check when level 0 is shown.
+#[test]
+fn check_utf8_with_bom() {
+    let dir = temp_dir("net-bom");
+    game(
+        &dir,
+        &[
+            ("emuera.config", "表示する最低警告レベル:0\n"),
+            ("setting.json", "{\"CheckUTF8withBOM\":true}"),
+            ("ERB/PLAIN.ERB", "@SYSTEM_TITLE\nQUIT\n"),
+            ("ERB/BOM.ERB", "\u{feff}@OTHER\nRETURN\n"),
+        ],
+    );
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty")).arg(&dir).arg("--check").output().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("PLAIN.ERB") && text.contains("UTF-8 with BOM"), "{text}");
+    assert!(!text.contains("BOM.ERB:0"), "{text}");
+}

@@ -387,7 +387,8 @@ impl Vm {
         let h = h.map(|h| (h - (margin[0] + margin[2]) as f32 * lh).max(lh));
         let saved_width = self.con.width;
         // (Emuera.NET doesn't wrap a div's content either)
-        let wrap_at = if self.emuera_net { saved_width } else { ((w / cell_px).floor() as usize).saturating_sub(1 + ins[1] + ins[3]).max(1) };
+        let net_fork = self.net_fork();
+        let wrap_at = if net_fork { saved_width } else { ((w / cell_px).floor() as usize).saturating_sub(1 + ins[1] + ins[3]).max(1) };
         let lines = self.html_apart(inner, wrap_at);
         let widest = lines.iter().map(|l| line_cells(l, cell_px)).max().unwrap_or(0);
         let fits = ((widest + ins[1] + ins[3]).clamp(1, saved_width.max(1)), lines.len() + ins[0] + ins[2]);
@@ -397,17 +398,23 @@ impl Vm {
         // (eraMegatenP's popups are sized in pixels for text that spills).
         // The box grows to hold it instead, the border and padding taking
         // whole cells here.
-        if self.emuera_net {
+        if net_fork {
             cols = cols.max(fits.0);
             rows = rows.map(|r| r.max(fits.1));
         }
         let (place, mut dy) = div_place(attrs.get("display").map(String::as_str), (y / lh).round() as i32, rows.unwrap_or(fits.1));
         // ...and one placed above the window's bottom edge stays above it
-        if self.emuera_net && place == crate::console::DivPlace::Bottom && dy < 0 {
+        if net_fork && place == crate::console::DivPlace::Bottom && dy < 0 {
             dy = dy.min(-(rows.unwrap_or(fits.1) as i32));
         }
         let html = format!("<{}>{}</div>", tag, inner);
         self.con.push_seg(Seg::Div { dx: (x / cell_px).round() as i32, dy, cols, rows, lines, html, deco: Box::new(deco), place });
+    }
+
+    /// Does the game ship epizo12345's Emuera.NET fork? Looked up once.
+    fn net_fork(&mut self) -> bool {
+        let dir = &self.game_dir;
+        *self.net_fork.get_or_insert_with(|| crate::loader::ships_net_fork(dir))
     }
 
     /// `src` printed as lines of their own, `width` cells wide, and taken
@@ -711,11 +718,12 @@ mod tests {
         use crate::console::DivPlace;
         let popup = "<div display='absolute-leftbottom' xpos='0px' ypos='-72px' height='72px' width='117px' padding='60' border_width='30'>Test popup?<br>[0] Yes<br>[1] No</div>";
         let mut vm = vm();
+        vm.net_fork = Some(false);
         vm.con.font_size = 18.0;
         vm.con.line_height = 18.0;
         vm.html_print(popup);
         assert_eq!(divs(&vm)[0], (13, 0, -4, DivPlace::Bottom), "Emuera-EM: as declared, clipped");
-        vm.emuera_net = true;
+        vm.net_fork = Some(true);
         vm.html_print(popup);
         // 11 columns of text and 3 lines inside a border and padding of a cell each
         assert_eq!(divs(&vm)[0], (15, 0, -7, DivPlace::Bottom));

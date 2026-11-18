@@ -3,7 +3,7 @@
 ## 1. Built-ins
 
 - [x] 1.1 `GETCSVNOBYNAME` / `CALLNAME` / `NICKNAME` / `MASTERNAME`, `HASH_XXH32`, `MATCHALL` (`7df26ec`, `tests/emuera_net.rs`).
-- [x] 1.2 Re-run the built-in survey over every local game shipping Emuera.NET; implement any others they use. Done: Emuera.NET games found by their files (eraMegatenP; eraKATANA, eraBEMANI, eraDaL as single-file or DLL builds), the survey run over era-games and era-archive (278 folders): only eraKATANA uses more, the `SQL_*` functions, now in `vm/sql.rs` behind the default `sqlite` feature (rusqlite, bundled). eraKATANA, eraBEMANI and eraDaL smoke-play clean.
+- [x] 1.2 Re-run the built-in survey over every local game shipping Emuera.NET; implement any others they use. Done: the survey run over era-games and era-archive (278 folders): only eraKATANA uses more, the `SQL_*` functions, now in `vm/sql.rs` behind the default `sqlite` feature (rusqlite, bundled). eraKATANA, eraBEMANI and eraDaL smoke-play clean. (Corrected later: of these only eraMegatenP and eraKATANA ship epizo12345's fork, the one with AngleSharp inside; eraDaL ships Emuera-EE's .NET build, also called Emuera.NET, and eraBEMANI Emuera-EM on .NET Framework with a stray `Emuera.runtimeconfig.json`.)
 
 ## 2. HTML dialect
 
@@ -21,8 +21,9 @@
 
 ## 4. setting.json
 
-- [ ] 4.1 Read `setting.json` (game folder); `UseRenameInCharaCSV`, `UseScopedVariableInstruction`, `CheckUTF8withBOM`. Verify: inline-game tests.
-- [ ] 4.2 `UseNewRandom` (Emuera.NET's other RNG): check what eraMegatenP sets (false) and implement only if a game turns it on.
+- [x] 4.1 Read `setting.json` (game folder); `UseRenameInCharaCSV`, `UseScopedVariableInstruction`, `CheckUTF8withBOM`. Verify: inline-game tests. Done: `loader::net_settings` (the game's folder or the one above); `UseRenameInCharaCSV` renames Chara*.csv (`rename_in_chara_csv`; eraMegatenP's character 9500 now gets its hat, 6, not 0); `CheckUTF8withBOM` gives level-0 load warnings (`check_utf8_with_bom`); `UseScopedVariableInstruction` needs nothing, VARI / VARS always work (a deliberate difference, `doc/differences.md`).
+- [x] 4.2 `UseNewRandom` (Emuera.NET's other RNG): check what eraMegatenP sets (false) and implement only if a game turns it on. Done: no local game turns it on (13 setting.json files in era-games and era-archive, 333 folders); not implemented.
+- [x] 4.3 Tell epizo12345's fork apart from Emuera-EE's .NET builds, which share the name and the marker files: AngleSharp inside the exe or `Emuera.dll` (`loader::ships_net_fork`, looked up when a div first needs it; `net_fork_on_local_games`).
 
 ## 5. eraMegatenP screens
 

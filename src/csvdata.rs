@@ -270,11 +270,25 @@ impl GameCsv {
                 }
             }
         }
-        // Character templates.
+        // Character templates; Emuera.NET's UseRenameInCharaCSV (its
+        // setting.json) applies _Rename.csv to them too (eraMegatenP's
+        // characters name their skills and clothes as `[[スキル:気合]]`)
+        let chara_rename: Option<HashMap<String, String>> =
+            (crate::loader::net_settings(csv_dir.parent().unwrap_or(csv_dir)).rename_in_chara_csv && !g.rename.is_empty()).then(|| {
+                let mut m = HashMap::default();
+                for (k, v) in &g.rename {
+                    m.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                m
+            });
         for p in walk(csv_dir, &["csv"]) {
             let stem = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
             if stem.starts_with("CHARA") {
                 if let Ok(text) = read_text(&p) {
+                    let text = match &chara_rename {
+                        Some(m) if text.contains("[[") => crate::parser::rename_text(&text, m),
+                        _ => text,
+                    };
                     if let Some(mut c) = g.parse_chara(&text, &p) {
                         // CALLNAMEが空文字列の時にNAMEを代入する (off unless
                         // set): an empty CALLNAME is the NAME, set as if the

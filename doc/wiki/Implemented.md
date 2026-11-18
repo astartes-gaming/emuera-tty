@@ -104,10 +104,17 @@ and [doc/anchor.md](https://github.com/astartes-gaming/emuera-tty/blob/master/do
   (`HTML_PRINT_ISLAND html, depth`, `HTML_PRINT_ISLAND_CLEAR depth`):
   the island is drawn over the window from its top row and stays out of
   the log, its buttons clickable until it is cleared (eraMegatenP's
-  popups, message log and dungeon overlays). A game counts as Emuera.NET
-  when `Emuera.runtimeconfig.json`, `Emuera.dll`, `setting.json` or
-  `setting_user.json` is in its folder or the one above; its divs then
-  show all their content, as Emuera.NET draws it past the box.
+  popups, message log and dungeon overlays). A game counts as this
+  Emuera.NET (epizo12345's fork, not Emuera-EE's .NET builds, which go by
+  the same name) when its `Emuera.dll` or exe, in its folder or the one
+  above, has the AngleSharp HTML parser inside; its divs then show all
+  their content, as that engine draws it past the box. Its `setting.json`
+  (in the game's folder or the one above) is read for
+  `UseRenameInCharaCSV` (`_Rename.csv`'s `[[name]]` in `Chara*.csv`:
+  eraMegatenP's characters' skills and clothes) and `CheckUTF8withBOM`
+  (a level-0 load warning for each script file without a BOM);
+  `UseScopedVariableInstruction` needs nothing (`VARI` / `VARS` always
+  work) and no game sets `UseNewRandom`.
 - Emuera-EM/EE: `MAP_*` string maps, `DT_*` data tables (incl. Select
   filters and XML), `XML_*` documents (XPath subset: steps, `//`, `*`,
   `text()`, `@attr`, predicates), `VARSETEX`, `LOADTEXT`/`SAVETEXT`,

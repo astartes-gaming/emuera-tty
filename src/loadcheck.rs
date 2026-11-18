@@ -54,6 +54,27 @@ pub fn at_load(prog: &mut Program, cfg: &Values) {
     prog.warnings.sort_by_key(|w| (w.file, w.line));
 }
 
+/// Emuera.NET's CheckUTF8withBOM (its setting.json): a level-0 warning
+/// for each script file without a UTF-8 BOM (Preload.ReadFileLines). The
+/// files are read only when level 0 is shown.
+pub fn bom_warnings(prog: &mut Program, cfg: &Values, game_dir: &std::path::Path) {
+    if !shown(cfg, 0) || !crate::loader::net_settings(game_dir).check_utf8_bom {
+        return;
+    }
+    let has_bom = |rel: &str| -> bool {
+        use std::io::Read;
+        let mut head = [0u8; 3];
+        // a file that can't be read isn't this warning's business
+        std::fs::File::open(game_dir.join(rel)).and_then(|mut f| f.read_exact(&mut head)).map_or(true, |_| head == [0xEF, 0xBB, 0xBF])
+    };
+    let found: Vec<Warning> = (0..prog.files.len())
+        .filter(|&k| !prog.files[k].starts_with('(') && !has_bom(&prog.files[k]))
+        .map(|k| Warning { level: 0, file: k as u32, line: 0, msg: "ファイルが UTF-8 with BOM ではありません".into() })
+        .collect();
+    prog.warnings.extend(found);
+    prog.warnings.sort_by_key(|w| (w.file, w.line));
+}
+
 /// The load warnings the game's 表示する最低警告レベル lets through (shown
 /// in the console at start: `Vm::show_load_warnings`).
 pub fn load_warnings<'a>(prog: &'a Program, cfg: &Values) -> Vec<&'a Warning> {
