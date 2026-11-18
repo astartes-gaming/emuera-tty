@@ -27,7 +27,7 @@
 
 ## 5. eraMegatenP screens
 
-- [ ] 5.1 Dungeon party block (portraits, names, HP) as Emuera.NET shows it. Needs a current-version dungeon save.
+- [x] 5.1 Dungeon party block (portraits, names, HP) as Emuera.NET shows it. Needs a current-version dungeon save. Done by 2.2-2.5 (its members are nested, auto-sized divs): with the maintainer's Sea Ark save (slot 205), a Konsole screenshot shows all six members with portraits, names, HP/MP, level and the skill icon; still to be compared with Emuera.NET by hand.
 
 ## 6. Docs
 
