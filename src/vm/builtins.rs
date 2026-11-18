@@ -1277,7 +1277,19 @@ impl Vm {
                 let val = self.arg(a, 1)?;
                 let start = self.ai(a, 2, 0)?;
                 let end = self.arg(a, 3)?.map(|v| v.as_int());
-                let p = self.locate(&v)?;
+                // the last index is never used (Emuera's SetValueAll fills
+                // the row from start to end), so it isn't range-checked
+                // either: eraMegatenP's `VARSET SELECT_ABLE:LCOUNT, 0` runs
+                // with LCOUNT left past the end by an earlier loop
+                let row = match v.idx.split_last() {
+                    Some((_, lead)) => {
+                        let mut idx = lead.to_vec();
+                        idx.push(crate::ast::Expr::Int(0));
+                        crate::ast::VarRef { idx, ..(*v).clone() }
+                    }
+                    None => (*v).clone(),
+                };
+                let p = self.locate(&row)?;
                 let a2 = self.arr_at(&p.loc).ok_or_else(|| Ctrl::Error("VARSET on read-only".into(), false))?;
                 if v.idx.is_empty() && end.is_none() && start == 0 {
                     // whole array
