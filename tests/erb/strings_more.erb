@@ -1,5 +1,12 @@
 ;=== more string functions and statements ===
 @TEST_MAIN
+; a string assignment keeps full-width spaces at both ends; half-width ones are trimmed (eraMegatenP's empty map tile)
+LOCALS = 　
+CALL CHECKS, "string assignment of a full-width space", LOCALS, "　"
+LOCALS:1 = a　
+CALL CHECKS, "string assignment keeps a trailing full-width space", LOCALS:1, "a　"
+LOCALS:2 = b  
+CALL CHECKS, "string assignment trims trailing half-width spaces", LOCALS:2, "b"
 ; eraSQN, eraSumireTeru: an Anchor game indexes by a translated name (Abl_TR.csv)
 LOCAL = 1
 LOCALS = %ABLNAME:LOCAL%

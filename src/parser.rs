@@ -912,7 +912,27 @@ fn print_data_flags(cmd: &str) -> Option<PrintFlags> {
 fn keeps_line_end(line: &str) -> bool {
     let end = line.find(|c: char| !crate::expr::is_ident_char(c)).unwrap_or(line.len());
     let word = &line[..end];
-    word.get(..5).is_some_and(|w| w.eq_ignore_ascii_case("PRINT")) || word.eq_ignore_ascii_case("DATA") || word.eq_ignore_ascii_case("DATAFORM")
+    word.get(..5).is_some_and(|w| w.eq_ignore_ascii_case("PRINT"))
+        || word.eq_ignore_ascii_case("DATA")
+        || word.eq_ignore_ascii_case("DATAFORM")
+        || is_plain_assignment(line, word)
+}
+
+/// Does `line` (starting with the identifier `word`) look like `VAR = text`
+/// or `VAR:index = text`? A string variable's text keeps its full-width
+/// spaces at both ends, as in Emuera (it trims only half-width spaces and
+/// tabs there): eraMegatenP's `RESULTS = 　` is an empty map tile, and as
+/// "" its row of the map moved left.
+fn is_plain_assignment(line: &str, word: &str) -> bool {
+    if word.is_empty() || is_command(&word.to_ascii_uppercase()) {
+        return false;
+    }
+    let after = &line[word.len()..];
+    let Some(eq) = after.find('=') else { return false };
+    let (target, rest) = (&after[..eq], &after[eq + 1..]);
+    // (an index may follow the name; `==` and compound operators aren't `=`)
+    let index_only = target.chars().all(|c| crate::expr::is_ident_char(c) || matches!(c, ':' | ' ' | '\t' | '(' | ')'));
+    index_only && !rest.starts_with('=') && (target.is_empty() || target.starts_with([':', ' ', '\t']))
 }
 
 /// Commands whose argument is a raw string (no expression parsing).
