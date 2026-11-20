@@ -80,8 +80,18 @@ FOR LOCAL:1, 0, 100
 NEXT
 CALL CHECK, "rand range", LOCAL
 CALL CHECK, "rand two args", INRANGE(RAND(5, 8), 5, 7)
+; every value is worked out before any is written: a value's function writing the array doesn't undo the ones before it (eraMegatenP's skill slots)
+FLAG:1 = 0
+FLAG:1 = WIPE_FLAG1(5), WIPE_FLAG1(6)
+CALL CHECK, "multi-value assignment evaluates every value first", FLAG:1 == 5 && FLAG:2 == 6
 
 @BUMP
 #FUNCTION
 FLAG:0 += 1
 RETURNF 1
+
+@WIPE_FLAG1, ARG
+#FUNCTION
+FLAG:1 = 0
+FLAG:2 = 0
+RETURNF ARG

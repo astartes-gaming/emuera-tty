@@ -2917,8 +2917,12 @@ impl Vm {
             if !matches!(op, AsgOp::Set | AsgOp::SetExpr) {
                 return err("compound assignment cannot take multiple values");
             }
-            for (k, e) in rhs.iter().enumerate() {
-                let val = self.eval(e)?;
+            // every value first, then the writes (Emuera's SET_Instruction):
+            // a value may call a function that changes the same array, as
+            // eraMegatenP's `RESULT_F = F(a), F(b)` does, and must not undo
+            // the values written before it
+            let vals = rhs.iter().map(|e| self.eval(e)).collect::<VmResult<Vec<Value>>>()?;
+            for (k, val) in vals.into_iter().enumerate() {
                 let q = Place { loc: p.loc.clone(), flat: p.flat + k };
                 self.set_place(&q, val)?;
             }
