@@ -1247,7 +1247,11 @@ fn android_setting(it: &crate::emuconfig::Item) -> bool {
 /// the value in effect, and where it's from (emuera, game, player, or fixed: the game doesn't allow changing it).
 /// Called in either process, with or without a game running.
 #[no_mangle]
-pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_gameSettings<'a>(mut env: JNIEnv<'a>, _c: JClass<'a>, game: JString<'a>) -> jni::sys::jstring {
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_gameSettings<'a>(
+    mut env: JNIEnv<'a>,
+    _c: JClass<'a>,
+    game: JString<'a>,
+) -> jni::sys::jstring {
     use crate::emuconfig::{normalize, Kind, Source, Values, ITEMS};
     let Some(game) = get_string(&mut env, &game) else { return std::ptr::null_mut() };
     // (after a panic: no settings)
@@ -1377,7 +1381,11 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_saveCopy<'a
 
 /// Deletes a save, after copying it to the backups.
 #[no_mangle]
-pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_saveDelete<'a>(mut env: JNIEnv<'a>, _c: JClass<'a>, path: JString<'a>) -> jni::sys::jstring {
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_saveDelete<'a>(
+    mut env: JNIEnv<'a>,
+    _c: JClass<'a>,
+    path: JString<'a>,
+) -> jni::sys::jstring {
     let Some(path) = get_string(&mut env, &path) else { return result_string(&mut env, Err("bad arguments".into())) };
     let r = guarded(|| save_dirs().and_then(|(_, root)| crate::savemgr::delete(std::path::Path::new(&path), &root)));
     result_string(&mut env, r)
@@ -1413,7 +1421,11 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_saveBackups
 
 /// Replaces the saves with a backup's, the current ones backed up first: how many were restored.
 #[no_mangle]
-pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_saveRestore<'a>(mut env: JNIEnv<'a>, _c: JClass<'a>, from: JString<'a>) -> jni::sys::jstring {
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_saveRestore<'a>(
+    mut env: JNIEnv<'a>,
+    _c: JClass<'a>,
+    from: JString<'a>,
+) -> jni::sys::jstring {
     let Some(from) = get_string(&mut env, &from) else { return data_string(&mut env, Err("bad arguments".into())) };
     let r = guarded(|| save_dirs().and_then(|(dir, root)| crate::savemgr::restore(std::path::Path::new(&from), &dir, &root).map(|n| n.to_string())));
     data_string(&mut env, r)
@@ -1465,7 +1477,14 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_pointer<'a>
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_tap<'a>(mut env: JNIEnv<'a>, _c: JClass<'a>, btn: jint, col: jint, rows_up: jint, button: JString<'a>) {
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_tap<'a>(
+    mut env: JNIEnv<'a>,
+    _c: JClass<'a>,
+    btn: jint,
+    col: jint,
+    rows_up: jint,
+    button: JString<'a>,
+) {
     send(Msg::Tap { btn: btn as u8, col: col as usize, rows_up: rows_up as usize, button: get_string(&mut env, &button) });
 }
 

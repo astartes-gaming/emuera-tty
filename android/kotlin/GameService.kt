@@ -29,7 +29,7 @@ class GameService : Service() {
         val back = Intent(this, GameActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val notification = builder
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(i?.getStringExtra("game") ?: "ERB player")
+            .setContentTitle(i?.getStringExtra("game") ?: "Emuera-Android")
             .setContentText("Game running. Tap to go back.")
             .setOngoing(true)
             .setContentIntent(PendingIntent.getActivity(this, 0, back, PendingIntent.FLAG_IMMUTABLE))

@@ -4,11 +4,11 @@ version = "0.1.2"
 edition = "2021"
 license = "MIT"
 
-# The engine as a shared library for the Android app (src/lib.rs, src/android.rs)
+# The engine as a library for the Android app (src/lib.rs, src/android.rs): empty on
+# other systems, and android/build.sh makes it a cdylib (one musl can't build)
 [lib]
 name = "emuera"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
 
 [[bin]]
 name = "emuera-tty"

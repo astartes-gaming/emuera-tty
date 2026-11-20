@@ -213,6 +213,8 @@ mod tests {
 
     /// The scripts parse in their shells, where those are installed.
     #[test]
+    // (Windows' bash.exe is WSL's, which fails without a Linux installed: these are Unix shells' scripts)
+    #[cfg_attr(windows, ignore)]
     fn scripts_parse() {
         for (shell, flag) in [("bash", "-n"), ("zsh", "-n"), ("fish", "--no-execute")] {
             let Ok(mut c) = std::process::Command::new(shell)

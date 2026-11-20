@@ -35,14 +35,14 @@ class GamesProvider : DocumentsProvider() {
         var flags = if (f.isDirectory) Document.FLAG_DIR_SUPPORTS_CREATE else Document.FLAG_SUPPORTS_WRITE
         if (f != root) flags = flags or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_RENAME
         val type = if (f.isDirectory) Document.MIME_TYPE_DIR else MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase()) ?: "application/octet-stream"
-        val name = if (f == root) "ERB player" else f.name
+        val name = if (f == root) "Emuera-Android" else f.name
         c.newRow().add(Document.COLUMN_DOCUMENT_ID, idOf(f)).add(Document.COLUMN_DISPLAY_NAME, name).add(Document.COLUMN_MIME_TYPE, type)
             .add(Document.COLUMN_SIZE, f.length()).add(Document.COLUMN_LAST_MODIFIED, f.lastModified()).add(Document.COLUMN_FLAGS, flags)
     }
 
     override fun queryRoots(projection: Array<String>?): Cursor {
         val c = MatrixCursor(projection ?: ROOT_COLUMNS)
-        c.newRow().add(Root.COLUMN_ROOT_ID, "games").add(Root.COLUMN_TITLE, "ERB player").add(Root.COLUMN_DOCUMENT_ID, idOf(root))
+        c.newRow().add(Root.COLUMN_ROOT_ID, "games").add(Root.COLUMN_TITLE, "Emuera-Android").add(Root.COLUMN_DOCUMENT_ID, idOf(root))
             .add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_CREATE or Root.FLAG_LOCAL_ONLY).add(Root.COLUMN_ICON, android.R.drawable.ic_menu_agenda)
         return c
     }

@@ -17,6 +17,13 @@ get() { # url, file, sha256
 
 get $R/maven2/com/android/tools/r8/8.13.25/r8-8.13.25.jar "$T/dl/r8-8.13.25.jar" 0d4f2f68c4fcbc9434eff122f41feb6fb1d98efd2faa530cec1abacab1cea03d
 
+if [ ! -f "$T/sdk/build-tools/36.1.0/apksigner.jar" ]; then
+  get $R/repository/build-tools_r36.1_linux.zip "$T/dl/build-tools_r36.1_linux.zip" a7b5889e4a79fcf3b0976bef40d401f4240fb1eed891d9d91169da1111e11d78
+  unzip -q -o "$T/dl/build-tools_r36.1_linux.zip" "android-16/*" -d "$T/sdk/build-tools"
+  mv "$T/sdk/build-tools/android-16" "$T/sdk/build-tools/36.1.0"
+  rm "$T/dl/build-tools_r36.1_linux.zip"
+fi
+
 if [ ! -f "$T/sdk/android.jar" ]; then
   get $R/repository/platform-35_r02.zip "$T/dl/platform-35_r02.zip" 0988cacad01b38a18a47bac14a0695f246bc76c1b06c0eeb8eb0dc825ab0c8e0
   unzip -q -j -o "$T/dl/platform-35_r02.zip" android-35/android.jar -d "$T/sdk"

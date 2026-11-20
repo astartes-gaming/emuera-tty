@@ -84,7 +84,9 @@ fn tools_drive_the_game() {
     assert!(a[6].contains(r#""isError":true"#) && a[6].contains("WAIT"), "{}", a[6]);
     // the input, the WAIT passed by itself, up to the mouse/key input
     assert!(a[7].contains(r#"got 7\nafter wait"#) && a[7].contains("1 WAIT passed") && a[7].contains("INPUTMOUSEKEY"), "{}", a[7]);
-    assert!(a[8].contains("ファイル名:ERB/T.ERB") && a[8].contains("SYSTEM_TITLE"), "{}", a[8]);
+    // (Windows' own separator there, as Emuera shows it: a backslash, escaped in the JSON)
+    let file = if cfg!(windows) { r"ファイル名:ERB\\T.ERB" } else { "ファイル名:ERB/T.ERB" };
+    assert!(a[8].contains(file) && a[8].contains("SYSTEM_TITLE"), "{}", a[8]);
     // (a string button: its value in RESULTS, as Emuera sets it)
     assert!(a[9].contains("mouse 1 SORT"), "{}", a[9]);
     assert!(a[10].contains("key 3 13"), "{}", a[10]);

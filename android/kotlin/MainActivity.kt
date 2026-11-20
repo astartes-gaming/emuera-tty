@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.text.method.LinkMovementMethod
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -50,7 +51,7 @@ class MainActivity : Activity() {
         status = TextView(this).apply { setPadding(0, pad / 2, 0, pad / 2) }
         spinner = ProgressBar(this).apply { visibility = ProgressBar.GONE }
         val zip = Button(this).apply {
-            text = "Import a zip or tar"
+            text = "Import a ZIP/TAR archive"
             isAllCaps = false
             setOnClickListener { pickArchive() }
         }
@@ -70,7 +71,7 @@ class MainActivity : Activity() {
             setPadding(pad, pad, pad, pad)
             padForSystemBars(pad)
             addView(TextView(context).apply {
-                text = "ERB player"
+                text = "Emuera - choose a game"
                 textSize = 24f
                 setPadding(0, 0, 0, pad)
             })
@@ -115,13 +116,35 @@ class MainActivity : Activity() {
     }
 
     private fun refresh() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
         list.removeAllViews()
         // (a dot marks an import in progress or left over)
         val names = games.list()?.filter { !it.startsWith(".") }?.sorted() ?: emptyList()
+        list.addView(TextView(this).apply {
+        	text = """
+        	Emuera for Android. Uses emuera-tty internally to run Era games.
+        	Also the unofficial successor of uEmuera. (https://github.com/xerysherry/uEmuera)
+
+        	Check out the project at https://github.com/astartes-gaming/emuera-tty for updates.
+
+        	Currently in rapid development.
+        	""".trimIndent()
+        	textSize = 12f
+        	movementMethod = LinkMovementMethod.getInstance()
+        	setPadding(0, 0, 0, pad/2)
+        })
         if (names.isEmpty()) {
             list.addView(TextView(this).apply {
-                text = "No games yet.\n\nImport a zip or tar of a game, or a folder holding its CSV and ERB folders. 7z and rar files need unpacking first: import the unpacked folder."
+                text = """
+                No games yet.
+                Import a zip or tar of a game, or a folder holding its CSV and ERB folders. 7z and rar files need unpacking first: import the unpacked folder.
+
+                Importing makes a COPY of the selected folder (or zip) stored internally in this app's data directory; the original folder/zip remains untouched.
+
+                Large games may take a while to import (around 30-60 seconds); don't close the app while it's doing so.
+                """.trimIndent()
                 textSize = 16f
+                setPadding(0, 0, 0, pad/2)
             })
         }
         for (name in names) {
@@ -139,6 +162,15 @@ class MainActivity : Activity() {
                 addView(iconButton("✕", "Delete $name") { confirmDelete(name) })
             })
         }
+        list.addView(TextView(this).apply {
+            text = """
+            For the curious: Why not Termux?
+
+            While Termux is a supported build option, it comes with the most significant limitation of not having a implemented graphics protocol, which means that there was basically no image rendering support.
+            """.trimIndent()
+            textSize = 12f
+            setPadding(0, pad/2, 0, pad/2)
+        })
     }
 
     /** A one-symbol button, as big as a finger, named for screen readers (and the test scripts). */
@@ -157,19 +189,26 @@ class MainActivity : Activity() {
     private fun confirmDelete(name: String) {
         AlertDialog.Builder(this)
             .setTitle("Delete $name?")
-            .setMessage("This removes the game and all of its saves from the phone.")
+            .setMessage("This removes the game and all of its saves from the app. The original folder/ZIP will not be removed or modified.")
             .setPositiveButton("Delete") { _, _ ->
-                // thousands of files take a while: a dot hides the game from the list at once,
-                // and recoverImports finishes the job if the app dies first (no import's name starts with one)
-                val dir = File(games, name)
-                val gone = File(games, ".import-.deleted-$name").takeIf { dir.renameTo(it) } ?: dir
-                refresh()
-                Thread {
-                    gone.deleteRecursively()
-                    // the engine's old copies of its saves, in backups/<name>
-                    File(filesDir, "data/emuera-tty").listFiles()?.forEach { File(it, name).deleteRecursively() }
-                    runOnUiThread { refresh() }
-                }.start()
+                AlertDialog.Builder(this)
+                    .setTitle("Are you sure? (Delete $name)")
+                    .setMessage("This will IRREVERSIBLY erase the game and its saves. While the original folder/ZIP will not be touched, any saves made after the import WILL BE LOST.\n\nProceed anyways?")
+                    .setPositiveButton("Delete") { _, _ ->
+                        // thousands of files take a while: a dot hides the game from the list at once,
+                        // and recoverImports finishes the job if the app dies first (no import's name starts with one)
+                        val dir = File(games, name)
+                        val gone = File(games, ".import-.deleted-$name").takeIf { dir.renameTo(it) } ?: dir
+                        refresh()
+                            Thread {
+                                gone.deleteRecursively()
+                                // the engine's old copies of its saves, in backups/<name>
+                                File(filesDir, "data/emuera-tty").listFiles()?.forEach { File(it, name).deleteRecursively() }
+                                runOnUiThread { refresh() }
+                            }.start()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
             .setNegativeButton("Cancel", null)
             .show()

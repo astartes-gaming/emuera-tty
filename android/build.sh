@@ -31,7 +31,8 @@ SYSROOT=$NDK/sysroot/usr/lib
 CLANG_LIB=$(echo "$NDK"/lib/clang/*/lib/linux)
 ANDROID_JAR=$T/sdk/android.jar
 R8=$(echo "$T"/dl/r8-*.jar)
-for f in "$ANDROID_JAR" "$R8" "$SYSROOT"; do [ -e "$f" ] || { echo "missing $f: run ./fetch-toolchain.sh" >&2; exit 1; }; done
+APKSIGNER=$T/sdk/build-tools/36.1.0/apksigner
+for f in "$ANDROID_JAR" "$R8" "$SYSROOT" "$APKSIGNER"; do [ -e "$f" ] || { echo "missing $f: run ./fetch-toolchain.sh" >&2; exit 1; }; done
 export RUSTUP_HOME=${RUSTUP_HOME:-$T/rustup} CARGO_HOME=${CARGO_HOME:-$T/cargo}
 mkdir -p "$B"
 
@@ -44,7 +45,7 @@ build_lib() {
   # rust-lld directly: the NDK's own clang is an x86-64 program
   export "CARGO_TARGET_${env_target}_LINKER=rust-lld"
   export "CARGO_TARGET_${env_target}_RUSTFLAGS=-C linker-flavor=ld.lld -C link-arg=$dir/$MIN_SDK/crtbegin_so.o -C link-arg=$dir/$MIN_SDK/crtend_so.o -L native=$dir/$MIN_SDK -L native=$dir -L native=$CLANG_LIB/$rtdir -C link-arg=-z -C link-arg=max-page-size=16384 -C link-arg=--hash-style=gnu"
-  (cd "$E" && CARGO_TARGET_DIR="$B/target" cargo +stable build --lib --profile "$PROFILE" --target "$target" 2>&1 | grep -E '^(warning: unused|error|  *-->|  = note: .*(error|undefined)|.*rust-lld:)|Finished' | cut -c1-220 | tail -30)
+  (cd "$E" && CARGO_TARGET_DIR="$B/target" cargo +stable rustc --lib --crate-type cdylib --profile "$PROFILE" --target "$target" 2>&1)
   local so="$B/target/$target/$PROFILE/libemuera.so"
   [ -f "$so" ] || { echo "no library for $abi" >&2; exit 1; }
   mkdir -p "$B/apk/lib/$abi"
@@ -60,11 +61,13 @@ done
 
 # --- the manifest
 rustup run stable rustc --edition 2021 -O -A warnings -o "$B/mkmanifest" "$A/tools/mkmanifest.rs"
-"$B/mkmanifest" "$B/apk/AndroidManifest.xml" "$PACKAGE" 1 0.1 "$MIN_SDK" "$TARGET_SDK" "$PACKAGE.MainActivity" "ERB player"
+"$B/mkmanifest" "$B/apk/AndroidManifest.xml" "$PACKAGE" 1 0.1 "$MIN_SDK" "$TARGET_SDK" "$PACKAGE.MainActivity" "Emuera-Android"
 
 # --- the Kotlin UI
 KOTLINC=$(command -v kotlinc)
 STDLIB=$(dirname "$(dirname "$(readlink -f "$KOTLINC")")")/lib/kotlin-stdlib.jar
+# alt fallback
+[ -f $STDLIB ] || { STDLIB=$(dirname "$(dirname "$(readlink -f "$KOTLINC")")")/share/kotlin/lib/kotlin-stdlib.jar; }
 rm -rf "$B/classes"
 kotlinc -no-reflect -nowarn -jvm-target 1.8 -cp "$ANDROID_JAR" -d "$B/classes" "$A"/kotlin/*.kt
 find "$B/classes" -name '*.class' > "$B/classes.txt"
@@ -76,14 +79,15 @@ java -cp "$R8" com.android.tools.r8.D8 --release --min-api "$MIN_SDK" --lib "$AN
 UNSIGNED=$B/unsigned.apk
 rm -f "$UNSIGNED"
 (cd "$B/apk" && zip -q -X -r "$UNSIGNED" AndroidManifest.xml classes*.dex lib)
+APKSIGNER=$T/sdk/build-tools/36.1.0/apksigner
 if [ -n "${KEYSTORE:-}" ]; then
   # A release key: apksigner asks for its password, so it never lands in the shell history
-  apksigner sign --ks "$KEYSTORE" --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
+  "$APKSIGNER" sign --ks "$KEYSTORE" --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
 else
   KEY=$T/debug.keystore
   [ -f "$KEY" ] || keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=emuera-tty debug" >/dev/null 2>&1
-  apksigner sign --ks "$KEY" --ks-pass pass:android --key-pass pass:android --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
+  "$APKSIGNER" sign --ks "$KEY" --ks-pass pass:android --key-pass pass:android --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
 fi
 rm -f "$B/erb-player.apk.idsig"
-apksigner verify "$B/erb-player.apk"
+"$APKSIGNER" verify "$B/erb-player.apk"
 ls -la "$B/erb-player.apk" | awk '{print "built", $NF, int($5/1048576) " MB"}'

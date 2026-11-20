@@ -1,4 +1,4 @@
-# ERB player for Android
+# Emuera-Android
 
 [emuera-tty](https://github.com/astartes-gaming/emuera-tty) in a native Android app: the same engine, with a touch
 frontend drawn by the app.
@@ -26,20 +26,28 @@ frontend drawn by the app.
 
 ## Build
 
-Runs on ARM Linux with no Gradle or Android Studio. `.toolchain/` needs these three things from Google,
+Runs on ARM Linux with no Gradle or Android Studio. `.toolchain/` needs these four things from Google,
 under Google's Android SDK terms:
 
 - `sdk/android.jar`, from `platform-35_r02.zip`
 - `dl/r8-8.13.25.jar`, from Google's Maven repository (`com.android.tools:r8`)
 - `ndk/android-ndk-r30/`, the target libraries from `android-ndk-r30-linux.zip`
+- `sdk/build-tools/36.1.0`, for apk signing with the packaged `apksigner`
 
-Only the NDK's target libraries are used; none of its x86-64 programs run. Everything comes from
+Only the NDK's target libraries and `apksigner` are used; no other x86-64 programs are run. Everything comes from
 `https://dl.google.com/android/`. `./fetch-toolchain.sh` downloads them (about 820 MB, mostly the NDK), checks their
 SHA-256 sums and keeps only those files (about 270 MB).
 
+For NixOS or distros compatible with `nix`:
 ```sh
 nix shell nixpkgs#rustup nixpkgs#gcc nixpkgs#kotlin nixpkgs#jdk21 nixpkgs#apksigner \
   nixpkgs#zip nixpkgs#unzip -c ./build.sh          # add --fast --arm64-only while developing
+```
+
+For any other Linux distro:
+```sh
+./fetch-toolchain.sh
+./build.sh
 ```
 
 The APK is `build/erb-player.apk`, about 6 MB with both 64-bit and 32-bit engines. The minimum is Android 7
@@ -55,7 +63,7 @@ key as the installed app, so keep yours safe: without it no later build can repl
 adb install -r build/erb-player.apk      # -r keeps installed games and saves
 ```
 
-Then open **ERB player** on the phone and import a game:
+Then open **Emuera-Android** on the phone and import a game:
 
 - **Import a zip or tar:** zip, tar or tar.gz. It's the fast route: AnonTW takes 6 s on a POCO F1.
 - **Import a folder:** for a game you've already unpacked, like one from a 7z or rar. AnonTW takes 82 s.
@@ -109,7 +117,7 @@ run before.
 Saves stay in the game's folder in the app's storage. `adb uninstall io.github.astartes_gaming.emuera` removes the app and
 everything in it, saves included, so copy out what you want to keep first.
 
-The games also show in the system's Files app, under **ERB player**. Copy saves to or from another device there, as
+The games also show in the system's Files app, under **Emuera-Android**. Copy saves to or from another device there, as
 Emuera reads the same files, or add to a game. Do this with the game closed, as it may be writing the same files. A name
 already taken gets `(1)` added rather than replacing the file, so to replace a save, delete or rename the old one first.
 
