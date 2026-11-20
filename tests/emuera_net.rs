@@ -140,3 +140,48 @@ fn check_utf8_with_bom() {
     assert!(text.contains("PLAIN.ERB") && text.contains("UTF-8 with BOM"), "{text}");
     assert!(!text.contains("BOM.ERB:0"), "{text}");
 }
+
+/// With the game's font hidden (no pictures), setting back the name
+/// GETFONT gave keeps the game's font: eraMegatenP's options screen does
+/// `GETFONT`, `SETFONT "EraMTFont"`, `SETFONT RESULTS`, and the map's
+/// symbols then lost their Braille drawing until a restart. Run in the TUI
+/// (`--gfx none`) inside a private tmux server; skipped without tmux or
+/// the font.
+#[test]
+fn setting_back_the_reported_font_keeps_the_game_font() {
+    let font = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default()).join("eraMegatenP/Data/font/EraMTFontMedium.ttf");
+    let Ok(ttf) = std::fs::read(font) else {
+        eprintln!("skipped: {} not here", font.display());
+        return;
+    };
+    if std::process::Command::new("tmux").arg("-V").output().map_or(true, |o| !o.status.success()) {
+        eprintln!("skipped: no tmux");
+        return;
+    }
+    let dir = temp_dir("net-setfont-back");
+    game(
+        &dir,
+        &[
+            // (U+E193: one of EraMTFont's wall tiles)
+            ("ERB/T.ERB", "@SYSTEM_TITLE\nLOCALS = %GETFONT()%\nSETFONT \"EraMTFont\"\nSETFONT LOCALS\nPRINTFORML <%UNICODE(0xE193)%>\nWAIT\nQUIT\n"),
+            ("emuera.config", "フォント名:EraMTFont\n"),
+        ],
+    );
+    std::fs::create_dir_all(dir.join("font")).unwrap();
+    std::fs::write(dir.join("font/EraMTFontMedium.ttf"), ttf).unwrap();
+    let socket = format!("emuera-tty-test-{}", std::process::id());
+    let tmux = |args: &[&str]| std::process::Command::new("tmux").args(["-L", &socket, "-f", "/dev/null"]).args(args).output().unwrap();
+    let cmd = format!("{} {} --gfx none", env!("CARGO_BIN_EXE_emuera-tty"), dir.display());
+    tmux(&["new-session", "-d", "-x", "100", "-y", "20", &cmd]);
+    let mut screen = String::new();
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        screen = String::from_utf8_lossy(&tmux(&["capture-pane", "-p"]).stdout).into_owned();
+        if screen.contains('<') && screen.contains('>') {
+            break;
+        }
+    }
+    tmux(&["kill-server"]);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(screen.contains("<⠶⠶>"), "the wall tile isn't drawn in Braille:\n{screen}");
+}

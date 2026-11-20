@@ -750,7 +750,17 @@ impl Vm {
             }
             "SETFONT" => {
                 let s = self.as_(a, 0, "")?;
-                self.con.font_name = if s.is_empty() { self.con.default_font.clone() } else { s };
+                let current = if self.con.font_name.is_empty() { self.con.default_font.clone() } else { self.con.font_name.clone() };
+                // setting back what GETFONT reported keeps the font: with a
+                // game font hidden (no pictures) that is Emuera's default, and
+                // eraMegatenP's options screen saves GETFONT, SETFONTs its own
+                // font and restores the saved name, which dropped the game
+                // font until a restart
+                if !s.is_empty() && s != current && s == self.reported_font(&current) {
+                    // (keep it)
+                } else {
+                    self.con.font_name = if s.is_empty() { self.con.default_font.clone() } else { s };
+                }
             }
             "ALIGNMENT" => {
                 if let Args::Raw(s) = args {
