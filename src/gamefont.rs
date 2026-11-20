@@ -113,6 +113,57 @@ pub fn glyph_picture(font: &FontVec, ch: char, rgb: (u8, u8, u8), cells: usize) 
     img
 }
 
+/// `ch` drawn from `font` as Braille dots, one Braille character per
+/// half-width cell (`cells` of them): for a terminal without pictures,
+/// where the game's own symbols (eraMegatenP's map tiles) would otherwise
+/// come out as whatever the terminal's font has at that private-use code,
+/// one cell wide, and pull the rest of the row out of line. Each cell is
+/// 2 dots across and 4 down. A dot is set where the glyph fills most of
+/// its patch, which keeps a thick wall a line rather than a solid block;
+/// a glyph drawn in thin strokes (a door's outline) fills no patch that
+/// much, so it is drawn again with a dot wherever it covers a fifth.
+pub fn braille(font: &FontVec, ch: char, cells: usize) -> Vec<char> {
+    let cells = cells.max(1);
+    let img = glyph_picture(font, ch, (255, 255, 255), cells);
+    let (cell_w, h) = (img.width() / cells as u32, img.height());
+    let (patch_w, patch_h) = ((cell_w / 2).max(1), (h / 4).max(1));
+    // how much of each patch the glyph covers (0..=1), cell by cell
+    let cover = |c: u32, dx: u32, dy: u32| -> f32 {
+        let (x0, y0) = (c * cell_w + dx * patch_w, dy * patch_h);
+        let mut sum = 0u64;
+        for y in y0..(y0 + patch_h).min(h) {
+            for x in x0..(x0 + patch_w).min(img.width()) {
+                sum += img.get_pixel(x, y).0[3] as u64;
+            }
+        }
+        sum as f32 / (255 * patch_w * patch_h) as f32
+    };
+    let patches: Vec<[[f32; 4]; 2]> = (0..cells as u32).map(|c| [0, 1].map(|dx| [0, 1, 2, 3].map(|dy| cover(c, dx, dy)))).collect();
+    // the dot bits of U+2800, by (column, row)
+    const BITS: [[u32; 4]; 2] = [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]];
+    let dots = |threshold: f32| -> Vec<u32> {
+        patches
+            .iter()
+            .map(|p| {
+                let mut bits = 0;
+                for dx in 0..2 {
+                    for dy in 0..4 {
+                        if p[dx][dy] >= threshold {
+                            bits |= BITS[dx][dy];
+                        }
+                    }
+                }
+                bits
+            })
+            .collect()
+    };
+    let mut bits = dots(0.7);
+    if bits.iter().map(|b| b.count_ones()).sum::<u32>() < 3 {
+        bits = dots(0.2);
+    }
+    bits.into_iter().map(|b| char::from_u32(0x2800 + b).unwrap_or(' ')).collect()
+}
+
 /// The picture name a glyph of `font_name` goes by in the picture
 /// pipeline (`Resources::sprite` makes it with [`picture_for`]).
 pub fn picture_name(font_name: &str, ch: char, rgb: (u8, u8, u8), cells: usize) -> String {
@@ -192,5 +243,26 @@ mod tests {
         let name = picture_name("EraMTFont", '\u{F003}', (200, 100, 0), 2);
         let again = picture_for(&name.to_uppercase()).expect("made from its name");
         assert_eq!(again.dimensions(), (64, 64));
+    }
+}
+
+#[cfg(test)]
+mod braille_tests {
+    /// eraMegatenP's EraMTFont, when this machine has it: thick wall tiles
+    /// come out as lines, a door's thin outline still shows.
+    #[test]
+    fn walls_are_lines_doors_still_show() {
+        let path = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default())
+            .join("eraMegatenP/Data/font/EraMTFontMedium.ttf")
+            .display()
+            .to_string();
+        let Ok(data) = std::fs::read(path) else {
+            eprintln!("skipped: {path} missing");
+            return;
+        };
+        let font = ab_glyph::FontVec::try_from_vec(data).unwrap();
+        assert_eq!(super::braille(&font, '\u{E193}', 2), ['⠶', '⠶'], "horizontal wall");
+        assert_eq!(super::braille(&font, '\u{E19C}', 2), ['⢸', '⡇'], "vertical wall");
+        assert!(super::braille(&font, '\u{E001}', 2).iter().all(|c| *c != '\u{2800}'), "door");
     }
 }

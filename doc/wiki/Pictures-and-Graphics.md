@@ -104,4 +104,8 @@ geometric shapes, U+2500-25FF), whose size decides whether tiles meet
 in the terminal's font. Where it doesn't (`--gfx
 none`, a plain terminal, headless), the game is told its font isn't in
 use (GETFONT reports Emuera's default), so a game with a text version of
-those symbols, as eraMegatenP has, prints that instead.
+those symbols, as eraMegatenP has, prints that instead. A game (or a save)
+that uses the symbols anyway gets them drawn in Braille dots, as wide as
+in the game's font, so rows still line up: in eraMegatenP a save made
+with *Options → Dungeon symbols → Tile icons* on keeps them; turn that
+off for its text tiles (扉, 昇, 降).

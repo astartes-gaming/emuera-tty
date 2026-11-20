@@ -992,6 +992,8 @@ pub struct Tty {
     /// the console's font when it is one of the game's own (font/): its
     /// private-use glyphs are drawn as pictures (gamefont.rs)
     glyph_font: Option<(String, std::sync::Arc<ab_glyph::FontVec>)>,
+    /// its private-use glyphs as Braille, for when pictures are off
+    braille_cache: std::collections::HashMap<char, Vec<char>>,
     /// the player chose the wheel step (settings): the game's スクロール行数
     /// doesn't override it
     pub wheel_chosen: bool,
@@ -1388,6 +1390,7 @@ impl Tty {
             wrap_1739: false,
             use_mouse: true,
             glyph_font: None,
+            braille_cache: std::collections::HashMap::new(),
             wheel_chosen: false,
             text_px: 9.0,
         }
@@ -2227,6 +2230,21 @@ impl Tty {
                             base = None;
                             continue;
                         }
+                        // without pictures: the symbol as Braille dots, as
+                        // wide as in the game's font
+                        if let Some(dots) = self.glyph_braille(ch) {
+                            if col + dots.len() > width && col > 0 {
+                                rows.push(DRow::default());
+                                col = 0;
+                            }
+                            let r = rows.last_mut().unwrap();
+                            for d in &dots {
+                                r.cells.push(Cell { ch: *d, w: 1, style: style.clone(), button: bid, marks: None });
+                            }
+                            col += dots.len();
+                            base = None;
+                            continue;
+                        }
                         let ch = if self.yen && ch == '\\' { '¥' } else { ch };
                         let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl) };
                         let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
@@ -2443,6 +2461,7 @@ impl Tty {
         let font = if con.font_name.is_empty() { &con.default_font } else { &con.font_name };
         if self.glyph_font.as_ref().map(|g| &g.0) != Some(font) {
             self.glyph_font = crate::gamefont::find(font).map(|f| (font.clone(), f));
+            self.braille_cache.clear();
         }
         if let (Some(n), false) = (con.scroll_lines, self.wheel_chosen) {
             self.wheel = n;
@@ -4463,6 +4482,30 @@ impl Tty {
             return None;
         }
         Some(crate::gamefont::cells(font, ch))
+    }
+
+    /// With no picture backend: a private-use symbol of the game's font as
+    /// Braille dots, one per cell it takes in that font (cached). Where the
+    /// Linux console's font lacks Braille, shaded blocks of the same width.
+    fn glyph_braille(&mut self, ch: char) -> Option<Vec<char>> {
+        if self.gfx.name() != "none" || !crate::gamefont::is_private_use(ch) {
+            return None;
+        }
+        let (_, font) = self.glyph_font.as_ref()?;
+        if !crate::gamefont::has_glyph(font, ch) {
+            return None;
+        }
+        if let Some(d) = self.braille_cache.get(&ch) {
+            return Some(d.clone());
+        }
+        let cells = crate::gamefont::cells(font, ch);
+        let mut dots = crate::gamefont::braille(font, ch, cells);
+        let unsupported = |c: &char| self.ascii_only || self.font_chars.as_ref().is_some_and(|has| !has.contains(c));
+        if dots.iter().any(unsupported) {
+            dots = vec![if self.ascii_only { '#' } else { '░' }; cells];
+        }
+        self.braille_cache.insert(ch, dots.clone());
+        Some(dots)
     }
 
     fn button_at(&self, x: usize, y: usize) -> Option<usize> {
