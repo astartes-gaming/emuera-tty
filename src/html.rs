@@ -437,8 +437,7 @@ impl Vm {
 
     /// Does the game ship epizo12345's Emuera.NET fork? Looked up once.
     fn net_fork(&mut self) -> bool {
-        let dir = &self.game_dir;
-        *self.net_fork.get_or_insert_with(|| crate::loader::ships_net_fork(dir))
+        self.con.net_fork()
     }
 
     /// `src` printed as lines of their own, `width` cells wide, and taken
@@ -755,17 +754,39 @@ mod tests {
     /// An Emuera.NET game's div shows all its content: the box grows to
     /// hold it, and one placed against the window's bottom stays above it
     /// (eraMegatenP's INPUT_YN_POPUP, sized for text that spills out).
+    /// Emuera.NET removes tabs from printed text, HTML included, so a
+    /// frame line holding them (eraMegatenP's message window footer,
+    /// `AUTO&lt;<tab>OFF&gt;`) stays as wide as the lines above it.
+    /// Emuera-EM keeps them.
+    #[test]
+    fn emuera_net_prints_no_tabs() {
+        let texts = |vm: &crate::vm::Vm| -> Vec<String> { vm.con.lines.iter().map(crate::console::Console::line_text).collect() };
+        let mut vm = vm();
+        vm.con.net_fork = Some(true);
+        vm.html_print("AUTO&lt;\tOFF&gt;");
+        vm.con.print("a\tb");
+        vm.con.newline();
+        vm.con.print_button("c\td", crate::vm::value::Value::Int(1));
+        vm.con.newline();
+        assert_eq!(texts(&vm), ["AUTO<OFF>", "ab", "cd"]);
+        let mut vm = self::vm();
+        vm.con.net_fork = Some(false);
+        vm.con.print("a\tb");
+        vm.con.newline();
+        assert_eq!(texts(&vm), ["a\tb"]);
+    }
+
     #[test]
     fn emuera_net_divs_hold_their_content() {
         use crate::console::DivPlace;
         let popup = "<div display='absolute-leftbottom' xpos='0px' ypos='-72px' height='72px' width='117px' padding='60' border_width='30'>Test popup?<br>[0] Yes<br>[1] No</div>";
         let mut vm = vm();
-        vm.net_fork = Some(false);
+        vm.con.net_fork = Some(false);
         vm.con.font_size = 18.0;
         vm.con.line_height = 18.0;
         vm.html_print(popup);
         assert_eq!(divs(&vm)[0], (13, 0, -4, DivPlace::Bottom), "Emuera-EM: as declared, clipped");
-        vm.net_fork = Some(true);
+        vm.con.net_fork = Some(true);
         vm.html_print(popup);
         // 11 columns of text and 3 lines inside a border and padding of a cell each
         assert_eq!(divs(&vm)[0], (15, 0, -7, DivPlace::Bottom));

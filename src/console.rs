@@ -293,6 +293,12 @@ pub struct Console {
     pub title: String,
     /// The last line is a REUSELASTLINE line.
     pub last_temp: bool,
+    /// The game's folder, where `net_fork` looks for the engine it ships.
+    pub engine_dir: std::path::PathBuf,
+    /// the game ships epizo12345's Emuera.NET fork (`loader::ships_net_fork`),
+    /// worked out when first asked (`Console::net_fork`): it drops tabs from
+    /// printed text, and its divs show all their content (html.rs)
+    pub net_fork: Option<bool>,
     /// "無限ループ警告までのミリ秒数" / "Milliseconds for infinite loop warning".
     /// 0 = disabled. Default 5000 (Emuera's default).
     pub infinite_loop_alert_time: u64,
@@ -366,6 +372,8 @@ impl Console {
             default_font: String::new(),
             title: String::new(),
             last_temp: false,
+            engine_dir: std::path::PathBuf::new(),
+            net_fork: None,
             infinite_loop_alert_time: 5000,
             disable_infinite_loop_detection: false,
             low_water: usize::MAX,
@@ -419,7 +427,8 @@ impl Console {
         if self.cur_align.is_none() {
             self.cur_align = Some(self.align);
         }
-        let segs = auto_buttons(vec![Seg::Text { text: text.to_string(), style: self.style.clone(), button: None, auto: true }]);
+        let text = self.untabbed(text).into_owned();
+        let segs = auto_buttons(vec![Seg::Text { text, style: self.style.clone(), button: None, auto: true }]);
         for s in segs {
             match s {
                 // (marked done: the line's own pass must not regroup it)
@@ -430,7 +439,26 @@ impl Console {
         self.dirty = true;
     }
 
+    /// Does the game ship epizo12345's Emuera.NET fork? Looked up once.
+    pub fn net_fork(&mut self) -> bool {
+        let dir = &self.engine_dir;
+        *self.net_fork.get_or_insert_with(|| crate::loader::ships_net_fork(dir))
+    }
+
+    /// Printed text as the engine keeps it: Emuera.NET removes every tab
+    /// (its `ConsoleStyledString`), so a tab takes no room there; Emuera-EM
+    /// keeps them. Only text holding a tab asks which engine it is.
+    fn untabbed<'a>(&mut self, s: &'a str) -> std::borrow::Cow<'a, str> {
+        if s.contains('\t') && self.net_fork() {
+            std::borrow::Cow::Owned(s.replace('\t', ""))
+        } else {
+            std::borrow::Cow::Borrowed(s)
+        }
+    }
+
     fn push_text(&mut self, s: &str, button: Option<Value>, auto: bool) {
+        let s = self.untabbed(s);
+        let s = &*s;
         if self.cur_align.is_none() {
             self.cur_align = Some(self.align);
         }
@@ -456,9 +484,14 @@ impl Console {
     }
 
     /// Append a non-text segment (image, space, rectangle).
-    pub fn push_seg(&mut self, seg: Seg) {
+    pub fn push_seg(&mut self, mut seg: Seg) {
         if self.skip_disp {
             return;
+        }
+        if let Seg::Text { text, .. } = &mut seg {
+            if let std::borrow::Cow::Owned(t) = self.untabbed(text) {
+                *text = t;
+            }
         }
         self.drop_temp();
         if self.cur_align.is_none() {
@@ -507,8 +540,9 @@ impl Console {
         if !self.cur.is_empty() {
             self.newline();
         }
+        let text = self.untabbed(text).into_owned();
         self.lines.push(Line {
-            segs: vec![Seg::Text { text: text.to_string(), style: self.style.clone(), button: None, auto: false }],
+            segs: vec![Seg::Text { text, style: self.style.clone(), button: None, auto: false }],
             align: self.align,
             gen: self.gen,
             temporary: true,

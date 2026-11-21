@@ -108,7 +108,9 @@ and [doc/anchor.md](https://github.com/astartes-gaming/emuera-tty/blob/master/do
   Emuera.NET (epizo12345's fork, not Emuera-EE's .NET builds, which go by
   the same name) when its `Emuera.dll` or exe, in its folder or the one
   above, has the AngleSharp HTML parser inside; its divs then show all
-  their content, as that engine draws it past the box. Its `setting.json`
+  their content, as that engine draws it past the box, and tabs in
+  printed text take no room, as that engine removes them (Emuera-EM
+  keeps them): eraMegatenP's message window has two in its bottom line. Its `setting.json`
   (in the game's folder or the one above) is read for
   `UseRenameInCharaCSV` (`_Rename.csv`'s `[[name]]` in `Chara*.csv`:
   eraMegatenP's characters' skills and clothes) and `CheckUTF8withBOM`

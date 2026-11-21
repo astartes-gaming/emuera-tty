@@ -471,10 +471,6 @@ pub struct Vm {
     /// the frontend shows no pictures: a font from the game's font/ folder
     /// is reported as not in use (`Vm::reported_font`, gamefont.rs)
     pub hide_game_fonts: bool,
-    /// the game ships epizo12345's Emuera.NET fork (`loader::ships_net_fork`),
-    /// worked out when a `<div>` first asks (`Vm::net_fork`): its divs show
-    /// all their content (html.rs)
-    pub net_fork: Option<bool>,
     /// the `<button>` open where a `<div>` starts (and whether a
     /// `<clearbutton>` is): its content, laid out as an HTML_PRINT of its
     /// own, starts inside it (html.rs `html_div`)
@@ -617,7 +613,6 @@ impl Vm {
             warned: HashSet::default(),
             chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
             hide_game_fonts: false,
-            net_fork: None,
             html_outer_button: None,
             sql: sql::Sql::default(),
             compat_rand: cfg.bool("擬似変数RANDの仕様をeramakerに合わせる"),
@@ -638,6 +633,7 @@ impl Vm {
         };
         vm.defer_warnings = vm.fe.is_fullscreen();
         vm.con.width = vm.fe.cols().saturating_sub(1).max(20);
+        vm.con.engine_dir = vm.game_dir.clone();
         vm.init_data();
         vm
     }
