@@ -127,7 +127,7 @@ class MainActivity : Activity() {
 
         	Check out the project at https://github.com/astartes-gaming/emuera-tty for updates.
 
-        	Currently in rapid development.
+        	Currently in rapid development; the ERB interpreter/engine is fine, but some features from emuera-tty itself aren't fully exposed through the app yet.
         	""".trimIndent()
         	textSize = 12f
         	movementMethod = LinkMovementMethod.getInstance()
