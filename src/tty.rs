@@ -429,12 +429,19 @@ fn see_through(cell: &Cell) -> bool {
 /// leaves the cell under it showing, and lends it its button if it has
 /// none. (eraMegatenP lays a dimming picture's div over an empty battle
 /// slot's text; the picture's blank row used to wipe the slot's name.)
+/// Its text has no background of its own either: a character without one
+/// takes the background under it, as its blanks do. (eraMegatenP's battle
+/// navigator printed its words over its frame's border: the blanks
+/// between them showed the border's colour, the letters didn't.)
 fn paint_div_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
-    // what each column of the row shows before the div is painted
+    // what each column of the row shows before the div is painted, and
+    // its background
     let mut shown: Vec<bool> = Vec::new();
+    let mut below_bg: Vec<Option<Rgb>> = Vec::new();
     for c in &row.cells {
         let drawn = !see_through(c);
         shown.extend(std::iter::repeat_n(drawn, c.w.max(1) as usize));
+        below_bg.extend(std::iter::repeat_n(c.style.bg, c.w.max(1) as usize));
     }
     let mut run: Vec<Cell> = Vec::new();
     let mut run_at = col;
@@ -450,6 +457,10 @@ fn paint_div_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
         } else {
             if run.is_empty() {
                 run_at = at;
+            }
+            let mut cell = cell;
+            if cell.style.bg.is_none() {
+                cell.style.bg = below_bg.get(at).copied().flatten();
             }
             run.push(cell);
         }
@@ -4836,6 +4847,13 @@ mod colour_tests {
         cells[0].button = Some(4);
         paint_div_cells(&mut r, 1, cells);
         assert_eq!((text(&r).as_str(), r.cells[1].button), ("abc", Some(4)));
+        // its letters show the background under them, as its blanks do
+        let grey = Some(Rgb(188, 188, 188));
+        let mut r = row("     ");
+        r.cells.iter_mut().for_each(|c| c.style.bg = grey);
+        paint_div_cells(&mut r, 1, row("a b").cells);
+        assert_eq!(text(&r), " a b ");
+        assert!(r.cells.iter().all(|c| c.style.bg == grey), "{:?}", r.cells.iter().map(|c| c.style.bg).collect::<Vec<_>>());
     }
 
     #[test]

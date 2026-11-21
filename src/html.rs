@@ -409,7 +409,7 @@ impl Vm {
         let widest = lines.iter().map(|l| line_cells(l, cell_px)).max().unwrap_or(0);
         let fits = ((widest + ins[1] + ins[3]).clamp(1, saved_width.max(1)), lines.len() + ins[0] + ins[2]);
         let mut cols = if auto_width { fits.0 } else { (w / cell_px).floor().max(1.0) as usize };
-        let mut rows = h.map(|h| (h / lh).round().max(1.0) as usize);
+        let (top_row, mut rows) = div_rows(y / lh, h.map(|h| h / lh), &deco.border);
         // Emuera.NET doesn't clip a div: its content runs past the box
         // (eraMegatenP's popups are sized in pixels for text that spills).
         // The box grows to hold it instead, the border and padding taking
@@ -418,7 +418,7 @@ impl Vm {
             cols = cols.max(fits.0);
             rows = rows.map(|r| r.max(fits.1));
         }
-        let (place, mut dy) = div_place(attrs.get("display").map(String::as_str), (y / lh).round() as i32, rows.unwrap_or(fits.1));
+        let (place, mut dy) = div_place(attrs.get("display").map(String::as_str), top_row, rows.unwrap_or(fits.1));
         // ...and one placed above the window's bottom edge stays above it
         if net_fork && place == crate::console::DivPlace::Bottom && dy < 0 {
             dy = dy.min(-(rows.unwrap_or(fits.1) as i32));
@@ -512,6 +512,24 @@ fn div_content_end(rest: &str) -> (usize, usize) {
 /// the div's bottom (ConsoleDivPart.DrawTo); Emuera.NET's
 /// `absolute-leftbottom` measures it down from the bottom to the div's top,
 /// `absolute-lefttop` from the top. A value neither knows is `relative`.
+/// A `<div>`'s first row and height in rows, from its top and height in
+/// lines. A border takes a whole row here but only a few pixels in Emuera,
+/// so a bordered edge that falls between two rows goes to the outer one:
+/// the frame then holds what Emuera draws inside it. (eraMegatenP's battle
+/// navigator draws its frame from half a line above the text to half a
+/// line below; rounded, the top border landed on the text's first row.)
+/// Other edges round to the nearest row.
+fn div_rows(top: f32, height: Option<f32>, border: &[bool; 4]) -> (i32, Option<usize>) {
+    let between_rows = |v: f32| (v - v.round()).abs() > 0.01;
+    let first = if border[0] && between_rows(top) { top.floor() } else { top.round() } as i32;
+    let rows = height.map(|h| {
+        let bottom = top + h;
+        let end = if border[2] && between_rows(bottom) { bottom.ceil() as i32 } else { top.round() as i32 + h.round() as i32 };
+        (end - first).max(1) as usize
+    });
+    (first, rows)
+}
+
 fn div_place(display: Option<&str>, ypos_rows: i32, rows: usize) -> (crate::console::DivPlace, i32) {
     use crate::console::DivPlace;
     match display.map(|d| d.trim().to_ascii_lowercase()).as_deref() {
@@ -746,6 +764,30 @@ mod tests {
         // its lines aren't wrapped at the declared width
         let Some(Seg::Div { lines, .. }) = vm.con.lines.last().unwrap().segs.first() else { panic!("no div") };
         assert!(lines.iter().all(|l| l.cols >= vm.con.width), "{:?}", lines.iter().map(|l| l.cols).collect::<Vec<_>>());
+    }
+
+    /// A bordered edge between two rows goes to the outer row; other edges
+    /// round (eraMegatenP's battle navigator: a frame from half a line
+    /// above its text to half a line below).
+    #[test]
+    fn a_border_between_rows_goes_outward() {
+        let all = [true; 4];
+        assert_eq!(super::div_rows(0.5, Some(3.0), &all), (0, Some(4)));
+        assert_eq!(super::div_rows(0.5, Some(3.0), &[false; 4]), (1, Some(3)));
+        assert_eq!(super::div_rows(1.0, Some(3.0), &all), (1, Some(3)));
+        assert_eq!(super::div_rows(-0.25, None, &all), (-1, None));
+        assert_eq!(super::div_rows(-0.25, None, &[false; 4]), (0, None));
+        // the frame now encloses the text div beside it
+        let mut vm = vm();
+        let lh = vm.con.line_height;
+        vm.html_print(&format!(
+            "<div ypos='{}px' height='{}px' width='300' border='2px'></div><div xpos='50' ypos='{}px'>a<br>b</div>",
+            0.5 * lh,
+            3.0 * lh,
+            lh
+        ));
+        let d = divs(&vm);
+        assert_eq!((d[0].2, d[1].2), (0, 1));
     }
 
     /// Emuera.NET's div attribute names stand for Emuera-EM's.
