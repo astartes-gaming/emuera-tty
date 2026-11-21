@@ -84,6 +84,10 @@ CALL CHECK, "rand two args", INRANGE(RAND(5, 8), 5, 7)
 FLAG:1 = 0
 FLAG:1 = WIPE_FLAG1(5), WIPE_FLAG1(6)
 CALL CHECK, "multi-value assignment evaluates every value first", FLAG:1 == 5 && FLAG:2 == 6
+; X += F() reads X before F runs (Emuera's X = X + F()): eraMegatenP's capacity
+FLAG:1 = 20
+FLAG:1 += WIPE_FLAG1(1)
+CALL CHECK, "compound assignment reads the variable first", FLAG:1 == 21
 
 @BUMP
 #FUNCTION

@@ -2928,12 +2928,21 @@ impl Vm {
             }
             return Ok(());
         }
-        let val = self.eval(&rhs[0])?;
-        let new = match op {
-            AsgOp::Set | AsgOp::SetExpr => val,
+        // `X op= e` is Emuera's `X = X op e`, worked out left to right: X is
+        // read before e runs, so a function in e that changes X doesn't
+        // change what it is added to (eraMegatenP's `RESULT_F += GET_…()`,
+        // whose call resets RESULT_F: a capacity of 20 came out as 1)
+        let old = match op {
+            AsgOp::Set | AsgOp::SetExpr => None,
             _ => {
                 let old = self.get_place(&p);
-                let old = if self.tr_eval { self.tr_read(&v.name, old, true) } else { old };
+                Some(if self.tr_eval { self.tr_read(&v.name, old, true) } else { old })
+            }
+        };
+        let val = self.eval(&rhs[0])?;
+        let new = match old {
+            None => val,
+            Some(old) => {
                 if old.is_str() {
                     match op {
                         AsgOp::Add => Value::Str(old.into_string() + &val.into_string()),
