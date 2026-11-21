@@ -361,7 +361,7 @@ impl DataTable {
     /// against a real Emuera save): CRLF line ends, the table's own
     /// CaseSensitive flag.
     pub fn to_xml_schema(&self) -> String {
-        let n = xml::escape(&self.name);
+        let n = xml_name(&self.name);
         let cs = if self.case_sensitive { "True" } else { "False" };
         let mut s = String::from("<?xml version=\"1.0\" encoding=\"utf-16\"?>\n");
         s += "<xs:schema id=\"NewDataSet\" xmlns=\"\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:msdata=\"urn:schemas-microsoft-com:xml-msdata\">\n";
@@ -372,7 +372,7 @@ impl DataTable {
         s += "    <xs:complexType>\n      <xs:choice minOccurs=\"0\" maxOccurs=\"unbounded\">\n";
         s += &format!("        <xs:element name=\"{}\" msdata:CaseSensitive=\"{}\">\n          <xs:complexType>\n            <xs:sequence>\n", n, cs);
         for c in &self.columns {
-            let mut e = format!("              <xs:element name=\"{}\" type=\"{}\"", xml::escape(&c.name), c.ty.xsd());
+            let mut e = format!("              <xs:element name=\"{}\" type=\"{}\"", xml_name(&c.name), c.ty.xsd());
             if let Some(d) = &c.default {
                 e += &format!(" default=\"{}\"", xml::escape(&d.as_string()));
             }
@@ -395,13 +395,13 @@ impl DataTable {
     /// WriteXml equivalent (null cells are omitted; no XML declaration and
     /// CRLF line ends, as .NET writes it to a string).
     pub fn to_xml(&self) -> String {
-        let n = xml::escape(&self.name);
+        let n = xml_name(&self.name);
         let mut s = String::from("<DocumentElement>\r\n");
         for r in &self.rows {
             s += &format!("  <{}>\r\n", n);
             for (c, v) in self.columns.iter().zip(r) {
                 if let Some(v) = v {
-                    let cn = xml::escape(&c.name);
+                    let cn = xml_name(&c.name);
                     s += &format!("    <{}>{}</{}>\r\n", cn, xml::escape(&v.as_string()), cn);
                 }
             }
@@ -421,7 +421,7 @@ impl DataTable {
         let tables: Vec<&Element> = els.into_iter().filter(is_table).collect();
         let tbl = tables
             .iter()
-            .find(|e| e.attr("name") == Some(key))
+            .find(|e| e.attr("name").map(from_xml_name).as_deref() == Some(key))
             .or_else(|| tables.iter().find(|e| e.attr("msdata:IsDataSet") != Some("true")))
             .ok_or("schema has no table")?;
         let tname = tbl.attr("name").unwrap_or(key).to_string();
@@ -436,7 +436,7 @@ impl DataTable {
             .and_then(|ct| ct.elems().find(|e| e.local() == "sequence"))
             .ok_or("schema table has no columns")?;
         for c in seq.elems().filter(|e| e.local() == "element") {
-            let name = c.attr("name").ok_or("schema column without a name")?.to_string();
+            let name = from_xml_name(c.attr("name").ok_or("schema column without a name")?);
             let ty = ColType::from_xsd(c.attr("type").unwrap_or("xs:string"));
             let nullable = c.attr("minOccurs") == Some("0");
             let default = c.attr("default").map(|d| if ty.is_str() { Value::Str(d.to_string()) } else { Value::Int(d.trim().parse().unwrap_or(0)) });
@@ -457,7 +457,7 @@ impl DataTable {
         for re in doc.elems().filter(|e| e.local() == tname) {
             let mut row: Row = dt.columns.iter().map(|c| c.default.clone()).collect();
             for ce in re.elems() {
-                let Some(c) = dt.col(ce.local()) else { continue };
+                let Some(c) = dt.col(&from_xml_name(ce.local())) else { continue };
                 let t = ce.text();
                 row[c] = Some(if dt.columns[c].ty.is_str() { Value::Str(t) } else { Value::Int(dt.columns[c].ty.clamp(t.trim().parse().unwrap_or(0))) });
             }
@@ -499,6 +499,78 @@ impl<'a> V<'a> {
             V::Str(s) => s.to_string(),
         }
     }
+}
+
+/// Can `c` start an XML name in every edition of XML 1.0? (.NET checks
+/// the 4th edition's letter classes; the ranges here are letters in both,
+/// so anything else is encoded. Encoding more than .NET does is harmless:
+/// its reader decodes any `_xHHHH_`; encoding less makes the save
+/// unreadable.)
+fn xml_name_start(c: char) -> bool {
+    matches!(c,
+        'A'..='Z' | 'a'..='z' | '_'
+        | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{FF}'
+        | '\u{3041}'..='\u{3094}' | '\u{30A1}'..='\u{30FA}' | '\u{4E00}'..='\u{9FA5}' | '\u{AC00}'..='\u{D7A3}'
+        | '\u{3007}' | '\u{3021}'..='\u{3029}')
+}
+
+/// Can `c` continue an XML name (after the first character)?
+fn xml_name_char(c: char) -> bool {
+    xml_name_start(c)
+        || matches!(c, '0'..='9' | '-' | '.' | '\u{B7}' | '\u{3005}' | '\u{3031}'..='\u{3035}' | '\u{309D}' | '\u{309E}' | '\u{30FC}'..='\u{30FE}')
+}
+
+/// Is `rest` (just after a `_`) `xHHHH_` or `xHHHHHHHH_`, which a reader
+/// would take for an escape?
+fn looks_escaped(rest: &str) -> bool {
+    let Some(r) = rest.strip_prefix('x') else { return false };
+    [4, 8].iter().any(|&n| r.len() > n && r.as_bytes()[n] == b'_' && r[..n].bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// A table or column name as an XML element name, as .NET's
+/// `XmlConvert.EncodeLocalName` makes it: each character a name can't
+/// hold (a space, `:`, most punctuation, a leading digit) becomes
+/// `_xHHHH_`, and a `_` that would read as such an escape `_x005F_`.
+/// "unit name" → "unit_x0020_name".
+pub fn xml_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for (i, c) in name.char_indices() {
+        let ok = if i == 0 { xml_name_start(c) } else { xml_name_char(c) };
+        if c == '_' && looks_escaped(&name[i + 1..]) {
+            out += "_x005F_";
+        } else if ok {
+            out.push(c);
+        } else if (c as u32) > 0xFFFF {
+            out += &format!("_x{:08X}_", c as u32);
+        } else {
+            out += &format!("_x{:04X}_", c as u32);
+        }
+    }
+    out
+}
+
+/// An element name back to the table or column name (`XmlConvert.DecodeName`).
+pub fn from_xml_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut rest = name;
+    while let Some(i) = rest.find("_x") {
+        out += &rest[..i];
+        let after = &rest[i + 1..];
+        let code = [8, 4]
+            .iter()
+            .find(|&&n| looks_escaped(after) && after.len() > n + 1 && after.as_bytes()[n + 1] == b'_' && after[1..=n].bytes().all(|b| b.is_ascii_hexdigit()));
+        match code.and_then(|&n| u32::from_str_radix(&after[1..=n], 16).ok().and_then(char::from_u32).map(|c| (n, c))) {
+            Some((n, c)) => {
+                out.push(c);
+                rest = &after[n + 2..];
+            }
+            None => {
+                out += "_x";
+                rest = &after[1..];
+            }
+        }
+    }
+    out + rest
 }
 
 /// LIKE with `%` / `*` (any run) and `_` (one char) wildcards.
@@ -819,5 +891,30 @@ mod tests {
         assert_eq!(back.rows[1][2], None);
         assert_eq!(back.rows[3][1], Some(Value::Str("it's".into())));
         assert_eq!(back.row_id(0), dt.row_id(0));
+    }
+
+    /// Names an XML element can't have are encoded as .NET's
+    /// XmlConvert.EncodeLocalName does: Emuera's ReadXmlSchema throws on a
+    /// raw "unit name" (a pops-tw save written here)
+    #[test]
+    fn xml_names_encoded() {
+        assert_eq!(xml_name("unit name"), "unit_x0020_name");
+        assert_eq!(xml_name("1st"), "_x0031_st");
+        assert_eq!(xml_name("a:b"), "a_x003A_b");
+        assert_eq!(xml_name("名前ー"), "名前ー");
+        assert_eq!(xml_name("a_x0020_b"), "a_x005F_x0020_b");
+        assert_eq!(xml_name("【武器】"), "_x3010_武器_x3011_");
+        for name in ["unit name", "1st", "a:b", "a_x0020_b", "【武器】", "x_y", "_x12", "😀"] {
+            assert_eq!(from_xml_name(&xml_name(name)), name);
+        }
+        let mut dt = DataTable::new("weapon list");
+        dt.add_column("unit name", ColType::Str, true);
+        dt.rows.push(vec![Some(Value::Int(1)), Some(Value::Str("a".into()))]);
+        let schema = dt.to_xml_schema();
+        assert!(schema.contains("name=\"unit_x0020_name\"") && !schema.contains("unit name"), "{}", schema);
+        assert!(dt.to_xml().contains("<unit_x0020_name>a</unit_x0020_name>"));
+        let back = DataTable::from_xml("weapon list", &schema, &dt.to_xml()).unwrap();
+        assert_eq!(back.col("unit name"), Some(1));
+        assert_eq!(back.rows[0][1], Some(Value::Str("a".into())));
     }
 }
