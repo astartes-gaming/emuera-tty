@@ -112,7 +112,7 @@ pub fn net_settings(game_dir: &Path) -> NetSettings {
 
 /// A `"key": true|false` property's value, wherever it is in the JSON
 /// (the keys are unique to that file).
-fn json_bool(text: &str, key: &str) -> Option<bool> {
+pub(crate) fn json_bool(text: &str, key: &str) -> Option<bool> {
     let quoted = format!("\"{}\"", key);
     let mut rest = text;
     while let Some(i) = rest.find(&quoted) {

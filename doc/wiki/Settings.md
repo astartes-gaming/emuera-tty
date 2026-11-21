@@ -63,31 +63,40 @@ background set by `SETBGCOLOR` covers the whole screen, as in Emuera.
 ## Game settings (Emuera's settings window)
 
 *Game settings…* in the settings overlay is a copy of Emuera's own settings
-window, with the settings that do something in a terminal and can't
-break a game, on Emuera's tabs:
+window: every setting it has, on Emuera's ten tabs (Environment, Display,
+Window, Font, System, System2, Compatibility, Debug, Clipboard, Rikai), in
+the window's order. The tab bar scrolls (‹ ›) when they don't all fit.
 
-| Tab | Settings |
-|---|---|
-| Environment | make autosaves, lines in history log, number of save slots (20–80: the save menu's pages, `SAVENOS`), milliseconds for infinite loop warning (0 = disabled, default 5000) |
-| Display | PRINTC items per line and width, don't break lines inside a button |
-| Font | text colour, selected button colour, the font for text drawn into pictures |
-| System2 | compress save data (Emuera reads compressed saves too) |
-| Clipboard | all of the clipboard options (see [Copying text to the clipboard](Playing#copying-text-to-the-clipboard)) |
+Not every setting changes the running game. The bottom line says so
+when you choose one:
 
-Left out: what only a window has (size, position, FPS, menu bar,
-keyboard macros), what changes how the scripts are read (the System,
-Compatibility and Debug tabs), the font size and line height (games work
-out where pictures go from them), the save folder (existing saves would
-seem to vanish), the background and history colours (the terminal's own
-are used) and Rikai.
+- **At once:** most of Environment, Display, Font and Clipboard, the
+  save options and the Compatibility switches the scripts use as they
+  run (RAND, TIMES, CALL on event functions, SP characters…). The running
+  game takes them when the page closes.
+- **At the next start:** what emuera-tty reads while the game loads: the
+  System tab (case, `_Rename.csv` / `_Replace.csv`, subfolders, file
+  order, system function overrides…), the load warnings on the Debug tab
+  (*Lowest warning level shown*, the function warnings, the load report),
+  ERD files, the window width (pictures are scaled from it).
+- **Only Emuera.exe:** what only a window, an editor or Rikaichan has
+  (window size and position, FPS, the menu bar, the drawing interface,
+  the text editor, Rikai), and the few switches emuera-tty doesn't
+  have (*Run even with lines that can't be read*, argument analysis
+  while loading). They are kept for Emuera.exe, and scripts can read
+  them with `GETCONFIG`. The background and history colours are among
+  them: the terminal's own background is kept.
 
 ← / → (or Tab, or a click) switch tabs, ↑ / ↓ choose, Enter or a click
-toggles a check box or asks for a number, a colour (`R,G,B` or `#RRGGBB`)
-or text, `+` / `-` step a number, `d` puts back the game's value. Each
-setting shows where its value comes from: nothing for Emuera's default,
-*game* for the game's (`CSV/_default.config`), *changed* for yours,
-*fixed* when `CSV/_fixed.config` doesn't let it change. Changes go into
-the game's `emuera.config` as Emuera's settings window writes them
-(UTF-8, Japanese or English keys as the game's files use, other lines
-kept), so Emuera.exe sees them too; the running game takes them when the
-page closes.
+toggles a check box, takes the next choice of a list (`+` / `-` step
+through it either way) or asks for a number, a colour (`R,G,B` or
+`#RRGGBB`) or text, `+` / `-` step a number, `d` puts back the game's
+value. Each setting shows where its value comes from: nothing for
+Emuera's default, *game* for the game's (`CSV/_default.config`),
+*changed* for yours, *fixed* when `CSV/_fixed.config` doesn't let it
+change. Changes go into the game's `emuera.config` as Emuera's settings
+window writes them (UTF-8, Japanese or English keys as the game's files
+use, other lines kept), so Emuera.exe sees them too. The three switches
+Emuera-EM/EE keep in `setting.json` beside Emuera.exe (the button
+background highlight, the new random number generator, VARI / VARS) are
+written there, the file's other properties kept.

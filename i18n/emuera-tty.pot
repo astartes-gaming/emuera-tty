@@ -40,7 +40,15 @@ msgid "Display"
 msgstr ""
 
 #: src/emuconfig.rs
+msgid "Window"
+msgstr ""
+
+#: src/emuconfig.rs
 msgid "Font"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "System"
 msgstr ""
 
 #: src/emuconfig.rs
@@ -48,11 +56,51 @@ msgid "System2"
 msgstr ""
 
 #: src/emuconfig.rs
+msgid "Compatibility"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Debug"
+msgstr ""
+
+#: src/emuconfig.rs
 msgid "Clipboard"
 msgstr ""
 
 #: src/emuconfig.rs
-msgid "Make autosaves"
+msgid "Rikai"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Ignore"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Total count only"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Once per file"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Show"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use the mouse"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Show the menu bar"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Allow debug commands"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Allow several copies running at once"
 msgstr ""
 
 #: src/emuconfig.rs
@@ -60,11 +108,19 @@ msgid "Use keyboard macros (F1…F12; off: other Fn keys take over)"
 msgstr ""
 
 #: src/emuconfig.rs
-msgid "Lines in history log"
+msgid "Make autosaves"
 msgstr ""
 
 #: src/emuconfig.rs
-msgid "Number of save slots"
+msgid "Keep saves in the sav folder"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Write this file's keys in English"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Lines in history log"
 msgstr ""
 
 #: src/emuconfig.rs
@@ -73,6 +129,38 @@ msgstr ""
 
 #: src/emuconfig.rs
 msgid "Disable infinite loop detection (useful for games with intentional long-running functions)"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Number of save slots"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Undo with Ctrl-Z"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Text editor"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Text editor's command line"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Your own"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Text editor's line argument (your own)"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Drawing interface"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Frames per second"
 msgstr ""
 
 #: src/emuconfig.rs
@@ -88,6 +176,50 @@ msgid "Don't break lines inside a button"
 msgstr ""
 
 #: src/emuconfig.rs
+msgid "Emuera's interface language"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Highlight the background of the button under the pointer"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Window width"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Window height"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Window height can change"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Maximise the window at start"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Fixed window position at start"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Window position X"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Window position Y"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Lines per mouse-wheel step"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Background colour"
+msgstr ""
+
+#: src/emuconfig.rs
 msgid "Text colour"
 msgstr ""
 
@@ -96,11 +228,224 @@ msgid "Selected button colour"
 msgstr ""
 
 #: src/emuconfig.rs
+msgid "History text colour"
+msgstr ""
+
+#: src/emuconfig.rs
 msgid "Font (for text drawn into pictures)"
 msgstr ""
 
 #: src/emuconfig.rs
+msgid "Font size (games place pictures by it)"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Line height (games place pictures by it)"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Ignore case"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use _Rename.csv"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use _Replace.csv"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Search subfolders"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Load files in file-name order"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Allow overriding system functions"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Warn when a system function is overridden"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Warn about non-event functions defined twice"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Full-width space counts as white space"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "East Asian language used inside"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Japanese"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Korean"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Simplified Chinese"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Traditional Chinese"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Don't expand triple symbols in FORM"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Save in the binary format"
+msgstr ""
+
+#: src/emuconfig.rs
 msgid "Compress save data"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Don't fill in character variables' argument"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Don't allow UPDATECHECK"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use ERD files"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "VARSIZE counts dimensions as ERD does"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Extensions LOADTEXT and SAVETEXT may use"
+msgstr ""
+
+#: src/emuconfig.rs
+#, no-c-format
+msgid "What a line break in a { } join becomes"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Warn when plugins are enabled"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use the new random number generator"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Allow VARI / VARS (block-scoped variables)"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Run even with lines that can't be read"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use NAME when CALLNAME is empty"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "RAND as in eramaker"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "TIMES as in eramaker"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Don't ignore case in function names and attributes"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Allow CALL on event functions"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use SP characters"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Wrap text as before version 1739"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Allow leaving out any argument of a user function"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Add TOSTR to user function arguments by itself"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Show eramaker compatibility warnings"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Show a report while loading"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Analyse arguments while loading"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Never"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "When updated"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Always"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Lowest warning level shown"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "0: non-standard syntax"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "1: ignorable errors"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "2: errors that stop a line"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "3: fatal errors"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Ignore functions never called"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Warnings for functions not found"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Warnings for functions never called"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Check ERD names against local variables"
 msgstr ""
 
 #: src/emuconfig.rs
@@ -117,6 +462,10 @@ msgstr ""
 
 #: src/emuconfig.rs
 msgid "Lines remembered"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Lines scrolled per key"
 msgstr ""
 
 #: src/emuconfig.rs
@@ -153,6 +502,31 @@ msgstr ""
 
 #: src/emuconfig.rs
 msgid "Copy at an input"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Use Rikaichan (word look-up)"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Rikaichan's dictionary file"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Highlight the word looked up"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Pop-up background colour"
+msgstr ""
+
+#: src/emuconfig.rs
+msgid "Pop-up text colour"
+msgstr ""
+
+#: src/emuconfig.rs
+#, no-c-format
+msgid "{file} isn't a JSON object; left as it is"
 msgstr ""
 
 #: src/emuconfig.rs
@@ -1244,6 +1618,18 @@ msgstr ""
 
 #: src/tty/envvars.rs
 msgid "Environment variables (EMUERA_*): for debugging, not normal use"
+msgstr ""
+
+#: src/tty/gamecfg.rs
+msgid "Saved in setting.json for Emuera.exe; emuera-tty doesn't use it."
+msgstr ""
+
+#: src/tty/gamecfg.rs
+msgid "emuera-tty reads this while the game loads: it takes effect at the next start."
+msgstr ""
+
+#: src/tty/gamecfg.rs
+msgid "Only Emuera.exe uses this (and scripts, through GETCONFIG)."
 msgstr ""
 
 #: src/tty/gamecfg.rs

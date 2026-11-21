@@ -1,11 +1,12 @@
 //! The game's settings page, opened from the settings overlay: a copy of
-//! Emuera's settings window (its tabs, check boxes and fields) with the
-//! settings that make sense in a terminal, read and written as Emuera
-//! does (see [`crate::emuconfig`]).
+//! Emuera's settings window (its tabs, check boxes, drop-down lists and
+//! fields) with every setting it has, read and written as Emuera does
+//! (see [`crate::emuconfig`]). A setting emuera-tty reads only while the
+//! game loads, or doesn't use at all, says so when it is chosen.
 
 use super::{write_all, Key, Tty};
 use crate::console::Console;
-use crate::emuconfig::{normalize, Item, Kind, Source, Values, ITEMS, TABS};
+use crate::emuconfig::{choice_label, normalize, step_choice, Effect, Item, Kind, Source, Store, Values, ITEMS, TABS};
 use crate::frontend::InputReq;
 use crate::resources::Resources;
 use std::io::Write;
@@ -19,11 +20,41 @@ fn rgb(v: &str) -> Option<(u8, u8, u8)> {
     (n.len() == 3).then(|| (n[0], n[1], n[2]))
 }
 
+/// A setting's value as the page shows it: a choice by its label.
+fn shown(it: &Item, value: &str) -> String {
+    match it.kind {
+        Kind::Choice(options) => choice_label(options, value),
+        _ => value.to_string(),
+    }
+}
+
+/// What the hint line says about a setting that doesn't simply apply at
+/// once to emuera.config (None: the usual "Saved in…" line).
+fn effect_hint(it: &Item) -> Option<String> {
+    match (it.store, it.effect) {
+        (Store::Json(_), _) => Some(t!("Saved in setting.json for Emuera.exe; emuera-tty doesn't use it.")),
+        (_, Effect::Restart) => Some(t!("emuera-tty reads this while the game loads: it takes effect at the next start.")),
+        (_, Effect::ExeOnly) => Some(t!("Only Emuera.exe uses this (and scripts, through GETCONFIG).")),
+        (_, Effect::Now) => None,
+    }
+}
+
+/// The first tab the bar shows: the leftmost that still lets the chosen
+/// one fit in `room` columns (`widths`: each tab's, with its gap).
+fn first_tab_shown(widths: &[usize], chosen: usize, room: usize) -> usize {
+    let mut first = 0;
+    while first < chosen && widths[first..=chosen].iter().sum::<usize>() > room {
+        first += 1;
+    }
+    first
+}
+
 /// Where the page's parts are on screen, for mouse clicks.
 struct Geo {
-    /// the tab bar's row and each tab's columns (1-based)
+    /// the tab bar's row, and each tab shown: (its index, its columns,
+    /// 1-based); the bar scrolls when the tabs don't all fit
     tab_row: usize,
-    tabs: Vec<(usize, usize)>,
+    tabs: Vec<(usize, usize, usize)>,
     /// the first item row, and the item on each row shown (a long
     /// name wraps onto more rows)
     items_top: usize,
@@ -75,7 +106,7 @@ impl Tty {
                     0 => {
                         let (x, y) = (x as usize, y as usize);
                         if y == geo.tab_row {
-                            if let Some(t) = geo.tabs.iter().position(|&(a, b)| x >= a && x < b) {
+                            if let Some(&(t, _, _)) = geo.tabs.iter().find(|&&(_, a, b)| x >= a && x < b) {
                                 tab = t;
                                 sel = 0;
                             }
@@ -100,6 +131,8 @@ impl Tty {
             let new: Option<String> = match (act, it.kind) {
                 (2, _) => None,
                 (_, Kind::Bool) => Some(if v.eq_ignore_ascii_case("YES") || v.eq_ignore_ascii_case("TRUE") { "NO" } else { "YES" }.to_string()),
+                // a drop-down list: Enter and + take the next choice, - the one before
+                (_, Kind::Choice(options)) => Some(step_choice(options, &v, if act == -10 { -1 } else { 1 })),
                 (10 | -10, Kind::Int(lo, hi)) => Some((v.parse::<i64>().unwrap_or(lo) + act / 10).clamp(lo, hi).to_string()),
                 (10 | -10, _) => continue,
                 (_, kind) => {
@@ -125,7 +158,7 @@ impl Tty {
             match vals.set(it, new.as_deref()) {
                 Ok(()) => {
                     changed = true;
-                    note = format!("{}: {}", tr(it.label), vals.get(it).0);
+                    note = format!("{}: {}", tr(it.label), shown(it, &vals.get(it).0));
                 }
                 Err(e) => note = e,
             }
@@ -181,21 +214,31 @@ impl Tty {
         };
         let _ = write!(out, "\x1b[?25l\x1b[{};{}H{}┌{}┐", top, left, frame, "─".repeat(inner));
         row(&mut out, top + 1, &format!(" {}", t!("Game settings  (Emuera's settings window)")), &title);
-        // the tab bar
+        // the tab bar: a cell each side for ‹ › when it scrolls, and the
+        // tabs from the first that lets the chosen one show
         let mut tabs = Vec::new();
-        let _ = write!(out, "\x1b[{};{}H{}│{} ", top + 2, left, frame, normal);
-        let mut used = 1;
-        for (i, t) in TABS.iter().enumerate() {
-            let label = format!(" {} ", tr(t));
+        let room = inner - 2;
+        let labels: Vec<String> = TABS.iter().map(|t| format!(" {} ", tr(t))).collect();
+        let widths: Vec<usize> = labels.iter().map(|l| width(l) + 1).collect();
+        let first = first_tab_shown(&widths, tab, room);
+        let more_left = if first > 0 { "‹" } else { " " };
+        let _ = write!(out, "\x1b[{};{}H{}│{}{}", top + 2, left, frame, normal, more_left);
+        let mut used = 0;
+        let mut last = first;
+        for (i, label) in labels.iter().enumerate().skip(first) {
+            // a single tab wider than the bar is cut
+            let label = if widths[i] > room && i == first { fit(label, room - 1) } else { label.clone() };
             let lw = width(&label);
-            if used + lw + 1 > inner {
+            if used + lw + 1 > room {
                 break;
             }
-            tabs.push((left + 1 + used, left + 1 + used + lw));
+            tabs.push((i, left + 2 + used, left + 2 + used + lw));
             let _ = write!(out, "{}{}{} ", if i == tab { &hilite } else { &tab_off }, label, normal);
             used += lw + 1;
+            last = i;
         }
-        let _ = write!(out, "{}{}│", " ".repeat(inner - used), frame);
+        let more_right = if last + 1 < TABS.len() { "›" } else { " " };
+        let _ = write!(out, "{}{}{}│", " ".repeat(room - used), more_right, frame);
         let _ = write!(out, "\x1b[{};{}H{}├{}┤", top + 3, left, frame, "─".repeat(inner));
         // the settings: a check box or a value, then the name (word-wrapped)
         let mut row_idx = 0;
@@ -250,7 +293,7 @@ impl Tty {
                             used += field;
                         }
                         _ => {
-                            let _ = write!(out, "[{}] ", fit(&v, field - 3));
+                            let _ = write!(out, "[{}] ", fit(&shown(it, &v), field - 3));
                             used += field;
                         }
                     }
@@ -278,7 +321,7 @@ impl Tty {
         }
         row(&mut out, top + 4 + max_vis_rows, "", &normal);
         row(&mut out, top + 5 + max_vis_rows, &format!(" {}", t!("←→ tab  ↑↓ choose  Enter change  +/- step  d game's value  Esc back")), &helpc);
-        let saved_in = format!(" {}", t!("Saved in the game's emuera.config, which Emuera.exe reads too."));
+        let saved_in = items.get(sel).and_then(|it| effect_hint(it)).unwrap_or_else(|| t!("Saved in the game's emuera.config, which Emuera.exe reads too."));
         let n = if note.is_empty() { saved_in.as_str() } else { note };
         row(&mut out, top + 6 + max_vis_rows, &format!(" {}", n.trim_start()), &notec);
         let _ = write!(out, "\x1b[{};{}H{}└{}┘\x1b[0m", top + 7 + max_vis_rows, left, frame, "─".repeat(inner));
@@ -305,7 +348,11 @@ mod tests {
                 let out = capture(|| {
                     t.draw_game_settings(&vals, tab, &items, 0, "");
                 });
-                check(&format!("game settings tab {}", name), lang, cols, rows, &out);
+                let scr = check(&format!("game settings tab {}", name), lang, cols, rows, &out);
+                // the bar scrolls so the chosen tab always shows
+                if lang == "en" {
+                    assert!(scr.text().contains(&format!(" {} ", name)), "tab {} not shown at {}x{}\n{}", name, cols, rows, scr.text());
+                }
             }
         }
         crate::i18n::set_language("en");
