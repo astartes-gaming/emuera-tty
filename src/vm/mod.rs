@@ -475,6 +475,10 @@ pub struct Vm {
     /// worked out when a `<div>` first asks (`Vm::net_fork`): its divs show
     /// all their content (html.rs)
     pub net_fork: Option<bool>,
+    /// the `<button>` open where a `<div>` starts (and whether a
+    /// `<clearbutton>` is): its content, laid out as an HTML_PRINT of its
+    /// own, starts inside it (html.rs `html_div`)
+    pub html_outer_button: Option<(Option<value::Value>, bool)>,
     /// Emuera.NET's SQLite databases (sql.rs)
     pub sql: sql::Sql,
     /// 擬似変数RANDの仕様をeramakerに合わせる (cached)
@@ -614,6 +618,7 @@ impl Vm {
             chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
             hide_game_fonts: false,
             net_fork: None,
+            html_outer_button: None,
             sql: sql::Sql::default(),
             compat_rand: cfg.bool("擬似変数RANDの仕様をeramakerに合わせる"),
             cfg,

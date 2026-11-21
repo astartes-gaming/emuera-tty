@@ -86,6 +86,8 @@ cells with that colour. Either takes a whole
 row or column here (a few pixels in Emuera), so a bordered edge that
 falls between two rows goes to the outer one: the frame holds what
 Emuera draws inside it, instead of covering its first or last line.
+A `<button>` around a div makes what the div shows clickable as that
+button (eraMegatenP's battle slots).
 What is drawn over the window (an `HTML_PRINT_ISLAND` layer, a div with
 an absolute `display`) and has a background hides the pictures of the
 log under it; a picture partly under it keeps the rows that show.

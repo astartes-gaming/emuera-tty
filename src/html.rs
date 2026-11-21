@@ -166,9 +166,9 @@ impl Vm {
             self.con.cur_align = Some(Align::Left);
         }
         let mut style_stack: Vec<Style> = Vec::new();
-        let mut button: Option<Value> = None;
-        // inside <clearbutton>: buttons are shown but not clickable
-        let mut clear = false;
+        // inside a <div> that a <button> holds: the button goes on
+        let (mut button, mut clear): (Option<Value>, bool) = self.html_outer_button.take().unwrap_or_default();
+        // (clear: inside <clearbutton>, buttons are shown but not clickable)
         let fs = self.con.font_size;
         let mut rest = src;
         let mut first_text = true;
@@ -261,7 +261,12 @@ impl Vm {
                             let (end, after) = div_content_end(rest);
                             let inner = rest[..end].to_string();
                             rest = &rest[after..];
+                            // a button around a div holds what the div shows
+                            // (eraMegatenP's battle slots: `<button value='9'>`
+                            // around the enemy's divs, clicked to pick it)
+                            self.html_outer_button = Some((button.clone(), clear));
                             self.html_div(&attrs, tag, &inner);
+                            self.html_outer_button = None;
                             first_text = false;
                         }
                         // Emuera.NET: a picture placed against the window
@@ -277,7 +282,9 @@ impl Vm {
                                 .iter()
                                 .filter_map(|k| attrs.get(*k).map(|v| format!(" {}='{}'", k, v.replace('\'', "&#39;"))))
                                 .collect();
+                            self.html_outer_button = Some((button.clone(), clear));
                             self.html_div(&div, "div", &format!("<img{}>", img));
+                            self.html_outer_button = None;
                             first_text = false;
                         }
                         ("img", _) => {
@@ -789,6 +796,36 @@ mod tests {
         ));
         let d = divs(&vm);
         assert_eq!((d[0].2, d[1].2), (0, 1));
+    }
+
+    /// A button around a div holds the div's content (eraMegatenP's battle
+    /// slots, clicked to pick an enemy); a div after it doesn't.
+    #[test]
+    fn a_button_around_a_div_holds_its_content() {
+        use crate::vm::value::Value;
+        fn buttons(segs: &[Seg], out: &mut Vec<Option<Value>>) {
+            for s in segs {
+                match s {
+                    Seg::Text { button, .. } => out.push(button.clone()),
+                    Seg::Div { lines, .. } => lines.iter().for_each(|l| buttons(&l.segs, out)),
+                    _ => {}
+                }
+            }
+        }
+        let mut vm = vm();
+        let found = |vm: &crate::vm::Vm| {
+            let mut out = Vec::new();
+            buttons(&vm.con.lines.last().unwrap().segs, &mut out);
+            out
+        };
+        vm.html_print("<button value='9'><div xpos='0' ypos='0'>[ 9] Rat</div></button>");
+        assert_eq!(found(&vm), [Some(Value::Int(9))]);
+        vm.html_print("<div xpos='200'><button value='7'><div>[ 7] Pix</div></button></div>");
+        assert_eq!(found(&vm), [Some(Value::Int(7))]);
+        vm.html_print("<clearbutton><button value='3'><div>[ 3]</div></button></clearbutton>");
+        assert_eq!(found(&vm), [None]);
+        vm.html_print("<div>after</div>");
+        assert_eq!(found(&vm), [None]);
     }
 
     /// Emuera.NET's div attribute names stand for Emuera-EM's.
