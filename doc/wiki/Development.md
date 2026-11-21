@@ -38,6 +38,28 @@ have yet (`DICT_*`, `HASH_XXH3`, `G_POLYGON_*`). Note that even
 though the compat suite passes, there could still be other bugs — see
 [When something goes wrong](Troubleshooting).
 
+## Comparing with Emuera.NET
+
+`tools/net_replay.sh GAME_DIR [INPUTS_FILE] [SEED]` plays a game on the
+Emuera.NET fork's own script engine (its browser build, run headless) and on
+emuera-tty, with the same inputs (one per line, as `--headless` reads them)
+and random seed, and shows where their text differs. Each engine gets its
+own throwaway copy of the game. It needs the .NET 10 SDK and a checkout of
+the fork ([epizo12345/emuera_Fork](https://github.com/epizo12345/emuera_Fork)):
+`EMUERA_FORK=/path/to/emuera_Fork`, default `../emuera_Fork` beside this
+repository.
+
+- Random numbers come out the same in both, so a seeded run can be compared
+  line by line.
+- Text written with `HTML_PRINT` isn't in the fork's log, so those lines
+  show as differences.
+- The fork's browser build can't run SQL, image functions or OUTPUTLOG.
+- `NET_REPLAY_TRACE=1` lists each prompt the fork stops at, for lining
+  inputs up.
+
+It found the bug that kept an old eraMegatenP save in a talent screen
+it couldn't leave.
+
 ## Emuera documentation
 
 `eraslop/` is the [EraSlop](https://gitgud.io/era-games/EraSlop) repository,

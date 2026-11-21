@@ -1,0 +1,22 @@
+<!--
+  Plays a game on the Emuera.NET fork's own script engine (its headless
+  browser runtime), for tools/net_replay.sh. The fork isn't part of this
+  repository: point EMUERA_FORK at a checkout of
+  https://github.com/epizo12345/emuera_Fork (default: ../emuera_Fork beside
+  this repository). Build output goes to target/net_replay, not the fork.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EmueraFork Condition="'$(EmueraFork)' == ''">$(EMUERA_FORK)</EmueraFork>
+    <EmueraFork Condition="'$(EmueraFork)' == ''">$(MSBuildThisFileDirectory)../../../emuera_Fork</EmueraFork>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(EmueraFork)/Web/Emuera.Web.Runtime/Emuera.Web.Runtime.csproj" />
+    <!-- the runtime is built for the browser; SkiaSharp needs its Linux natives here -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="4.150.1" />
+  </ItemGroup>
+</Project>

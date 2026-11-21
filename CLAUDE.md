@@ -330,6 +330,14 @@ Tools in `tools/` (Python 3; the screen-reading ones need `python3-pyte`):
 - `tools/console_mouse.py`: the Linux-console mouse pointer under a fake
   gpm (`EMUERA_GPMCTL`, `EMUERA_GPM_VC`), printing reversed cells with their
   colours.
+- `tools/net_replay.sh GAME [INPUTS] [SEED]`: play a game on the Emuera.NET
+  fork's own script engine and on emuera-tty with the same inputs and seed,
+  and diff their text. The fork's checkout (`EMUERA_FORK`, default
+  `../emuera_Fork`) and the .NET 10 SDK are needed; the runner
+  (`tools/net_replay/`) builds into `target/net_replay`. RAND matches.
+  Expected noise: `HTML_PRINT` text and the fork's loading lines. The fork's
+  browser build can't run SQL, image functions or OUTPUTLOG.
+  `NET_REPLAY_TRACE=1` shows each prompt the fork waits at, to line inputs up.
 
 What only a human can check: the real Linux console (its font's glyph
 map via GIO_UNIMAP works only on the VT emuera-tty runs on; framebuffer
