@@ -390,6 +390,7 @@ impl Vm {
             pad: to_cells(sides("padding")),
             // a corner smaller than half a cell wouldn't show
             round: sides("radius").map(|r| r >= cell_px / 2.0),
+            thin: border.iter().all(|b| *b < cell_px / 2.0),
         };
         let ins = deco.insets();
         x += margin[3] as f32 * cell_px;

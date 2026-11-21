@@ -202,16 +202,41 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
         button: None,
         marks: None,
     };
-    let edge = blank(deco.bcolor);
+    // a thin border is a line in the border's colour over the background;
+    // a thick one, cells filled with that colour
+    let line = |ch: char| Cell {
+        ch,
+        w: 1,
+        style: Style { fg: deco.bcolor.unwrap_or(Rgb(255, 255, 255)), bg: deco.bg, bold: false, italic: false, underline: false, strike: false },
+        button: None,
+        marks: None,
+    };
+    let edge = if deco.thin { line('│') } else { blank(deco.bcolor) };
     let fill = blank(deco.bg);
+    let border_row = |top: bool| -> Vec<Cell> {
+        if !deco.thin {
+            return vec![blank(deco.bcolor); cols];
+        }
+        let (k_left, k_right) = if top { (0, 1) } else { (3, 2) };
+        let corner = |k: usize, sharp: char, round: char| line(if deco.round[k] { round } else { sharp });
+        let mut cells = vec![line('─'); cols];
+        let (left, right) = if top { (('┌', '╭'), ('┐', '╮')) } else { (('└', '╰'), ('┘', '╯')) };
+        if deco.border[3] {
+            cells[0] = corner(k_left, left.0, left.1);
+        }
+        if deco.border[1] && cols > 1 {
+            cells[cols - 1] = corner(k_right, right.0, right.1);
+        }
+        cells
+    };
     let height = rows.unwrap_or(content.len() + ins[0] + ins[2]).max(ins[0] + ins[2] + 1);
     let mut content = content.into_iter();
     let mut out = Vec::with_capacity(height);
     for r in 0..height {
         let mut row = DRow::default();
-        let border_row = (r == 0 && deco.border[0]) || (r + 1 == height && deco.border[2]);
-        if border_row {
-            row.cells = vec![edge.clone(); cols];
+        let top = r == 0 && deco.border[0];
+        if top || (r + 1 == height && deco.border[2]) {
+            row.cells = border_row(top);
             out.push(row);
             continue;
         }
@@ -4854,6 +4879,25 @@ mod colour_tests {
         paint_div_cells(&mut r, 1, row("a b").cells);
         assert_eq!(text(&r), " a b ");
         assert!(r.cells.iter().all(|c| c.style.bg == grey), "{:?}", r.cells.iter().map(|c| c.style.bg).collect::<Vec<_>>());
+    }
+
+    /// A thin border (Emuera.NET's 2px) is a line around the content; a
+    /// thick one fills its cells with the border's colour.
+    #[test]
+    fn div_borders_thin_and_thick() {
+        let grey = Rgb(188, 188, 188);
+        let mut deco = crate::console::DivBox { bcolor: Some(grey), border: [true; 4], thin: true, ..Default::default() };
+        let boxed = |deco: &crate::console::DivBox| boxed_div(vec![row("ab")], deco, 4, Some(3));
+        let rows = boxed(&deco);
+        assert_eq!(rows.iter().map(text).collect::<Vec<_>>(), ["┌──┐", "│ab│", "└──┘"]);
+        assert!(rows[0].cells.iter().all(|c| c.style.fg == grey && c.style.bg.is_none()));
+        deco.round = [true; 4];
+        assert_eq!(text(&boxed(&deco)[2]), "╰──╯");
+        deco.thin = false;
+        deco.round = [false; 4];
+        let rows = boxed(&deco);
+        assert_eq!(rows.iter().map(text).collect::<Vec<_>>(), ["    ", " ab ", "    "]);
+        assert!(rows[0].cells.iter().all(|c| c.style.bg == Some(grey)));
     }
 
     #[test]

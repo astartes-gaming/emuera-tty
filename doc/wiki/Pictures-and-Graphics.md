@@ -79,7 +79,10 @@ terminal (a picture over text would hide it in tmux and sixel ones).
 
 A `<div>` drawn over other output covers only what it draws: its blank
 cells without a background let the text under them show, as in Emuera,
-and its text shows the background under it. A div's border takes a whole
+and its text shows the background under it. A thin border (narrower than
+half a character, such as Emuera.NET games' usual 2px) is drawn as a line
+(`┌─┐`, `╭─╮` with rounded corners) in its colour; a thicker one fills its
+cells with that colour. Either takes a whole
 row or column here (a few pixels in Emuera), so a bordered edge that
 falls between two rows goes to the outer one: the frame holds what
 Emuera draws inside it, instead of covering its first or last line.

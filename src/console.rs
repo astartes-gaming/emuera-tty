@@ -121,6 +121,9 @@ pub struct DivBox {
     /// rounded corners (`radius`): top left, top right, bottom right,
     /// bottom left, as Emuera orders them
     pub round: [bool; 4],
+    /// every border narrower than half a cell (Emuera.NET's usual
+    /// `border_width='2px'`): drawn as a line, not as filled cells
+    pub thin: bool,
 }
 
 impl DivBox {
