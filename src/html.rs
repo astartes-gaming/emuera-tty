@@ -58,6 +58,27 @@ fn decode_entities(s: &str) -> String {
     out
 }
 
+/// Where the tag starting at `tag[0]` (`<`) ends: the first `>` outside a
+/// quoted attribute value. Emuera reads a start tag with its lexer, single-
+/// and double-quoted strings included (HtmlManager.tagAnalyze), and the
+/// Emuera.NET fork with a full HTML parser, so `title = '<浴室>'` doesn't
+/// end the tag at the `>` inside it (eraKATANA's map tooltips). A quote
+/// left open ends nothing: then the first `>` ends the tag, as before.
+fn tag_end(tag: &str) -> Option<usize> {
+    let mut open_quote: Option<char> = None;
+    for (i, c) in tag.char_indices().skip(1) {
+        match (open_quote, c) {
+            (Some(q), c) if c == q => open_quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => open_quote = Some(c),
+            (None, '>') => return Some(i),
+            (None, _) => {}
+        }
+    }
+    // an unclosed quote: fall back to the first `>` anywhere
+    open_quote.and_then(|_| tag.find('>'))
+}
+
 /// `key='v' key="v" key=v flag` → map with lower-cased keys.
 fn parse_attrs(s: &str) -> HashMap<String, String> {
     let mut m = HashMap::default();
@@ -193,7 +214,7 @@ impl Vm {
         while !rest.is_empty() {
             match rest.find('<') {
                 Some(0) => {
-                    let end = rest.find('>').unwrap_or(rest.len() - 1);
+                    let end = tag_end(rest).unwrap_or(rest.len() - 1);
                     let tag = &rest[1..end];
                     rest = &rest[(end + 1).min(rest.len())..];
                     let closing = tag.starts_with('/');
@@ -666,6 +687,25 @@ mod tests {
         let csv = crate::csvdata::GameCsv::load(&root.join("sample/CSV"), None, &cfg);
         let fe = Box::new(crate::frontend::Headless::new(false));
         crate::vm::Vm::new(crate::parser::Program::default(), csv, crate::resources::Resources::default(), fe, root.join("sample"), cfg)
+    }
+
+    /// A `>` (or `<`) inside a quoted attribute value doesn't end the tag:
+    /// eraKATANA's map buttons have `title = '…<入浴可能=1>…'`, and their
+    /// `value` and text leaked out as `' value = '10115'>15`.
+    #[test]
+    fn quoted_angle_brackets_stay_in_the_tag() {
+        assert_eq!(super::tag_end("<b>x"), Some(2));
+        assert_eq!(super::tag_end("<a t='>' v=\"<>\">x"), Some(15));
+        // an unclosed quote: the first `>` still ends the tag
+        assert_eq!(super::tag_end("<a t='x>y"), Some(7));
+        assert_eq!(super::tag_end("<a"), None);
+        let mut vm = vm();
+        vm.html_print("A<button title = '\r\n■浴室\r\n<入浴可能=1>\r\n' value = '10115'>15</button>B");
+        let line = vm.con.lines.last().expect("a line");
+        let text = crate::console::Console::line_text(line);
+        assert_eq!(text, "A15B");
+        assert!(line.segs.iter().any(|s| matches!(s, Seg::Text { text, button: Some(_), .. } if text == "15")), "{:?}", line.segs);
+        assert!(vm.con.button_values().contains(&crate::vm::value::Value::Int(10115)));
     }
 
     /// HTML_PRINT's lines start left-aligned whatever ALIGNMENT says (only
