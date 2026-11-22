@@ -29,9 +29,38 @@ warning*, *Function not called warning*, *Duplicated functions warning*,
 nothing calls, functions defined twice, built-in functions the game
 replaces. A game whose settings leave these at Emuera's defaults shows
 none; set them in the game's `emuera.config` (or F3 → game settings) to
-see them. In debug mode, the warnings the function headers alone tell
-(duplicates, replaced built-ins) are printed in the game's console before
-it starts, each in red followed by the line it is about, as Emuera does.
+see them. When a game starts (in debug mode or not), the warnings known
+without compiling every function (functions defined twice, and with
+Emuera.NET's `CheckUTF8withBOM` in `setting.json`, script files without
+a UTF-8 BOM) are printed in the game's console before it starts, each in
+red followed by the line it is about, as Emuera does. A game that clears
+the screen as its title starts (`CLEARLINE LINECOUNT`) wipes them at
+once, in Emuera too; `--check` lists them all.
+
+With *Display loading report* (`ロード時にレポートを表示する`) on, the
+console starts with Emuera's report: a `…読み込み中・・・` (loading…)
+line for macro.txt, `_Replace.csv`, `_Rename.csv`, each CSV table,
+`Chara*.csv` and `VarExt*.csv`, each ERH and ERB file in load order, the
+two script passes, then the warnings and `ロード完了` (loading finished).
+emuera-tty loads before its screen is up, so the lines come all at once
+at start rather than one by one. The report's last line in Emuera, the
+counts of lines, functions and functions called, needs every function
+compiled and so appears only in `--check`.
+
+### Their language
+
+Emuera's own messages (these warnings, script errors such as an array
+index out of range, the debug console's refusals) follow the game's
+*Emuera interface language* (`Emueraの表示言語` in `emuera.config`):
+`日本語` shows Emuera's Japanese. Unset, emuera-tty's own *Language*
+setting decides: Japanese shows Emuera's Japanese, any other language
+emuera-tty's English. A game that ships Emuera's language files
+(`lang/emuera.*.xml` beside the game or one folder up, as eraMegatenP
+does) supplies its own text for the messages it has, in the language
+chosen; it matches by the file's `<name>` (`English`), its `<culture>`,
+or the file name (`emuera.eng.xml`). Set `Emueraの表示言語:日本語` to see
+the exact Japanese Emuera prints. The language is chosen when the game
+starts.
 
 ## The debug panel
 

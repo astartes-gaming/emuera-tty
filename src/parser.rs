@@ -46,6 +46,9 @@ pub struct Program {
     pub errors: Vec<String>,
     /// Emuera's load warnings found while reading (see `loadcheck.rs`)
     pub warnings: Vec<crate::loadcheck::Warning>,
+    /// Emuera's loading report (ロード時にレポートを表示する): the lines it
+    /// prints while loading, shown before the warnings (empty when off)
+    pub report: Vec<String>,
     /// A parser that knows the game's `#DEFINE`s and global variables, for
     /// the debug panel's commands (see [`Parser::compile_snippet`]).
     pub snippets: Option<Rc<std::sync::Mutex<Parser>>>,

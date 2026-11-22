@@ -90,6 +90,76 @@ pub fn bom_warnings(prog: &mut Program, cfg: &Values, game_dir: &std::path::Path
     prog.warnings.sort_by_key(|w| (w.file, w.line));
 }
 
+/// The name tables Emuera reads from the CSV folder, in its order
+/// (ConstantData.LoadData), as it names them in the report.
+const REPORTED_CSV_TABLES: &[&str] = &[
+    "VariableSize.CSV", "ABL.CSV", "EXP.CSV", "TALENT.CSV", "PALAM.CSV", "TRAIN.CSV", "MARK.CSV", "ITEM.CSV", "BASE.CSV", "SOURCE.CSV", "EX.CSV", "STR.CSV",
+    "EQUIP.CSV", "TEQUIP.CSV", "FLAG.CSV", "TFLAG.CSV", "CFLAG.CSV", "TCVAR.CSV", "CSTR.CSV", "STAIN.CSV", "CDFLAG1.CSV", "CDFLAG2.CSV", "STRNAME.CSV",
+    "TSTR.CSV", "SAVESTR.CSV", "GLOBAL.CSV", "GLOBALS.CSV", "DAY.CSV", "TIME.CSV", "MONEY.CSV",
+];
+
+/// Emuera's `{0}読み込み中・・・` report line for one file.
+fn loading_line(name: &str) -> String {
+    crate::em!("SystemLine.LoadingFile", "{0}読み込み中・・・", "loading {0}…", name)
+}
+
+/// `path` under `base`, with `/` between folders (Emuera's relative names).
+fn relative_name(path: &std::path::Path, base: &std::path::Path) -> String {
+    path.strip_prefix(base).unwrap_or(path).to_string_lossy().replace('\\', "/")
+}
+
+/// Emuera's loading report (ロード時にレポートを表示する), the lines it
+/// prints as it loads (Process.Initialize, ConstantData.LoadData,
+/// ErhLoader / ErbLoader): macro.txt, _Replace.csv, _Rename.csv, each CSV
+/// table, Chara*.csv and VarExt*.csv, each ERH and ERB file in load order,
+/// then the two script passes. Empty when the setting is off. Emuera's
+/// `ロード完了` comes after the warnings ([`load_complete`]).
+pub fn loading_report(
+    game: &std::path::Path,
+    cfg: &Values,
+    erb_dir: Option<&std::path::Path>,
+    erhs: &[std::path::PathBuf],
+    erbs: &[std::path::PathBuf],
+) -> Vec<String> {
+    use crate::loader::{emuera_files, find_dir_ci, find_file_ci, walk, Listing};
+    if !cfg.bool("ロード時にレポートを表示する") {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    if cfg.bool("キーボードマクロを使用する") && find_file_ci(game, "macro.txt").is_some() {
+        out.push(crate::em!("SystemLine.LoadingMacro", "macro.txt読み込み中・・・", "loading macro.txt…"));
+    }
+    let csv_dir = find_dir_ci(game, "CSV");
+    let csv_has = |name: &str| csv_dir.as_deref().and_then(|d| find_file_ci(d, name)).is_some();
+    if cfg.bool("_Replace.csvを利用する") && csv_has("_Replace.csv") {
+        out.push(crate::em!("SystemLine.LoadingReplace", "_Replace.csv読み込み中・・・", "loading _Replace.csv…"));
+    }
+    if cfg.bool("_Rename.csvを利用する") && csv_has("_Rename.csv") {
+        out.push(crate::em!("SystemLine.LoadingRename", "_Rename.csv読み込み中・・・", "loading _Rename.csv…"));
+    }
+    if let Some(csv) = csv_dir.as_deref() {
+        out.extend(REPORTED_CSV_TABLES.iter().filter(|n| csv_has(n)).map(|n| loading_line(n)));
+        // Chara*.csv as Emuera lists the folder (subfolders and order by
+        // the same settings as the ERB folder's)
+        let is_chara = |p: &std::path::PathBuf| p.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_uppercase().starts_with("CHARA"));
+        out.extend(emuera_files(csv, &["csv"], Listing::of(game, cfg)).iter().filter(|p| is_chara(p)).map(|p| loading_line(&relative_name(p, csv))));
+        // VarExt*.csv anywhere under CSV, by file name
+        let is_varext = |p: &std::path::PathBuf| p.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().starts_with("varext"));
+        out.extend(walk(csv, &["csv"]).iter().filter(|p| is_varext(p)).filter_map(|p| p.file_name()).map(|n| loading_line(&n.to_string_lossy())));
+    }
+    if let Some(erb) = erb_dir {
+        out.extend(erhs.iter().chain(erbs).map(|p| loading_line(&relative_name(p, erb))));
+    }
+    out.push(crate::em!("SystemLine.BuildingUserFunc", "ユーザー定義関数のリストを構築中・・・", "building the list of the game's functions…"));
+    out.push(crate::em!("SystemLine.CheckingSyntax", "スクリプトの構文チェック中・・・", "checking the scripts' syntax…"));
+    out
+}
+
+/// Emuera's `ロード完了`, the report's last line (after the warnings).
+pub fn load_complete() -> String {
+    crate::em!("SystemLine.LoadComplete", "ロード完了", "loading finished")
+}
+
 /// The load warnings the game's 表示する最低警告レベル lets through (shown
 /// in the console at start: `Vm::show_load_warnings`).
 pub fn load_warnings<'a>(prog: &'a Program, cfg: &Values) -> Vec<&'a Warning> {

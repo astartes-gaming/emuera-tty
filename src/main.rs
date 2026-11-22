@@ -513,6 +513,8 @@ fn build_program(
         None => (Vec::new(), Vec::new()),
     };
     let rel = |f: &std::path::Path| f.strip_prefix(game).unwrap_or(f).display().to_string();
+    // Emuera's loading report, shown in the console at start (empty when off)
+    p.prog.report = loadcheck::loading_report(game, cfg, erb_dir, &erhs, &erbs);
     for f in erhs.iter().chain(&erbs) {
         p.prog.files.push(rel(f));
     }

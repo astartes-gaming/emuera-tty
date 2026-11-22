@@ -40,6 +40,44 @@ fn rename_and_replace_files_follow_the_settings() {
     assert!(missing.contains("_Rename.csvが見つかりません"), "{missing}");
 }
 
+/// ロード時にレポートを表示する: Emuera prints each file as it loads it, in
+/// its load order (CSV tables by Emuera's names, Chara*.csv, ERH, then ERB
+/// files by their path under ERB), then its two script passes and, after
+/// the warnings, ロード完了. Off (the default): none of it.
+#[test]
+fn loading_report_follows_the_setting() {
+    let files = [
+        ("CSV/_Rename.csv", "ほげ,[[HOGE]]\n"),
+        ("CSV/Abl.csv", "0,技巧\n"),
+        ("CSV/Talent.csv", "0,処女\n"),
+        ("CSV/Chara0.csv", "番号,0\n名前,あなた\n"),
+        ("ERB/DEFS.ERH", "#DIM GLOBALX\n"),
+        ("ERB/SUB/B.ERB", "@B\nRETURN\n"),
+    ];
+    let erb = "@SYSTEM_TITLE\nPRINTL title\nQUIT\n";
+    let on = play("cfg-report-on", "ロード時にレポートを表示する:YES\n_Rename.csvを利用する:YES\nサブディレクトリを検索する:YES\n", &files, erb);
+    let want = [
+        "_Rename.csv読み込み中・・・",
+        "ABL.CSV読み込み中・・・",
+        "TALENT.CSV読み込み中・・・",
+        "Chara0.csv読み込み中・・・",
+        "DEFS.ERH読み込み中・・・",
+        "T.ERB読み込み中・・・",
+        "SUB/B.ERB読み込み中・・・",
+        "ユーザー定義関数のリストを構築中・・・",
+        "スクリプトの構文チェック中・・・",
+        "ロード完了",
+        "title",
+    ];
+    let mut at = 0;
+    for w in want {
+        let found = on[at..].find(w).unwrap_or_else(|| panic!("{w} missing or out of order:\n{on}"));
+        at += found + w.len();
+    }
+    let off = play("cfg-report-off", "_Rename.csvを利用する:YES\n", &files, erb);
+    assert!(!off.contains("読み込み中") && !off.contains("ロード完了") && off.contains("title"), "{off}");
+}
+
 /// 全角スペースをホワイトスペースに含める (on unless set): off, a full-width
 /// space where Emuera lexes code is an error, and allowed in text: string
 /// literals, FORM text, `\@ ? # \@` branches, PRINT's raw text.

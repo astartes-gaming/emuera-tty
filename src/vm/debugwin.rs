@@ -278,6 +278,11 @@ impl Vm {
     /// warning in red, then the line it is about), then the report's
     /// `ロード完了`.
     pub fn show_load_warnings(&mut self) {
+        let report = std::mem::take(&mut self.prog.report);
+        for line in &report {
+            self.con.print(line);
+            self.con.newline();
+        }
         let shown: Vec<(String, String, u32)> = crate::loadcheck::load_warnings(&self.prog, &self.cfg)
             .into_iter()
             .map(|w| (crate::loadcheck::format(&self.prog, w), self.prog.files.get(w.file as usize).cloned().unwrap_or_default(), w.line))
@@ -288,6 +293,10 @@ impl Vm {
                 self.con.print(src.trim());
                 self.con.newline();
             }
+        }
+        if !report.is_empty() {
+            self.con.print(&crate::loadcheck::load_complete());
+            self.con.newline();
         }
     }
 
