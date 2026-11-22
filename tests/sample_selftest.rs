@@ -195,6 +195,45 @@ fn save_history() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A script error that ends the game saves the error and the console to
+/// crash_logs/ in the game folder, unless "Save crash logs" is off.
+#[test]
+fn script_error_saves_a_crash_log() {
+    let dir = temp_dir("crashlog");
+    game(&dir, &[("ERB/T.ERB", "@SYSTEM_TITLE\nPRINTL before the error\nCALL BOOM\nQUIT\n@BOOM\nTHROW something broke\n")]);
+    let config = dir.join("config");
+    let play = || {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty"))
+            .arg(&dir)
+            .arg("--headless")
+            .env("EMUERA_TTY_TESTING", "1")
+            .env("XDG_DATA_HOME", dir.join("data"))
+            .env("XDG_CONFIG_HOME", &config)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let logs = || -> Vec<std::path::PathBuf> { std::fs::read_dir(dir.join("crash_logs")).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default() };
+    // on by default
+    let text = play();
+    assert!(text.contains("Crash log saved to"), "{}", text);
+    let saved = logs();
+    assert_eq!(saved.len(), 1, "{:?}", saved);
+    let log = std::fs::read_to_string(&saved[0]).unwrap();
+    for want in ["THROW: something broke", "Call stack:", "(in @SYSTEM_TITLE)", "before the error", env!("CARGO_PKG_VERSION")] {
+        assert!(log.contains(want), "{:?} missing:\n{}", want, log);
+    }
+    // off: nothing written, nothing said
+    std::fs::remove_dir_all(dir.join("crash_logs")).unwrap();
+    std::fs::create_dir_all(config.join("emuera-tty")).unwrap();
+    std::fs::write(config.join("emuera-tty/config"), "crashlog=off\n").unwrap();
+    let text = play();
+    assert!(text.contains("something broke") && !text.contains("Crash log"), "{}", text);
+    assert!(logs().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// On a small stack (Haiku allows a thread under 16 MB; EMUERA_STACK_MB
 /// stands in for it here) endless recursion is still a script error, not
 /// a crash: the call-depth limit follows the stack's size.

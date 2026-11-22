@@ -185,6 +185,13 @@ impl Vm {
         let mut w = BufWriter::new(file);
         // Write UTF-8 BOM like Emuera does
         let _ = w.write_all(&[0xEF, 0xBB, 0xBF]);
+        self.write_console(&mut w);
+        w.flush().is_ok()
+    }
+
+    /// The console scrollback as text, one line per console line, then
+    /// the line still being built.
+    fn write_console(&self, w: &mut impl std::io::Write) {
         for line in &self.con.lines {
             let text = crate::console::Console::line_text(line);
             let _ = writeln!(w, "{}", text.replace('\n', "\r\n"));
@@ -204,11 +211,64 @@ impl Vm {
             let text = crate::console::Console::line_text(&line);
             let _ = write!(w, "{}", text.replace('\n', "\r\n"));
         }
-        w.flush().is_ok()
     }
 
-    /// The load warnings, in the game's console before it starts, as
-    /// Emuera's PrintWarning: the warning in red, then the line it is about.
+    /// After a script error that ends the game: write the error and the
+    /// console to `crash_logs/crash-<date>_<time>.log` in the game folder,
+    /// for bug reports (Emuera only logs its own .NET crashes, to
+    /// emuera_crash.log). Off with the "Save crash logs" setting. The
+    /// file written, or why it couldn't be.
+    pub(super) fn save_crash_log(&self, error: &str) -> Option<Result<std::path::PathBuf, String>> {
+        use std::io::{BufWriter, Write};
+        if crate::settings::Settings::load().get("crashlog") != "on" {
+            return None;
+        }
+        let dir = self.game_dir.join("crash_logs");
+        let t = crate::sys::now();
+        let stamp = format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", t.y, t.mo, t.d, t.h, t.mi, t.s);
+        let write = || -> std::io::Result<std::path::PathBuf> {
+            std::fs::create_dir_all(&dir)?;
+            let (path, file) = create_crash_log_file(&dir, &stamp)?;
+            let mut w = BufWriter::new(file);
+            w.write_all(&[0xEF, 0xBB, 0xBF])?;
+            writeln!(w, "emuera-tty {} crash log", env!("CARGO_PKG_VERSION"))?;
+            writeln!(w, "Time: {}-{:02}-{:02} {:02}:{:02}:{:02}", t.y, t.mo, t.d, t.h, t.mi, t.s)?;
+            writeln!(w, "Game: {}", self.game_dir.display())?;
+            writeln!(w, "System phase: {}", self.state)?;
+            writeln!(w, "\n*** script error ***\n{}\n", error)?;
+            writeln!(w, "--- console, oldest line first ---")?;
+            self.write_console(&mut w);
+            w.flush()?;
+            Ok(path)
+        };
+        Some(write().map_err(|e| e.to_string()))
+    }
+}
+
+/// A new file `crash-<stamp>.log` in `dir`, or `crash-<stamp>-N.log` when a
+/// second error came in the same second. Only a name already taken moves
+/// on to the next one: any other error (a read-only folder, a full disk)
+/// is the reason the log can't be written, and is returned as it is.
+fn create_crash_log_file(dir: &std::path::Path, stamp: &str) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+    const MAX_LOGS_PER_SECOND: u32 = 99;
+    for n in 1..=MAX_LOGS_PER_SECOND {
+        let name = if n == 1 { format!("crash-{}.log", stamp) } else { format!("crash-{}-{}.log", stamp, n) };
+        let path = dir.join(name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::other("too many crash logs this second"))
+}
+
+impl Vm {
+    /// What Emuera prints while loading, in the game's console before it
+    /// starts: the loading report when the game turns it on (each file as
+    /// it loads), then the load warnings as Emuera's PrintWarning (the
+    /// warning in red, then the line it is about), then the report's
+    /// `ロード完了`.
     pub fn show_load_warnings(&mut self) {
         let shown: Vec<(String, String, u32)> = crate::loadcheck::load_warnings(&self.prog, &self.cfg)
             .into_iter()
@@ -349,6 +409,32 @@ mod tests {
         let csv = crate::csvdata::GameCsv::load(&root.join("sample/CSV"), None, &cfg);
         let fe = Box::new(crate::frontend::Headless::new(false));
         super::Vm::new(p.prog, csv, crate::resources::Resources::default(), fe, dir.to_path_buf(), cfg)
+    }
+
+    /// A crash log in the same second gets the next free name; a folder
+    /// that can't be written to gives its own error, not "too many crash
+    /// logs this second".
+    #[test]
+    fn crash_log_names_and_errors() {
+        let dir = std::env::temp_dir().join(format!("emuera-tty-crashlog-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (first, _) = super::create_crash_log_file(&dir, "S").unwrap();
+        let (second, _) = super::create_crash_log_file(&dir, "S").unwrap();
+        assert_eq!((first.file_name().unwrap(), second.file_name().unwrap()), ("crash-S.log".as_ref(), "crash-S-2.log".as_ref()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            // (root writes anyway: nothing to check then)
+            let writable = std::fs::File::create(dir.join("probe")).is_ok();
+            if !writable {
+                let e = super::create_crash_log_file(&dir, "T").unwrap_err();
+                assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{e}");
+            }
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The watch list, the console's commands and their errors, the stack

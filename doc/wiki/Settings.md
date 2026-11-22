@@ -21,6 +21,7 @@ where marked, apply to the running game:
 | Keyboard pointer | auto, on, off | cursor keys move a pointer, Insert / Shift+Enter click |
 | Gamepad | auto, off | read gamepads (Steam Deck, Xbox, PlayStation…; Linux), see [Gamepads and the Steam Deck](Gamepads-and-Steam-Deck) |
 | Show memory | off, on | memory in use in the bottom row too (always on the settings title) |
+| Save crash logs | on, off | after a script error ends the game, save the error, its call stack and the console to `crash_logs/crash-<date>_<time>.log` in the game folder (see [Troubleshooting](Troubleshooting)) |
 | Translator | off, auto, local, argos, translate-shell, deepl, file | off: no translation; auto: whichever is installed, this computer's first; file: no translator, only the translations read with `--translate-load` (see [Reusing a log as translations](Translation#reusing-a-log-as-translations)) |
 | Translate to | en, es, pt, fr, de, it, ru, ja, zh, ko | show the game in that language (see [Translating the game](Translation#translating-the-game)) |
 | Translate from | auto, ja, en | the game's language; auto: per line |

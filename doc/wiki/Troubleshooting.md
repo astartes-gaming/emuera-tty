@@ -6,6 +6,10 @@ overwrites (see [Save history](Playing#save-history)).
   emuera-tty doesn't support yet (or a bug of the game's). As in Emuera
   it shows the file and line, the line itself, the function, and the
   call stack that led there. Press Enter to quit; your last save is safe.
+  The error and everything the console showed before it are also saved
+  to `crash_logs/crash-<date>_<time>.log` in the game folder (the screen
+  says where): attach that file to a bug report. *Save crash logs* in the
+  settings turns this off.
 - **`warning: … not implemented (ignored)`** lines in the terminal after
   quitting are commands emuera-tty skipped; the game usually carries on.
 - **Check a game without playing it:** `emuera-tty /path/to/game --check`

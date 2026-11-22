@@ -89,7 +89,9 @@ fn html_island_layers() {
     let out = run(&dir, b"8\n7\n", None);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(out.contains("[got 7]"), "{out}");
-    assert!(!out.contains("island-"), "the island went into the log:\n{out}");
+    // (the island texts, not "island-": the temp folder's name, in the
+    // crash log's path, has that too)
+    assert!(!out.contains("island-seven") && !out.contains("island-eight"), "the island went into the log:\n{out}");
     assert!(out.contains("no buttons to choose"), "{out}");
 }
 

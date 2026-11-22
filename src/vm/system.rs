@@ -61,7 +61,17 @@ impl Vm {
                             self.con.newline();
                         }
                     }
+                    // the error and the console, kept for a bug report
+                    let note = match self.save_crash_log(&m) {
+                        Some(Ok(p)) => Some(t!("Crash log saved to {path}", path = p.display())),
+                        Some(Err(e)) => Some(t!("Couldn't save the crash log: {error}", error = e)),
+                        None => None,
+                    };
                     self.con.style = st;
+                    if let Some(note) = note {
+                        self.con.print_ex(&note, false);
+                        self.con.newline();
+                    }
                     self.con.print_ex("(press Enter to quit)", false);
                     self.con.newline();
                     let _ = self.wait();

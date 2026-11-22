@@ -94,6 +94,13 @@ pub const ITEMS: &[Item] = &[
         help: n!("show the memory in use in the bottom row (it is always on this page's title)"),
     },
     Item {
+        key: "crashlog",
+        label: n!("Save crash logs"),
+        choices: &["on", "off"],
+        live: true,
+        help: n!("after a script error ends the game, save the error and the console to crash_logs/ in the game folder"),
+    },
+    Item {
         key: "translator",
         label: n!("Translator"),
         choices: &["off", "auto", "local", "argos", "translate-shell", "deepl", "file"],

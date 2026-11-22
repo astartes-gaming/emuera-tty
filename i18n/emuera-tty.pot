@@ -1285,6 +1285,14 @@ msgid "show the memory in use in the bottom row (it is always on this page's tit
 msgstr ""
 
 #: src/settings.rs
+msgid "Save crash logs"
+msgstr ""
+
+#: src/settings.rs
+msgid "after a script error ends the game, save the error and the console to crash_logs/ in the game folder"
+msgstr ""
+
+#: src/settings.rs
 msgid "Translator"
 msgstr ""
 
@@ -2251,4 +2259,14 @@ msgstr ""
 
 #: src/vm/mod.rs
 msgid "stopped by the player: a possible infinite loop"
+msgstr ""
+
+#: src/vm/system.rs
+#, no-c-format
+msgid "Crash log saved to {path}"
+msgstr ""
+
+#: src/vm/system.rs
+#, no-c-format
+msgid "Couldn't save the crash log: {error}"
 msgstr ""
