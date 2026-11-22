@@ -806,9 +806,11 @@ fn run(o: Opts) -> i32 {
     vm::sql::reset(&mut vm.sql, &save_dir);
     if o.game_debug {
         vm.debug_start();
-        // the load warnings, in the game's console as Emuera prints them
-        vm.show_load_warnings();
     }
+    // the load warnings the game's 表示する最低警告レベル lets through, in
+    // the game's console as Emuera prints them on every start
+    // (ParserMediator.FlushWarningList), debug mode or not
+    vm.show_load_warnings();
     // the reload hotkey parses the ERB files again
     {
         let (g, erb, debug) = (game.clone(), erb_dir.clone(), o.game_debug);

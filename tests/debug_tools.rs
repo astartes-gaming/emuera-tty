@@ -54,15 +54,15 @@ fn at_commands_follow_the_settings() {
     assert!(!debug.contains("デバッグウインドウは") && debug.contains("got 7"), "{debug}");
 }
 
-/// In debug mode the load warnings come first in the game's console, each
-/// followed by the line it is about (Emuera's PrintWarning).
+/// The load warnings come first in the game's console, each followed by
+/// the line it is about (Emuera's PrintWarning), in debug mode or not.
 #[test]
-fn load_warnings_are_printed_in_debug_mode() {
+fn load_warnings_are_printed_at_start() {
     let dir = temp_dir("load-warnings-debug");
     game(
         &dir,
         &[
-            ("emuera.config", "同名の非イベント関数が複数定義されたとき警告する:YES\n"),
+            ("emuera.config", "Emueraの表示言語:日本語\n同名の非イベント関数が複数定義されたとき警告する:YES\n"),
             ("ERB/T.ERB", "@SYSTEM_TITLE\nPRINTL title\nQUIT\n@A\nRETURN\n@A\nRETURN 1\n"),
         ],
     );
@@ -83,7 +83,11 @@ fn load_warnings_are_printed_in_debug_mode() {
             || out.find(warn_alt).is_some_and(|w| out.find("title").is_some_and(|t| w < t)),
         "{out}"
     );
-    // not in normal play
+    // in normal play too, as Emuera prints them on every start
+    assert!(run(&dir, b"", None).contains("警告Lv1:"));
+    // and not at all below the game's 表示する最低警告レベル
+    std::fs::write(dir.join("emuera.config"), "Emueraの表示言語:日本語\n同名の非イベント関数が複数定義されたとき警告する:YES\n表示する最低警告レベル:2\n")
+        .unwrap();
     assert!(!run(&dir, b"", None).contains("警告"));
     let _ = std::fs::remove_dir_all(&dir);
 }
