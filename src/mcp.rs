@@ -317,7 +317,9 @@ impl Frontend for Mcp {
 
     fn input_raw(&mut self, con: &mut Console, res: &mut Resources, timeout_ms: Option<u64>) -> RawInput {
         self.flush(con, res);
-        self.waiting = "a click or a key (INPUTMOUSEKEY): a button's value clicks it, key:NAME or key:CODE presses a key".to_string();
+        self.waiting =
+            "a click or a key (INPUTMOUSEKEY): a button's value clicks it, @click / @rclick / @mclick [VALUE] is a left / right / middle click, key:NAME or key:CODE presses a key"
+                .to_string();
         if let Some(ms) = timeout_ms {
             self.waiting += &format!(", timed ({} ms; input with timeout=true lets it run out)", ms);
         }
@@ -355,9 +357,13 @@ impl Frontend for Mcp {
     }
 }
 
-/// An INPUTMOUSEKEY answer: a button's value clicks it, `key:…` presses a
-/// key, anything else presses its first character.
+/// An INPUTMOUSEKEY answer: a button's value clicks it, `@click` /
+/// `@rclick` / `@mclick [VALUE]` is that click, `key:…` presses a key,
+/// anything else presses its first character.
 fn raw_answer(con: &Console, s: &str) -> RawInput {
+    if let Some(click) = crate::frontend::typed_click(s) {
+        return click;
+    }
     let click = |v: Value| RawInput::Click { btn: 0, cell: (0, 0), button: Some(v) };
     if let Ok(n) = s.trim().parse::<i64>() {
         return click(Value::Int(n));

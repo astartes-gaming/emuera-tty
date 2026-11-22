@@ -74,21 +74,51 @@ pub fn char_keycode(c: char) -> (i64, i64) {
 }
 
 /// An ordinary input's answer as INPUTMOUSEKEY's: a typed number counts as clicking
-/// that button, Enter / other text as key presses.
+/// that button, `@click` / `@rclick` / `@mclick` as that click ([`typed_click`]),
+/// Enter / other text as key presses.
 pub fn raw_from_input(r: InputResult) -> RawInput {
     match r {
         InputResult::Quit => RawInput::Quit,
         InputResult::Hotkey(h) => RawInput::Hotkey(h),
         // (only the TUI has a debug panel, and it handles its own)
         InputResult::Timeout | InputResult::Debug(_) => RawInput::Timeout,
-        InputResult::Text(t) | InputResult::Line(t) | InputResult::Skip(t) => match t.trim().parse::<i64>() {
-            Ok(v) => RawInput::Click { btn: 0, cell: (0, 0), button: Some(crate::vm::value::Value::Int(v)) },
-            Err(_) => {
-                let (code, data) = t.chars().next().map(char_keycode).unwrap_or((13, 13));
-                RawInput::Key { code, data }
+        InputResult::Text(t) | InputResult::Line(t) | InputResult::Skip(t) => {
+            if let Some(click) = typed_click(&t) {
+                return click;
             }
-        },
+            match t.trim().parse::<i64>() {
+                Ok(v) => RawInput::Click { btn: 0, cell: (0, 0), button: Some(crate::vm::value::Value::Int(v)) },
+                Err(_) => {
+                    let (code, data) = t.chars().next().map(char_keycode).unwrap_or((13, 13));
+                    RawInput::Key { code, data }
+                }
+            }
+        }
     }
+}
+
+/// A mouse click typed as text, for INPUTMOUSEKEY where there is no mouse
+/// (`--headless`, `--mcp`): `@click`, `@rclick` (right) or `@mclick`
+/// (middle), optionally followed by the value of the button clicked
+/// (`@rclick 5`, `@click SORT,LEVEL`). Without a value it is a click on no
+/// button, as on empty space. None when `typed` isn't one of these.
+pub fn typed_click(typed: &str) -> Option<RawInput> {
+    let typed = typed.trim();
+    let (word, value) = match typed.split_once(char::is_whitespace) {
+        Some((word, rest)) => (word, Some(rest.trim())),
+        None => (typed, None),
+    };
+    let btn = match word.to_ascii_lowercase().as_str() {
+        "@click" | "@lclick" => 0,
+        "@mclick" => 1,
+        "@rclick" => 2,
+        _ => return None,
+    };
+    let button = value.filter(|v| !v.is_empty()).map(|v| match v.parse::<i64>() {
+        Ok(n) => crate::vm::value::Value::Int(n),
+        Err(_) => crate::vm::value::Value::Str(v.to_string()),
+    });
+    Some(RawInput::Click { btn, cell: (0, 0), button })
 }
 
 #[derive(Debug, Clone, PartialEq)]

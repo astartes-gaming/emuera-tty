@@ -261,7 +261,9 @@ there is no screen or sound; the game stops at every input and the
 client answers it. Its tools are \fBscreen\fR (the recent lines),
 \fBbuttons\fR (the live buttons and their values), \fBinput\fR (answer
 the input and run to the next one; WAITs pass by themselves unless
-\fBstop_at_wait\fR is true; at INPUTMOUSEKEY a button's value clicks it
+\fBstop_at_wait\fR is true; at INPUTMOUSEKEY a button's value clicks it,
+\fB@click\fR, \fB@rclick\fR and \fB@mclick\fR [\fIvalue\fR] are left, right
+and middle clicks (also with \fB\-\-headless\fR),
 and \fBkey:Enter\fR, \fBkey:Esc\fR, \fBkey:F1\fR… press keys),
 \fBeval\fR (an ERB expression's value), \fBrun\fR (one statement, as
 Emuera's debug console runs it, but CALL and its kin allowed) and \fBstate\fR (the line running and

@@ -118,7 +118,10 @@ A button's value is what `input` takes: a number, or a string in quotes
 - **Timed inputs** (`TINPUT`, `TWAIT`, a timed `INPUTMOUSEKEY`) wait for
   the agent, not the clock. `"timeout": true` lets one run out instead.
 - **Mouse and key inputs** (`INPUTMOUSEKEY`, used by picture menus such as
-  pops-tw's): a button's value clicks that button. `key:Enter`, `key:Esc`,
+  pops-tw's): a button's value clicks that button. `@click`, `@rclick` and
+  `@mclick` are a left, right and middle click on no button (eraKATANA's
+  town opens its move menu on a right click); add a value to click that
+  button (`@rclick 5`). `key:Enter`, `key:Esc`,
   `key:Up`, `key:F1`, `key:Space` press keys. `key:65` sends a Windows key
   code, and a single character presses that key.
 - **When the game ends** (`QUIT`, the window closed): the answer is

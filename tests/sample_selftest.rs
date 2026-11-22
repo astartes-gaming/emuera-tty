@@ -288,6 +288,32 @@ fn sorted_load_order_follows_the_shipped_emuera() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Without a mouse (headless), INPUTMOUSEKEY takes typed clicks:
+/// `@click` / `@rclick` / `@mclick`, optionally with the button's value,
+/// as Emuera's left (0x100000), right (0x200000) and middle (0x400000)
+/// buttons. A number is still a left click on that button.
+#[test]
+fn headless_typed_mouse_clicks() {
+    let dir = temp_dir("typed-clicks");
+    let erb = "@SYSTEM_TITLE\nFOR LOCAL, 0, 5\n  RESULT:5 = -1\n  INPUTMOUSEKEY\n  PRINTFORML got {RESULT:0} {RESULT:1} {RESULT:5}\nNEXT\nQUIT\n";
+    game(&dir, &[("ERB/T.ERB", erb)]);
+    let text = run(&dir, b"@rclick\n@click 7\n@MCLICK\n3\n@rclick 12\n", None);
+    let got: Vec<&str> = text.lines().filter(|l| l.starts_with("got ")).collect();
+    assert_eq!(
+        got,
+        [
+            "got 1 2097152 0",  // right click on no button (RESULT:5 0, as Emuera's MouseDown)
+            "got 1 1048576 7",  // left click on button 7
+            "got 1 4194304 0",  // middle click (case doesn't matter)
+            "got 1 1048576 3",  // a plain number: left click on that button
+            "got 1 2097152 12", // right click on button 12
+        ],
+        "{}",
+        text
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A real-time game's frame loop (AWAIT, or a timed INPUTMOUSEKEY, every
 /// frame) never trips the infinite loop warning: as in Emuera, both start
 /// its timer over. A loop without them does.
