@@ -7,7 +7,9 @@ use common::{game, run, temp_dir};
 fn play(tag: &str, config: &str, input: &[u8], debug: bool) -> String {
     let dir = temp_dir(tag);
     let erb = "@SYSTEM_TITLE\nADDVOIDCHARA\nNAME:0 = Reimu\nFLAG:3 = 1\nINPUT\nPRINTFORML got {RESULT} flag {FLAG:3} name %NAME:0%\nQUIT\n";
-    game(&dir, &[("emuera.config", config), ("ERB/T.ERB", erb)]);
+    // (Emuera's messages in Japanese whatever the system's language)
+    let config = format!("Emueraの表示言語:日本語\n{}", config);
+    game(&dir, &[("emuera.config", config.as_str()), ("ERB/T.ERB", erb)]);
     let out = if debug {
         let exe = env!("CARGO_BIN_EXE_emuera-tty");
         let mut c = std::process::Command::new(exe);
@@ -89,6 +91,33 @@ fn load_warnings_are_printed_at_start() {
     std::fs::write(dir.join("emuera.config"), "Emueraの表示言語:日本語\n同名の非イベント関数が複数定義されたとき警告する:YES\n表示する最低警告レベル:2\n")
         .unwrap();
     assert!(!run(&dir, b"", None).contains("警告"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Emuera's own messages follow Emueraの表示言語: 日本語 is Emuera's
+/// Japanese, English is emuera-tty's English, and a game's
+/// `lang/emuera.*.xml` (as Emuera reads beside its exe) wins for the
+/// messages it has.
+#[test]
+fn emuera_messages_follow_the_language_setting() {
+    let dir = temp_dir("emuera-language");
+    let erb = "@SYSTEM_TITLE\nPRINTL title\nQUIT\n@A\nRETURN\n@A\nRETURN 1\n";
+    let with = |lang: &str| {
+        let cfg = format!("Emueraの表示言語:{}\n同名の非イベント関数が複数定義されたとき警告する:YES\n", lang);
+        game(&dir, &[("emuera.config", cfg.as_str()), ("ERB/T.ERB", erb)]);
+        run(&dir, b"", None)
+    };
+    let ja = with("日本語");
+    assert!(ja.contains("警告Lv1:ERB/T.ERB:6行目:関数\"@A\"は既に定義(ERB/T.ERBの4行目)されています"), "{ja}");
+    let en = with("English");
+    assert!(en.contains("Warning Lv1: ERB/T.ERB, line 6: function \"@A\" is defined already (in ERB/T.ERB, line 4)"), "{en}");
+    // the game's own file: its text for the IDs it has, numbered as it likes
+    let xml = "<?xml version='1.0' encoding='utf-8'?>\n<lang>\n<name>English</name>\n\
+               <tr id=\"Error.FuncIsAlreadyDefined\"><![CDATA[@{0} twice (first: {1}:{2})]]></tr>\n</lang>\n";
+    std::fs::create_dir_all(dir.join("lang")).unwrap();
+    std::fs::write(dir.join("lang/emuera.eng.xml"), xml).unwrap();
+    let file = with("English");
+    assert!(file.contains("Warning Lv1: ERB/T.ERB, line 6: @A twice (first: ERB/T.ERB:4)"), "{file}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

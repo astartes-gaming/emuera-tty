@@ -4,11 +4,16 @@
 mod common;
 use common::{game, run, temp_dir};
 
+/// Emuera's messages in Japanese whatever the system's language: the
+/// tests compare Emuera's own words.
+const JAPANESE_MESSAGES: &str = "Emueraの表示言語:日本語\n";
+
 /// Run `erb` (an `@SYSTEM_TITLE` that prints and QUITs) with `config` as
 /// the game's emuera.config and `files` beside it; the output.
 fn play(tag: &str, config: &str, files: &[(&str, &str)], erb: &str) -> String {
     let dir = temp_dir(tag);
-    let mut all = vec![("emuera.config", config), ("ERB/T.ERB", erb)];
+    let config = format!("{}{}", JAPANESE_MESSAGES, config);
+    let mut all = vec![("emuera.config", config.as_str()), ("ERB/T.ERB", erb)];
     all.extend_from_slice(files);
     game(&dir, &all);
     let out = run(&dir, b"", None);
@@ -225,7 +230,8 @@ fn indices_out_of_range_are_errors() {
 /// game's warning settings.
 fn check(tag: &str, config: &str, erb: &str) -> String {
     let dir = temp_dir(tag);
-    game(&dir, &[("emuera.config", config), ("ERB/T.ERB", erb)]);
+    let config = format!("{}{}", JAPANESE_MESSAGES, config);
+    game(&dir, &[("emuera.config", config.as_str()), ("ERB/T.ERB", erb)]);
     let o = std::process::Command::new(env!("CARGO_BIN_EXE_emuera-tty")).arg(&dir).arg("--check").env("EMUERA_TTY_TESTING", "1").output().unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr)

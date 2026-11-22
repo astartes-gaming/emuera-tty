@@ -169,6 +169,14 @@ with a very large stack.
   fails when the template is out of date; `UPDATE_POT=1 cargo test`
   rewrites it. Catalogues are `i18n/<lang>.po`, compiled in. Measure
   interface text with display widths, never `chars().count()`.
+- **Emuera's own messages** (load warnings, script errors, save-check
+  results: text Emuera prints in its words) go through
+  `em!("Error.ID", "日本語 {0}", "English {0}", args…)` (`emuera_lang.rs`),
+  not `t!`. The ID and Japanese are Emuera's (`Runtime/Utils/EvilMask/Lang.cs`,
+  placeholders numbered as there); the English is ours, never copied
+  from Emuera's `lang/*.xml`. The game's `Emueraの表示言語`, then the
+  interface language, picks Japanese, a game's `lang/emuera.*.xml`, or
+  our English; unit tests get Japanese.
 - **Saves.** `vm/erasav.rs` is Emuera's binary format (reader/writer);
   `vm/save.rs` decides what goes in, in Emuera's order (system variables,
   then the game's `#DIM SAVEDATA` in Emuera's creation order via

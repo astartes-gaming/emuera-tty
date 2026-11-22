@@ -328,27 +328,61 @@ impl Vm {
         let Some(mut r) = Reader::open(&bytes) else {
             // Emuera's text format (games that don't save in binary)
             if !super::textsav::looks_like(&bytes) {
-                return (SaveCheck::broken("セーブデータが壊れています"), None);
+                return (SaveCheck::broken(&crate::em!("Error.CorruptedSaveData", "セーブデータが壊れています", "the save file is damaged")), None);
             }
-            let Ok((code, version, text)) = super::textsav::header(&bytes) else { return (SaveCheck::broken("セーブデータが壊れています"), None) };
+            let Ok((code, version, text)) = super::textsav::header(&bytes) else {
+                return (SaveCheck::broken(&crate::em!("Error.CorruptedSaveData", "セーブデータが壊れています", "the save file is damaged")), None);
+            };
             if code != 0 && code != self.game_code() {
-                return (SaveCheck { state: 2, mes: "異なるゲームのセーブデータです".into(), version }, None);
+                return (
+                    SaveCheck {
+                        state: 2,
+                        mes: crate::em!("Error.DifferentGame", "異なるゲームのセーブデータです", "the save file is from another game"),
+                        version,
+                    },
+                    None,
+                );
             }
             if !self.version_ok(version) {
-                return (SaveCheck { state: 3, mes: "セーブデータのバーションが異なります".into(), version }, None);
+                return (
+                    SaveCheck {
+                        state: 3,
+                        mes: crate::em!(
+                            "Error.DifferentVersion",
+                            "セーブデータのバーションが異なります",
+                            "the save file is from a different version of the game"
+                        ),
+                        version,
+                    },
+                    None,
+                );
             }
             return (SaveCheck { state: 0, mes: text, version }, None);
         };
         let head = (|| -> Result<(FileType, i64, i64, String), String> { Ok((r.file_type()?, r.raw_i64()?, r.raw_i64()?, r.string()?)) })();
-        let Ok((t, code, version, text)) = head else { return (SaveCheck::broken("セーブデータが壊れています"), None) };
+        let Ok((t, code, version, text)) = head else {
+            return (SaveCheck::broken(&crate::em!("Error.CorruptedSaveData", "セーブデータが壊れています", "the save file is damaged")), None);
+        };
         if t != ft {
-            return (SaveCheck::broken("セーブデータが壊れています"), None);
+            return (SaveCheck::broken(&crate::em!("Error.CorruptedSaveData", "セーブデータが壊れています", "the save file is damaged")), None);
         }
         if code != 0 && code != self.game_code() {
-            return (SaveCheck { state: 2, mes: "異なるゲームのセーブデータです".into(), version }, None);
+            return (
+                SaveCheck {
+                    state: 2, mes: crate::em!("Error.DifferentGame", "異なるゲームのセーブデータです", "the save file is from another game"), version
+                },
+                None,
+            );
         }
         if !self.version_ok(version) {
-            return (SaveCheck { state: 3, mes: "セーブデータのバーションが異なります".into(), version }, None);
+            return (
+                SaveCheck {
+                    state: 3,
+                    mes: crate::em!("Error.DifferentVersion", "セーブデータのバーションが異なります", "the save file is from a different version of the game"),
+                    version,
+                },
+                None,
+            );
         }
         (SaveCheck { state: 0, mes: text, version }, Some(r))
     }

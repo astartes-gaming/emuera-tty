@@ -130,7 +130,8 @@ fn check_utf8_with_bom() {
     game(
         &dir,
         &[
-            ("emuera.config", "表示する最低警告レベル:0\n"),
+            // (Emuera's messages in Japanese whatever the system's language)
+            ("emuera.config", "Emueraの表示言語:日本語\n表示する最低警告レベル:0\n"),
             ("setting.json", "{\"CheckUTF8withBOM\":true}"),
             ("ERB/PLAIN.ERB", "@SYSTEM_TITLE\nQUIT\n"),
             ("ERB/BOM.ERB", "\u{feff}@OTHER\nRETURN\n"),

@@ -21,6 +21,7 @@ mod console;
 mod csvdata;
 mod download;
 mod emuconfig;
+mod emuera_lang;
 mod expr;
 mod frontend;
 mod fxhash;
@@ -644,6 +645,9 @@ fn run(o: Opts) -> i32 {
     // the game's Emuera settings (CSV/_default.config, emuera.config,
     // CSV/_fixed.config), read once for the loader, parser and VM
     let cfg = std::sync::Arc::new(emuconfig::Values::read(&game));
+    // Emuera's own messages (load warnings, errors) in Emuera's language
+    // setting, else emuera-tty's (before the scripts load: their warnings)
+    emuera_lang::init(&game, &cfg);
     // the game's own fonts (its font/ folder, as Emuera.NET)
     gamefont::load(&game);
     let csv = csvdata::GameCsv::load(&csv_dir, erb_dir.as_deref(), &cfg);

@@ -27,7 +27,8 @@ pub struct Warning {
 
 /// Emuera's PrintWarning: `警告Lv1:file:12行目:message`.
 pub fn format(prog: &Program, w: &Warning) -> String {
-    format!("警告Lv{}:{}:{}行目:{}", w.level, prog.files.get(w.file as usize).map_or("?", |s| s.as_str()), w.line, w.msg)
+    let file = prog.files.get(w.file as usize).map_or("?", |s| s.as_str());
+    crate::em!("Error.Warning1", "警告Lv{0}:{1}:{2}行目:{3}", "Warning Lv{0}: {1}, line {2}: {3}", w.level, file, w.line, w.msg)
 }
 
 /// Is a warning of this level shown (表示する最低警告レベル)?
@@ -48,7 +49,15 @@ pub fn at_load(prog: &mut Program, cfg: &Values) {
             continue;
         }
         let first = prog.files.get(f1 as usize).cloned().unwrap_or_default();
-        found.push(Warning { level: 1, file, line, msg: format!("関数\"@{}\"は既に定義({}の{}行目)されています", name, first, l1) });
+        let msg = crate::em!(
+            "Error.FuncIsAlreadyDefined",
+            "関数\"@{0}\"は既に定義({1}の{2}行目)されています",
+            "function \"@{0}\" is defined already (in {1}, line {2})",
+            name,
+            first,
+            l1
+        );
+        found.push(Warning { level: 1, file, line, msg });
     }
     prog.warnings.extend(found);
     prog.warnings.sort_by_key(|w| (w.file, w.line));
@@ -69,7 +78,13 @@ pub fn bom_warnings(prog: &mut Program, cfg: &Values, game_dir: &std::path::Path
     };
     let found: Vec<Warning> = (0..prog.files.len())
         .filter(|&k| !prog.files[k].starts_with('(') && !has_bom(&prog.files[k]))
-        .map(|k| Warning { level: 0, file: k as u32, line: 0, msg: "ファイルが UTF-8 with BOM ではありません".into() })
+        // (Emuera.NET's message; its ID there, which EM's files don't have)
+        .map(|k| Warning {
+            level: 0,
+            file: k as u32,
+            line: 0,
+            msg: crate::em!("Error.FileNotUTF8BOM", "ファイルが UTF-8 with BOM ではありません", "the file isn't UTF-8 with a BOM"),
+        })
         .collect();
     prog.warnings.extend(found);
     prog.warnings.sort_by_key(|w| (w.file, w.line));
@@ -152,7 +167,8 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
                         if ignore {
                             nf_ignored += 1;
                         } else {
-                            warnings.push(Warning { level: 2, file, line, msg: format!("指定された関数名\"@{}\"は存在しません", n) });
+                            let msg = crate::em!("Error.NotDefinedFunc", "指定された関数名\"@{0}\"は存在しません", "there is no function named \"@{0}\"", n);
+                            warnings.push(Warning { level: 2, file, line, msg });
                         }
                     }
                     CallTarget::Static(_) => {}
@@ -167,7 +183,13 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
             for d in body.dims.iter().filter(|d| !d.is_ref) {
                 for (table, t) in &csv.tables {
                     if !crate::csvdata::TABLE_FILES.iter().any(|(_, k)| *k == table) && t.by_index.values().any(|n| n.eq_ignore_ascii_case(&d.name)) {
-                        let msg = format!("変数名\"{}\"は既にERD変数\"{}\"の定義に使われており、予期せぬ配列参照を引き起こす場合があります", d.name, table);
+                        let msg = crate::em!(
+                            "Error.IsDefinedErdVariable",
+                            "変数名\"{0}\"は既にERD変数\"{1}\"の定義に使われており、予期せぬ配列参照を引き起こす場合があります",
+                            "the variable name \"{0}\" is also a name in the ERD variable \"{1}\"; array indices may not refer to what you expect",
+                            d.name,
+                            table
+                        );
                         warnings.push(Warning { level: 1, file: f.file, line: f.line, msg });
                     }
                 }
@@ -195,32 +217,65 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
             if ignore_all || (not_called == "ONCE" && !files.insert(file)) {
                 nc_ignored += 1;
             } else {
-                warnings
-                    .push(Warning { level: 1, file, line, msg: format!("関数\"@{}\"は定義されていますが一度も呼び出されません", name) });
+                let msg = crate::em!(
+                    "Error.FuncNeverCalled",
+                    "関数\"@{0}\"は定義されていますが一度も呼び出されません",
+                    "function \"@{0}\" is defined but never called",
+                    name
+                );
+                warnings.push(Warning { level: 1, file, line, msg });
             }
         }
     }
     warnings.sort_by_key(|w| (w.file, w.line));
     let mut out: Vec<String> = warnings.iter().filter(|w| shown(cfg, w.level)).map(|w| format(prog, w)).collect();
     if nc_ignored > 0 && shown(cfg, 1) && not_called != "IGNORE" {
-        out.push(format!("警告Lv1:定義された関数が一度も呼び出されていない事に関する警告を{}件無視しました", nc_ignored));
+        out.push(crate::em!(
+            "Error.IgnoredFuncNeverCalled",
+            "警告Lv1:定義された関数が一度も呼び出されていない事に関する警告を{0}件無視しました",
+            "Warning Lv1: {0} warnings about functions that are never called were left out",
+            nc_ignored
+        ));
     }
     if nf_ignored > 0 && shown(cfg, 2) && not_found != "IGNORE" {
-        out.push(format!("警告Lv2:定義されていない関数を呼び出した事に関する警告を{}件無視しました", nf_ignored));
+        out.push(crate::em!(
+            "Error.IgnoredUndefinedFuncCall",
+            "警告Lv2:定義されていない関数を呼び出した事に関する警告を{0}件無視しました",
+            "Warning Lv2: {0} warnings about calls to functions that don't exist were left out",
+            nf_ignored
+        ));
     }
     if cfg.bool("ロード時にレポートを表示する") {
         let n_names = prog.funcs.names().count();
         let used = if use_callform { n_names } else { reached.len() };
-        out.push(format!("非コメント行数:{}, 全関数合計:{}, 被呼出関数合計:{}", lines, n_names, used));
+        out.push(crate::em!(
+            "Error.TotalFunc",
+            "非コメント行数:{0}, 全関数合計:{1}, 被呼出関数合計:{2}",
+            "lines of code: {0}, functions: {1}, functions called: {2}",
+            lines,
+            n_names,
+            used
+        ));
     }
     // the built-in functions the game's own replace
     if cfg.bool("システム関数の上書きを許可する") && cfg.bool("システム関数が上書きされたとき警告を表示する") {
         let mut over: Vec<&str> = prog.funcs.names().map(|(n, _)| n).filter(|n| crate::vm::builtins::is_builtin_function(n)).collect();
         over.sort_unstable();
         if !over.is_empty() {
-            out.push("＊＊＊＊＊警告＊＊＊＊＊".into());
-            out.extend(over.iter().map(|n| format!("  システム関数\"{}\"がユーザー定義関数によって上書きされています", n)));
-            out.push(" 上記の関数を利用するスクリプトは意図通りに動かない可能性があります".into());
+            out.push(crate::em!("Error.OverWriteSystemFuncWarn1", "＊＊＊＊＊警告＊＊＊＊＊", "***** Warning *****"));
+            out.extend(over.iter().map(|n| {
+                crate::em!(
+                    "Error.OverWriteSystemFuncWarn2",
+                    "  システム関数\"{0}\"がユーザー定義関数によって上書きされています",
+                    "  the built-in function \"{0}\" is replaced by a function of the game's",
+                    n
+                )
+            }));
+            out.push(crate::em!(
+                "Error.OverWriteSystemFuncWarn3",
+                " 上記の関数を利用するスクリプトは意図通りに動かない可能性があります",
+                " scripts that use these functions may not work as intended"
+            ));
             out.push("＊＊＊＊＊＊＊＊＊＊＊＊".into());
         }
     }

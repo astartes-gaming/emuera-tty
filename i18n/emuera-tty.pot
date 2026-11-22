@@ -542,6 +542,11 @@ msgstr ""
 msgid "R,G,B (0-255 each) or #RRGGBB"
 msgstr ""
 
+#: src/emuera_lang.rs
+#, no-c-format
+msgid "{file}: too big for a language file, not read"
+msgstr ""
+
 #: src/main.rs
 msgid ""
 "usage: emuera-tty [GAME_DIR | GIT_URL] [options]\n"

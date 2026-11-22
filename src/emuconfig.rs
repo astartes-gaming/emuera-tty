@@ -228,7 +228,8 @@ pub const ITEMS: &[Item] = &[
     item("Display", "PRINTCを並べる数", n!("PRINTC items per line"), Kind::Int(1, 100), "3"),
     item("Display", "PRINTCの文字数", n!("PRINTC item width"), Kind::Int(1, 400), "25"),
     item("Display", "ボタンの途中で行を折りかえさない", n!("Don't break lines inside a button"), Kind::Bool, "NO"),
-    item("Display", "Emueraの表示言語", n!("Emuera's interface language"), Kind::Text, "").exe_only(),
+    // (the language of Emuera's own messages: emuera_lang.rs)
+    item("Display", "Emueraの表示言語", n!("Emuera's interface language"), Kind::Text, "").restart(),
     item("Display", "UseButtonFocusBackgroundColor", n!("Highlight the background of the button under the pointer"), Kind::Bool, "NO")
         .exe_only()
         .json("UseButtonFocusBackgroundColor"),

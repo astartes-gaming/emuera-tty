@@ -438,12 +438,12 @@ impl Vm {
                 // queued commands are command numbers, not list positions
                 let id = list[done];
                 self.ctrain = Some((list.clone(), done + 1));
-                self.con.print(&format!("＜コマンド連続実行：{}/{}＞", done + 1, list.len()));
+                self.con.print(&crate::em!("Error.ExecutedCom", "＜コマンド連続実行：{0}/{1}＞", "<running commands in a row: {0}/{1}>", done + 1, list.len()));
                 self.con.newline();
                 if avail.contains(&Some(id)) {
                     dotrain = self.do_train_command(id)?;
                 } else {
-                    self.con.print("コマンドを実行できませんでした");
+                    self.con.print(&crate::em!("Error.CouldNotExecuteCom", "コマンドを実行できませんでした", "the command couldn't be carried out"));
                     self.con.newline();
                     self.set_result(id);
                     dotrain = self.train_event("USERCOM")?;

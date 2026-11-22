@@ -1305,7 +1305,12 @@ impl Vm {
             // TARGET's, see doc/settings-parity.md)
             // (an array: a character variable without one takes any index
             // given as the character)
-            return err(format!("キャラクタ配列変数\"{}\"の引数は省略できません(コンフィグにより禁止が選択されています)", v.name));
+            return err(crate::em!(
+                "Error.CanNotOmit1DCharaVarArg2",
+                "キャラクタ配列変数\"{0}\"の引数は省略できません(コンフィグにより禁止が選択されています)",
+                "the character array \"{0}\" needs its character argument (the game's settings don't allow leaving it out)",
+                v.name
+            ));
         } else {
             (self.target(), 0)
         };
@@ -1435,11 +1440,16 @@ impl Vm {
             }
             "RAND" => {
                 if v.idx.is_empty() {
-                    return err("RANDの引数が省略されています");
+                    return err(crate::em!("Error.OmittedRandArg", "RANDの引数が省略されています", "RAND needs an argument"));
                 }
                 let n = i0(self)?;
                 if n <= 0 {
-                    return err(format!("RANDの引数に0以下の値({})が指定されました", n));
+                    return err(crate::em!(
+                        "Error.RandArgIsNegative",
+                        "RANDの引数に0以下の値({0})が指定されました",
+                        "RAND was given a value of 0 or less ({0})",
+                        n
+                    ));
                 }
                 Value::Int(self.rand(n))
             }
@@ -2022,7 +2032,13 @@ impl Vm {
                 Some(v) if !matches!(&*p.target.name, "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") => {
                     let r = self.locate(&p.target).and_then(|place| {
                         let v = match (self.place_is_str(&place), v) {
-                            (false, Value::Str(_)) => return err(format!("\"@{}\"の{}番目の引数を文字列型から整数型に変換できません", f.name, i + 1)),
+                            (false, Value::Str(_)) => return err(crate::em!(
+                                    "Error.CanNotConvertStrToInt",
+                                    "\"@{0}\"の{1}番目の引数を文字列型から整数型に変換できません",
+                                    "argument {1} of \"@{0}\" can't be turned from text into a number",
+                                    f.name,
+                                    i + 1
+                                )),
                             (true, Value::Int(_)) if !self.cfg.bool("ユーザー関数の引数に自動的にTOSTRを補完する") => {
                                 return err(format!(
                                     "\"@{}\"の{}番目の引数を整数型から文字列型に変換できません(この警告は互換性オプション「ユーザー関数の引数に自動的にTOSTRを補完する」により無視できます)",
