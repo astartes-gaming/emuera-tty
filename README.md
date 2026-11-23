@@ -102,8 +102,9 @@ for pictures and Japanese text, [pick a terminal](https://github.com/astartes-ga
 | [Settings](https://github.com/astartes-gaming/emuera-tty/wiki/Settings) | [Implemented](https://github.com/astartes-gaming/emuera-tty/wiki/Implemented) |
 | [Translation](https://github.com/astartes-gaming/emuera-tty/wiki/Translation) | [Debugging](https://github.com/astartes-gaming/emuera-tty/wiki/Debugging) |
 | [Gamepads and the Steam Deck](https://github.com/astartes-gaming/emuera-tty/wiki/Gamepads-and-Steam-Deck) | [Development](https://github.com/astartes-gaming/emuera-tty/wiki/Development) |
-| [Terminals](https://github.com/astartes-gaming/emuera-tty/wiki/Terminals) | [Roadmap](https://github.com/astartes-gaming/emuera-tty/wiki/Roadmap) |
-| [Troubleshooting](https://github.com/astartes-gaming/emuera-tty/wiki/Troubleshooting) | [AI agents (MCP)](https://github.com/astartes-gaming/emuera-tty/wiki/AI-Agents-MCP) |
+| [Android App](https://github.com/astartes-gaming/emuera-tty/wiki/Android-App) | [Roadmap](https://github.com/astartes-gaming/emuera-tty/wiki/Roadmap) |
+| [Terminals](https://github.com/astartes-gaming/emuera-tty/wiki/Terminals) | [AI agents (MCP)](https://github.com/astartes-gaming/emuera-tty/wiki/AI-Agents-MCP) |
+| [Troubleshooting](https://github.com/astartes-gaming/emuera-tty/wiki/Troubleshooting) | |
 
 ## Development
 

@@ -12,6 +12,8 @@ and see [Playing](Playing) for the controls.
 - [Other systems and CPUs](Other-Systems-and-CPUs): Windows, Android,
   macOS, the BSDs, Haiku, the Hurd…; ARM, RISC-V, PowerPC and the rest; the
   Raspberry Pi Zero; build status
+- [Android App](Android-App): native app with touch UI, background play,
+  archive import, save manager, files app integration
 - [Choosing a game](Choosing-a-Game): the folder picker, the launcher,
   cloning and downloading games, archives
 - [Playing](Playing): controls, macros, sound, saving and managing saves,

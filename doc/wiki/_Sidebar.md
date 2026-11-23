@@ -8,6 +8,7 @@
 - [Settings](Settings)
 - [Translation](Translation)
 - [Gamepads and Steam Deck](Gamepads-and-Steam-Deck)
+- [Android App](Android-App)
 - [Terminals](Terminals)
 - [Troubleshooting](Troubleshooting)
 
