@@ -88,7 +88,7 @@ Other options work alongside `--mcp`:
 | `buttons` | — | The buttons the current input accepts: each one's value and the text it shows |
 | `input` | `value`; `stop_at_wait`, `timeout` (optional) | Answers the input and runs until the next one. Returns everything printed meanwhile, then what the game waits for and its buttons |
 | `eval` | `expression` | The value of an ERB expression: `FLAG:3`, `CFLAG:MASTER:10`, `NAME:TARGET`, `LOCAL@FUNC`, arithmetic, built-in functions, the game's `#FUNCTION`s |
-| `run` | `statement` | Runs one ERB statement as Emuera's debug console does (`FLAG:3 = 5`, `CALL FUNC(1)`, `PRINTL text`, `ADDCHARA 5`), and returns what it printed |
+| `run` | `statement` | Runs one ERB statement as Emuera's debug console does (`FLAG:3 = 5`, `PRINTL text`, `ADDCHARA 5`), and also `CALL`, `CALLF`, `CALLFORM`, `TRYCALL` (which that console refuses), so a game's setup functions can run. Returns what it printed |
 | `state` | — | The line running and the call stack (Emuera's debug window format, with Japanese labels), the game's phase (`TITLE`, `FIRST`, `SHOP`, `TRAIN`…), what the game waits for, and the buttons. At an input of the engine's own menus (the SHOP loop's command input) no script function is running, so the trace says なし (none) and the phase tells where the game is |
 
 Answers end with a status block, for example:
@@ -141,9 +141,14 @@ A button's value is what `input` takes: a number, or a string in quotes
 ## Limits
 
 - **Debug-console rules:** `eval` and `run` follow the same rules as
-  Emuera's debug console. Flow control (`GOTO`, `RETURN`, `BEGIN`…),
-  inputs, WAITs and `SAVEDATA` are refused with Emuera's message, and an
-  error comes back with `isError` set.
+  Emuera's debug console, except that `run` may call a function. Other
+  flow control (`GOTO`, `JUMP`, `RETURN`, `BEGIN`…), inputs, WAITs and
+  `SAVEDATA` are refused with Emuera's message, and an error comes back
+  with `isError` set.
+- **Inside a called function:** if a function called with `run` waits
+  for input, the `run` answer arrives at that input, and `input` goes on
+  from there. A `BEGIN` or `QUIT` inside it ends only the call, not the
+  game.
 - **Saving and loading:** go through the game's own save and load menus
   with `input`. There is no separate tool for them yet.
 - **No pictures in answers:** answers are text. A picture shows as

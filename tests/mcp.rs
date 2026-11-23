@@ -118,3 +118,23 @@ fn stop_at_wait_and_bad_requests() {
     // what `screen` showed isn't repeated by the next input's answer
     assert!(a[7].contains("--- waiting for") && !a[7].contains("three"), "{}", a[7]);
 }
+
+/// `run` may CALL a function (Emuera's debug console refuses it): it runs
+/// and comes back, and what it printed is in the answer; JUMP is still
+/// refused.
+#[test]
+fn run_calls_functions() {
+    let erb = "@SYSTEM_TITLE\nINPUT\nQUIT\n@SETUP(X)\nFLAG:2 = X\nPRINTFORML set up {X}\n";
+    let a = session(
+        &game("call", erb),
+        &[
+            &call("run", r#"{"statement":"CALL SETUP(7)"}"#),
+            &call("eval", r#"{"expression":"FLAG:2"}"#),
+            &call("run", r#"{"statement":"JUMP SETUP(1)"}"#),
+            &call("eval", r#"{"expression":"0"}"#),
+        ],
+    );
+    assert!(a[1].contains("set up 7") && a[1].contains(r#""isError":false"#), "{}", a[1]);
+    assert!(a[2].contains(r#""text":"7""#), "{}", a[2]);
+    assert!(a[3].contains(r#""isError":true"#), "{}", a[3]);
+}

@@ -117,6 +117,9 @@ pub enum DebugAction {
     Refresh,
     /// run a debug command (a statement, or an expression to print)
     Command(String),
+    /// the same, where the CALL family may also run (`--mcp`'s `run`:
+    /// Emuera's debug console refuses it)
+    Call(String),
     /// the panel was closed: save the watch list and the console log
     Close,
 }

@@ -249,7 +249,8 @@ impl Mcp {
                             // (a statement that doesn't parse as one would be
                             // taken as an expression: `eval` asks for one)
                             self.pending = Some(Pending::Debug { id, log: con.debug.log.len(), trace: false, buf: self.buf.len() });
-                            return Answer::Debug(DebugAction::Command(src.lines().next().unwrap_or("").to_string()));
+                            let line = src.lines().next().unwrap_or("").to_string();
+                            return Answer::Debug(if name == "run" { DebugAction::Call(line) } else { DebugAction::Command(line) });
                         }
                         "state" => {
                             self.pending = Some(Pending::Debug { id, log: con.debug.log.len(), trace: true, buf: self.buf.len() });
@@ -432,6 +433,6 @@ const TOOLS: &str = r#"[
 {"name":"buttons","description":"The buttons the current input accepts: their values and the text they show.","inputSchema":{"type":"object","properties":{}}},
 {"name":"input","description":"Answer the game's input and run until its next one; returns what was printed meanwhile, what it waits for next, and the buttons. For a number input give the number; a button's value clicks it; at a mouse/key input (INPUTMOUSEKEY) key:Enter, key:Esc, key:Up, key:F1 or key:CODE press keys.","inputSchema":{"type":"object","properties":{"value":{"type":"string","description":"what to type, or a button's value"},"stop_at_wait":{"type":"boolean","description":"stop at each WAIT instead of passing it (default false)"},"timeout":{"type":"boolean","description":"let a timed input run out instead of answering it"}},"required":["value"]}},
 {"name":"eval","description":"Evaluate an ERB expression in the game's current state and return its value: variables (FLAG:3, CFLAG:MASTER:10, NAME:TARGET, LOCAL@FUNC), arithmetic, built-in functions and the game's #FUNCTIONs.","inputSchema":{"type":"object","properties":{"expression":{"type":"string"}},"required":["expression"]}},
-{"name":"run","description":"Run one ERB statement now, as Emuera's debug console does: assignments (FLAG:3 = 5, STR:0 = text, NAME:1 '= \"Ann\"), CALL FUNC(args), PRINTL, ADDCHARA… Flow control, inputs and WAITs are refused. Returns what it printed.","inputSchema":{"type":"object","properties":{"statement":{"type":"string"}},"required":["statement"]}},
+{"name":"run","description":"Run one ERB statement now, as Emuera's debug console does: assignments (FLAG:3 = 5, STR:0 = text, NAME:1 '= \"Ann\"), PRINTL, ADDCHARA…, and also CALL FUNC(args) / CALLF / TRYCALL (beyond Emuera's console: run a game's setup functions). Other flow control (GOTO, JUMP, RETURN, BEGIN), inputs and WAITs are refused. Returns what it printed.","inputSchema":{"type":"object","properties":{"statement":{"type":"string"}},"required":["statement"]}},
 {"name":"state","description":"Where the script is: the line running, the call stack (Emuera's debug window format; none at the engine's own SHOP/TRAIN menus), the game phase (TITLE, FIRST, SHOP, TRAIN…), what the game waits for and the buttons.","inputSchema":{"type":"object","properties":{}}}
 ]"#;

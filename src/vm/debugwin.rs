@@ -15,6 +15,11 @@ use std::path::PathBuf;
 /// control, waiting for input, what a #FUNCTION can't do, and these).
 const NOT_IN_DEBUG: &[&str] = &["PUTFORM", "UPCHECK", "CUPCHECK", "SAVEDATA"];
 
+/// What `--mcp`'s `run` allows beyond Emuera's debug console: calling a
+/// function, which comes back (not JUMP, GOTO or the TRYC… forms, which
+/// need a CATCH block).
+const CALL_WORDS: &[&str] = &["CALL", "CALLF", "CALLFORM", "CALLFORMF", "TRYCALL", "TRYCALLFORM"];
+
 impl Vm {
     fn debug_dir(&self) -> PathBuf {
         self.game_dir.join("debug")
@@ -36,7 +41,8 @@ impl Vm {
         }
         match a {
             DebugAction::Refresh => {}
-            DebugAction::Command(c) => self.debug_command(&c),
+            DebugAction::Command(c) => self.debug_command(&c, false),
+            DebugAction::Call(c) => self.debug_command(&c, true),
             DebugAction::Close => {
                 self.con.debug.open = false;
                 self.debug_save();
@@ -106,14 +112,15 @@ impl Vm {
     /// statement is run, anything that doesn't parse as one is an
     /// expression whose value is printed; the line and any error go to the
     /// console. The script's own state (its call stack) is left as it was.
-    pub fn debug_command(&mut self, com: &str) {
+    /// `calls`: CALL and its kin may run too (`--mcp`).
+    pub fn debug_command(&mut self, com: &str, calls: bool) {
         let com = com.trim();
         if com.is_empty() {
             return;
         }
         self.con.debug.history.push(com.to_string());
         self.debug_print(com, true);
-        let r = self.debug_run(com, false);
+        let r = self.debug_run(com, false, calls);
         self.con.debug.failed = r.is_err();
         if let Err(e) = r {
             self.debug_print(&e, true);
@@ -155,7 +162,7 @@ impl Vm {
                 }
             }
             _ if !self.cfg.bool("デバッグコマンドを使用する") => self.print_error("デバッグコマンドを使用できない設定になっています"),
-            _ => match self.debug_run(com, true) {
+            _ => match self.debug_run(com, true, false) {
                 Ok(()) => {
                     if self.cfg.bool("デバッグコマンドを使用した時にMASTERの名前を変更する") {
                         self.munchkin();
@@ -242,16 +249,18 @@ impl Vm {
 
     /// Run a debug command; `main`: as typed at the game's input (an
     /// expression's value printed there), else in the debug console.
-    fn debug_run(&mut self, com: &str, main: bool) -> Result<(), String> {
+    /// `calls`: the CALL family is allowed (not in Emuera).
+    fn debug_run(&mut self, com: &str, main: bool, calls: bool) -> Result<(), String> {
         // (`@…`, a string and `\…` can only be expressions)
         let statement = !com.starts_with(['@', '"', '\\']);
         if statement {
             let word: String = com.chars().take_while(|&c| crate::expr::is_ident_char(c) && c != '　').collect::<String>().to_uppercase();
-            if crate::parser::FLOW_WORDS.contains(&word.as_str()) {
+            let call = calls && CALL_WORDS.contains(&word.as_str());
+            if crate::parser::FLOW_WORDS.contains(&word.as_str()) && !call {
                 return Err("フロー制御命令は使用できません".into());
             }
             let wait = crate::parser::parse_print_name(&word).is_some_and(|(_, f)| f.wait);
-            if wait || NOT_IN_DEBUG.contains(&word.as_str()) || super::builtins::NOT_IN_FUNCTION.binary_search(&word.as_str()).is_ok() {
+            if wait || NOT_IN_DEBUG.contains(&word.as_str()) || (!call && super::builtins::NOT_IN_FUNCTION.binary_search(&word.as_str()).is_ok()) {
                 return Err(format!("{}命令は使用できません", word));
             }
             let compiled = match &self.prog.snippets {
