@@ -800,6 +800,9 @@ fn run(o: Opts) -> i32 {
     // without pictures, a game-folder font's symbols can't be shown: the
     // game is told its font isn't in use (gamefont.rs)
     vm.hide_game_fonts = !vm.fe.shows_pictures();
+    // a run starts without the last one's SQL databases (Emuera.NET)
+    let save_dir = vm.save_dir();
+    vm::sql::reset(&mut vm.sql, &save_dir);
     if o.game_debug {
         vm.debug_start();
         // the load warnings, in the game's console as Emuera prints them

@@ -34,6 +34,7 @@ pub mod debugwin;
 pub mod erasav;
 mod memstats;
 pub mod save;
+pub mod sql;
 pub mod system;
 pub mod textsav;
 pub mod value;
@@ -470,6 +471,8 @@ pub struct Vm {
     /// the frontend shows no pictures: a font from the game's font/ folder
     /// is reported as not in use (`Vm::reported_font`, gamefont.rs)
     pub hide_game_fonts: bool,
+    /// Emuera.NET's SQLite databases (sql.rs)
+    pub sql: sql::Sql,
     /// 擬似変数RANDの仕様をeramakerに合わせる (cached)
     compat_rand: bool,
     /// `--strict`: unimplemented commands are errors, not warnings.
@@ -606,6 +609,7 @@ impl Vm {
             warned: HashSet::default(),
             chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
             hide_game_fonts: false,
+            sql: sql::Sql::default(),
             compat_rand: cfg.bool("擬似変数RANDの仕様をeramakerに合わせる"),
             cfg,
             game_dir,

@@ -28,9 +28,12 @@ emuera-tty and Emuera.
 
 Package names are Debian/Ubuntu's (Fedora's where they differ).
 
-- **Building:** stable Rust (developed on 1.99) and git. Crate
-  dependencies come through cargo; there are no system libraries to
-  install. Some systems ship older Rust: the clippy lints whose
+- **Building:** stable Rust (developed on 1.99), git, and a C compiler
+  (`gcc` or `clang`) for the default `sqlite` feature: rusqlite compiles
+  SQLite from C, for Emuera.NET's SQL_* functions (eraKATANA). Builds
+  without a C compiler (the musl cross builds) use `--no-default-features`.
+  Other crate dependencies come through cargo; there are no system
+  libraries to install. Some systems ship older Rust: the clippy lints whose
   suggestions need Rust 1.87+ are turned off in `Cargo.toml`, so don't
   reach for newer std APIs casually.
 - **Development tools:** clippy (`cargo clippy`, the linter) and rustfmt
@@ -247,7 +250,8 @@ with a very large stack.
   Use `crate::atomic64::AtomicU64`, never the std one; keep `tar` without
   default features (its xattr/rustix dependency doesn't build everywhere).
   No CPU-specific code. Runnable builds: a musl target with
-  `RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"`,
+  `RUSTFLAGS="-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"`
+  and `--no-default-features` (no C compiler for SQLite there),
   then `qemu-<arch> ./emuera-tty …` (without an address-space cap, or qemu
   can't map the guest). The wiki's "Other CPUs" section
   (`doc/wiki/Other-Systems-and-CPUs.md`) has the list.
