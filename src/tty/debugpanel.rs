@@ -30,7 +30,15 @@ pub(super) struct PanelState {
 
 impl Tty {
     /// Show the panel until it needs the VM: a debug action, or Quit.
+    /// Pictures are off while it shows, and back on whenever it hands
+    /// over to the VM (or the game would lose its pictures once closed).
     pub(super) fn debug_panel(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
+        let r = self.debug_panel_keys(con, res, req);
+        self.no_images = false;
+        r
+    }
+
+    fn debug_panel_keys(&mut self, con: &mut Console, res: &mut Resources, req: &InputReq) -> InputResult {
         let mut note = String::new();
         loop {
             self.no_images = true;

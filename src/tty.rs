@@ -2517,6 +2517,9 @@ impl Tty {
         }
         // overlapping layers (portraits) go to the terminal as one picture
         let mut placements = self.merger.merge(placements, self.cell, self.gfx.name() == "kitty-tmux");
+        // nothing past the screen's right edge
+        let screen_cols = self.cols;
+        placements = placements.into_iter().filter_map(|p| self.merger.clip_right(p, screen_cols, self.cell.0)).collect();
         // buttons with tooltips need a full redraw when hovered, and the
         // hovered one shows its tooltip by the pointer
         for (i, v) in self.buttons.iter().enumerate() {
