@@ -793,7 +793,7 @@ impl Vm {
                 let w = self.ai(a, 0, 100)? as f32;
                 let fs = self.con.font_size;
                 let fg = self.con.style.fg;
-                self.con.push_seg(Seg::Rect { w: w * fs / 100.0, h: fs, color: fg, button: None });
+                self.con.push_seg(Seg::Rect { w: w * fs / 100.0, h: fs, y: 0.0, color: fg, button: None });
             }
             "PRINT_SPACE" => {
                 let w = self.ai(a, 0, 100)? as f32;

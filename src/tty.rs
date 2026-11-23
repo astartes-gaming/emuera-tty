@@ -54,6 +54,9 @@ struct Cell {
     /// combining marks drawn with `ch` (Devanagari vowel signs, accents
     /// written as separate characters, variation selectors, ZWJ)
     marks: Option<Box<str>>,
+    /// a thin bar under this letter (a gauge of another div), shown as an
+    /// underline in its colour where the terminal can colour underlines
+    under: Option<Rgb>,
 }
 
 /// An image anchored at a column of a screen row.
@@ -201,6 +204,7 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
         style: Style { fg: Rgb(0, 0, 0), bg, bold: false, italic: false, underline: false, strike: false },
         button: None,
         marks: None,
+        under: None,
     };
     // a thin border is a line in the border's colour over the background;
     // a thick one, cells filled with that colour
@@ -210,6 +214,7 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
         style: Style { fg: deco.bcolor.unwrap_or(Rgb(255, 255, 255)), bg: deco.bg, bold: false, italic: false, underline: false, strike: false },
         button: None,
         marks: None,
+        under: None,
     };
     let edge = if deco.thin { line('│') } else { blank(deco.bcolor) };
     let fill = blank(deco.bg);
@@ -388,7 +393,7 @@ fn tint_cells(row: &mut DRow, cols: std::ops::Range<usize>, tint: [u8; 4], windo
     if tinted_window != window {
         let plain = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
         while width < cols.end {
-            row.cells.push(Cell { ch: ' ', w: 1, style: plain.clone(), button: None, marks: None });
+            row.cells.push(Cell { ch: ' ', w: 1, style: plain.clone(), button: None, marks: None, under: None });
             width += 1;
         }
     }
@@ -448,6 +453,38 @@ fn see_through(cell: &Cell) -> bool {
     cell.ch == ' ' && cell.style.bg.is_none() && cell.marks.is_none()
 }
 
+/// The characters a rectangle's band is drawn with when it is thinner than
+/// a row (see [`rect_glyph`]).
+const THIN_RECT_GLYPHS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '▀', '▔', '━', '─'];
+
+/// The character a `<shape type='rect'>` / PRINT_RECT is drawn with in one
+/// row, from the band it covers: `top` and `height` as fractions of the
+/// row (Emuera's line height). Nearly full height is a full block; a band
+/// along the row's bottom is a lower block of about its height (eraMegatenP's
+/// gauges, 70%–100%, are `▂`); one along the top an upper block; one across
+/// the middle a line (its PALAM gauges, 50%–80%, are `━`).
+fn rect_glyph(top: f32, height: f32) -> char {
+    const LOWER: [char; 7] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇'];
+    let (top, height) = (top.clamp(0.0, 1.0), height.clamp(0.0, 1.0));
+    let bottom = (top + height).min(1.0);
+    if height >= 0.75 {
+        '█'
+    } else if bottom >= 0.85 {
+        let eighths = ((height * 8.0).round() as usize).clamp(1, 7);
+        LOWER[eighths - 1]
+    } else if top <= 0.15 {
+        if height >= 0.4 {
+            '▀'
+        } else {
+            '▔'
+        }
+    } else if height >= 0.25 {
+        '━'
+    } else {
+        '─'
+    }
+}
+
 /// Paint a div's `cells` over `row` from column `col` the way Emuera
 /// draws a div: only what it draws covers what is there. A blank cell
 /// without a background (a gap between words, the room a picture takes)
@@ -463,10 +500,18 @@ fn paint_div_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
     // its background
     let mut shown: Vec<bool> = Vec::new();
     let mut below_bg: Vec<Option<Rgb>> = Vec::new();
+    // a thin bar under each column (a gauge drawn by another div), which
+    // a letter painted over it keeps as its underline
+    let mut below_bar: Vec<Option<Rgb>> = Vec::new();
     for c in &row.cells {
         let drawn = !see_through(c);
-        shown.extend(std::iter::repeat_n(drawn, c.w.max(1) as usize));
-        below_bg.extend(std::iter::repeat_n(c.style.bg, c.w.max(1) as usize));
+        let n = c.w.max(1) as usize;
+        shown.extend(std::iter::repeat_n(drawn, n));
+        // a full block is its colour all over: what's on it has that background
+        let bg = if c.ch == '█' && c.style.bg.is_none() { Some(c.style.fg) } else { c.style.bg };
+        below_bg.extend(std::iter::repeat_n(bg, n));
+        let bar = THIN_RECT_GLYPHS.contains(&c.ch).then_some(c.style.fg).or(c.under);
+        below_bar.extend(std::iter::repeat_n(bar, n));
     }
     let mut run: Vec<Cell> = Vec::new();
     let mut run_at = col;
@@ -486,6 +531,11 @@ fn paint_div_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
             let mut cell = cell;
             if cell.style.bg.is_none() {
                 cell.style.bg = below_bg.get(at).copied().flatten();
+            }
+            // a letter over a thin gauge: Emuera shows both, the letter
+            // above the bar; here the bar becomes the letter's underline
+            if cell.under.is_none() && !cell.ch.is_whitespace() {
+                cell.under = below_bar.get(at).copied().flatten();
             }
             run.push(cell);
         }
@@ -514,7 +564,7 @@ fn paint_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
     }
     let width: usize = cells.iter().map(|c| c.w.max(1) as usize).sum();
     let end = col + width;
-    let blank = |st: &Style| Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None };
+    let blank = |st: &Style| Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None, under: None };
     let plain = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
     let mut before = Vec::new();
     let mut after = Vec::new();
@@ -1036,6 +1086,9 @@ pub struct Tty {
     /// Emuera pixels per text cell: half the font size, the width of a
     /// half-width character, which shapes are measured against
     text_px: f32,
+    /// Emuera pixels per text row (its line height): where in a row a
+    /// shape's band falls
+    line_px: f32,
     /// CBG pictures scaled to the terminal, by (fingerprint, size)
     cbg_scaled: std::collections::HashMap<(u64, u32, u32), std::rc::Rc<image::RgbaImage>>,
     /// the game folder and its save folder, for the save manager
@@ -1429,6 +1482,7 @@ impl Tty {
             braille_cache: std::collections::HashMap::new(),
             wheel_chosen: false,
             text_px: 9.0,
+            line_px: 19.0,
         }
     }
 
@@ -2260,7 +2314,7 @@ impl Tty {
                             let r = rows.last_mut().unwrap();
                             r.imgs.push(ImgAt { name, button: bid, hover: None, col, w, h, ypos: 0.0 });
                             for _ in 0..cells {
-                                r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid, marks: None });
+                                r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid, marks: None, under: None });
                             }
                             col += cells;
                             base = None;
@@ -2275,7 +2329,7 @@ impl Tty {
                             }
                             let r = rows.last_mut().unwrap();
                             for d in &dots {
-                                r.cells.push(Cell { ch: *d, w: 1, style: style.clone(), button: bid, marks: None });
+                                r.cells.push(Cell { ch: *d, w: 1, style: style.clone(), button: bid, marks: None, under: None });
                             }
                             col += dots.len();
                             base = None;
@@ -2299,12 +2353,12 @@ impl Tty {
                         base = (ch != '\t').then_some(r.cells.len());
                         if ch == '\t' {
                             for _ in 0..4 {
-                                r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid, marks: None });
+                                r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid, marks: None, under: None });
                             }
                         } else {
-                            r.cells.push(Cell { ch, w: tw as u8, style: style.clone(), button: bid, marks: None });
+                            r.cells.push(Cell { ch, w: tw as u8, style: style.clone(), button: bid, marks: None, under: None });
                             for _ in 0..extra {
-                                r.cells.push(Cell { ch: fill, w: 1, style: style.clone(), button: bid, marks: None });
+                                r.cells.push(Cell { ch: fill, w: 1, style: style.clone(), button: bid, marks: None, under: None });
                             }
                         }
                         col += w;
@@ -2325,7 +2379,7 @@ impl Tty {
                     let st = Style { fg: Rgb(90, 90, 90), bg: None, bold: false, italic: false, underline: false, strike: false };
                     let fill = if self.gfx.name() == "none" { '░' } else { ' ' };
                     for _ in 0..cells.min(width) {
-                        r.cells.push(Cell { ch: fill, w: 1, style: st.clone(), button: bid, marks: None });
+                        r.cells.push(Cell { ch: fill, w: 1, style: st.clone(), button: bid, marks: None, under: None });
                     }
                     col += cells.min(width);
                 }
@@ -2334,12 +2388,14 @@ impl Tty {
                     let r = rows.last_mut().unwrap();
                     let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
                     for _ in 0..cells.min(width.saturating_sub(col)) {
-                        r.cells.push(Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None });
+                        r.cells.push(Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None, under: None });
                     }
                     col = (col + cells).min(width);
                 }
-                Seg::Rect { w, color, button, .. } => {
+                Seg::Rect { w, h, y, color, button } => {
                     let bid = push_btn(button, &mut self.buttons);
+                    // the band it covers in the row: a thin gauge isn't a full block
+                    let ch = rect_glyph(y / self.line_px, h / self.line_px);
                     let mut cells = shape_cells(col, &mut frac, w / self.text_px, true);
                     if col + cells > width && col > 0 {
                         rows.push(DRow::default());
@@ -2350,7 +2406,7 @@ impl Tty {
                     let r = rows.last_mut().unwrap();
                     let st = Style { fg: *color, bg: None, bold: false, italic: false, underline: false, strike: false };
                     for _ in 0..cells.min(width) {
-                        r.cells.push(Cell { ch: '█', w: 1, style: st.clone(), button: bid, marks: None });
+                        r.cells.push(Cell { ch, w: 1, style: st.clone(), button: bid, marks: None, under: None });
                     }
                     col += cells.min(width);
                 }
@@ -2385,7 +2441,7 @@ impl Tty {
                 };
                 if pad > 0 {
                     let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
-                    let mut nc: Vec<Cell> = (0..pad).map(|_| Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None }).collect();
+                    let mut nc: Vec<Cell> = (0..pad).map(|_| Cell { ch: ' ', w: 1, style: st.clone(), button: None, marks: None, under: None }).collect();
                     nc.append(&mut r.cells);
                     r.cells = nc;
                     for im in r.imgs.iter_mut() {
@@ -2398,6 +2454,23 @@ impl Tty {
             }
         }
         rows
+    }
+
+    /// After [`Tty::sgr`]: a thin gauge under the letter as an underline in
+    /// its colour (SGR 4 + 58), in the 24-bit and 256-colour modes; kitty,
+    /// Ghostty, Konsole, WezTerm and VTE terminals colour it, others draw
+    /// a plain underline. 16 colours (the Linux console) and fbterm: none.
+    fn under_sgr(&self, out: &mut Vec<u8>, under: Option<Rgb>) {
+        let Some(u) = under.map(|c| self.recolored(c)) else { return };
+        match self.color {
+            ColorMode::True => {
+                let _ = write!(out, "\x1b[4;58;2;{};{};{}m", u.0, u.1, u.2);
+            }
+            ColorMode::C256 if !self.fbterm => {
+                let _ = write!(out, "\x1b[4;58;5;{}m", rgb256(u));
+            }
+            _ => {}
+        }
     }
 
     /// Emit the SGR sequence for a style in the terminal's colour mode.
@@ -2503,6 +2576,7 @@ impl Tty {
             self.wheel = n;
         }
         self.text_px = (con.font_size / 2.0).max(1.0);
+        self.line_px = con.line_height.max(1.0);
         self.yen = match self.yen_mode.as_str() {
             "on" => true,
             "off" => false,
@@ -2650,7 +2724,7 @@ impl Tty {
             // sr + 2 because row 1 is the top bar (terminal row), screen row is sr+1
             let _ = write!(out, "\x1b[{};1H", sr + 2);
             let mut col = 0usize;
-            let mut last_style: Option<(Style, Option<Rgb>)> = None;
+            let mut last_style: Option<(Style, Option<Rgb>, Option<Rgb>)> = None;
             let mut btn_start: Option<(usize, usize)> = None;
             for cell in &row.cells {
                 // clip rows printed when the screen was wider
@@ -2672,9 +2746,10 @@ impl Tty {
                     (Some(b), Some(h)) if b == h && self.is_button(b) => Some(con.focus_fg),
                     _ => None,
                 };
-                let key = (cell.style.clone(), ov);
+                let key = (cell.style.clone(), ov, cell.under);
                 if last_style.as_ref() != Some(&key) {
                     self.sgr(&mut out, &cell.style, ov);
+                    self.under_sgr(&mut out, cell.under);
                     last_style = Some(key);
                 }
                 self.frame[sr + 1].push((col, cell.clone(), ov));
@@ -3116,9 +3191,9 @@ impl Tty {
                 continue;
             }
             base = Some(v.len());
-            v.push(Cell { ch, w: tw as u8, style: st.clone(), button: None, marks: None });
+            v.push(Cell { ch, w: tw as u8, style: st.clone(), button: None, marks: None, under: None });
             for _ in 0..extra {
-                v.push(Cell { ch: fill, w: 1, style: st.clone(), button: None, marks: None });
+                v.push(Cell { ch: fill, w: 1, style: st.clone(), button: None, marks: None, under: None });
             }
         }
         v
@@ -3420,6 +3495,7 @@ impl Tty {
                     self.sgr(&mut out, &blank, None);
                 } else {
                     self.sgr(&mut out, &cell.style, ov);
+                    self.under_sgr(&mut out, cell.under);
                 }
                 if on_new {
                     out.extend_from_slice(b"\x1b[7m");
@@ -4826,7 +4902,10 @@ mod colour_tests {
     fn row(text: &str) -> DRow {
         let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
         DRow {
-            cells: text.chars().map(|ch| Cell { ch, w: if ch.is_ascii() { 1 } else { 2 }, style: st.clone(), button: None, marks: None }).collect(),
+            cells: text
+                .chars()
+                .map(|ch| Cell { ch, w: if ch.is_ascii() { 1 } else { 2 }, style: st.clone(), button: None, marks: None, under: None })
+                .collect(),
             ..Default::default()
         }
     }
@@ -4848,6 +4927,44 @@ mod colour_tests {
         let mut r = row("a漢b");
         paint_cells(&mut r, 2, row("Q").cells);
         assert_eq!(text(&r), "a Qb");
+    }
+
+    #[test]
+    fn thin_rects_are_drawn_where_their_band_is() {
+        // eraMegatenP's BASE gauges: 70%-100% of the font, on a 19 px row
+        assert_eq!(super::rect_glyph(0.7 * 18.0 / 19.0, 0.3 * 18.0 / 19.0), '▂');
+        // its PALAM gauges, 50%-80%: a line across the middle
+        assert_eq!(super::rect_glyph(0.5 * 18.0 / 19.0, 0.3 * 18.0 / 19.0), '━');
+        // full height (PRINT_RECT, a plain <shape type='rect'>) stays a block
+        assert_eq!(super::rect_glyph(0.0, 1.0), '█');
+        assert_eq!(super::rect_glyph(0.0, 0.2), '▔');
+        assert_eq!(super::rect_glyph(0.4, 0.1), '─');
+        // out of range values are clamped, not a panic
+        assert_eq!(super::rect_glyph(-3.0, 9.0), '█');
+    }
+
+    #[test]
+    fn letters_over_gauges_keep_them() {
+        let red = Rgb(200, 0, 0);
+        // (one cell each, as the layout makes them; `row` makes non-ASCII wide)
+        let bar = |ch: char| {
+            let mut r = row("xxxxx");
+            r.cells.iter_mut().for_each(|c| {
+                c.ch = ch;
+                c.style.fg = red;
+            });
+            r
+        };
+        // over a thin bar: the letters keep it as their underline, blanks show it
+        let mut r = bar('▂');
+        paint_div_cells(&mut r, 1, row("1 6").cells);
+        assert_eq!(text(&r), "▂1▂6▂");
+        assert_eq!((r.cells[1].under, r.cells[3].under), (Some(red), Some(red)));
+        assert_eq!(r.cells[1].style.bg, None);
+        // over a full block: the letters show the block's colour behind them
+        let mut r = bar('█');
+        paint_div_cells(&mut r, 1, row("1").cells);
+        assert_eq!((r.cells[1].ch, r.cells[1].style.bg, r.cells[1].under), ('1', Some(red), None));
     }
 
     #[test]
@@ -6117,6 +6234,7 @@ pub(crate) mod render_tests {
                     style: Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false },
                     button: None,
                     marks: None,
+                    under: None,
                 })
                 .collect(),
             ..Default::default()
@@ -6282,7 +6400,7 @@ mod mark_tests {
     #[test]
     fn marks_kept_in_order() {
         let st = Style { fg: Rgb(0, 0, 0), bg: None, bold: false, italic: false, underline: false, strike: false };
-        let mut c = Cell { ch: 'क', w: 1, style: st, button: None, marks: None };
+        let mut c = Cell { ch: 'क', w: 1, style: st, button: None, marks: None, under: None };
         add_mark(&mut c, '\u{94D}');
         add_mark(&mut c, '\u{200D}');
         assert_eq!(c.marks.as_deref(), Some("\u{94D}\u{200D}"));

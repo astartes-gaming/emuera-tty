@@ -69,12 +69,14 @@ pub enum Seg {
     Space {
         w: f32,
     },
-    /// PRINT_RECT / `<shape type='rect'>`. The terminal UI draws one cell
-    /// row, so `h` is kept for frontends that can do better.
+    /// PRINT_RECT / `<shape type='rect'>`, in pixels: `y` from the line's
+    /// top and `h` tall. The terminal UI draws one cell row and picks a
+    /// block or line character for the band they cover (a thin gauge
+    /// along the line's bottom is `▂`, not a full `█`).
     Rect {
         w: f32,
-        #[allow(dead_code)]
         h: f32,
+        y: f32,
         color: Rgb,
         button: Option<Value>,
     },

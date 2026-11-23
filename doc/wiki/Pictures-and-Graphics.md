@@ -88,6 +88,16 @@ falls between two rows goes to the outer one: the frame holds what
 Emuera draws inside it, instead of covering its first or last line.
 A `<button>` around a div makes what the div shows clickable as that
 button (eraMegatenP's battle slots).
+
+A `<shape type='rect' param='x,y,w,h'>` thinner than a line is drawn
+where its band is: along the line's bottom as a lower block of about its
+height (eraMegatenP's training gauges, 70–100% of the line, are `▂`),
+along the top as `▀` / `▔`, across the middle as `━` / `─`; a full-height
+one stays `█`. Text a div prints over a thin gauge keeps it as an
+underline in the gauge's colour (kitty, Ghostty, Konsole, WezTerm and VTE
+terminals colour underlines; others draw a plain one; 16-colour terminals
+and the Linux console none), so both the numbers and the bar show, as in
+Emuera. Text over a full block shows the block's colour behind it.
 What is drawn over the window (an `HTML_PRINT_ISLAND` layer, a div with
 an absolute `display`) and has a background hides the pictures of the
 log under it; a picture partly under it keeps the rows that show.

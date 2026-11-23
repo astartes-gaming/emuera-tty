@@ -328,9 +328,11 @@ impl Vm {
                                 let w = params.first().copied().unwrap_or(fs);
                                 self.con.push_seg(Seg::Space { w });
                             } else if ty == "rect" {
-                                let (w, h) = if params.len() >= 4 { (params[2], params[3]) } else { (params.first().copied().unwrap_or(fs), fs) };
+                                // `x,y,w,h` or just the width (a full-height square-ish block)
+                                let (w, h, y) =
+                                    if params.len() >= 4 { (params[2], params[3], params[1]) } else { (params.first().copied().unwrap_or(fs), fs, 0.0) };
                                 let color = attrs.get("color").and_then(|c| color_from_str(c)).unwrap_or(self.con.style.fg);
-                                self.con.push_seg(Seg::Rect { w, h, color, button: if clear { None } else { button.clone() } });
+                                self.con.push_seg(Seg::Rect { w, h, y, color, button: if clear { None } else { button.clone() } });
                             }
                             first_text = false;
                         }
