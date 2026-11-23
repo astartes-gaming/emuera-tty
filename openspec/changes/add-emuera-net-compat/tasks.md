@@ -13,9 +13,9 @@
 
 ## 3. Game fonts
 
-- [ ] 3.1 Load `font/*.ttf|otf` (FontFactory.LoadFontFolder): known by family and file name; GDRAWTEXT and friends use them. Verify: unit test with eraMegatenP's EraMTFont.
-- [ ] 3.2 Private-use glyphs of the game's font drawn as pictures in the text's colour where pictures show. Verify: render test (placements emitted for PUA cells); eraMegatenP's dungeon map by hand.
-- [ ] 3.3 Without pictures, GETFONT / GETCONFIG("フォント名") report the terminal's font when the configured one comes from `font/`. Verify: inline-game test; eraMegatenP's map prints its emoji tiles with `--gfx none`.
+- [x] 3.1 Load `font/*.ttf|otf` (FontFactory.LoadFontFolder): known by family and file name; GDRAWTEXT and friends use them. Verify: unit test with eraMegatenP's EraMTFont. Done: `gamefont.rs` (names from each font's `name` table, the font read when first used); GDRAWTEXT finds them through `resources::font_for`.
+- [x] 3.2 Private-use glyphs of the game's font drawn as pictures in the text's colour where pictures show. Verify: render test (placements emitted for PUA cells); eraMegatenP's dungeon map by hand. Done: `Tty::glyph_cells`, pictures named `gamefont::picture_name` and made by `Resources::sprite` (`game_font_symbols_become_pictures`).
+- [x] 3.3 Without pictures, GETFONT / GETCONFIG("フォント名") report the terminal's font when the configured one comes from `font/`. Verify: inline-game test; eraMegatenP's map prints its emoji tiles with `--gfx none`. Done: `Vm::reported_font` (`tests/emuera_net.rs`); eraMegatenP headless reports ＭＳ ゴシック and `CSFONT_CONVERT` keeps its text tiles.
 
 ## 4. setting.json
 

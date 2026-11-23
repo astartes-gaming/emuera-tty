@@ -45,3 +45,29 @@ fn matchall() {
         assert!(out.contains(want), "{want:?} missing:\n{out}");
     }
 }
+
+/// A font in the game's font/ folder: GETFONT reports it while the
+/// frontend can show its symbols as pictures; headless (no pictures) it
+/// reports Emuera's default, so a game with a text fallback uses it.
+/// Uses eraMegatenP's EraMTFont when that game is on this machine.
+#[test]
+fn game_folder_font_hidden_without_pictures() {
+    let font = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default()).join("eraMegatenP/Data/font/EraMTFontMedium.ttf");
+    let Ok(ttf) = std::fs::read(font) else { return };
+    let dir = temp_dir("net-gamefont");
+    game(
+        &dir,
+        &[
+            (
+                "ERB/T.ERB",
+                "@SYSTEM_TITLE\nPRINTFORML [%GETFONT()%][%GETCONFIGS(\"フォント名\")%]\nSETFONT \"Some Other Font\"\nPRINTFORML [%GETFONT()%]\nQUIT\n",
+            ),
+            ("emuera.config", "フォント名:EraMTFont\n"),
+        ],
+    );
+    std::fs::create_dir_all(dir.join("font")).unwrap();
+    std::fs::write(dir.join("font/EraMTFontMedium.ttf"), ttf).unwrap();
+    let out = run(&dir, b"", None);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(out.contains("[ＭＳ ゴシック][ＭＳ ゴシック]") && out.contains("[Some Other Font]"), "{out}");
+}

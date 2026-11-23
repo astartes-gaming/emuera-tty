@@ -148,6 +148,12 @@ pub trait Frontend {
     fn is_fullscreen(&self) -> bool {
         false
     }
+    /// Does it show pictures? (Not: a game's own font is reported as not
+    /// in use, so a game with a text fallback for its font's symbols
+    /// uses it; see gamefont.rs.)
+    fn shows_pictures(&self) -> bool {
+        false
+    }
     /// Called now and then while a script runs: has the user asked to quit
     /// (Ctrl+C) or gone away (terminal closed)? Other typed keys stay queued.
     fn poll_interrupt(&mut self) -> bool {

@@ -787,6 +787,9 @@ pub struct Tty {
     button_wrap: bool,
     wrap_1739: bool,
     use_mouse: bool,
+    /// the console's font when it is one of the game's own (font/): its
+    /// private-use glyphs are drawn as pictures (gamefont.rs)
+    glyph_font: Option<(String, std::sync::Arc<ab_glyph::FontVec>)>,
     /// the player chose the wheel step (settings): the game's スクロール行数
     /// doesn't override it
     pub wheel_chosen: bool,
@@ -1182,6 +1185,7 @@ impl Tty {
             button_wrap: false,
             wrap_1739: false,
             use_mouse: true,
+            glyph_font: None,
             wheel_chosen: false,
             text_px: 9.0,
         }
@@ -1979,6 +1983,23 @@ impl Tty {
                     // in another colour than its base)
                     let mut base: Option<usize> = rows.last().and_then(|r| r.cells.len().checked_sub(1));
                     for (ch, wl) in letter_widths(text, self.letters) {
+                        // a symbol only the game's font has: a picture of it
+                        if let Some(cells) = self.glyph_cells(ch) {
+                            if col + cells > width && col > 0 {
+                                rows.push(DRow::default());
+                                col = 0;
+                            }
+                            let name = crate::gamefont::picture_name(&self.glyph_font.as_ref().unwrap().0, ch, (style.fg.0, style.fg.1, style.fg.2), cells);
+                            let (w, h) = (cells as f32 * cw / scale, self.cell.1 as f32 / scale);
+                            let r = rows.last_mut().unwrap();
+                            r.imgs.push(ImgAt { name, button: bid, hover: None, col, w, h, ypos: 0.0 });
+                            for _ in 0..cells {
+                                r.cells.push(Cell { ch: ' ', w: 1, style: style.clone(), button: bid, marks: None });
+                            }
+                            col += cells;
+                            base = None;
+                            continue;
+                        }
                         let ch = if self.yen && ch == '\\' { '¥' } else { ch };
                         let (tw, extra, fill) = if ch == '\t' { (4, 0, ' ') } else { char_cells(ch, self.ambi, self.widths.get(&ch).copied(), wl) };
                         let (ch, tw, extra, fill) = self.drawable(ch, tw, extra, fill);
@@ -2190,6 +2211,10 @@ impl Tty {
         self.button_wrap = con.button_wrap;
         self.wrap_1739 = con.wrap_1739;
         self.use_mouse = con.use_mouse;
+        let font = if con.font_name.is_empty() { &con.default_font } else { &con.font_name };
+        if self.glyph_font.as_ref().map(|g| &g.0) != Some(font) {
+            self.glyph_font = crate::gamefont::find(font).map(|f| (font.clone(), f));
+        }
         if let (Some(n), false) = (con.scroll_lines, self.wheel_chosen) {
             self.wheel = n;
         }
@@ -4149,6 +4174,17 @@ impl Tty {
 
     /// The button id at a 0-based screen cell, from the last frame
     /// (`<nonbutton>` tooltip areas included).
+    /// The half-width cells `ch` takes when it is drawn as a picture of
+    /// the game font's glyph: a private-use character that font has, with
+    /// pictures on. None: an ordinary character.
+    fn glyph_cells(&self, ch: char) -> Option<usize> {
+        let (_, font) = self.glyph_font.as_ref()?;
+        if !crate::gamefont::is_private_use(ch) || self.gfx.name() == "none" || !crate::gamefont::has_glyph(font, ch) {
+            return None;
+        }
+        Some(crate::gamefont::cells(font, ch))
+    }
+
     fn button_at(&self, x: usize, y: usize) -> Option<usize> {
         let row = self.btn_map.get(y)?;
         // (マウスを使用する off: only emuera-tty's own buttons answer)
@@ -5047,6 +5083,10 @@ impl Frontend for Tty {
         true
     }
 
+    fn shows_pictures(&self) -> bool {
+        self.gfx.name() != "none"
+    }
+
     /// Ctrl+C typed (or the terminal gone) while a script runs. Other keys
     /// read meanwhile stay pending for the next input.
     /// Computing for more than a moment: say so in the bottom row, with
@@ -5588,6 +5628,36 @@ pub(crate) mod render_tests {
     /// ver1739以前の非ボタン折り返しを再現する, with ボタンの途中で行を
     /// 折りかえさない: a piece of plain text that doesn't fit the rest of the
     /// row starts the next one, as a button does.
+    /// A private-use character the game's font has is a picture of its
+    /// glyph in the text's colour, filling its cells; without pictures,
+    /// or for a character the font lacks, it stays text.
+    #[test]
+    fn game_font_symbols_become_pictures() {
+        let p = &std::path::Path::new(&std::env::var("EMUERA_TEST_GAMES").unwrap_or_default()).join("eraMegatenP/Data/font/EraMTFontMedium.ttf");
+        let Ok(data) = std::fs::read(p) else { return };
+        let font = std::sync::Arc::new(ab_glyph::FontVec::try_from_vec(data).unwrap());
+        let layout = |pictures: bool| {
+            let mut t = Tty::blank(None, 40, 10, ColorMode::True);
+            if pictures {
+                t.gfx = Box::new(super::gfx::kitty::Kitty::new());
+            }
+            t.glyph_font = Some(("EraMTFont".into(), font.clone()));
+            let mut con = Console::new();
+            con.width = 39;
+            con.style.fg = Rgb(200, 100, 0);
+            con.print("a\u{F003}b\u{E7FF}");
+            con.newline();
+            t.layout_line(&con.lines[0], 0, 1.0)
+        };
+        let rows = layout(true);
+        assert_eq!(rows[0].imgs.len(), 1, "one glyph picture");
+        let im = &rows[0].imgs[0];
+        assert!(im.name.starts_with(crate::gamefont::PICTURE_PREFIX) && im.name.contains("|C86400|"), "{}", im.name);
+        assert_eq!(im.col, 1);
+        assert!(rows[0].cells[1..].iter().take(crate::gamefont::cells(&font, '\u{F003}')).all(|c| c.ch == ' '));
+        assert!(layout(false)[0].imgs.is_empty(), "no pictures: text");
+    }
+
     /// マウスを使用する off: the game's buttons don't answer the pointer;
     /// emuera-tty's own do.
     #[test]

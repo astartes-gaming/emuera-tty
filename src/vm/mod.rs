@@ -467,6 +467,9 @@ pub struct Vm {
     /// キャラクタ変数の引数を補完しない (cached: read on every character
     /// variable access without its character)
     chara_no_target: bool,
+    /// the frontend shows no pictures: a font from the game's font/ folder
+    /// is reported as not in use (`Vm::reported_font`, gamefont.rs)
+    pub hide_game_fonts: bool,
     /// 擬似変数RANDの仕様をeramakerに合わせる (cached)
     compat_rand: bool,
     /// `--strict`: unimplemented commands are errors, not warnings.
@@ -602,6 +605,7 @@ impl Vm {
             rng: Sfmt::new(seed),
             warned: HashSet::default(),
             chara_no_target: cfg.bool("キャラクタ変数の引数を補完しない"),
+            hide_game_fonts: false,
             compat_rand: cfg.bool("擬似変数RANDの仕様をeramakerに合わせる"),
             cfg,
             game_dir,
