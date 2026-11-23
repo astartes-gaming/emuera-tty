@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.Process
 import android.util.Log
 import android.view.FrameMetrics
@@ -26,9 +27,17 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import java.io.File
 
+import kotlin.ranges.step
+
 private const val TEXT_SIZE_FILE = "text-size"
 /** As percentages of the size the game's own window width gives. */
-private val TEXT_SIZES = intArrayOf(75, 100, 125, 150, 175, 200, 250, 300)
+private val TEXT_SIZES: IntArray by lazy {
+    val tmp = mutableListOf<Int>()
+    for(i in 20..300 step 5){
+        tmp.add(i)
+    }
+    tmp.toTypedArray().toIntArray()
+}
 
 /**
  * A running game, in its own process (":game" in the manifest). The VM can only start once
@@ -123,7 +132,7 @@ class GameActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(0xFF202020.toInt())
             addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            for ((label, description, step) in listOf(Triple("A-", "Smaller text", -1), Triple("A+", "Larger text", 1))) {
+            for ((label, description, step) in listOf(Triple("FS-", "Smaller text", -1), Triple("FS+", "Larger text", 1))) {
                 addView(Button(context).apply {
                     text = label
                     contentDescription = description
@@ -141,6 +150,18 @@ class GameActivity : Activity() {
                 text = "Skip"
                 setOnClickListener { Native.skip() }
             })
+            val memoryView = TextView(context).apply {
+                text = Native.formattedMemory()
+            }
+            addView(memoryView)
+            val memoryHandler = Handler(Looper.getMainLooper())
+            val memoryUpdater = object : Runnable {
+                override fun run(){
+                   memoryView.text = Native.formattedMemory()
+                   memoryHandler.postDelayed(this, 1000)
+                }
+            }
+            memoryHandler.post(memoryUpdater)
         }
         // the game's menu, over the console's top right corner
         val screen = FrameLayout(this).apply {

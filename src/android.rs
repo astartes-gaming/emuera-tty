@@ -14,6 +14,7 @@ use crate::ast::Align;
 use crate::console::{is_tip_area, Console, Line, Seg};
 use crate::frontend::{raw_from_input, Frontend, Hotkey, InputKind, InputReq, InputResult, RawInput};
 use crate::resources::{CbgSrc, Resources};
+use crate::vm::Vm;
 use crate::vm::value::Value;
 use jni::objects::{GlobalRef, JClass, JString, JValue};
 use jni::sys::{jboolean, jint, jlong};
@@ -1521,4 +1522,16 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_trim<'a>(_e
 #[no_mangle]
 pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_drawn<'a>(_env: JNIEnv<'a>, _c: JClass<'a>, parse_us: jlong, draw_us: jlong) {
     send(Msg::Drawn { parse_us, draw_us });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_formattedMemory<'a>(mut env: JNIEnv<'a>, _c: JClass<'a>) -> jni::sys::jstring {
+    let reading = crate::sys::memory_in_use();
+    let mem = reading.map(|b| crate::sys::memory_text(b)).unwrap_or_default();
+    data_string(&mut env, Ok(mem))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_rawMemory<'a>(_env: JNIEnv<'a>, _c: JClass<'a>) -> jni::sys::jlong {
+    crate::sys::memory_in_use().unwrap().try_into().unwrap()
 }

@@ -53,6 +53,9 @@ object Native {
     @JvmStatic external fun finishImport(tmp: String, games: String, name: String): String
     @JvmStatic external fun recoverImports(games: String)
 
+    @JvmStatic external fun formattedMemory(): String
+    @JvmStatic external fun rawMemory(): Long
+
     @Volatile var view: GameView? = null
     @Volatile var exitListener: ((Int) -> Unit)? = null
     @Volatile var importProgress: ((Int) -> Unit)? = null
