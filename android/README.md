@@ -77,7 +77,10 @@ that do something here (autosaves, save slots, the history, infinite loop warnin
 saves), kept in the game's `emuera.config`, which Emuera.exe reads too.
 
 In a game, tap a button to choose it, tap anywhere to pass a wait, drag to scroll back, and use the bar at the
-bottom to type. Back asks before leaving, because anything since your last in-game save is lost.
+bottom to type. Back asks before leaving, because anything since your last in-game save is lost. Buttons are slightly
+highlighted to help users know where and what parts of a button are clickable (could be removed later, as it has the
+unintended side effect of revealing secret buttons, which can't be easily accounted for as they aren't any different
+from normal buttons).
 
 ⚙ in the top right corner is the game's menu, as emuera-tty's settings overlay has it:
 
