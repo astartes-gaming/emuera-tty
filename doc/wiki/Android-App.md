@@ -2,6 +2,8 @@
 
 **Emuera-Android** is a native Android app that embeds emuera-tty's engine. The same Rust engine runs on a background thread, and a Kotlin UI draws it on a canvas. The app is not on Google Play; you build the APK and install it with `adb`.
 
+**Work in progress.** This is not a complete implementation. Some features are still missing and some TUI behavior is slightly finicky. Read below for extra details.
+
 > **OpenSpec tracking:** This app's settings exposure is tracked in the `expose-all-settings-android` change ([design](https://github.com/astartes-gaming/emuera-tty/tree/master/openspec/changes/expose-all-settings-android/design.md), [tasks](https://github.com/astartes-gaming/emuera-tty/tree/master/openspec/changes/expose-all-settings-android/tasks.md)). The sections below note what's implemented, what's planned in that change, and what's intentionally out of scope.
 
 ### What works (implemented)
