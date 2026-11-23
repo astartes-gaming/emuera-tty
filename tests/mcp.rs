@@ -134,7 +134,7 @@ fn run_calls_functions() {
             &call("eval", r#"{"expression":"0"}"#),
         ],
     );
-    assert!(a[1].contains("set up 7") && a[1].contains(r#""isError":false"#), "{}", a[1]);
+    assert!(a[1].contains("set up 7") && a[1].contains(r#""isError":false"#) && a[1].contains("--- waiting for"), "{}", a[1]);
     assert!(a[2].contains(r#""text":"7""#), "{}", a[2]);
     assert!(a[3].contains(r#""isError":true"#), "{}", a[3]);
 }

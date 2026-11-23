@@ -31,7 +31,7 @@ enum Pending {
     Input(Json),
     /// `eval` / `run` / `state`: answered from the debug console (from
     /// `log` bytes on), the trace, and what the game printed
-    Debug { id: Json, log: usize, trace: bool, buf: usize },
+    Debug { id: Json, log: usize, trace: bool, buf: usize, run: bool },
 }
 
 /// What the client asked the waiting input for.
@@ -150,7 +150,7 @@ impl Mcp {
                 let text = format!("{}\n{}", text.trim_end_matches('\n'), self.status(con));
                 self.tool_reply(&id, text.trim_start_matches('\n'), false);
             }
-            Some(Pending::Debug { id, log, trace, buf }) => {
+            Some(Pending::Debug { id, log, trace, buf, run }) => {
                 let out = con.debug.log.get(log..).unwrap_or("");
                 // (the console echoes the command first)
                 let out = out.split_once('\n').map_or("", |x| x.1).trim_end().to_string();
@@ -163,6 +163,11 @@ impl Mcp {
                 }
                 if !printed.trim().is_empty() {
                     text += &format!("\n--- printed to the game's console:\n{}", printed.trim_end());
+                    // (a function `run` called may stop at an input of its own,
+                    // a menu: say what it waits for, as `input` does)
+                    if run {
+                        text += &format!("\n{}", self.status(con));
+                    }
                 }
                 if trace {
                     if !con.debug.phase.is_empty() {
@@ -248,12 +253,12 @@ impl Mcp {
                             }
                             // (a statement that doesn't parse as one would be
                             // taken as an expression: `eval` asks for one)
-                            self.pending = Some(Pending::Debug { id, log: con.debug.log.len(), trace: false, buf: self.buf.len() });
+                            self.pending = Some(Pending::Debug { id, log: con.debug.log.len(), trace: false, buf: self.buf.len(), run: name == "run" });
                             let line = src.lines().next().unwrap_or("").to_string();
                             return Answer::Debug(if name == "run" { DebugAction::Call(line) } else { DebugAction::Command(line) });
                         }
                         "state" => {
-                            self.pending = Some(Pending::Debug { id, log: con.debug.log.len(), trace: true, buf: self.buf.len() });
+                            self.pending = Some(Pending::Debug { id, log: con.debug.log.len(), trace: true, buf: self.buf.len(), run: false });
                             return Answer::Debug(DebugAction::Refresh);
                         }
                         _ => self.tool_reply(&id, &format!("unknown tool: {}", name), true),

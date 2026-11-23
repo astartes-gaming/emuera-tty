@@ -146,8 +146,8 @@ A button's value is what `input` takes: a number, or a string in quotes
   `SAVEDATA` are refused with Emuera's message, and an error comes back
   with `isError` set.
 - **Inside a called function:** if a function called with `run` waits
-  for input, the `run` answer arrives at that input, and `input` goes on
-  from there. A `BEGIN` or `QUIT` inside it ends only the call, not the
+  for input, the `run` answer arrives at that input, ending with what the
+  game waits for and its buttons, and `input` goes on from there. A `BEGIN` or `QUIT` inside it ends only the call, not the
   game.
 - **Saving and loading:** go through the game's own save and load menus
   with `input`. There is no separate tool for them yet.

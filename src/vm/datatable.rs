@@ -100,9 +100,20 @@ thread_local! {
     static LAST_ID: Cell<i64> = const { Cell::new(0) };
 }
 
-/// Utils.TimePoint(): a strictly increasing tick count used for row ids.
+/// .NET's DateTime ticks (100 ns) at the Unix epoch: they count from 1 Jan
+/// of year 1.
+const DOTNET_EPOCH_TICKS: i64 = 621_355_968_000_000_000;
+
+/// Utils.TimePoint(): a strictly increasing tick count used for row ids,
+/// in .NET DateTime ticks as Emuera's are (about 6.4e17 in 2026). Games
+/// rely on the size: pops-tw tells a weapon's inventory row (id above
+/// 6e17) from a plain weapon number that way; ids counted from 1970
+/// (1.8e16) made its inventory show blank names and the wrong stats.
 pub fn next_id() -> i64 {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| (d.as_nanos() / 100) as i64).unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| DOTNET_EPOCH_TICKS + (d.as_nanos() / 100) as i64)
+        .unwrap_or(DOTNET_EPOCH_TICKS);
     LAST_ID.with(|l| {
         let id = now.max(l.get() + 1);
         l.set(id);
@@ -792,6 +803,9 @@ mod tests {
     fn ids_increase() {
         let a = next_id();
         assert!(next_id() > a);
+        // .NET ticks, as Emuera's: pops-tw takes an id above 6e17 for an
+        // inventory row (2026 is about 6.39e17)
+        assert!(a > 600_000_000_000_000_000 && a < 700_000_000_000_000_000, "{}", a);
     }
 
     #[test]
