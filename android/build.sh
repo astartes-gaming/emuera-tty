@@ -108,7 +108,7 @@ else
   [ -f "$KEY" ] || keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=emuera-tty debug" >/dev/null 2>&1
   "$APKSIGNER" sign --ks "$KEY" --ks-pass pass:android --key-pass pass:android --min-sdk-version "$MIN_SDK" --out "$B/emuera-tty-android.apk" "$UNSIGNED"
 fi
-rm -f "$B/erb-player.apk.idsig"
+rm -f "$B/emuera-tty-android.apk.idsig"
 echo "[ANDROID] building app (L6, finalization/verification)"
-"$APKSIGNER" verify "$B/erb-player.apk"
-ls -la "$B/erb-player.apk" | awk '{print "built", $NF, int($5/1048576) " MB"}'
+"$APKSIGNER" verify "$B/emuera-tty-android.apk"
+ls -la "$B/emuera-tty-android.apk" | awk '{print "built", $NF, int($5/1048576) " MB"}'
