@@ -261,7 +261,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: emuera-tty-android.apk
-          path: build/erb-player.apk
+          path: android/build/erb-player.apk
           if-no-files-found: error
 
   package:
