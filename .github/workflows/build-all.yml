@@ -240,7 +240,7 @@ jobs:
 
       - name: Build (Android)
         if: matrix.target == 'aarch64-linux-android' || matrix.target == 'armv7-linux-androideabi'
-        run: cargo ndk build --release --target ${{ matrix.target }}
+        run: cargo +nightly ndk build --release --target ${{ matrix.target }}
 
       - name: Collect the binary
         run: |

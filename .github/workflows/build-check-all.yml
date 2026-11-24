@@ -262,4 +262,4 @@ jobs:
 
       - name: Check (Android)
         if: matrix.target == 'aarch64-linux-android' || matrix.target == 'armv7-linux-androideabi'
-        run: cargo ndk check --target ${{ matrix.target }}
+        run: cargo +nightly ndk check --target ${{ matrix.target }}
