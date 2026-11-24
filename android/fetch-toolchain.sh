@@ -40,7 +40,7 @@ if [ ! -d "$T/ndk/android-ndk-r30/toolchains" ]; then
     "$P/sysroot/usr/lib/aarch64-linux-android/*" "$P/sysroot/usr/lib/arm-linux-androideabi/*" \
     "$P/sysroot/usr/include/*" \
     "$P/bin/aarch64-linux-android*" "$P/bin/armv7a-linux-androideabi*" "$P/bin/lld*" \
-    "$P/bin/clang*"
+    "$P/bin/clang*" "$P/bin/llvm-ar"
   # Create unversioned symlinks for cc-rs (expects aarch64-linux-android-clang, not aarch64-linux-android24-clang)
   BIN="$T/ndk/$P/bin"
   for v in "$BIN"/aarch64-linux-android??-clang; do
@@ -49,6 +49,9 @@ if [ ! -d "$T/ndk/android-ndk-r30/toolchains" ]; then
   for v in "$BIN"/armv7a-linux-androideabi??-clang; do
     [ -e "$v" ] && ln -sf "$(basename "$v")" "$BIN/armv7a-linux-androideabi-clang" && break
   done
+  # cc-rs expects target-specific AR (aarch64-linux-android-ar, armv7a-linux-androideabi-ar)
+  # NDK provides llvm-ar; symlink it for both targets
+  [ -e "$BIN/llvm-ar" ] && ln -sf llvm-ar "$BIN/aarch64-linux-android-ar" && ln -sf llvm-ar "$BIN/armv7a-linux-androideabi-ar"
   rm "$T/dl/android-ndk-r30-linux.zip"
 fi
 echo "toolchain ready in $T"
