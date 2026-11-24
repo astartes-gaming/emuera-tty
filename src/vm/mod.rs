@@ -1444,12 +1444,7 @@ impl Vm {
                 }
                 let n = i0(self)?;
                 if n <= 0 {
-                    return err(em!(
-                        "Error.RandArgIsNegative",
-                        "RANDの引数に0以下の値({0})が指定されました",
-                        "RAND was given a value of 0 or less ({0})",
-                        n
-                    ));
+                    return err(em!("Error.RandArgIsNegative", "RANDの引数に0以下の値({0})が指定されました", "RAND was given a value of 0 or less ({0})", n));
                 }
                 Value::Int(self.rand(n))
             }

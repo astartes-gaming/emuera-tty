@@ -249,7 +249,6 @@ pub fn fill(template: &str, args: &[String]) -> String {
     out
 }
 
-
 /// Set the language directly (tests).
 #[cfg(test)]
 fn set_active(chosen: Active) {

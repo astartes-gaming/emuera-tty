@@ -336,9 +336,7 @@ impl Vm {
             if code != 0 && code != self.game_code() {
                 return (
                     SaveCheck {
-                        state: 2,
-                        mes: em!("Error.DifferentGame", "異なるゲームのセーブデータです", "the save file is from another game"),
-                        version,
+                        state: 2, mes: em!("Error.DifferentGame", "異なるゲームのセーブデータです", "the save file is from another game"), version
                     },
                     None,
                 );
@@ -347,11 +345,7 @@ impl Vm {
                 return (
                     SaveCheck {
                         state: 3,
-                        mes: em!(
-                            "Error.DifferentVersion",
-                            "セーブデータのバーションが異なります",
-                            "the save file is from a different version of the game"
-                        ),
+                        mes: em!("Error.DifferentVersion", "セーブデータのバーションが異なります", "the save file is from a different version of the game"),
                         version,
                     },
                     None,
