@@ -101,12 +101,12 @@ echo "[ANDROID] building app (L5, signing)"
 if [ -n "${KEYSTORE:-}" ]; then
   echo "[ANDROID] signing with release key"
   # A release key: apksigner asks for its password, so it never lands in the shell history
-  "$APKSIGNER" sign --ks "$KEYSTORE" --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
+  "$APKSIGNER" sign --ks "$KEYSTORE" --min-sdk-version "$MIN_SDK" --out "$B/emuera-tty-android.apk" "$UNSIGNED"
 else
   echo "[ANDROID] signing with debug key"
   KEY=$T/debug.keystore
   [ -f "$KEY" ] || keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=emuera-tty debug" >/dev/null 2>&1
-  "$APKSIGNER" sign --ks "$KEY" --ks-pass pass:android --key-pass pass:android --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
+  "$APKSIGNER" sign --ks "$KEY" --ks-pass pass:android --key-pass pass:android --min-sdk-version "$MIN_SDK" --out "$B/emuera-tty-android.apk" "$UNSIGNED"
 fi
 rm -f "$B/erb-player.apk.idsig"
 echo "[ANDROID] building app (L6, finalization/verification)"

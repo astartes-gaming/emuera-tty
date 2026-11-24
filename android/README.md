@@ -50,7 +50,7 @@ For any other Linux distro:
 ./build.sh
 ```
 
-The APK is `build/erb-player.apk`, about 6 MB with both 64-bit and 32-bit engines. The minimum is Android 7
+The APK is `build/emuera-tty-android.apk`, about 8 MB with both 64-bit and 32-bit engines. The minimum is Android 7
 (API 24), set by `MIN_SDK` in `build.sh`. Android 15 and 16 have been tried.
 
 Without `KEYSTORE` the APK is signed with a debug key that `build.sh` makes in `.toolchain/`. `KEYSTORE=<keystore>`
@@ -60,7 +60,7 @@ key as the installed app, so keep yours safe: without it no later build can repl
 ## Install and play
 
 ```sh
-adb install -r build/erb-player.apk      # -r keeps installed games and saves
+adb install -r build/emuera-tty-android.apk      # -r keeps installed games and saves
 ```
 
 Then open **Emuera-Android** on the phone and import a game:
