@@ -59,8 +59,8 @@ jobs:
           key: android
       - name: Check the engine library
         run: |
-          cargo check --release --lib --target aarch64-linux-android
-          cargo check --release --lib --target armv7-linux-androideabi
+          cargo ndk check --release --lib --target aarch64-linux-android
+          cargo ndk check --release --lib --target armv7-linux-androideabi
       - name: Paths test
         working-directory: android
         run: |
