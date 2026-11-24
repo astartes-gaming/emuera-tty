@@ -36,8 +36,7 @@ if [ ! -d "$T/ndk/android-ndk-r30/toolchains" ]; then
   unzip -q -o "$T/dl/android-ndk-r30-linux.zip" -d "$T/ndk" android-ndk-r30/NOTICE android-ndk-r30/meta/platforms.json \
     "$P/lib/clang/*/lib/linux/aarch64/*" "$P/lib/clang/*/lib/linux/arm/*" \
     "$P/lib/clang/*/lib/linux/*-aarch64-android.*" "$P/lib/clang/*/lib/linux/*-arm-android.*" \
-    "$P/sysroot/usr/lib/aarch64-linux-android/*" "$P/sysroot/usr/lib/arm-linux-androideabi/*" \
-    "$P/bin/aarch64-linux-android*" "$P/bin/armv7a-linux-androideabi*" "$P/bin/lld*"
+    "$P/sysroot/usr/lib/aarch64-linux-android/*" "$P/sysroot/usr/lib/arm-linux-androideabi/*"
   rm "$T/dl/android-ndk-r30-linux.zip"
 fi
 echo "toolchain ready in $T"

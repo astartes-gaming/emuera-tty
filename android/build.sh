@@ -29,11 +29,10 @@ done
 NDK=$T/ndk/android-ndk-r30/toolchains/llvm/prebuilt/linux-x86_64
 SYSROOT=$NDK/sysroot/usr/lib
 CLANG_LIB=$(echo "$NDK"/lib/clang/*/lib/linux)
-NDK_BIN=$NDK/bin
 ANDROID_JAR=$T/sdk/android.jar
 R8=$(echo "$T"/dl/r8-*.jar)
 APKSIGNER=$T/sdk/build-tools/36.1.0/apksigner
-for f in "$ANDROID_JAR" "$R8" "$SYSROOT" "$APKSIGNER" "$NDK_BIN/lld"; do [ -e "$f" ] || { echo "missing $f: run ./fetch-toolchain.sh" >&2; exit 1; }; done
+for f in "$ANDROID_JAR" "$R8" "$SYSROOT" "$APKSIGNER"; do [ -e "$f" ] || { echo "missing $f: run ./fetch-toolchain.sh" >&2; exit 1; }; done
 export RUSTUP_HOME=${RUSTUP_HOME:-$T/rustup} CARGO_HOME=${CARGO_HOME:-$T/cargo}
 mkdir -p "$B"
 
@@ -43,11 +42,9 @@ build_lib() {
   local dir="$SYSROOT/$sys"
   rustup target add --toolchain stable "$target" >/dev/null 2>&1
   local env_target; env_target=$(echo "$target" | tr 'a-z-' 'A-Z_')
-  # Use NDK clang wrapper as linker driver (with lld); it knows sysroot and crtbegin/end.
-  local clang="$NDK_BIN/${target}${MIN_SDK}-clang"
-  [ -x "$clang" ] || { echo "missing NDK clang: $clang" >&2; exit 1; }
-  export "CARGO_TARGET_${env_target}_LINKER=$clang"
-  export "CARGO_TARGET_${env_target}_RUSTFLAGS=-C linker-flavor=ld.lld -C link-arg=-fuse-ld=lld -L native=$dir/$MIN_SDK -L native=$dir -L native=$CLANG_LIB/$rtdir -C link-arg=-z -C link-arg=max-page-size=16384 -C link-arg=--hash-style=gnu"
+  # rust-lld directly: the NDK's own clang is an x86-64 program
+  export "CARGO_TARGET_${env_target}_LINKER=rust-lld"
+  export "CARGO_TARGET_${env_target}_RUSTFLAGS=-C linker-flavor=ld.lld -C link-arg=$dir/$MIN_SDK/crtbegin_so.o -C link-arg=$dir/$MIN_SDK/crtend_so.o -L native=$dir/$MIN_SDK -L native=$dir -L native=$CLANG_LIB/$rtdir -C link-arg=-z -C link-arg=max-page-size=16384 -C link-arg=--hash-style=gnu"
   (cd "$E" && CARGO_TARGET_DIR="$B/target" cargo +stable rustc --lib --crate-type cdylib --profile "$PROFILE" --target "$target" 2>&1)
   local so="$B/target/$target/$PROFILE/libemuera.so"
   [ -f "$so" ] || { echo "no library for $abi" >&2; exit 1; }
