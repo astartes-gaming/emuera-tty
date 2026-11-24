@@ -50,8 +50,10 @@ jobs:
         uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
-      - name: Install the NDK
-        run: sdkmanager --install "ndk;21.3.6528147"
+      - name: Install the NDK and cargo-ndk
+        run: |
+          sdkmanager --install "ndk;21.3.6528147"
+          cargo +nightly install cargo-ndk
       - uses: Swatinem/rust-cache@v2
         with:
           key: android
