@@ -16,6 +16,8 @@ E=$A/engine; [ -d "$E" ] || E=$(dirname "$A")
 PACKAGE=io.github.astartes_gaming.emuera
 MIN_SDK=${MIN_SDK:-24}
 TARGET_SDK=35
+VERSION_CODE=${VERSION_CODE:-1}
+VERSION_NAME=${VERSION_NAME:-0.1}
 PROFILE=release
 ABIS="arm64-v8a armeabi-v7a"
 for o in "$@"; do
@@ -72,7 +74,7 @@ done
 # --- the manifest
 echo "[ANDROID] writing manifest"
 rustup run stable rustc --edition 2021 -O -A warnings -o "$B/mkmanifest" "$A/tools/mkmanifest.rs"
-"$B/mkmanifest" "$B/apk/AndroidManifest.xml" "$PACKAGE" 1 0.1 "$MIN_SDK" "$TARGET_SDK" "$PACKAGE.MainActivity" "Emuera-Android"
+"$B/mkmanifest" "$B/apk/AndroidManifest.xml" "$PACKAGE" "$VERSION_CODE" "$VERSION_NAME" "$MIN_SDK" "$TARGET_SDK" "$PACKAGE.MainActivity" "Emuera-Android"
 
 # --- the Kotlin UI
 echo "[ANDROID] building app (L1, vars)"

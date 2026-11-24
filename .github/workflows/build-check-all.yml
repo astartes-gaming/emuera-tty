@@ -254,9 +254,12 @@ jobs:
       - name: Fetch NDK toolchain
         working-directory: android
         run: ./fetch-toolchain.sh
+      - name: Prepare keystore
+        working-directory: android
+        run: echo ${{ secrets.ANDROID_APK_KEYSTORE }} | base64 -d > build.keystore
       - name: Build APK
         working-directory: android
-        run: ./build.sh
+        run: printf "$(echo ${{ secrets.ANDROID_APK_KEYSTORE_PASSWD }} | base64 -d)\n" | KEYSTORE=build.keystore ./build.sh
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
