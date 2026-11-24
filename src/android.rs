@@ -1268,6 +1268,7 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_gameSetting
                 Kind::Int(lo, hi) => format!("int:{lo}:{hi}"),
                 Kind::Color => "color".into(),
                 Kind::Text => "text".into(),
+                Kind::Choice(_) => "choice".into(),
             };
             let src = match src {
                 Source::Emuera => "emuera",

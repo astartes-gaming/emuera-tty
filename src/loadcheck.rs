@@ -28,7 +28,7 @@ pub struct Warning {
 /// Emuera's PrintWarning: `警告Lv1:file:12行目:message`.
 pub fn format(prog: &Program, w: &Warning) -> String {
     let file = prog.files.get(w.file as usize).map_or("?", |s| s.as_str());
-    crate::em!("Error.Warning1", "警告Lv{0}:{1}:{2}行目:{3}", "Warning Lv{0}: {1}, line {2}: {3}", w.level, file, w.line, w.msg)
+    em!("Error.Warning1", "警告Lv{0}:{1}:{2}行目:{3}", "Warning Lv{0}: {1}, line {2}: {3}", w.level, file, w.line, w.msg)
 }
 
 /// Is a warning of this level shown (表示する最低警告レベル)?
@@ -49,7 +49,7 @@ pub fn at_load(prog: &mut Program, cfg: &Values) {
             continue;
         }
         let first = prog.files.get(f1 as usize).cloned().unwrap_or_default();
-        let msg = crate::em!(
+        let msg = em!(
             "Error.FuncIsAlreadyDefined",
             "関数\"@{0}\"は既に定義({1}の{2}行目)されています",
             "function \"@{0}\" is defined already (in {1}, line {2})",
@@ -83,7 +83,7 @@ pub fn bom_warnings(prog: &mut Program, cfg: &Values, game_dir: &std::path::Path
             level: 0,
             file: k as u32,
             line: 0,
-            msg: crate::em!("Error.FileNotUTF8BOM", "ファイルが UTF-8 with BOM ではありません", "the file isn't UTF-8 with a BOM"),
+            msg: em!("Error.FileNotUTF8BOM", "ファイルが UTF-8 with BOM ではありません", "the file isn't UTF-8 with a BOM"),
         })
         .collect();
     prog.warnings.extend(found);
@@ -100,7 +100,7 @@ const REPORTED_CSV_TABLES: &[&str] = &[
 
 /// Emuera's `{0}読み込み中・・・` report line for one file.
 fn loading_line(name: &str) -> String {
-    crate::em!("SystemLine.LoadingFile", "{0}読み込み中・・・", "loading {0}…", name)
+    em!("SystemLine.LoadingFile", "{0}読み込み中・・・", "loading {0}…", name)
 }
 
 /// `path` under `base`, with `/` between folders (Emuera's relative names).
@@ -127,15 +127,15 @@ pub fn loading_report(
     }
     let mut out = Vec::new();
     if cfg.bool("キーボードマクロを使用する") && find_file_ci(game, "macro.txt").is_some() {
-        out.push(crate::em!("SystemLine.LoadingMacro", "macro.txt読み込み中・・・", "loading macro.txt…"));
+        out.push(em!("SystemLine.LoadingMacro", "macro.txt読み込み中・・・", "loading macro.txt…"));
     }
     let csv_dir = find_dir_ci(game, "CSV");
     let csv_has = |name: &str| csv_dir.as_deref().and_then(|d| find_file_ci(d, name)).is_some();
     if cfg.bool("_Replace.csvを利用する") && csv_has("_Replace.csv") {
-        out.push(crate::em!("SystemLine.LoadingReplace", "_Replace.csv読み込み中・・・", "loading _Replace.csv…"));
+        out.push(em!("SystemLine.LoadingReplace", "_Replace.csv読み込み中・・・", "loading _Replace.csv…"));
     }
     if cfg.bool("_Rename.csvを利用する") && csv_has("_Rename.csv") {
-        out.push(crate::em!("SystemLine.LoadingRename", "_Rename.csv読み込み中・・・", "loading _Rename.csv…"));
+        out.push(em!("SystemLine.LoadingRename", "_Rename.csv読み込み中・・・", "loading _Rename.csv…"));
     }
     if let Some(csv) = csv_dir.as_deref() {
         out.extend(REPORTED_CSV_TABLES.iter().filter(|n| csv_has(n)).map(|n| loading_line(n)));
@@ -150,14 +150,14 @@ pub fn loading_report(
     if let Some(erb) = erb_dir {
         out.extend(erhs.iter().chain(erbs).map(|p| loading_line(&relative_name(p, erb))));
     }
-    out.push(crate::em!("SystemLine.BuildingUserFunc", "ユーザー定義関数のリストを構築中・・・", "building the list of the game's functions…"));
-    out.push(crate::em!("SystemLine.CheckingSyntax", "スクリプトの構文チェック中・・・", "checking the scripts' syntax…"));
+    out.push(em!("SystemLine.BuildingUserFunc", "ユーザー定義関数のリストを構築中・・・", "building the list of the game's functions…"));
+    out.push(em!("SystemLine.CheckingSyntax", "スクリプトの構文チェック中・・・", "checking the scripts' syntax…"));
     out
 }
 
 /// Emuera's `ロード完了`, the report's last line (after the warnings).
 pub fn load_complete() -> String {
-    crate::em!("SystemLine.LoadComplete", "ロード完了", "loading finished")
+    em!("SystemLine.LoadComplete", "ロード完了", "loading finished")
 }
 
 /// The load warnings the game's 表示する最低警告レベル lets through (shown
@@ -237,7 +237,7 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
                         if ignore {
                             nf_ignored += 1;
                         } else {
-                            let msg = crate::em!("Error.NotDefinedFunc", "指定された関数名\"@{0}\"は存在しません", "there is no function named \"@{0}\"", n);
+                            let msg = em!("Error.NotDefinedFunc", "指定された関数名\"@{0}\"は存在しません", "there is no function named \"@{0}\"", n);
                             warnings.push(Warning { level: 2, file, line, msg });
                         }
                     }
@@ -253,7 +253,7 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
             for d in body.dims.iter().filter(|d| !d.is_ref) {
                 for (table, t) in &csv.tables {
                     if !crate::csvdata::TABLE_FILES.iter().any(|(_, k)| *k == table) && t.by_index.values().any(|n| n.eq_ignore_ascii_case(&d.name)) {
-                        let msg = crate::em!(
+                        let msg = em!(
                             "Error.IsDefinedErdVariable",
                             "変数名\"{0}\"は既にERD変数\"{1}\"の定義に使われており、予期せぬ配列参照を引き起こす場合があります",
                             "the variable name \"{0}\" is also a name in the ERD variable \"{1}\"; array indices may not refer to what you expect",
@@ -287,7 +287,7 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
             if ignore_all || (not_called == "ONCE" && !files.insert(file)) {
                 nc_ignored += 1;
             } else {
-                let msg = crate::em!(
+                let msg = em!(
                     "Error.FuncNeverCalled",
                     "関数\"@{0}\"は定義されていますが一度も呼び出されません",
                     "function \"@{0}\" is defined but never called",
@@ -300,7 +300,7 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
     warnings.sort_by_key(|w| (w.file, w.line));
     let mut out: Vec<String> = warnings.iter().filter(|w| shown(cfg, w.level)).map(|w| format(prog, w)).collect();
     if nc_ignored > 0 && shown(cfg, 1) && not_called != "IGNORE" {
-        out.push(crate::em!(
+        out.push(em!(
             "Error.IgnoredFuncNeverCalled",
             "警告Lv1:定義された関数が一度も呼び出されていない事に関する警告を{0}件無視しました",
             "Warning Lv1: {0} warnings about functions that are never called were left out",
@@ -308,7 +308,7 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
         ));
     }
     if nf_ignored > 0 && shown(cfg, 2) && not_found != "IGNORE" {
-        out.push(crate::em!(
+        out.push(em!(
             "Error.IgnoredUndefinedFuncCall",
             "警告Lv2:定義されていない関数を呼び出した事に関する警告を{0}件無視しました",
             "Warning Lv2: {0} warnings about calls to functions that don't exist were left out",
@@ -318,7 +318,7 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
     if cfg.bool("ロード時にレポートを表示する") {
         let n_names = prog.funcs.names().count();
         let used = if use_callform { n_names } else { reached.len() };
-        out.push(crate::em!(
+        out.push(em!(
             "Error.TotalFunc",
             "非コメント行数:{0}, 全関数合計:{1}, 被呼出関数合計:{2}",
             "lines of code: {0}, functions: {1}, functions called: {2}",
@@ -332,16 +332,16 @@ pub fn check(prog: &Program, csv: &crate::csvdata::GameCsv, cfg: &Values) -> Vec
         let mut over: Vec<&str> = prog.funcs.names().map(|(n, _)| n).filter(|n| crate::vm::builtins::is_builtin_function(n)).collect();
         over.sort_unstable();
         if !over.is_empty() {
-            out.push(crate::em!("Error.OverWriteSystemFuncWarn1", "＊＊＊＊＊警告＊＊＊＊＊", "***** Warning *****"));
+            out.push(em!("Error.OverWriteSystemFuncWarn1", "＊＊＊＊＊警告＊＊＊＊＊", "***** Warning *****"));
             out.extend(over.iter().map(|n| {
-                crate::em!(
+                em!(
                     "Error.OverWriteSystemFuncWarn2",
                     "  システム関数\"{0}\"がユーザー定義関数によって上書きされています",
                     "  the built-in function \"{0}\" is replaced by a function of the game's",
                     n
                 )
             }));
-            out.push(crate::em!(
+            out.push(em!(
                 "Error.OverWriteSystemFuncWarn3",
                 " 上記の関数を利用するスクリプトは意図通りに動かない可能性があります",
                 " scripts that use these functions may not work as intended"

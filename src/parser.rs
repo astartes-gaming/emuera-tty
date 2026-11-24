@@ -1169,7 +1169,7 @@ impl Parser {
             .funcs
             .get(name)
             .and_then(|f| f.first().cloned())
-            .ok_or_else(|| crate::em!("Error.CanNotInterpretedLine", "解釈できない行です", "this line can't be understood"))
+            .ok_or_else(|| em!("Error.CanNotInterpretedLine", "解釈できない行です", "this line can't be understood"))
     }
 
     pub fn fork(&self) -> Parser {
@@ -1348,14 +1348,14 @@ impl Parser {
                     return Ok(b);
                 }
                 if !self.cfg.bool("システム関数の上書きを許可する") {
-                    return Err(crate::em!(
+                    return Err(em!(
                         "Error.LabelNameAlreadyUsedInternalExpression",
                         "関数名\"{0}\"はEmueraの式中関数名として使われています",
                         "the function name \"{0}\" is the name of a built-in expression function",
                         b.f.name
                     ));
                 }
-                let msg = crate::em!(
+                let msg = em!(
                     "Error.LabelOverwriteInternalExpression",
                     "関数名\"{0}\"はEmueraの式中関数を上書きします",
                     "the function \"{0}\" replaces the built-in expression function",
@@ -2156,7 +2156,7 @@ impl Parser {
             // 文字列変数の代入に文字列式を強制する: only `'=` may assign to a
             // string variable (Emuera's ArgumentBuilder)
             if self.cfg.bool("文字列変数の代入に文字列式を強制する") {
-                return Err(crate::em!(
+                return Err(em!(
                     "Error.StrAssignIsPrihibited",
                     "文字列代入は禁止されています（'=を用いるかコンフィグオプションを変えてください)",
                     "assigning text with = isn't allowed (use '= or change the setting)"

@@ -249,15 +249,6 @@ pub fn fill(template: &str, args: &[String]) -> String {
     out
 }
 
-/// An Emuera message: `em!("Error.Warning1", "警告Lv{0}:…", "Warning Lv{0}: …", a, b…)`.
-/// The ID and Japanese text are Emuera's (`Lang.cs`); the English is
-/// emuera-tty's own. Arguments are anything `Display`.
-#[macro_export]
-macro_rules! em {
-    ($id:literal, $ja:literal, $en:literal $(, $arg:expr)* $(,)?) => {
-        $crate::emuera_lang::fill(&$crate::emuera_lang::template($id, $ja, $en), &[$(($arg).to_string()),*])
-    };
-}
 
 /// Set the language directly (tests).
 #[cfg(test)]
@@ -316,11 +307,11 @@ mod tests {
     #[test]
     fn em_uses_the_active_language() {
         set_active(Active::Japanese);
-        assert_eq!(crate::em!("Error.T", "行{0}", "line {0}", 3), "行3");
+        assert_eq!(em!("Error.T", "行{0}", "line {0}", 3), "行3");
         set_active(Active::Other { table: HashMap::new() });
-        assert_eq!(crate::em!("Error.T", "行{0}", "line {0}", 3), "line 3");
+        assert_eq!(em!("Error.T", "行{0}", "line {0}", 3), "line 3");
         set_active(Active::Other { table: [("Error.T".to_string(), "row {0}!".to_string())].into() });
-        assert_eq!(crate::em!("Error.T", "行{0}", "line {0}", 3), "row 3!");
+        assert_eq!(em!("Error.T", "行{0}", "line {0}", 3), "row 3!");
         set_active(Active::Japanese);
     }
 }

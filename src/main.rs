@@ -11,6 +11,16 @@
 #[macro_use]
 mod i18n;
 
+/// An Emuera message: `em!("Error.Warning1", "警告Lv{0}:…", "Warning Lv{0}: …", a, b…)`.
+/// The ID and Japanese text are Emuera's (`Lang.cs`); the English is
+/// emuera-tty's own. Arguments are anything `Display`.
+#[macro_export]
+macro_rules! em {
+    ($id:literal, $ja:literal, $en:literal $(, $arg:expr)* $(,)?) => {
+        crate::emuera_lang::fill(&crate::emuera_lang::template($id, $ja, $en), &[$(($arg).to_string()),*])
+    };
+}
+
 mod archive;
 mod ast;
 mod atomic64;

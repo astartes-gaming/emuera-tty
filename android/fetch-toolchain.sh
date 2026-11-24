@@ -36,7 +36,25 @@ if [ ! -d "$T/ndk/android-ndk-r30/toolchains" ]; then
   unzip -q -o "$T/dl/android-ndk-r30-linux.zip" -d "$T/ndk" android-ndk-r30/NOTICE android-ndk-r30/meta/platforms.json \
     "$P/lib/clang/*/lib/linux/aarch64/*" "$P/lib/clang/*/lib/linux/arm/*" \
     "$P/lib/clang/*/lib/linux/*-aarch64-android.*" "$P/lib/clang/*/lib/linux/*-arm-android.*" \
-    "$P/sysroot/usr/lib/aarch64-linux-android/*" "$P/sysroot/usr/lib/arm-linux-androideabi/*"
+    "$P/lib/clang/*/include/*" \
+    "$P/sysroot/usr/lib/aarch64-linux-android/*" "$P/sysroot/usr/lib/arm-linux-androideabi/*" \
+    "$P/sysroot/usr/include/*" \
+    "$P/bin/aarch64-linux-android*" "$P/bin/armv7a-linux-androideabi*" "$P/bin/lld*" \
+    "$P/bin/clang*" "$P/bin/clang++*"
+  # Create unversioned symlinks for cc-rs (expects aarch64-linux-android-clang, not aarch64-linux-android24-clang)
+  BIN="$T/ndk/$P/bin"
+  for v in "$BIN"/aarch64-linux-android??-clang; do
+    [ -e "$v" ] && ln -sf "$(basename "$v")" "$BIN/aarch64-linux-android-clang" && break
+  done
+  for v in "$BIN"/aarch64-linux-android??-clang++; do
+    [ -e "$v" ] && ln -sf "$(basename "$v")" "$BIN/aarch64-linux-android-clang++" && break
+  done
+  for v in "$BIN"/armv7a-linux-androideabi??-clang; do
+    [ -e "$v" ] && ln -sf "$(basename "$v")" "$BIN/armv7a-linux-androideabi-clang" && break
+  done
+  for v in "$BIN"/armv7a-linux-androideabi??-clang++; do
+    [ -e "$v" ] && ln -sf "$(basename "$v")" "$BIN/armv7a-linux-androideabi-clang++" && break
+  done
   rm "$T/dl/android-ndk-r30-linux.zip"
 fi
 echo "toolchain ready in $T"

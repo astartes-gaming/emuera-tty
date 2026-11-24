@@ -601,7 +601,7 @@ fn out_of_range(dim: usize, i: i64) -> String {
 pub fn index_error(name: &str, e: &str, chara: bool) -> String {
     let mut parts = e.split(OUT_OF_RANGE).skip(1);
     match (parts.next().and_then(|d| d.parse::<usize>().ok()), parts.next()) {
-        (Some(d), Some(i)) if chara => crate::em!(
+        (Some(d), Some(i)) if chara => em!(
             "Error.OoRCharaVarArg",
             "キャラクタ配列変数\"{0}\"の第{1}引数({2})はキャラ登録番号または配列の範囲外です",
             "argument {1} ({2}) of the character array \"{0}\" is outside the characters or the array",
@@ -609,7 +609,7 @@ pub fn index_error(name: &str, e: &str, chara: bool) -> String {
             d + 2,
             i
         ),
-        (Some(d), Some(i)) => crate::em!(
+        (Some(d), Some(i)) => em!(
             "Error.OoRVarArg",
             "配列変数\"{0}\"の第{1}引数({2})は配列の範囲外です",
             "argument {1} ({2}) of the array \"{0}\" is outside the array",

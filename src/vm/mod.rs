@@ -1305,7 +1305,7 @@ impl Vm {
             // TARGET's, see doc/settings-parity.md)
             // (an array: a character variable without one takes any index
             // given as the character)
-            return err(crate::em!(
+            return err(em!(
                 "Error.CanNotOmit1DCharaVarArg2",
                 "キャラクタ配列変数\"{0}\"の引数は省略できません(コンフィグにより禁止が選択されています)",
                 "the character array \"{0}\" needs its character argument (the game's settings don't allow leaving it out)",
@@ -1440,11 +1440,11 @@ impl Vm {
             }
             "RAND" => {
                 if v.idx.is_empty() {
-                    return err(crate::em!("Error.OmittedRandArg", "RANDの引数が省略されています", "RAND needs an argument"));
+                    return err(em!("Error.OmittedRandArg", "RANDの引数が省略されています", "RAND needs an argument"));
                 }
                 let n = i0(self)?;
                 if n <= 0 {
-                    return err(crate::em!(
+                    return err(em!(
                         "Error.RandArgIsNegative",
                         "RANDの引数に0以下の値({0})が指定されました",
                         "RAND was given a value of 0 or less ({0})",
@@ -2032,7 +2032,7 @@ impl Vm {
                 Some(v) if !matches!(&*p.target.name, "WINDOW_TITLE" | "DRAWLINESTR" | "SAVEDATA_TEXT") => {
                     let r = self.locate(&p.target).and_then(|place| {
                         let v = match (self.place_is_str(&place), v) {
-                            (false, Value::Str(_)) => return err(crate::em!(
+                            (false, Value::Str(_)) => return err(em!(
                                     "Error.CanNotConvertStrToInt",
                                     "\"@{0}\"の{1}番目の引数を文字列型から整数型に変換できません",
                                     "argument {1} of \"@{0}\" can't be turned from text into a number",
