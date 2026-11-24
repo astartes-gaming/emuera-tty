@@ -237,10 +237,12 @@ jobs:
       - name: Install nightly with the standard library's source
         run: rustup toolchain install nightly --profile minimal --component rust-src
 
-      - name: Install Android NDK (for android targets)
+      - name: Install Android SDK (for android targets)
         uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
+
+      - name: Install the NDK
         run: sdkmanager --install "ndk;21.3.6528147"
 
       - uses: Swatinem/rust-cache@v2
