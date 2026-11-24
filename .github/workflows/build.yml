@@ -61,8 +61,8 @@ jobs:
           key: android
       - name: Check the engine library
         run: |
-          cargo +nightly ndk check -Z build-std=core --release --lib --target aarch64-linux-android
-          cargo +nightly ndk check -Z build-std=core --release --lib --target armv7-linux-androideabi
+          cargo +nightly ndk check -Zbuild-std --release --lib --target aarch64-linux-android
+          cargo +nightly ndk check -Zbuild-std --release --lib --target armv7-linux-androideabi
       - name: Paths test
         working-directory: android
         run: |
