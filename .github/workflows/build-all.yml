@@ -244,15 +244,26 @@ jobs:
 
   android-apk:
     needs: plan
-    if: ${{ needs.plan.outputs.has_attempts == 'true' && contains(fromJSON(needs.plan.outputs.attempts).include[].name, 'android-apk') }}
+    if: ${{ needs.plan.outputs.has_attempts == 'true' && contains(fromJSON(needs.plan.outputs.attempts).include.name, 'android-apk') }}
     name: Android APK
     runs-on: ubuntu-26.04
+    env:
+      KOTLIN_VERSION: "2.0.21"
     steps:
       - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip openjdk-21-jdk-headless kotlin
+          sudo apt-get install -y unzip openjdk-21-jdk-headless
+      - name: Install Kotlin ${{ env.KOTLIN_VERSION }}
+        run: |
+          cd /tmp
+          curl -L -o kotlin.zip "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+          unzip -q kotlin.zip
+          sudo mv kotlinc /opt/kotlinc
+          sudo ln -sf /opt/kotlinc/bin/kotlinc /usr/local/bin/kotlinc
+          sudo ln -sf /opt/kotlinc/bin/kotlin /usr/local/bin/kotlin
+          kotlinc -version
       - uses: Swatinem/rust-cache@v2
         with:
           key: android-apk
