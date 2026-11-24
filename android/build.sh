@@ -51,6 +51,9 @@ build_lib() {
   # cc-rs needs CC_<target> or CC env var to find the C compiler for building sqlite
   export "CC_${env_target}=$clang"
   export "CC=$clang"
+  # cc-rs needs AR_<target> or AR env var for the archiver
+  export "AR_${env_target}=$NDK_BIN/${clang_target}-ar"
+  export "AR=$NDK_BIN/${clang_target}-ar"
   (cd "$E" && CARGO_TARGET_DIR="$B/target" cargo +stable rustc --lib --crate-type cdylib --profile "$PROFILE" --target "$target" 2>&1)
   local so="$B/target/$target/$PROFILE/libemuera.so"
   [ -f "$so" ] || { echo "no library for $abi" >&2; exit 1; }
