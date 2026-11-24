@@ -1381,6 +1381,9 @@ mod tests {
 
     #[test]
     fn export_cache() {
+        if cfg!(windows) {
+            return; // tr command not available on Windows
+        }
         let dir = std::env::temp_dir().join(format!("emuera-tty-mtexport-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("export.tsv");

@@ -172,6 +172,10 @@ jobs:
       - name: Add the target
         run: rustup target add ${{ matrix.target }}
 
+      - name: Install musl-tools (for musl targets)
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
@@ -210,6 +214,13 @@ jobs:
 
       - name: Install nightly with the standard library's source
         run: rustup toolchain install nightly --profile minimal --component rust-src
+
+      - name: Install Android NDK (for android targets)
+        if: matrix.target == 'aarch64-linux-android'
+        uses: android-actions/setup-android@v3
+        with:
+          ndk-version: r27c
+          api-level: 24
 
       - uses: Swatinem/rust-cache@v2
         with:

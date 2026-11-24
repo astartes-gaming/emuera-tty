@@ -321,6 +321,34 @@ Real games used for testing are big eraTW variants (AnonTW: ~3,500 files,
 - Don't use `pkill -f` / `pgrep -f` with a pattern: it matches the shell
   running it. Track PIDs.
 
+## Windows compatibility for tests
+
+Tests run on Windows (locally or in CI via Wine on `x86_64-pc-windows-gnu`).
+Tests **must** account for these differences:
+
+- **Path separators**: Windows uses `\`, Unix uses `/`. Any test that
+  asserts on file paths in output (warnings, errors, logs) must accept
+  **both**. Use `contains(want) || contains(want_alt)` where
+  `want_alt = want.replace('/', '\\')`. See `tests/debug_tools.rs:
+  emuera_messages_follow_the_language_setting` for the pattern.
+
+- **External commands**: Availability varies — a local user may have some
+  (`curl`, `mpv`, `ffplay`), another all, CI runners typically none.
+  Don't assume any exist. Skip translation/audio tests with
+  `if cfg!(windows) { return; }` (unit) or `#[cfg(not(windows))]`
+  (integration). Use `which("cmd")` / `Command::new("cmd").arg("/C").arg("where").arg("cmd")`
+  to probe at runtime if needed.
+
+- **Line endings**: Windows uses `\r\n`. When comparing multi-line output,
+  normalize with `.replace("\r\n", "\n")` or use `contains` on the
+  essential content.
+
+- **Console features**: No ANSI colours, no mouse, no kitty/iTerm/sixel
+  graphics. The TUI falls back to basic output; headless mode works.
+
+- **Temp dirs**: `std::env::temp_dir()` returns paths like
+  `C:\Users\RUNNER~1\AppData\Local\Temp\...` — no assumptions on format.
+
 Tools in `tools/` (Python 3; the screen-reading ones need `python3-pyte`):
 
 - `tools/game_smoke.sh GAME_DIR [STEPS] [SEED]`: random play of a real
