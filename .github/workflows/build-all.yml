@@ -101,8 +101,7 @@ jobs:
             { "name": "solaris", "group": "systems", "target": "x86_64-pc-solaris" },
             { "name": "haiku", "group": "systems", "target": "x86_64-unknown-haiku" },
             { "name": "redox", "group": "systems", "target": "x86_64-unknown-redox" },
-            { "name": "android-termux-aarch64", "group": "systems", "target": "aarch64-linux-android" },
-            { "name": "android-termux-armv7", "group": "systems", "target": "armv7-linux-androideabi" },
+            { "name": "android-termux", "group": "systems", "target": "aarch64-linux-android" },
             { "name": "riscv32", "group": "cpus", "target": "riscv32gc-unknown-linux-gnu" },
             { "name": "powerpc32", "group": "cpus", "target": "powerpc-unknown-linux-gnu" },
             { "name": "s390x", "group": "cpus", "target": "s390x-unknown-linux-gnu" },
@@ -202,7 +201,6 @@ jobs:
   # to link against here, and most of these have no prebuilt standard library,
   # so it is built from source (nightly, `-Z build-std`). Many will fail at
   # the link step; the rest produce a binary.
-  # Android targets use cargo-ndk instead (they have prebuilt std via NDK).
   attempt:
     needs: plan
     if: ${{ needs.plan.outputs.has_attempts == 'true' }}
@@ -215,32 +213,21 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install nightly with the standard library's source
-        if: matrix.target != 'aarch64-linux-android' && matrix.target != 'armv7-linux-androideabi'
         run: rustup toolchain install nightly --profile minimal --component rust-src
 
-      - name: Install Android SDK (for android targets)
-        if: matrix.target == 'aarch64-linux-android' || matrix.target == 'armv7-linux-androideabi'
-        uses: android-actions/setup-android@v4
+      - name: Install Android NDK (for android targets)
+        if: matrix.target == 'aarch64-linux-android'
+        uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools
-
-      - name: Install the NDK and cargo-ndk
-        if: matrix.target == 'aarch64-linux-android' || matrix.target == 'armv7-linux-androideabi'
-        run: |
-          sdkmanager --install "ndk;21.3.6528147"
-          cargo +nightly install cargo-ndk
+          ndk-version: r27c
+          api-level: 24
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: attempt-${{ matrix.target }}
 
-      - name: Build (non-Android)
-        if: matrix.target != 'aarch64-linux-android' && matrix.target != 'armv7-linux-androideabi'
+      - name: Build
         run: cargo +nightly build --release -Z build-std=std,panic_abort --target ${{ matrix.target }}
-
-      - name: Build (Android)
-        if: matrix.target == 'aarch64-linux-android' || matrix.target == 'armv7-linux-androideabi'
-        run: cargo +nightly ndk build --release --target ${{ matrix.target }}
 
       - name: Collect the binary
         run: |
