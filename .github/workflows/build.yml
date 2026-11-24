@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:      KOTLIN_VERSION: "2.4.21"
+        include:
           # dynamically linked against glibc: for ordinary amd64 desktops and servers
           # (a pinned Ubuntu, not ubuntu-latest: the glibc it needs, 2.39, only
           # changes when we choose)
