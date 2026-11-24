@@ -39,7 +39,7 @@ private const val MAX_ROWS = 8000
 class Run(
     @JvmField val col: Int, @JvmField val cells: Int, @JvmField val dy: Int, @JvmField val kind: Byte, @JvmField val flags: Int,
     @JvmField val fg: Int, @JvmField val bg: Int, @JvmField val btn: String?, @JvmField val text: String?,
-    @JvmField val key: Int, @JvmField val w: Float, @JvmField val h: Float, @JvmField val ypos: Float,
+    @JvmField val key: Int, @JvmField val w: Float, @JvmField val h: Float, @JvmField val ypos: Float
 )
 
 class Row(@JvmField val runs: Array<Run>, @JvmField val gen: Long)

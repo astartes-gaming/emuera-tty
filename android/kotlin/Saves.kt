@@ -69,7 +69,7 @@ class Saves(private val a: Activity) {
             a.startActivityForResult(
                 Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream")
                     .putExtra(Intent.EXTRA_TITLE, File(s.path).name),
-                EXPORT,
+                EXPORT
             )
         }
         rows += "Delete" to {

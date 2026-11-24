@@ -27,6 +27,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
+import kotlin.text.lowercase
+
 private const val PICK_ARCHIVE = 1
 private const val PICK_FOLDER = 2
 

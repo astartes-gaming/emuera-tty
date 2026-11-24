@@ -267,7 +267,7 @@ class GameActivity : Activity() {
             "Manage saves…" to { saves.show() },
             "Back to the title" to { losing("Back to the title screen?", "Back to the title") { Native.toTitle() } },
             "Restart the game" to { losing("Restart the game?", "Restart") { restart() } },
-            "Reload ERB files" to { Native.reloadErb() },
+            "Reload ERB files" to { Native.reloadErb() }
         )
         AlertDialog.Builder(this)
             .setItems(rows.map { it.first }.toTypedArray()) { _, i -> rows[i].second() }
