@@ -248,7 +248,7 @@ jobs:
     name: Android APK
     runs-on: ubuntu-26.04
     env:
-      KOTLIN_VERSION: "2.0.21"
+      KOTLIN_VERSION: "2.4.21"
     steps:
       - uses: actions/checkout@v7
       - name: Install dependencies
