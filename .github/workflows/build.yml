@@ -47,9 +47,10 @@ jobs:
       - name: Add the targets
         run: rustup target add aarch64-linux-android armv7-linux-androideabi
       - name: Install Android NDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
-          packages: platform-tools "ndk;21.3.6528147"
+          packages: platform-tools
+        run: sdkmanager --install "ndk;21.3.6528147"
       - uses: Swatinem/rust-cache@v2
         with:
           key: android
