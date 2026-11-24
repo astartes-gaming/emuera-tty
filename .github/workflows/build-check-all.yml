@@ -240,7 +240,7 @@ jobs:
       - name: Install Android NDK (for android targets)
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools ndk cmake
+          packages: platform-tools "ndk;21.3.6528147"
 
       - uses: Swatinem/rust-cache@v2
         with:
