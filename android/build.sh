@@ -61,6 +61,7 @@ build_lib() {
   cp "$so" "$B/apk/lib/$abi/libemuera.so"
 }
 rm -rf "$B/apk"; mkdir -p "$B/apk"
+echo "[ANDROID] building libraries"
 for abi in $ABIS; do
   case $abi in
     arm64-v8a) build_lib "$abi" aarch64-linux-android aarch64-linux-android aarch64 aarch64-linux-android ;;
@@ -69,18 +70,23 @@ for abi in $ABIS; do
 done
 
 # --- the manifest
+echo "[ANDROID] writing manifest"
 rustup run stable rustc --edition 2021 -O -A warnings -o "$B/mkmanifest" "$A/tools/mkmanifest.rs"
 "$B/mkmanifest" "$B/apk/AndroidManifest.xml" "$PACKAGE" 1 0.1 "$MIN_SDK" "$TARGET_SDK" "$PACKAGE.MainActivity" "Emuera-Android"
 
 # --- the Kotlin UI
+echo "[ANDROID] building app (L1, vars)"
 KOTLINC=$(command -v kotlinc)
 STDLIB=$(dirname "$(dirname "$(readlink -f "$KOTLINC")")")/lib/kotlin-stdlib.jar
 # alt fallback
-[ -f $STDLIB ] || { STDLIB=$(dirname "$(dirname "$(readlink -f "$KOTLINC")")")/share/kotlin/lib/kotlin-stdlib.jar; }
+echo "[ANDROID] building app (L2, vars)"
+[ -f $STDLIB ] || { echo "first STDLIB not valid, using alt"; STDLIB=$(dirname "$(dirname "$(readlink -f "$KOTLINC")")")/share/kotlin/lib/kotlin-stdlib.jar; }
 rm -rf "$B/classes"
+echo "[ANDROID] building app (L3, compile)"
 kotlinc -no-reflect -nowarn -jvm-target 1.8 -cp "$ANDROID_JAR" -d "$B/classes" "$A"/kotlin/*.kt
 find "$B/classes" -name '*.class' > "$B/classes.txt"
 # (kept quiet: this d8 prints a long harmless warning per class about the newer Kotlin's metadata)
+echo "[ANDROID] building app (L4, d8)"
 java -cp "$R8" com.android.tools.r8.D8 --release --min-api "$MIN_SDK" --lib "$ANDROID_JAR" --output "$B/apk" @"$B/classes.txt" "$STDLIB" >"$B/d8.log" 2>&1 \
   || { tail -30 "$B/d8.log" >&2; exit 1; }
 
@@ -89,14 +95,18 @@ UNSIGNED=$B/unsigned.apk
 rm -f "$UNSIGNED"
 (cd "$B/apk" && zip -q -X -r "$UNSIGNED" AndroidManifest.xml classes*.dex lib)
 APKSIGNER=$T/sdk/build-tools/36.1.0/apksigner
+echo "[ANDROID] building app (L5, signing)"
 if [ -n "${KEYSTORE:-}" ]; then
+  echo "[ANDROID] signing with release key"
   # A release key: apksigner asks for its password, so it never lands in the shell history
   "$APKSIGNER" sign --ks "$KEYSTORE" --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
 else
+  echo "[ANDROID] signing with debug key"
   KEY=$T/debug.keystore
   [ -f "$KEY" ] || keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=emuera-tty debug" >/dev/null 2>&1
   "$APKSIGNER" sign --ks "$KEY" --ks-pass pass:android --key-pass pass:android --min-sdk-version "$MIN_SDK" --out "$B/erb-player.apk" "$UNSIGNED"
 fi
 rm -f "$B/erb-player.apk.idsig"
+echo "[ANDROID] building app (L6, finalization/verification)"
 "$APKSIGNER" verify "$B/erb-player.apk"
 ls -la "$B/erb-player.apk" | awk '{print "built", $NF, int($5/1048576) " MB"}'
