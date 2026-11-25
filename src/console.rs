@@ -157,6 +157,7 @@ pub struct Line {
     /// is wrapped at this width for good, so resizing the window later
     /// clips it instead of re-wrapping (which would break up ASCII maps).
     pub cols: usize,
+
     /// printed by a character's dialogue (kojo) code (see `mt::is_dialog`)
     pub kojo: bool,
     /// the script line that printed it, (file index + 1) << 32 | line; 0
@@ -165,6 +166,41 @@ pub struct Line {
     /// how many waits and inputs came before it: the lines one click shows
     /// share it (translation batches)
     pub wait: u32,
+}
+
+/// Emuera's "ボタンの途中で行を折りかえさない": a button that doesn't fit the rest of the row
+/// starts the next one whole (its pieces in other colours count with it).
+/// (ver1739以前の非ボタン折り返しを再現する: other text too, a piece at a time)
+/// `width` gives the width of a text in cells, as the frontend counts them.
+pub fn whole_text_width(line: &Line, si: usize, button: Option<&Value>, plain: bool, width: impl Fn(&str) -> i32) -> i32 {
+    let mut w = 0;
+    let run = if plain { &line.segs[si..=si] } else { &line.segs[si..] };
+    for seg in run {
+        match seg {
+            Seg::Text { text, button: b, .. } if b.as_ref() == button => w += width(text),
+            _ => break,
+        }
+    }
+    w
+}
+
+/// Whether the row breaks before the text at `si`, to keep it whole.
+pub fn breaks_before_whole(line: &Line, si: usize, col: i32, wrap: i32, button_wrap: bool, wrap_1739: bool, width: impl Fn(&str) -> i32) -> bool {
+    if !button_wrap || col <= 0 {
+        return false;
+    }
+    let Some(Seg::Text { button, .. }) = line.segs.get(si) else {
+        return false;
+    };
+    // a button that continues the piece before it isn't starting here
+    let starts_button = button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
+    let plain = wrap_1739 && button.is_none();
+    if !starts_button && !plain {
+        return false;
+    }
+    let w = whole_text_width(line, si, button.as_ref(), plain, &width);
+    // (a button wider than a whole row can't be kept whole: it is split as before)
+    col + w > wrap && w <= wrap
 }
 
 /// The debug panel's contents (Emuera's DebugDialog): the VM fills them in,
@@ -1008,6 +1044,64 @@ fn split_buttons(s: &str) -> Vec<(usize, Option<i64>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A button that doesn't fit the rest of the row starts the next one whole.
+    fn style() -> Style {
+        Style { fg: Rgb(255, 255, 255), bg: None, bold: false, italic: false, underline: false, strike: false }
+    }
+
+    fn text_seg(t: &str) -> Seg {
+        Seg::Text { text: t.to_string(), style: style(), button: None, auto: false }
+    }
+
+    fn button_seg(t: &str, v: &str) -> Seg {
+        Seg::Text { text: t.to_string(), style: style(), button: Some(Value::Str(v.to_string())), auto: false }
+    }
+
+    fn test_line(segs: Vec<Seg>) -> Line {
+        Line { segs, align: Align::Left, gen: 0, temporary: false, cols: 20, kojo: false, src: 0, wait: 0 }
+    }
+
+    /// The width of a text in cells, as the frontends count them.
+    fn cells(t: &str) -> i32 {
+        t.chars().map(|c| if c.is_ascii() { 1 } else { 2 }).sum()
+    }
+
+    /// A button that doesn't fit the rest of the row starts the next one whole.
+    #[test]
+    fn a_button_is_not_split_across_rows() {
+        let l = test_line(vec![text_seg("0123456789ABCDEF"), button_seg("xyzwv", "b")]);
+        // (16 cells used, the button is 5: it doesn't fit, but it fits in a row of its own)
+        assert!(breaks_before_whole(&l, 1, 16, 20, true, false, cells));
+        // (without the setting, the button is split as before)
+        assert!(!breaks_before_whole(&l, 1, 16, 20, false, false, cells));
+        // (it fits where it is: nothing moves)
+        assert!(!breaks_before_whole(&l, 1, 10, 20, true, false, cells));
+    }
+
+    /// The pieces of a button in other colours count with it.
+    #[test]
+    fn the_pieces_of_a_button_count_with_it() {
+        let l = test_line(vec![text_seg("0123456789ABCDEF"), button_seg("x", "b"), button_seg("yzwv", "b")]);
+        assert!(breaks_before_whole(&l, 1, 16, 20, true, false, cells));
+        // (the second piece is not a start: the button already began)
+        assert!(!breaks_before_whole(&l, 2, 17, 20, true, false, cells));
+    }
+
+    /// A button wider than a whole row can't be kept whole: it is split.
+    #[test]
+    fn a_button_wider_than_a_row_is_split() {
+        let l = test_line(vec![text_seg("0123"), button_seg("abcdefghijklmnopqrstuvwxyz", "b")]);
+        assert!(!breaks_before_whole(&l, 1, 4, 20, true, false, cells));
+    }
+
+    /// ver1739以前の非ボタン折り返しを再現する: other text is kept whole too.
+    #[test]
+    fn plain_text_is_kept_whole_too() {
+        let l = test_line(vec![text_seg("0123456789ABCDEF"), text_seg("xyzwv")]);
+        assert!(!breaks_before_whole(&l, 1, 16, 20, true, false, cells));
+        assert!(breaks_before_whole(&l, 1, 16, 20, true, true, cells));
+    }
 
     /// (text, value) of each part `split_buttons` makes of `s`.
     fn parts(s: &str) -> Vec<(&str, Option<i64>)> {

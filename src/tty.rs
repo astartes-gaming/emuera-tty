@@ -2275,32 +2275,18 @@ impl Tty {
                     // Emuera's "ボタンの途中で行を折りかえさない": a button that
                     // doesn't fit the rest of the row starts the next one
                     // whole (its pieces in other colours count with it)
-                    let starts_button =
-                        button.is_some() && !matches!(si.checked_sub(1).and_then(|p| line.segs.get(p)), Some(Seg::Text { button: b, .. }) if b == button);
                     // (ver1739以前の非ボタン折り返しを再現する: other text too, a
                     // piece at a time)
-                    let plain = self.wrap_1739 && button.is_none();
-                    if self.button_wrap && (starts_button || plain) && col > 0 {
-                        let mut w = 0;
-                        let run = if plain { &line.segs[si..=si] } else { &line.segs[si..] };
-                        for s2 in run {
-                            match s2 {
-                                Seg::Text { text: t2, button: b2, .. } if b2 == button => {
-                                    w += letter_widths(t2, self.letters)
-                                        .map(|(c, wl)| {
-                                            let (tw, extra, _) =
-                                                if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), wl) };
-                                            tw + extra
-                                        })
-                                        .sum::<usize>();
-                                }
-                                _ => break,
-                            }
-                        }
-                        if col + w > width && w <= width {
-                            rows.push(DRow::default());
-                            col = 0;
-                        }
+                    if crate::console::breaks_before_whole(line, si, col as i32, width as i32, self.button_wrap, self.wrap_1739, |t| {
+                        letter_widths(t, self.letters)
+                            .map(|(c, wl)| {
+                                let (tw, extra, _) = if c == '\t' { (4, 0, ' ') } else { char_cells(c, self.ambi, self.widths.get(&c).copied(), wl) };
+                                tw + extra
+                            })
+                            .sum::<usize>() as i32
+                    }) {
+                        rows.push(DRow::default());
+                        col = 0;
                     }
                     let bid = push_btn(button, &mut self.buttons);
                     // the cell (in the last row) a combining mark belongs to:

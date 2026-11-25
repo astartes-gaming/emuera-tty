@@ -31,6 +31,7 @@ import kotlin.text.lowercase
 
 private const val PICK_ARCHIVE = 1
 private const val PICK_FOLDER = 2
+private const val PICK_FONT = 3
 
 /** The game list, and importing games through the system's file picker (no storage permission needed). */
 class MainActivity : Activity() {
@@ -40,6 +41,8 @@ class MainActivity : Activity() {
     private lateinit var importButtons: List<Button>
     private val games by lazy { File(filesDir, "games").apply { mkdirs() } }
     private var importing = false
+    /** Game directory for the font picker. */
+    private var fontGameDir: File? = null
 
     private fun gameIntent() = Intent(this, GameActivity::class.java).putExtra("tablet", resources.configuration.smallestScreenWidthDp >= 600)
 
@@ -150,10 +153,13 @@ class MainActivity : Activity() {
             })
         }
         for (name in names) {
+            val gameDir = File(games, name)
             list.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                addView(iconButton("⚙", "Settings for $name") { showGameSettings(File(games, name)) {} })
+                addView(iconButton("⚙", "Settings for $name") { showGameSettings(gameDir) {} })
+                addView(iconButton("𝑓", "Font for $name") { pickFont(gameDir) })
+                addView(iconButton("𝑓✕", "Unset font for $name") { unsetFont(gameDir) })
                 addView(Button(context).apply {
                     text = name
                     isAllCaps = false
@@ -225,6 +231,24 @@ class MainActivity : Activity() {
         startActivityForResult(startAt(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)), PICK_FOLDER)
     }
 
+    private fun pickFont(gameDir: File) {
+        fontGameDir = gameDir
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+        i.setType("font/*")
+        i.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/vnd.ms-opentype"))
+        startActivityForResult(startAt(i), PICK_FONT)
+    }
+
+    private fun unsetFont(gameDir: File) {
+        val ttf = File(gameDir, "custom.ttf")
+        val otf = File(gameDir, "custom.otf")
+        var deleted = false
+        if (ttf.exists()) { ttf.delete(); deleted = true }
+        if (otf.exists()) { otf.delete(); deleted = true }
+        status.text = if (deleted) "Font unset for ${gameDir.name}" else "No custom font set for ${gameDir.name}"
+        refresh()
+    }
+
     /** `--es initial_uri`: where the picker opens, for testing. */
     private fun startAt(i: Intent): Intent {
         intent.getStringExtra("initial_uri")?.let { i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(it)) }
@@ -249,6 +273,28 @@ class MainActivity : Activity() {
             PICK_FOLDER -> {
                 val folder = uri.lastPathSegment?.substringAfterLast(':')?.substringAfterLast('/')?.ifBlank { null } ?: "game"
                 confirmThenImport(folder) { tmp -> importFolder(uri, tmp) }
+            }
+            PICK_FONT -> {
+                val gameDir = fontGameDir ?: return
+                fontGameDir = null
+                // Copy the font file to the game's directory
+                val fontName = displayName(uri) ?: "font.ttf"
+                val ext = when {
+                    fontName.lowercase().endsWith(".ttf") -> ".ttf"
+                    fontName.lowercase().endsWith(".otf") -> ".otf"
+                    else -> ".ttf"
+                }
+                val destName = "custom$ext"
+                val destFile = File(gameDir, destName)
+                try {
+                    contentResolver.openInputStream(uri).use { input ->
+                        input?.let { destFile.outputStream().use { output -> it.copyTo(output) } }
+                    }
+                    status.text = "Font set for ${gameDir.name}"
+                    refresh()
+                } catch (e: Exception) {
+                    status.text = "Failed to set font: ${e.message}"
+                }
             }
         }
     }

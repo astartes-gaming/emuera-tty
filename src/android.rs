@@ -452,9 +452,14 @@ impl AndroidFe {
         let wrap = wrap.max(20);
         let mut rows: Vec<Vec<Run>> = vec![vec![]];
         let mut col = 0i32;
-        for seg in &line.segs {
+        for (si, seg) in line.segs.iter().enumerate() {
             match seg {
                 Seg::Text { text, style, button, .. } => {
+                    // a button that doesn't fit the rest of the row starts the next one whole
+                    if crate::console::breaks_before_whole(line, si, col, wrap, con.button_wrap, con.wrap_1739, |t| t.chars().map(|c| char_class(c).0).sum()) {
+                        rows.push(vec![]);
+                        col = 0;
+                    }
                     let btn = button.as_ref().filter(|v| !is_tip_area(v)).map(|v| v.to_string());
                     let flags = style.bold as u8 | (style.italic as u8) << 1 | (style.underline as u8) << 2 | (style.strike as u8) << 3;
                     let (fg, bg) = (style.fg.to_i64() as i32, style.bg.map_or(-1, |c| c.to_i64() as i32));
@@ -1238,10 +1243,10 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_recoverImpo
 }
 
 /// The settings of emuera-tty's game settings page that do something here: not the clipboard's or the keyboard
-/// macros' (a phone has neither), button wrapping (this frontend's layout doesn't follow it), or the font for text
-/// drawn into pictures (found with fc-match, which Android doesn't have).
+/// macros' (a phone has neither), or the font for text drawn into pictures (found with fc-match, which Android
+/// doesn't have).
 fn android_setting(it: &crate::emuconfig::Item) -> bool {
-    it.tab != "Clipboard" && !matches!(it.jp, "キーボードマクロを使用する" | "ボタンの途中で行を折りかえさない" | "フォント名")
+    it.tab != "Clipboard" && !matches!(it.jp, "キーボードマクロを使用する" | "フォント名")
 }
 
 /// The game's settings for the app's settings dialog, a line each: key, label, tab, kind (bool, int:LOW:HIGH, color),

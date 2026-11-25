@@ -31,13 +31,9 @@ import kotlin.ranges.step
 
 private const val TEXT_SIZE_FILE = "text-size"
 /** As percentages of the size the game's own window width gives. */
-private val TEXT_SIZES: IntArray by lazy {
-    val tmp = mutableListOf<Int>()
-    for(i in 20..300 step 5){
-        tmp.add(i)
-    }
-    tmp.toTypedArray().toIntArray()
-}
+private val TEXT_SIZES = intArrayOf(
+    75, 100, 125, 150, 175, 200, 250, 300
+)
 
 /**
  * A running game, in its own process (":game" in the manifest). The VM can only start once
@@ -91,6 +87,11 @@ class GameActivity : Activity() {
 
         view = GameView(this)
         Native.view = view
+        // Load custom font from game directory (custom.ttf or custom.otf)
+        val customTtf = File(game, "custom.ttf")
+        val customOtf = File(game, "custom.otf")
+        val fontPath = if (customTtf.exists()) customTtf.path else if (customOtf.exists()) customOtf.path else null
+        view.setCustomFont(fontPath)
         view.onResized = {
             if (!started) {
                 started = true
