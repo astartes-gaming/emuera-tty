@@ -540,7 +540,7 @@ impl AndroidFe {
                     col += cells;
                 }
                 Seg::Space { w } => col += (w / cell_px).round() as i32,
-                Seg::Rect { w, h, color, button } => {
+                Seg::Rect { w, h, color, button, y: _ } => {
                     let cells = (w / cell_px).ceil().max(1.0) as i32;
                     let btn = button.as_ref().filter(|v| !is_tip_area(v)).map(|v| v.to_string());
                     rows.last_mut().unwrap().push(Run {
