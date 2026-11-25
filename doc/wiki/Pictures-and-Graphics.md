@@ -7,8 +7,8 @@
 | `TERM=linux` / `fbterm*` (VT) | **fb** | mmaps `/dev/fb0`, alpha-blends sprites onto the console after each frame. Needs read/write access to the device (`video` group). Cell size = fb resolution ÷ cols/rows. |
 | `TERM_PROGRAM=iTerm.app` / `WezTerm`, `LC_TERMINAL=iTerm2` | **iterm** | PNG per sprite in `OSC 1337 File=`, sized in whole cells (padded, so never stretched), cached. |
 | kitty graphics reply `_Gi=31;OK` | **kitty** | PNG (`f=100`, fast compression) transmitted once per sprite+size (not zlib'd RGBA, `o=z`: Ghostty 1.3's inflater crashes the terminal on some streams), `a=p` placements (a replaced picture is placed before the old one is taken off), source-rect crop at the screen edge. |
-| inside tmux with `allow-passthrough on`, and a kitty graphics reply, `GHOSTTY_RESOURCES_DIR` / `KITTY_WINDOW_ID`, or a tmux client in Ghostty or kitty (`#{client_termname}`) | **kitty-tmux** | the same through tmux's passthrough, placed with kitty's Unicode placeholders (U+10EEEE, the image id as the 256-colour foreground, row/column diacritics), which tmux handles as text. |
-| DA1 reply contains `4` | **sixel** | median-cut 255-colour quantiser, transparent background, cached per sprite. |
+| inside tmux with `allow-passthrough on`, and a kitty graphics reply, `GHOSTTY_RESOURCES_DIR` / `KITTY_WINDOW_ID`, or a tmux client in Ghostty or kitty (`#{client_termname}`) | **kitty-tmux** | the same through tmux's passthrough, placed with kitty's Unicode placeholders (U+10EEEE, the image id as the 256-colour foreground, row/column diacritics), which tmux handles as text. Placeholder cells carry the background painted under the picture, which shows through its see-through pixels (else the terminal's own did: a gray box around portraits on a game's black). |
+| DA1 reply contains `4` | **sixel** | median-cut 255-colour quantiser, cached per sprite. A picture is laid on the background painted under it (Konsole and others fill a sixel's see-through pixels with the terminal's own background, which showed as a gray box around portraits on a game's black). |
 | otherwise | none | images shown as `░` placeholders of the right size. |
 
 ### KMSCON limitations
@@ -83,9 +83,20 @@ and its text shows the background under it. A thin border (narrower than
 half a character, such as Emuera.NET games' usual 2px) is drawn as a line
 (`┌─┐`, `╭─╮` with rounded corners) in its colour; a thicker one fills its
 cells with that colour. Either takes a whole
-row or column here (a few pixels in Emuera), so a bordered edge that
-falls between two rows goes to the outer one: the frame holds what
-Emuera draws inside it, instead of covering its first or last line.
+row or column here (a few pixels in Emuera). A div's content goes on the
+row and column nearest to where Emuera draws it, and the border on the
+row its edge falls in, or the one just outside the content: a border plus
+half a line of padding takes one row, not two, and a div inside another
+is placed from where Emuera puts the outer one's content, so nested
+frames (eraMegatenP's training screen) don't drift down and right. A div
+at the corner of a framed one shares the frame's border row and column, so
+what it holds (the training screen's portraits) stays on the frame's first
+row and column. A
+bottom border less than half a line under the text of a div without a
+height is drawn as that line's underline in the border's colour, taking
+no row (the training screen's "Dangerous Day" badge, just above the
+trainer's name). In Emuera.NET games a frame grows to hold the divs
+placed inside it, not only its own lines.
 A `<button>` around a div makes what the div shows clickable as that
 button (eraMegatenP's battle slots).
 

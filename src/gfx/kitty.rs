@@ -256,6 +256,14 @@ impl Kitty {
             let opaque = self.opaque.entry(id).or_insert_with(|| opaque_cells(&p.img, cols, rows, cw, ch));
             let first = p.crop_top / ch;
             let last = (p.crop_top + p.crop_h).div_ceil(ch).min(rows);
+            // a placeholder cell's background shows through the picture's
+            // see-through pixels: the one painted there, not whatever colour
+            // the last text left set, nor the terminal's own (a gray box
+            // around eraMegatenP's portraits on its black)
+            let bg = match p.bg {
+                Some([r, g, b]) => format!(";48;2;{};{};{}", r, g, b),
+                None => ";49".to_string(),
+            };
             for r in first..last {
                 let row = p.row + (r - first) as i32;
                 if row < 0 || r as usize >= DIACRITICS.len() {
@@ -268,7 +276,7 @@ impl Kitty {
                         continue;
                     }
                     if at != Some(c) {
-                        let _ = write!(out, "\x1b[{};{}H\x1b[38;5;{}m", row + 1, p.col + 1 + c as i32, id);
+                        let _ = write!(out, "\x1b[{};{}H\x1b[38;5;{}{}m", row + 1, p.col + 1 + c as i32, id, bg);
                     }
                     at = Some(c + 1);
                     let mut b = [0u8; 4];
@@ -277,7 +285,7 @@ impl Kitty {
                     out.extend_from_slice(DIACRITICS[c].encode_utf8(&mut b).as_bytes());
                 }
                 if at.is_some() {
-                    out.extend_from_slice(b"\x1b[39m");
+                    out.extend_from_slice(b"\x1b[39;49m");
                 }
             }
         }
@@ -463,6 +471,7 @@ mod tests {
             crop_top,
             crop_h,
             below: false,
+            bg: None,
         }
     }
 
@@ -498,7 +507,7 @@ mod tests {
         assert!(s.starts_with("\x1bPtmux;\x1b\x1b_Ga=t,f=100,i=1,"), "{:?}", &s[..40]);
         assert!(s.contains("\x1bPtmux;\x1b\x1b_Ga=p,U=1,i=1,p=1,c=2,r=2,q=2\x1b\x1b\\\x1b\\"), "{:?}", s);
         let (p, d) = ('\u{10EEEE}', DIACRITICS);
-        let row = |r: usize, y: usize| format!("\x1b[{};5H\x1b[38;5;1m{p}{}{}{p}{}{}\x1b[39m", y, d[r], d[0], d[r], d[1]);
+        let row = |r: usize, y: usize| format!("\x1b[{};5H\x1b[38;5;1;49m{p}{}{}{p}{}{}\x1b[39;49m", y, d[r], d[0], d[r], d[1]);
         assert!(s.ends_with(&(row(0, 3) + &row(1, 4))), "{:?}", s);
         // the next frame: placeholders again, nothing sent again
         let mut out = Vec::new();
@@ -542,7 +551,21 @@ mod tests {
         k.draw(&mut out, &[p], (10, 16));
         let s = String::from_utf8(out).unwrap();
         assert_eq!(s.matches('\u{10EEEE}').count(), 1, "{:?}", s);
-        assert!(s.ends_with(&format!("\x1b[3;5H\x1b[38;5;1m\u{10EEEE}{}{}\x1b[39m", DIACRITICS[0], DIACRITICS[0])), "{:?}", s);
+        assert!(s.ends_with(&format!("\x1b[3;5H\x1b[38;5;1;49m\u{10EEEE}{}{}\x1b[39;49m", DIACRITICS[0], DIACRITICS[0])), "{:?}", s);
+    }
+
+    /// Placeholder cells carry the background painted under the picture,
+    /// which shows through its see-through pixels (in Ghostty under tmux
+    /// they showed the terminal's own: gray around eraMegatenP's portraits).
+    #[test]
+    fn tmux_placeholders_keep_the_painted_background() {
+        let p = Placement { bg: Some([0, 0, 0]), ..placement(20, 32, 0, 32) };
+        let mut k = Kitty::new_tmux();
+        let mut out = Vec::new();
+        k.draw(&mut out, &[p], (10, 16));
+        let s = String::from_utf8(out).unwrap();
+        assert_eq!(s.matches("\x1b[38;5;1;48;2;0;0;0m").count(), 2, "{:?}", s);
+        assert!(s.ends_with("\x1b[39;49m"), "{:?}", s);
     }
 
     /// A picture replaced by another is placed before the old one goes, and

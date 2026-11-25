@@ -32,6 +32,9 @@ pub struct Placement {
     pub crop_h: u32,
     /// behind the text (a CBG layer with depth > 0), where the terminal can
     pub below: bool,
+    /// the background of the cell it starts on, where one is painted (sixel
+    /// lays the picture on it: see `sixel::on_background`)
+    pub bg: Option<[u8; 3]>,
 }
 
 /// One way of showing images. All hooks default to doing nothing.
@@ -187,6 +190,7 @@ impl Merger {
                 crop_top: 0,
                 crop_h: (y1 - y0) as u32,
                 below: members[0].below,
+                bg: members[0].bg,
             });
         }
         out
@@ -312,7 +316,7 @@ mod merge_tests {
     use super::*;
 
     fn place(key: &str, c: [u8; 4], w: u32, h: u32, col: i32, row: i32, below: bool) -> Placement {
-        Placement { key: key.into(), img: Rc::new(RgbaImage::from_pixel(w, h, image::Rgba(c))), col, row, y_off: 0, crop_top: 0, crop_h: h, below }
+        Placement { key: key.into(), img: Rc::new(RgbaImage::from_pixel(w, h, image::Rgba(c))), col, row, y_off: 0, crop_top: 0, crop_h: h, below, bg: None }
     }
 
     /// A picture past the right edge is cut there; one starting past it

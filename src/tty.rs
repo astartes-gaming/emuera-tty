@@ -240,7 +240,7 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
     for r in 0..height {
         let mut row = DRow::default();
         let top = r == 0 && deco.border[0];
-        if top || (r + 1 == height && deco.border[2]) {
+        if top || (r + 1 == height && deco.border[2] && !deco.inline_bottom) {
             row.cells = border_row(top);
             out.push(row);
             continue;
@@ -288,6 +288,13 @@ fn boxed_div(content: Vec<DRow>, deco: &crate::console::DivBox, cols: usize, row
             row.cells.push(edge.clone());
         }
         out.push(row);
+    }
+    // a bottom border without a row of its own: the last row's underline
+    if deco.border[2] && deco.inline_bottom {
+        if let Some(last) = out.last_mut() {
+            let colour = deco.bcolor.unwrap_or(Rgb(255, 255, 255));
+            last.cells.iter_mut().for_each(|c| c.under = Some(colour));
+        }
     }
     // rounded corners: a quarter block in the corner cell's colour
     if height > 1 && cols > 1 {
@@ -453,10 +460,6 @@ fn see_through(cell: &Cell) -> bool {
     cell.ch == ' ' && cell.style.bg.is_none() && cell.marks.is_none()
 }
 
-/// The characters a rectangle's band is drawn with when it is thinner than
-/// a row (see [`rect_glyph`]).
-const THIN_RECT_GLYPHS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '▀', '▔', '━', '─'];
-
 /// The character a `<shape type='rect'>` / PRINT_RECT is drawn with in one
 /// row, from the band it covers: `top` and `height` as fractions of the
 /// row (Emuera's line height). Nearly full height is a full block; a band
@@ -510,7 +513,9 @@ fn paint_div_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
         // a full block is its colour all over: what's on it has that background
         let bg = if c.ch == '█' && c.style.bg.is_none() { Some(c.style.fg) } else { c.style.bg };
         below_bg.extend(std::iter::repeat_n(bg, n));
-        let bar = THIN_RECT_GLYPHS.contains(&c.ch).then_some(c.style.fg).or(c.under);
+        // (only a bar along the bottom: `─` / `━` are also box borders, and
+        // text printed over a frame's border isn't underlined)
+        let bar = ('▁'..='▇').contains(&c.ch).then_some(c.style.fg).or(c.under);
         below_bar.extend(std::iter::repeat_n(bar, n));
     }
     let mut run: Vec<Cell> = Vec::new();
@@ -534,7 +539,7 @@ fn paint_div_cells(row: &mut DRow, col: usize, cells: Vec<Cell>) {
             }
             // a letter over a thin gauge: Emuera shows both, the letter
             // above the bar; here the bar becomes the letter's underline
-            if cell.under.is_none() && !cell.ch.is_whitespace() {
+            if cell.under.is_none() && !cell.ch.is_whitespace() && !('\u{2500}'..='\u{259F}').contains(&cell.ch) {
                 cell.under = below_bar.get(at).copied().flatten();
             }
             run.push(cell);
@@ -2476,6 +2481,17 @@ impl Tty {
     /// Emit the SGR sequence for a style in the terminal's colour mode.
     /// The background is the text's own, else the window's (SETBGCOLOR);
     /// the foreground is made readable against it (see `contrast`).
+    /// The background painted at this frame's screen `row`, `col` (as `sgr`
+    /// sends it), or `None` where the terminal's own shows.
+    fn bg_at(&self, row: i32, col: usize) -> Option<[u8; 3]> {
+        let cell_bg = usize::try_from(row)
+            .ok()
+            .and_then(|r| self.frame.get(r))
+            .and_then(|cells| cells.iter().find(|(c, cell, _)| *c <= col && col < c + (cell.w as usize).max(1)))
+            .and_then(|(_, cell, _)| cell.style.bg);
+        cell_bg.map(|c| self.recolored(c)).or(self.screen_bg).map(|c| [c.0, c.1, c.2])
+    }
+
     fn sgr(&self, out: &mut Vec<u8>, st: &Style, fg_override: Option<Rgb>) {
         let bg = st.bg.map(|c| self.recolored(c)).or(self.screen_bg);
         // where the game sets no background, the terminal's shows: the game
@@ -2872,6 +2888,7 @@ impl Tty {
                     crop_top,
                     crop_h,
                     below: false,
+                    bg: self.bg_at(top / ch, col as usize),
                 });
             }
         }
@@ -3141,6 +3158,7 @@ impl Tty {
                 crop_top,
                 crop_h,
                 below: l.z > 0 && self.screen_bg.is_none(),
+                bg: self.screen_bg.map(|c| [c.0, c.1, c.2]),
             });
         }
         out
@@ -4965,6 +4983,17 @@ mod colour_tests {
         let mut r = bar('█');
         paint_div_cells(&mut r, 1, row("1").cells);
         assert_eq!((r.cells[1].ch, r.cells[1].style.bg, r.cells[1].under), ('1', Some(red), None));
+        // a box border isn't a gauge: text over a frame's `─` isn't
+        // underlined, nor is a border drawn over another (the TURN box's
+        // bottom under the frames' top in eraMegatenP's training screen)
+        let mut r = bar('─');
+        paint_div_cells(&mut r, 1, row("1").cells);
+        assert_eq!(r.cells[1].under, None);
+        let mut r = bar('▂');
+        let mut line = bar('─');
+        line.cells.truncate(1);
+        paint_div_cells(&mut r, 1, line.cells);
+        assert_eq!((r.cells[1].ch, r.cells[1].under), ('─', None));
     }
 
     #[test]
@@ -5015,6 +5044,12 @@ mod colour_tests {
         let rows = boxed(&deco);
         assert_eq!(rows.iter().map(text).collect::<Vec<_>>(), ["    ", " ab ", "    "]);
         assert!(rows[0].cells.iter().all(|c| c.style.bg == Some(grey)));
+        // a bottom border with no room of its own underlines the last row
+        let deco = crate::console::DivBox { bcolor: Some(grey), border: [true; 4], thin: true, inline_bottom: true, ..Default::default() };
+        let rows = boxed_div(vec![row("ab")], &deco, 4, None);
+        assert_eq!(rows.iter().map(text).collect::<Vec<_>>(), ["┌──┐", "│ab│"]);
+        assert!(rows[1].cells.iter().all(|c| c.under == Some(grey)));
+        assert!(rows[0].cells.iter().all(|c| c.under.is_none()));
     }
 
     #[test]

@@ -413,16 +413,8 @@ impl Vm {
         };
         let margin = to_cells(sides("margin"));
         let border = sides("border");
-        let deco = crate::console::DivBox {
-            bg: attrs.get("color").and_then(|c| color_from_str(c)),
-            bcolor: attrs.get("bcolor").and_then(|c| color_from_str(c.split(',').next().unwrap_or(""))).or(Some(self.con.style.fg)),
-            border: [border[0] > 0.0, border[1] > 0.0, border[2] > 0.0, border[3] > 0.0],
-            pad: to_cells(sides("padding")),
-            // a corner smaller than half a cell wouldn't show
-            round: sides("radius").map(|r| r >= cell_px / 2.0),
-            thin: border.iter().all(|b| *b < cell_px / 2.0),
-        };
-        let ins = deco.insets();
+        let padding = sides("padding");
+        let has_border = [border[0] > 0.0, border[1] > 0.0, border[2] > 0.0, border[3] > 0.0];
         x += margin[3] as f32 * cell_px;
         y += margin[0] as f32 * lh;
         // no width: as wide as its widest line (Emuera.NET's ConsoleDivElement;
@@ -430,17 +422,49 @@ impl Vm {
         let auto_width = w.is_none();
         let screen_px = self.con.width as f32 * cell_px;
         let w = w.unwrap_or(screen_px).max(cell_px) - (margin[1] + margin[3]) as f32 * cell_px;
-        let w = w.max(cell_px * (ins[1] + ins[3] + 1) as f32);
         let h = h.map(|h| (h - (margin[0] + margin[2]) as f32 * lh).max(lh));
+        // border plus padding on each side, in lines / cells
+        let inset = |k: usize, unit: f32| (border[k] + padding[k]) / unit;
+        // a div inside another starts from where Emuera puts the outer
+        // one's content, not from the cell that was rounded to
+        let display = attrs.get("display").map(String::as_str);
+        let frac = if div_place(display, 0, 0).0 == crate::console::DivPlace::Relative { self.con.div_frac } else { (0.0, 0.0) };
+        let (left, top) = (x / cell_px + frac.0, y / lh + frac.1);
+        let room = if div_place(display, 0, 0).0 == crate::console::DivPlace::Relative { self.con.div_room } else { (0, 0) };
+        let across = div_span(left, (!auto_width).then_some(w / cell_px), [inset(3, cell_px), inset(1, cell_px)], [has_border[3], has_border[1]], room.0);
+        let down = div_span(top, h.map(|h| h / lh), [inset(0, lh), inset(2, lh)], [has_border[0], has_border[2]], room.1);
+        // (only the rounding: content pushed past its border keeps what is
+        // inside it there too, not back on the border)
+        let rounding = |v: f32| v.clamp(-0.49, 0.49);
+        let content_frac = (
+            rounding(left + inset(3, cell_px) - (across.first + has_border[3] as i32 + across.pad[0] as i32) as f32),
+            rounding(top + inset(0, lh) - (down.first + has_border[0] as i32 + down.pad[0] as i32) as f32),
+        );
+        let deco = crate::console::DivBox {
+            bg: attrs.get("color").and_then(|c| color_from_str(c)),
+            bcolor: attrs.get("bcolor").and_then(|c| color_from_str(c.split(',').next().unwrap_or(""))).or(Some(self.con.style.fg)),
+            border: has_border,
+            pad: [down.pad[0], across.pad[1], down.pad[1], across.pad[0]],
+            // a corner smaller than half a cell wouldn't show
+            round: sides("radius").map(|r| r >= cell_px / 2.0),
+            thin: border.iter().all(|b| *b < cell_px / 2.0),
+            inline_bottom: down.inline_after && border[2] < cell_px / 2.0,
+        };
+        let ins = deco.insets();
+        let w = w.max(cell_px * (ins[1] + ins[3] + 1) as f32);
         let saved_width = self.con.width;
         // (Emuera.NET doesn't wrap a div's content either)
         let net_fork = self.net_fork();
         let wrap_at = if net_fork { saved_width } else { ((w / cell_px).floor() as usize).saturating_sub(1 + ins[1] + ins[3]).max(1) };
+        let saved_frac = std::mem::replace(&mut self.con.div_frac, content_frac);
+        let saved_room = std::mem::replace(&mut self.con.div_room, (ins[3] as i32, ins[0] as i32));
         let lines = self.html_apart(inner, wrap_at);
+        self.con.div_frac = saved_frac;
+        self.con.div_room = saved_room;
         let widest = lines.iter().map(|l| line_cells(l, cell_px)).max().unwrap_or(0);
-        let fits = ((widest + ins[1] + ins[3]).clamp(1, saved_width.max(1)), lines.len() + ins[0] + ins[2]);
-        let mut cols = if auto_width { fits.0 } else { (w / cell_px).floor().max(1.0) as usize };
-        let (top_row, mut rows) = div_rows(y / lh, h.map(|h| h / lh), &deco.border);
+        let fits = ((widest + ins[1] + ins[3]).clamp(1, saved_width.max(1)), if net_fork { content_rows(&lines) } else { lines.len() } + ins[0] + ins[2]);
+        let mut cols = if auto_width { fits.0 } else { across.count.unwrap_or(fits.0).max(1) };
+        let (top_row, mut rows) = (down.first, down.count);
         // Emuera.NET doesn't clip a div: its content runs past the box
         // (eraMegatenP's popups are sized in pixels for text that spills).
         // The box grows to hold it instead, the border and padding taking
@@ -449,13 +473,13 @@ impl Vm {
             cols = cols.max(fits.0);
             rows = rows.map(|r| r.max(fits.1));
         }
-        let (place, mut dy) = div_place(attrs.get("display").map(String::as_str), top_row, rows.unwrap_or(fits.1));
+        let (place, mut dy) = div_place(display, top_row, rows.unwrap_or(fits.1));
         // ...and one placed above the window's bottom edge stays above it
         if net_fork && place == crate::console::DivPlace::Bottom && dy < 0 {
             dy = dy.min(-(rows.unwrap_or(fits.1) as i32));
         }
         let html = format!("<{}>{}</div>", tag, inner);
-        self.con.push_seg(Seg::Div { dx: (x / cell_px).round() as i32, dy, cols, rows, lines, html, deco: Box::new(deco), place });
+        self.con.push_seg(Seg::Div { dx: across.first, dy, cols, rows, lines, html, deco: Box::new(deco), place });
     }
 
     /// Does the game ship epizo12345's Emuera.NET fork? Looked up once.
@@ -542,22 +566,81 @@ fn div_content_end(rest: &str) -> (usize, usize) {
 /// the div's bottom (ConsoleDivPart.DrawTo); Emuera.NET's
 /// `absolute-leftbottom` measures it down from the bottom to the div's top,
 /// `absolute-lefttop` from the top. A value neither knows is `relative`.
-/// A `<div>`'s first row and height in rows, from its top and height in
-/// lines. A border takes a whole row here but only a few pixels in Emuera,
-/// so a bordered edge that falls between two rows goes to the outer one:
-/// the frame then holds what Emuera draws inside it. (eraMegatenP's battle
-/// navigator draws its frame from half a line above the text to half a
-/// line below; rounded, the top border landed on the text's first row.)
-/// Other edges round to the nearest row.
-fn div_rows(top: f32, height: Option<f32>, border: &[bool; 4]) -> (i32, Option<usize>) {
-    let between_rows = |v: f32| (v - v.round()).abs() > 0.01;
-    let first = if border[0] && between_rows(top) { top.floor() } else { top.round() } as i32;
-    let rows = height.map(|h| {
-        let bottom = top + h;
-        let end = if border[2] && between_rows(bottom) { bottom.ceil() as i32 } else { top.round() as i32 + h.round() as i32 };
-        (end - first).max(1) as usize
-    });
-    (first, rows)
+/// Where a `<div>` lands along one axis, in whole rows (or cells).
+#[derive(Debug, PartialEq)]
+struct DivSpan {
+    /// the first row, borders included, from the div's anchor
+    first: i32,
+    /// rows from the first to the last (`None`: as many as the content needs)
+    count: Option<usize>,
+    /// padding rows before and after the content
+    pad: [usize; 2],
+    /// no length given, and the border after the content is less than half
+    /// a row from it: drawn on the content's last row, not on a row of its own
+    inline_after: bool,
+}
+
+/// A `<div>`'s rows (or cells) along one axis. `start` and `len` are its
+/// edges in lines (or cells), `inset` the border plus padding before and
+/// after it, `border` whether each side has one.
+///
+/// A border takes a whole row here but only a few pixels in Emuera. The
+/// content goes to the row nearest where Emuera draws it, and a border to
+/// the row its edge falls in, or the one outside the content when that row
+/// is the content's own. The padding is what is left between them, so a
+/// border and a padding of half a line together take one row, not two:
+/// each nested frame used to push its content a row lower and a cell to
+/// the right (eraMegatenP's training screen). A border only moves before
+/// the div's place into rows the parent has there: its content's (`start`
+/// at 1 or more), or `room`, the parent's own border and padding rows on
+/// that side. One at `xpos='0'` at the top level keeps its border on
+/// screen; one at the corner of a framed parent shares the parent's border
+/// row instead of pushing its content a row down (the training screen's
+/// portraits).
+fn div_span(start: f32, len: Option<f32>, inset: [f32; 2], border: [bool; 2], room: i32) -> DivSpan {
+    const EPS: f32 = 0.01;
+    let mut content = (start + inset[0]).round() as i32;
+    let first = if !border[0] {
+        (start.round() as i32).min(content)
+    } else {
+        let edge = (start + EPS).floor() as i32;
+        match () {
+            _ if content > edge => edge,
+            _ if edge >= 1 - room => edge - 1,
+            _ => edge,
+        }
+    };
+    content = content.max(first + border[0] as i32);
+    let pad_before = (content - first - border[0] as i32).max(0) as usize;
+    let Some(len) = len else {
+        let pad_after = ((inset[1]).round() as i32 - border[1] as i32).max(0) as usize;
+        let inline_after = border[1] && inset[1] < 0.5;
+        return DivSpan { first, count: None, pad: [pad_before, pad_after], inline_after };
+    };
+    let end_edge = start + len;
+    // one past the last row
+    let mut end = if border[1] { (end_edge - EPS).floor() as i32 + 1 } else { end_edge.round() as i32 };
+    end = end.max(content + 1 + border[1] as i32);
+    let content_end = ((end_edge - inset[1]).round() as i32).max(content + 1);
+    let pad_after = (end - border[1] as i32 - content_end).max(0) as usize;
+    DivSpan { first, count: Some((end - first) as usize), pad: [pad_before, pad_after], inline_after: false }
+}
+
+/// Rows a div's content takes, counting the divs placed inside it: an
+/// Emuera.NET frame grows to hold them too (eraMegatenP's PALAM gauges,
+/// a div placed under the text, lost their last row).
+fn content_rows(lines: &[crate::console::Line]) -> usize {
+    let mut rows = lines.len() as i64;
+    for (k, line) in lines.iter().enumerate() {
+        for seg in &line.segs {
+            if let Seg::Div { dy, rows: r, lines: inner, deco, place: crate::console::DivPlace::Relative, .. } = seg {
+                let ins = deco.insets();
+                let h = r.unwrap_or_else(|| content_rows(inner) + ins[0] + ins[2]);
+                rows = rows.max(k as i64 + *dy as i64 + h as i64);
+            }
+        }
+    }
+    rows.max(0) as usize
 }
 
 fn div_place(display: Option<&str>, ypos_rows: i32, rows: usize) -> (crate::console::DivPlace, i32) {
@@ -830,8 +913,9 @@ mod tests {
         assert_eq!(divs(&vm)[0], (13, 0, -4, DivPlace::Bottom), "Emuera-EM: as declared, clipped");
         vm.con.net_fork = Some(true);
         vm.html_print(popup);
-        // 11 columns of text and 3 lines inside a border and padding of a cell each
-        assert_eq!(divs(&vm)[0], (15, 0, -7, DivPlace::Bottom));
+        // 11 columns of text inside a border and padding of a cell each; 3
+        // lines inside 0.9 of a line of border and padding (one row) each
+        assert_eq!(divs(&vm)[0], (15, 0, -5, DivPlace::Bottom));
         // its lines aren't wrapped at the declared width
         let Some(Seg::Div { lines, .. }) = vm.con.lines.last().unwrap().segs.first() else { panic!("no div") };
         assert!(lines.iter().all(|l| l.cols >= vm.con.width), "{:?}", lines.iter().map(|l| l.cols).collect::<Vec<_>>());
@@ -842,12 +926,34 @@ mod tests {
     /// above its text to half a line below).
     #[test]
     fn a_border_between_rows_goes_outward() {
-        let all = [true; 4];
-        assert_eq!(super::div_rows(0.5, Some(3.0), &all), (0, Some(4)));
-        assert_eq!(super::div_rows(0.5, Some(3.0), &[false; 4]), (1, Some(3)));
-        assert_eq!(super::div_rows(1.0, Some(3.0), &all), (1, Some(3)));
-        assert_eq!(super::div_rows(-0.25, None, &all), (-1, None));
-        assert_eq!(super::div_rows(-0.25, None, &[false; 4]), (0, None));
+        use super::{div_span, DivSpan};
+        let span = |first, count, pad| DivSpan { first, count, pad, inline_after: false };
+        let (both, none) = ([true; 2], [false; 2]);
+        assert_eq!(div_span(0.5, Some(3.0), [0.0; 2], both, 0), span(0, Some(4), [0, 0]));
+        assert_eq!(div_span(0.5, Some(3.0), [0.0; 2], none, 0), span(1, Some(3), [0, 0]));
+        // an edge on a row's top: the border goes to the row above, the
+        // content stays where Emuera draws it
+        assert_eq!(div_span(1.0, Some(3.0), [0.0; 2], both, 0), span(0, Some(4), [0, 0]));
+        assert_eq!(div_span(-0.25, None, [0.0; 2], both, 0), DivSpan { inline_after: true, ..span(-1, None, [0, 0]) });
+        assert_eq!(div_span(-0.25, None, [0.0; 2], none, 0), span(0, None, [0, 0]));
+        // ...but not before the parent's content (a border at xpos 0 stays on screen)
+        assert_eq!(div_span(0.0, Some(4.0), [0.1; 2], both, 0), span(0, Some(4), [0, 0]));
+        // ...unless the parent has a border or padding row there: a box at
+        // the corner of a frame shares its border row, its content (a
+        // portrait) staying on the frame's first row
+        assert_eq!(div_span(0.2, Some(6.0), [0.1; 2], both, 1), span(-1, Some(8), [0, 0]));
+        // eraMegatenP's training screen: a border plus half a line of
+        // padding is one row, not two (the frame's text on the row after
+        // its top border); the TURN box (1.2 lines from line 1) keeps its
+        // text on line 1
+        assert_eq!(div_span(2.7, Some(10.2), [0.53; 2], both, 0), span(2, Some(11), [0, 0]));
+        assert_eq!(div_span(1.0, Some(1.2), [0.25; 2], both, 0), span(0, Some(3), [0, 0]));
+        // eraMegatenP's "Dangerous Day" badge: its bottom border, a fifth of
+        // a line under the text, is drawn on the text's row
+        assert_eq!(div_span(-1.07, None, [0.21; 2], both, 0), DivSpan { inline_after: true, ..span(-2, None, [0, 0]) });
+        assert!(!div_span(0.0, None, [0.6; 2], both, 0).inline_after);
+        // thick padding still takes its rows
+        assert_eq!(div_span(0.0, Some(6.0), [2.0; 2], both, 0), span(0, Some(6), [1, 1]));
         // the frame now encloses the text div beside it
         let mut vm = vm();
         let lh = vm.con.line_height;

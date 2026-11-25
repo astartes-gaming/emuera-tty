@@ -126,6 +126,11 @@ pub struct DivBox {
     /// every border narrower than half a cell (Emuera.NET's usual
     /// `border_width='2px'`): drawn as a line, not as filled cells
     pub thin: bool,
+    /// the bottom border is less than half a row under the content: it is
+    /// drawn as the last row's underline, taking no row of its own
+    /// (eraMegatenP's "Dangerous Day" badge, a fifth of a line above the
+    /// text under it)
+    pub inline_bottom: bool,
 }
 
 impl DivBox {
@@ -133,7 +138,7 @@ impl DivBox {
     pub fn insets(&self) -> [usize; 4] {
         let mut n = self.pad;
         for (k, b) in self.border.iter().enumerate() {
-            n[k] += *b as usize;
+            n[k] += (*b && !(k == 2 && self.inline_bottom)) as usize;
         }
         n
     }
@@ -301,6 +306,13 @@ pub struct Console {
     /// worked out when first asked (`Console::net_fork`): it drops tabs from
     /// printed text, and its divs show all their content (html.rs)
     pub net_fork: Option<bool>,
+    /// While a `<div>`'s content is laid out: how far (cells, lines) the
+    /// content's top-left corner in Emuera is from the cell it was rounded
+    /// to, so divs inside it are placed from the true position (html.rs)
+    pub div_frac: (f32, f32),
+    /// ...and the cells and rows (left, top) its border and padding take
+    /// there: a div inside may put its own border on them (html.rs)
+    pub div_room: (i32, i32),
     /// "無限ループ警告までのミリ秒数" / "Milliseconds for infinite loop warning".
     /// 0 = disabled. Default 5000 (Emuera's default).
     pub infinite_loop_alert_time: u64,
@@ -376,6 +388,8 @@ impl Console {
             last_temp: false,
             engine_dir: std::path::PathBuf::new(),
             net_fork: None,
+            div_frac: (0.0, 0.0),
+            div_room: (0, 0),
             infinite_loop_alert_time: 5000,
             disable_infinite_loop_detection: false,
             low_water: usize::MAX,

@@ -20,6 +20,26 @@ impl Sixel {
     }
 }
 
+/// `img` laid on `bg` and padded with it to whole cells (`cell`), the
+/// offset rows `pad` above it included.
+///
+/// Konsole (and other terminals) fill a sixel's transparent pixels, and
+/// the rest of the cells it covers, with the terminal's own background:
+/// where the game paints another one (eraMegatenP's black under a
+/// terminal's gray), a portrait with a see-through background sat in a
+/// gray box. Text under it doesn't show in those terminals either way.
+fn on_background(img: &RgbaImage, pad: u32, bg: [u8; 3], cell: (u32, u32)) -> RgbaImage {
+    let round_up = |v: u32, step: u32| v.div_ceil(step.max(1)) * step.max(1);
+    let (w, h) = (round_up(img.width(), cell.0), round_up(img.height() + pad, cell.1));
+    let mut out = RgbaImage::from_pixel(w, h, image::Rgba([bg[0], bg[1], bg[2], 255]));
+    for (x, y, p) in img.enumerate_pixels() {
+        let a = p[3] as u32;
+        let mix = |c: u8, b: u8| ((c as u32 * a + b as u32 * (255 - a) + 127) / 255) as u8;
+        out.put_pixel(x, y + pad, image::Rgba([mix(p[0], bg[0]), mix(p[1], bg[1]), mix(p[2], bg[2]), 255]));
+    }
+    out
+}
+
 impl Backend for Sixel {
     fn name(&self) -> &'static str {
         "sixel"
@@ -27,7 +47,7 @@ impl Backend for Sixel {
     fn text_erases(&self) -> bool {
         true
     }
-    fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], _cell: (u32, u32)) {
+    fn draw(&mut self, out: &mut Vec<u8>, ps: &[Placement], cell: (u32, u32)) {
         for p in ps {
             if p.crop_h == 0 || p.row < 0 {
                 continue;
@@ -35,13 +55,15 @@ impl Backend for Sixel {
             // sixels start at a cell's top: an offset inside the cell
             // becomes transparent rows above the picture
             let pad = p.y_off.max(0) as u32;
-            let key = (format!("{}+{}", p.key, pad), p.crop_top, p.crop_h);
+            let key = (format!("{}+{}{:?}", p.key, pad, p.bg), p.crop_top, p.crop_h);
             if !self.cache.contains_key(&key) {
                 if self.cache.len() > 128 {
                     self.cache.clear();
                 }
                 let img = if p.crop_top == 0 && p.crop_h >= p.img.height() { (*p.img).clone() } else { crop_rows(&p.img, p.crop_top, p.crop_h) };
-                let img = if pad == 0 {
+                let img = if let Some(bg) = p.bg {
+                    on_background(&img, pad, bg, cell)
+                } else if pad == 0 {
                     img
                 } else {
                     let mut t = RgbaImage::new(img.width(), img.height() + pad);
@@ -208,4 +230,27 @@ pub fn encode(img: &RgbaImage) -> Vec<u8> {
     }
     out.extend_from_slice(b"\x1b\\");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::on_background;
+    use image::{Rgba, RgbaImage};
+
+    /// A see-through pixel takes the game's background, a half one is mixed
+    /// with it, and the picture is padded with it to whole cells.
+    #[test]
+    fn pictures_sit_on_the_game_background() {
+        let mut img = RgbaImage::from_pixel(3, 2, Rgba([200, 100, 0, 255]));
+        img.put_pixel(0, 0, Rgba([255, 255, 255, 0]));
+        img.put_pixel(1, 0, Rgba([255, 255, 255, 128]));
+        let out = on_background(&img, 1, [0, 0, 40], (4, 4));
+        assert_eq!(out.dimensions(), (4, 4));
+        assert_eq!(out.get_pixel(0, 0), &Rgba([0, 0, 40, 255]), "offset row");
+        assert_eq!(out.get_pixel(0, 1), &Rgba([0, 0, 40, 255]), "transparent pixel");
+        assert_eq!(out.get_pixel(1, 1), &Rgba([128, 128, 148, 255]), "half transparent");
+        assert_eq!(out.get_pixel(2, 2), &Rgba([200, 100, 0, 255]));
+        assert_eq!(out.get_pixel(3, 3), &Rgba([0, 0, 40, 255]), "padding");
+        assert!(out.pixels().all(|p| p[3] == 255));
+    }
 }
