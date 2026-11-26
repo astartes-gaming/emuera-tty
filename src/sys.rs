@@ -169,10 +169,29 @@ pub fn total_memory() -> Option<u64> {
 /// The most memory [`memory_in_use`] has reported this session.
 static MEMORY_PEAK: crate::atomic64::AtomicU64 = crate::atomic64::AtomicU64::new(0);
 
+/// The innermost function that last ran (its `@name`), kept current by
+/// [`crate::vm::Vm::note_running`]. Shown on the Android memory bar as
+/// `@FUNCTION`; empty before the first function runs.
+static LAST_FUNCTION: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
 /// The highest memory use seen so far this session (as recorded by the
 /// readings [`memory_in_use`] has made; 0 before the first).
 pub fn memory_peak() -> u64 {
     MEMORY_PEAK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The name of the innermost function that last ran, or "" if none has yet.
+pub fn last_function() -> String {
+    LAST_FUNCTION.lock().unwrap().clone()
+}
+
+/// Records that function `name` has just started running, so the Android
+/// memory bar can show `@<name>` beside the live counter.
+pub fn set_last_function(name: &str) {
+    let mut cur = LAST_FUNCTION.lock().unwrap();
+    if *cur != name {
+        *cur = name.to_string();
+    }
 }
 
 /// The memory this process uses now (resident), where it can be read.

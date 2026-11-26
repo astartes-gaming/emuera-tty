@@ -1541,3 +1541,8 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_formattedMe
 pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_rawMemory<'a>(_env: JNIEnv<'a>, _c: JClass<'a>) -> jni::sys::jlong {
     crate::sys::memory_in_use().unwrap().try_into().unwrap()
 }
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_lastFunction<'a>(mut env: JNIEnv<'a>, _c: JClass<'a>) -> jni::sys::jstring {
+    data_string(&mut env, Ok(crate::sys::last_function()))
+}

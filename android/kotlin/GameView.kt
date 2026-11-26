@@ -193,6 +193,25 @@ class GameView(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
         invalidate()
     }
 
+    /** The buttons a tap can answer with right now: value -> label, one per value. */
+    fun buttonLabels(): List<Pair<String, String>> {
+        val byValue = linkedMapOf<String, MutableList<String>>()
+        for (i in rows.indices) {
+            val row = rows[i]
+            if (row.gen != validGen) continue
+            for (r in row.runs) {
+                val b = r.btn ?: continue
+                val label = when (r.kind) {
+                    IMAGE -> "[img:${r.key}]"
+                    RECT -> "■"
+                    else -> r.text ?: ""
+                }
+                byValue.getOrPut(b) { mutableListOf() }.add(label)
+            }
+        }
+        return byValue.entries.map { (v, labels) -> v to labels.joinToString(" ").trim() }
+    }
+
     /** The value of the live button at a point, if any. */
     private fun buttonAt(x: Float, y: Float): String? {
         if (rows.isEmpty()) return null

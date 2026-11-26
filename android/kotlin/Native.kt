@@ -55,6 +55,7 @@ object Native {
 
     @JvmStatic external fun formattedMemory(): String
     @JvmStatic external fun rawMemory(): Long
+    @JvmStatic external fun lastFunction(): String
 
     @Volatile var view: GameView? = null
     @Volatile var exitListener: ((Int) -> Unit)? = null

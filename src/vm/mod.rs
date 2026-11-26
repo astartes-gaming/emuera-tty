@@ -3316,6 +3316,7 @@ impl Vm {
             if *self.con.running != *f.func.name {
                 self.con.running.clear();
                 self.con.running.push_str(&f.func.name);
+                crate::sys::set_last_function(&f.func.name);
             }
         }
     }

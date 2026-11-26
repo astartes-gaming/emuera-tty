@@ -399,24 +399,7 @@ those variables Konsole opens on the user's Wayland session).
 frontend) with a Kotlin UI drawn by the app. `android/README.md` has the
 layout, the install and the on-phone behaviour.
 
-- **Build with `android/build.sh`, never with `cargo build`.** The Android
-  side compiles the engine as a shared library for `aarch64-linux-android`
-  and `armv7-linux-androideabi`, with the NDK's clang as the C compiler and
-  archiver, and needs `kotlinc`, a JDK and `apksigner`. `build.sh` does all
-  of that setup itself (targets, linkers, `RUSTFLAGS`, `CC_*` / `AR_*`, the
-  manifest, d8, zip, signing), so don't try to reproduce it by hand. Any
-  change to the Kotlin code (`android/kotlin/*.kt`) or the Android-side Rust
-  code (`src/android.rs` and what it needs) is compiled through it; the APK
-  lands in `android/build/emuera-tty-android.apk`.
-
-- **Run `build.sh` first, `fetch-toolchain.sh` second.** `build.sh` names
-  what is missing (`missing …: run ./fetch-toolchain.sh`). Only then run
-  `android/fetch-toolchain.sh`: it downloads about 820 MB (270 MB kept) from
-  `dl.google.com`, so don't fetch the toolchain speculatively.
-
-- **Use `build.sh --fast` while testing.** It skips link-time optimisation
-  and cuts the wait for the compiler; `--arm64-only` builds one ABI instead
-  of two. Don't measure performance with `--fast`.
+Details are listed in `android/CLAUDE.md`. Read over it when operating there.
 
 ### System packages and binaries
 

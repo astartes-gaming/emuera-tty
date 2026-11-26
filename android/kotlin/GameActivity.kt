@@ -25,6 +25,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import java.io.File
 
 import kotlin.ranges.step
@@ -151,6 +152,14 @@ class GameActivity : Activity() {
                 text = "Skip"
                 setOnClickListener { Native.skip() }
             })
+            addView(Button(context).apply {
+                text = "BTNS"
+                contentDescription = "List the clickable buttons"
+                isAllCaps = false
+                minWidth = 0
+                minimumWidth = 0
+                setOnClickListener { showButtons() }
+            })
         }
         // the game's menu, over the console's top right corner
         val screen = FrameLayout(this).apply {
@@ -169,7 +178,7 @@ class GameActivity : Activity() {
 
         val stats = FrameLayout(this).apply {
             val memoryView = TextView(context).apply {
-                text = Native.formattedMemory()
+                text = memoryText()
                 textSize = 12f
                 minWidth = 0
                 setTextColor(Color.WHITE)
@@ -179,7 +188,7 @@ class GameActivity : Activity() {
             val memoryHandler = Handler(Looper.getMainLooper())
             val memoryUpdater = object : Runnable {
                 override fun run(){
-                   memoryView.text = Native.formattedMemory()
+                   memoryView.text = memoryText()
                    memoryHandler.postDelayed(this, 1000)
                 }
             }
@@ -235,6 +244,28 @@ class GameActivity : Activity() {
         // (commit: leaving a game ends this process at once)
         getSharedPreferences(TEXT_SIZE_FILE, MODE_PRIVATE).edit().putInt(intent.getStringExtra("game"), next).commit()
         Native.textSize(next)
+    }
+
+    /** "129 MB (peak 1000 MB)\n@FUNCTION": memory plus the last ran function, like the PC build's bottom bar. */
+    private fun memoryText(): String {
+        val mem = Native.formattedMemory()
+        val fn = Native.lastFunction()
+        return if (fn.isEmpty()) mem else "$mem\n@$fn"
+    }
+
+    /** Show the clickable buttons now live, each tappable to answer with its value. */
+    private fun showButtons() {
+        val entries = view.buttonLabels()
+        if (entries.isEmpty()) {
+            Toast.makeText(this, "No clickable buttons", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val items = entries.map { (v, l) -> "$v -> $l" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Buttons")
+            .setItems(items) { _, i -> Native.click(entries[i].first) }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     override fun onStart() {
