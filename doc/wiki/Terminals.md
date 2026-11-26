@@ -68,17 +68,7 @@ How fast terminals keep up with emuera-tty, measured with
 here is fast enough for them. The difference shows in animated games
 and in fast scrolling through long logs.
 
-| Terminal | Text redraws/s | Picture frames/s (eraFlappyTengu) | Pictures |
-|---|---:|---:|---|
-| Konsole 25.04 | 275 | 102 | kitty graphics |
-| Ghostty 1.3 | 268 | 91 | kitty graphics |
-| foot 1.21 | 261 | 26 | sixel |
-| xterm 398 | 254 | 66 | sixel |
-| qterminal 2.1 | 180 | — | none |
-| kitty 0.41 | 62 | 46 | kitty graphics |
-| GNOME Terminal 3.56, Xfce Terminal 1.1, MATE Terminal 1.26, LXTerminal 0.4 (VTE 0.80) | 57–58 | — | none |
-
-What the tests do:
+There are two tests:
 
 - **Text:** 300 full redraws of a 160×44 screen of coloured text that mixes
   ASCII, Japanese and box drawing, like a busy era screen.
@@ -86,50 +76,102 @@ What the tests do:
   game that redraws a whole-window picture every frame, played for 20 s.
   Only terminals that show pictures take part; the others get
   placeholders, which barely change, so a number would mean nothing.
-- **How it counts:** emuera-tty waits after each frame until the terminal
-  has answered a query sent behind it (`EMUERA_BENCH_SYNC`), so a frame
-  counts only once the terminal has handled it. Without the wait, emuera-tty
-  writes up to about 140 picture frames a second into a terminal that
-  can't show them that fast.
-- **Setup:** median of three runs, each terminal at 160×45 cells (Konsole
-  155×42, Ghostty 158×41, foot 160×42, qterminal 143×38: they wouldn't
-  take that size) with a 10 pt font. An AMD Ryzen 5 5500U with 7 GB of
-  RAM, Debian 13.
 
-Read the numbers as a comparison, not as what your desktop will show:
+Each is counted two ways:
 
-- **No graphics card:** the terminals ran off screen (Xvfb, and a headless
-  sway for foot), where they draw with Mesa's software renderer.
-  GPU-drawn terminals (kitty, Ghostty) pay most for that and should do
-  better on a real desktop.
-- **Variation:** results moved by up to a third between sessions on the
-  same machine; xterm's text test gave 173/s in another session.
+- **Throughput:** how fast the terminal takes in what emuera-tty sends.
+  The pty between them holds little, so emuera-tty can't run far ahead.
+- **Answered:** emuera-tty waits after each frame until the terminal has
+  answered a query sent behind it (`EMUERA_BENCH_SYNC`), so each frame
+  counts only once the terminal has handled it. Terminals that answer at
+  their own pace (once per screen refresh, or when the compositor is
+  ready) score lower here.
 
-What they show:
+Numbers are the median of three runs, each terminal at 160×45 cells
+(kitty 156×44, Konsole 159×49, qterminal 143×38: they wouldn't take that
+size) with a 10 pt font.
 
-- **Frame pacing caps some terminals:** kitty and the VTE terminals
-  (GNOME Terminal, Xfce, MATE, LXTerminal) answer once per screen refresh,
-  about every 13 ms, so they handle at most 60–75 frames a second however
-  little there is to draw. That's smooth enough for play. Lowering kitty's
-  `repaint_delay` and `input_delay` made it slower here, since each extra
-  repaint costs a software-rendered frame.
-- **The quickest:** Konsole, Ghostty, foot and xterm handle a frame as
-  soon as it arrives. Konsole and Ghostty are also the fastest with
-  pictures, through kitty graphics.
-- **Sixel is slower for animation:** foot and xterm show pictures as
-  sixel, which sends a whole picture for every frame. kitty graphics
-  sends each distinct picture once and then only moves it.
+### On a desktop
 
-To measure your own terminals:
+KDE Plasma 6.3 on Wayland, AMD Ryzen 5 5500U with its integrated Radeon
+graphics, 7 GB of RAM, Debian 13, a 60 Hz screen. Frames beyond 60 a
+second are never shown on such a screen, so above that a terminal is as
+smooth as it can be.
+
+| Terminal | Text throughput | Text answered | Pictures throughput | Pictures answered | Pictures |
+|---|---:|---:|---:|---:|---|
+| kitty 0.41 | 226/s | 119/s | 101/s | 43/s | kitty graphics |
+| foot 1.21 | 213/s | 193/s | 36/s | 28/s | sixel |
+| Ghostty 1.3 | 209/s | 182/s | 42/s | 29/s | kitty graphics |
+| xterm 398 (XWayland) | 141/s | 116/s | 57/s | 43/s | sixel |
+| qterminal 2.1 | 136/s | 107/s | — | — | none |
+| Konsole 25.04 | 111/s | 90/s | 71/s | 43/s | kitty graphics |
+| GNOME Terminal 3.56, Xfce Terminal 1.1, MATE Terminal 1.26, LXTerminal 0.4 (VTE 0.80) | 51–57/s | 13–16/s | — | — | none |
+
+What it shows:
+
+- **Text:** kitty, foot and Ghostty are the quickest, all far beyond
+  what a 60 Hz screen can show. Every terminal here keeps up with text
+  at screen rate except the VTE ones, which manage just under it.
+- **Pictures:** kitty is the quickest. It takes in 100 frames a second
+  and handles about 43 of them fully, as do Konsole and xterm.
+  Ghostty and foot manage about 30, enough to play eraFlappyTengu
+  but visibly less smooth.
+- **VTE terminals** (GNOME Terminal, Xfce, MATE, LXTerminal) take text in
+  at about 55 redraws a second. They answer a query only about every
+  60 ms, because they wait for the compositor first, so their
+  "answered" numbers are low. That doesn't slow ordinary play. They show
+  no pictures.
+- **sixel (foot, xterm)** sends a whole picture for every frame. kitty
+  graphics sends each distinct picture once and then only moves it, which
+  helps kitty and Konsole.
+
+### Off screen, without a GPU
+
+The same tests on a hidden X server (Xvfb; a headless sway for foot),
+answered counts only, on the same machine. Here everything draws with
+Mesa's software renderer, which handicaps the GPU terminals (kitty,
+Ghostty), and no compositor paces the VTE terminals. Konsole ran at
+155×42, Ghostty at 158×41 and foot at 160×42.
+
+| Terminal | Text answered | Pictures answered | Pictures |
+|---|---:|---:|---|
+| Konsole 25.04 | 275/s | 102/s | kitty graphics |
+| Ghostty 1.3 | 268/s | 91/s | kitty graphics |
+| foot 1.21 | 261/s | 26/s | sixel |
+| xterm 398 | 254/s | 66/s | sixel |
+| qterminal 2.1 | 180/s | — | none |
+| kitty 0.41 | 62/s | 46/s | kitty graphics |
+| GNOME Terminal, Xfce, MATE, LXTerminal (VTE 0.80) | 57–58/s | — | none |
+
+Off screen, kitty and VTE answer once per refresh (about 13 ms), so
+they top out around 60–75 frames a second. Lowering kitty's
+`repaint_delay` and `input_delay` made it slower there, since each extra
+repaint costs a software-rendered frame.
+
+### Caveats
+
+- **Variation:** results moved by up to a third between sessions, and on
+  the desktop with whatever else the machine was doing.
+- **Pictures throughput** in kitty-graphics terminals may run ahead of
+  what is drawn: a terminal can take a picture in before it has decoded
+  it. The answered count doesn't have that problem.
+- **Not measured:** tmux, GNU screen and the Linux console.
+
+### Measuring your own terminals
 
 ```sh
-tools/termbench.sh path/to/eraflappytengu xterm konsole
+tools/termbench.sh --desktop path/to/eraflappytengu
+tools/termbench.sh --desktop --nosync path/to/eraflappytengu kitty foot
 ```
 
-Without terminal names it measures every one of the list above that is
+`--desktop` opens the windows on your desktop, one at a time, each for
+the length of its test. Without it they run on a hidden X server.
+`--nosync` measures throughput; without it, answered frames. Without
+terminal names it measures every terminal in the tables above that is
 installed. Without the game folder it runs only the text test. It needs
-Xvfb and xdotool, and sway for foot. It runs one terminal at a time and
-caps the game's memory.
+Xvfb and xdotool for the hidden server, and sway for foot there. It caps
+the game's memory.
 
 ## On the Linux console
 

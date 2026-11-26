@@ -1,5 +1,5 @@
 #!/bin/bash
-# termbench.sh [FLAPPY_DIR] [TERMINAL…]: how fast terminals show emuera-tty.
+# termbench.sh [--desktop] [--nosync] [FLAPPY_DIR] [TERMINAL…]: how fast terminals show emuera-tty.
 #
 # Each terminal runs, off screen (Xvfb :99; foot under a headless sway),
 # at 160x45 cells with a 10 pt font:
@@ -17,9 +17,21 @@
 # those installed). Needs Xvfb, xdotool; sway for foot. Runs one terminal at
 # a time and caps the game's memory. Off-screen terminals draw without a GPU
 # (Mesa's software renderer), which handicaps GPU terminals (kitty, Ghostty).
+# --desktop runs them on the desktop you are in instead (X11 or Wayland,
+# with its GPU): each window shows for the length of its test. --nosync
+# leaves EMUERA_BENCH_SYNC off: throughput, emuera-tty slowed only by the
+# pty's small buffer (terminals that answer queries at their own pace,
+# VTE on Wayland waits for the compositor, look slower with the sync).
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 EMU=${EMUERA_TTY:-$REPO/target/release/emuera-tty}
+DESKTOP=""
+SYNC=" EMUERA_BENCH_SYNC=1"
+while [ "${1:-}" = --desktop ] || [ "${1:-}" = --nosync ]; do
+	[ "$1" = --desktop ] && DESKTOP=1
+	[ "$1" = --nosync ] && SYNC=""
+	shift
+done
 FLAPPY=""
 [ $# -gt 0 ] && [ -d "$1" ] && { FLAPPY=$(cd "$1" && pwd); shift; }
 W=$(mktemp -d "${TMPDIR:-/tmp}/termbench.XXXXXX")
@@ -52,7 +64,7 @@ EOF
 # what runs inside the terminal: one test, then a line of timings
 cat > "$W/run.sh" <<EOF
 #!/bin/bash
-export HOME=$W/home XDG_CONFIG_HOME=$W/home/.config EMUERA_SEED=1 EMUERA_DEBUG_FRAMES=1 EMUERA_BENCH_SYNC=1
+export HOME=$W/home XDG_CONFIG_HOME=$W/home/.config EMUERA_SEED=1 EMUERA_DEBUG_FRAMES=1$SYNC
 ulimit -v 4000000
 for i in \$(seq 1 30); do [ "\$(tput cols)" -ge 140 ] && break; sleep 0.1; done
 t0=\$(date +%s.%N)
@@ -64,16 +76,25 @@ echo "\$t0 \$(date +%s.%N) \$(tput cols)x\$(tput lines)" > \$2.time
 EOF
 chmod +x "$W/run.sh"
 
-Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp > /dev/null 2>&1 &
-XP=$!
-sleep 2
+XP=""
+if [ -z "$DESKTOP" ]; then
+	Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp > /dev/null 2>&1 &
+	XP=$!
+	sleep 2
+fi
 
 # one run of TEST in TERMINAL; prints "fps cols x rows backend"
 once() {
 	local name=$1 t=$2 out=$W/$1-$2 p
 	rm -f "$out.time"
 	local cmd="$W/run.sh $t $out"
-	if [ "$name" = foot ]; then
+	if [ "$name" = foot ] && [ -n "$DESKTOP" ]; then
+		# (on the desktop: foot on its Wayland session, or nothing)
+		foot -W 160x45 -o font=monospace:size=10 $cmd > /dev/null 2>&1 &
+		p=$!
+		for _ in $(seq 1 170); do [ -f "$out.time" ] && break; sleep 1; done
+		kill $p 2> /dev/null
+	elif [ "$name" = foot ]; then
 		printf 'output HEADLESS-1 resolution 1280x720\ndefault_border none\n' > "$RD/sway.conf"
 		(
 			export XDG_RUNTIME_DIR=$RD WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1
@@ -88,11 +109,14 @@ once() {
 		)
 	else
 		(
-			export DISPLAY=:99 QT_QPA_PLATFORM=xcb GDK_BACKEND=x11 NO_AT_BRIDGE=1
-			unset WAYLAND_DISPLAY
+			if [ -z "$DESKTOP" ]; then
+				export DISPLAY=:99 QT_QPA_PLATFORM=xcb GDK_BACKEND=x11
+				unset WAYLAND_DISPLAY
+			fi
+			export NO_AT_BRIDGE=1
 			case $name in
 				xterm) set -- xterm -geometry 160x45 -ti vt340 -xrm 'XTerm*numColorRegisters: 256' -fa 'DejaVu Sans Mono' -fs 10 -e $cmd ;;
-				konsole) set -- dbus-run-session konsole --nofork --separate -p TerminalColumns=160 -p TerminalRows=45 -e $cmd ;;
+				konsole) set -- dbus-run-session konsole --nofork --separate -qwindowgeometry 1300x780 -p TerminalColumns=160 -p TerminalRows=45 -e $cmd ;;
 				kitty) set -- kitty -o initial_window_width=160c -o initial_window_height=45c -o remember_window_size=no -o font_size=10 $cmd ;;
 				ghostty) set -- ghostty --window-width=160 --window-height=45 --font-size=10 -e $cmd ;;
 				gnome-terminal) set -- dbus-run-session gnome-terminal --wait --geometry=160x45 -- $cmd ;;
@@ -103,7 +127,7 @@ once() {
 			esac
 			"$@" > /dev/null 2>&1 &
 			p=$!
-			if [ "$name" = qterminal ]; then
+			if [ "$name" = qterminal ] && [ -z "$DESKTOP" ]; then
 				sleep 1
 				xdotool windowsize "$(xdotool search --onlyvisible --class qterminal | head -1)" 1300 780
 			fi
