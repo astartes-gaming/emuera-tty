@@ -181,6 +181,8 @@ pub fn memory_peak() -> u64 {
 }
 
 /// The name of the innermost function that last ran, or "" if none has yet.
+/// Used by the Android frontend's memory bar; appears dead on host targets.
+#[allow(dead_code)]
 pub fn last_function() -> String {
     LAST_FUNCTION.lock().unwrap().clone()
 }

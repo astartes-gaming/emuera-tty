@@ -24,13 +24,22 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// One setting: its config key, what the menus show, the values it cycles
-/// through (the first is the default), and whether a change takes effect
-/// at once in a running game.
+/// through (the first is the default), whether a change takes effect at
+/// once in a running game, the category the menus list it under, whether
+/// it means something on Android, and why not when it does not.
+///
+/// `group`, `applies_on_android` and `android_limit` are read by the
+/// Android frontend through `global_settings()` JNI (not by Rust code on
+/// the host), so they appear dead to host-target clippy.
+#[allow(dead_code)]
 pub struct Item {
     pub key: &'static str,
     pub label: &'static str,
     pub choices: &'static [&'static str],
     pub live: bool,
+    pub group: &'static str,
+    pub applies_on_android: bool,
+    pub android_limit: Option<&'static str>,
     pub help: &'static str,
 }
 
@@ -40,6 +49,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Language"),
         choices: &["auto", "en", "ja", "zh-Hans", "zh-Hant", "ko", "es"],
         live: true,
+        group: "Language",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("the language of emuera-tty's own menus and messages, not the game's (auto: the system's)"),
     },
     Item {
@@ -47,14 +59,20 @@ pub const ITEMS: &[Item] = &[
         label: n!("Images"),
         choices: &["auto", "kitty", "iterm", "sixel", "fb", "none"],
         live: true,
+        group: "Display",
+        applies_on_android: true,
+        android_limit: Some("only \"none\" means anything: the app stops drawing pictures; the terminal protocols do not apply"),
         help: n!("how pictures are drawn (auto: whatever the terminal supports)"),
     },
-    Item { key: "colors", label: n!("Colours"), choices: &["auto", "truecolor", "256", "16"], live: true, help: n!("colour depth sent to the terminal") },
+    Item { key: "colors", label: n!("Colours"), choices: &["auto", "truecolor", "256", "16"], live: true, group: "Display", applies_on_android: false, android_limit: Some("the colour depth sent to a terminal; the Android renderer draws its own colours"), help: n!("colour depth sent to the terminal") },
     Item {
         key: "contrast",
         label: n!("Readable colours"),
         choices: &["normal", "high", "off"],
         live: true,
+        group: "Display",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("lighten coloured text too dark to read (e.g. blue in time stop)"),
     },
     Item {
@@ -62,6 +80,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Wide symbols"),
         choices: &["auto", "wide", "narrow", "single", "osc66"],
         live: true,
+        group: "Display",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("how box drawing / symbols get Emuera's two columns (auto: measured)"),
     },
     Item {
@@ -69,6 +90,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Backslash as ¥"),
         choices: &["auto", "on", "off"],
         live: true,
+        group: "Display",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("draw \\ as ¥ as Japanese fonts do (auto: when the game's font is one, as Emuera's default MS Gothic)"),
     },
     Item {
@@ -76,6 +100,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Greek and Cyrillic"),
         choices: &["auto", "wide", "narrow"],
         live: true,
+        group: "Display",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("two columns each, as Emuera's MS Gothic draws them, or one (auto: as the game's font, but words in those scripts narrow)"),
     },
     Item {
@@ -83,14 +110,20 @@ pub const ITEMS: &[Item] = &[
         label: n!("Copy to clipboard"),
         choices: &["game", "on", "off"],
         live: true,
+        group: "Input",
+        applies_on_android: false,
+        android_limit: Some("the phone has its own clipboard, not wired to OSC 52"),
         help: n!("put printed text on the clipboard (OSC 52); game: as emuera.config says"),
     },
-    Item { key: "statusbar", label: n!("Bottom bar details"), choices: &["on", "off"], live: true, help: n!("the hovered button's value and the running function") },
+    Item { key: "statusbar", label: n!("Bottom bar details"), choices: &["on", "off"], live: true, group: "Input", applies_on_android: false, android_limit: Some("a touch screen has no hover"), help: n!("the hovered button's value and the running function") },
     Item {
         key: "memory",
         label: n!("Show memory"),
         choices: &["off", "on"],
         live: true,
+        group: "Advanced",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("show the memory in use in the bottom row (it is always on this page's title)"),
     },
     Item {
@@ -98,6 +131,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Save crash logs"),
         choices: &["on", "off"],
         live: true,
+        group: "Advanced",
+        applies_on_android: false,
+        android_limit: Some("the app reports crashes itself (engine.log)"),
         help: n!("after a script error ends the game, save the error and the console to crash_logs/ in the game folder"),
     },
     Item {
@@ -105,6 +141,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Translator"),
         choices: &["off", "auto", "local", "argos", "translate-shell", "deepl", "file"],
         live: true,
+        group: "Translation",
+        applies_on_android: false,
+        android_limit: Some("kept and marked; the translator is not wired into the Android frontend yet"),
         help: n!("off: the game shows as it prints itself; auto: whichever is there (this computer's first); local: Ollama, LibreTranslate… only; translate-shell, DeepL: online; file: only the translations read with --translate-load"),
     },
     Item {
@@ -112,6 +151,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Translate to"),
         choices: &["en", "es", "pt", "fr", "de", "it", "ru", "ja", "zh", "ko"],
         live: true,
+        group: "Translation",
+        applies_on_android: false,
+        android_limit: Some("kept and marked; the translator is not wired into the Android frontend yet"),
         help: n!("the language to show the game in (needs a Translator other than off)"),
     },
     Item {
@@ -119,6 +161,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Translate from"),
         choices: &["auto", "ja", "en"],
         live: true,
+        group: "Translation",
+        applies_on_android: false,
+        android_limit: Some("kept and marked; the translator is not wired into the Android frontend yet"),
         help: n!("the game's language: auto takes Japanese lines from Japanese and English ones from English"),
     },
     Item {
@@ -126,14 +171,20 @@ pub const ITEMS: &[Item] = &[
         label: n!("Translate what"),
         choices: &["auto", "dialog", "all"],
         live: true,
+        group: "Translation",
+        applies_on_android: false,
+        android_limit: Some("kept and marked; the translator is not wired into the Android frontend yet"),
         help: n!("dialog: what characters say; all: menus and labels too (never maps); auto: all unless into English"),
     },
-    Item { key: "sound", label: n!("Sound"), choices: &["auto", "on", "off"], live: true, help: n!("PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)") },
+    Item { key: "sound", label: n!("Sound"), choices: &["auto", "on", "off"], live: true, group: "Input", applies_on_android: false, android_limit: Some("the app plays sound with MediaPlayer, not mpv or ffplay"), help: n!("PLAYSOUND / PLAYBGM through mpv, ffplay… (auto: not over SSH)") },
     Item {
         key: "kbdpointer",
         label: n!("Keyboard pointer"),
         choices: &["auto", "on", "off"],
         live: true,
+        group: "Input",
+        applies_on_android: false,
+        android_limit: Some("there is no pointer on a touch screen"),
         help: n!("cursor keys move a pointer, Insert or Shift+Enter click (PgUp/PgDn scroll); auto: on a text console (Linux, Hurd) without a mouse"),
     },
     Item {
@@ -141,14 +192,20 @@ pub const ITEMS: &[Item] = &[
         label: n!("Gamepad"),
         choices: &["auto", "off"],
         live: true,
+        group: "Input",
+        applies_on_android: false,
+        android_limit: Some("the app does not read gamepads"),
         help: n!("Steam Deck, Xbox, PlayStation… pads: d-pad between buttons, stick moves, A click, B skip, X/Y Enter, Start settings, LB/RB page"),
     },
-    Item { key: "wheel", label: n!("Wheel scrolls"), choices: &["3", "1", "5", "10"], live: true, help: n!("lines per mouse-wheel step") },
+    Item { key: "wheel", label: n!("Wheel scrolls"), choices: &["3", "1", "5", "10"], live: true, group: "Input", applies_on_android: true, android_limit: Some("the app's fling scrolls that many lines"), help: n!("lines per mouse-wheel step") },
     Item {
         key: "tab_complete",
         label: n!("Tab completion"),
         choices: &["off", "on"],
         live: true,
+        group: "Input",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("at an input, Tab completes what is typed to a button's value (by its start or a word of the button's text) or an @ command; Tab again shows the next one"),
     },
     Item {
@@ -156,6 +213,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Scroll to end on keyboard input"),
         choices: &["off", "on"],
         live: true,
+        group: "Input",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("any key press while scrolled back jumps to the end (off: only mouse clicks and Enter do)"),
     },
     Item {
@@ -163,14 +223,20 @@ pub const ITEMS: &[Item] = &[
         label: n!("Decode last used pictures"),
         choices: &["auto", "on", "off"],
         live: false,
+        group: "Advanced",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("decode pictures the game used last time in the background at start (auto: on unless headless)"),
     },
-    Item { key: "mouse", label: n!("Console mouse"), choices: &["auto", "off"], live: false, help: n!("gpm / /dev/input/mice on the Linux console") },
+    Item { key: "mouse", label: n!("Console mouse"), choices: &["auto", "off"], live: false, group: "Advanced", applies_on_android: false, android_limit: Some("gpm and /dev/input/mice on the Linux console"), help: n!("gpm / /dev/input/mice on the Linux console") },
     Item {
         key: "frontend",
         label: n!("Display"),
         choices: &["auto", "ansi", "retro"],
         live: false,
+        group: "Advanced",
+        applies_on_android: false,
+        android_limit: Some("ANSI and retro output are for terminals"),
         help: n!("retro: ASCII through terminfo, for old or dumb terminals"),
     },
     Item {
@@ -178,6 +244,9 @@ pub const ITEMS: &[Item] = &[
         label: n!("Target EE version"),
         choices: &["EEv56", "EEv56-anontw", "EEv57"],
         live: false,
+        group: "Advanced",
+        applies_on_android: true,
+        android_limit: None,
         help: n!("which Emuera-EE version to emulate (EEv56: baseline; EEv56-anontw: EEv56 plus AnonTW fixes from Shakes4cc; EEv57: official EEv57)"),
     },
 ];
@@ -256,13 +325,26 @@ pub fn config_path() -> Option<PathBuf> {
     Some(base.join("emuera-tty").join("config"))
 }
 
+/// The config file's modification-time based generation, for detecting changes:
+/// frontends can compare this across reads and only re-read when it changed.
+/// Returns `None` when the file can't be read or doesn't exist.
+/// Used by the Android frontend; appears dead on host targets.
+#[allow(dead_code)]
+pub fn config_generation() -> Option<u64> {
+    config_path()
+        .and_then(|p| std::fs::metadata(&p).ok())
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+}
+
 impl Settings {
     pub fn load() -> Settings {
         config_path().and_then(|p| std::fs::read_to_string(p).ok()).map_or_else(Settings::default, |t| Settings::from_text(&t))
     }
 
     /// Settings from the config file's text.
-    fn from_text(text: &str) -> Settings {
+    pub fn from_text(text: &str) -> Settings {
         let mut s = Settings::default();
         for line in text.lines() {
             let Some((k, v)) = line.split_once('=') else { continue };
@@ -311,7 +393,29 @@ impl Settings {
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
         }
-        let _ = std::fs::write(p, self.to_text());
+        // write to a temp file and rename over the config, so a crash
+        // mid-write cannot leave a half-written file
+        let tmp = p.with_extension("config.tmp");
+        if std::fs::write(&tmp, self.to_text()).is_err() {
+            return;
+        }
+        let _ = std::fs::rename(&tmp, p);
+    }
+
+    /// Change one setting in the config file: re-read it, change the key,
+    /// and save atomically. Returns "" on success or an error message.
+    /// This is safe to call from any process: it re-reads the file first,
+    /// so a change made elsewhere is not lost.
+    /// Used by the Android frontend; appears dead on host targets.
+    #[allow(dead_code)]
+    pub fn set_one(key: &str, value: &str) -> String {
+        if ITEMS.iter().find(|i| i.key == key).is_none() {
+            return format!("unknown setting: {key}");
+        }
+        let mut s = Settings::load();
+        s.set(key, value);
+        s.save();
+        String::new()
     }
 
     /// The config file's text for these settings.
@@ -359,6 +463,13 @@ impl Settings {
 
     pub fn set(&mut self, key: &str, value: &str) {
         self.values.insert(key.to_string(), value.to_string());
+    }
+
+    /// Remove a setting from the config file, back to its default.
+    /// Used by the Android frontend; appears dead on host targets.
+    #[allow(dead_code)]
+    pub fn remove(&mut self, key: &str) {
+        self.values.remove(key);
     }
 
     /// Step a setting to its next (`dir` 1) or previous (-1) choice.
@@ -461,6 +572,10 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serializes tests that mutate the process-wide `XDG_CONFIG_HOME` env var.
+    static CONFIG_ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     /// The language is saved as its code and shown by its own name
     #[test]
@@ -498,6 +613,45 @@ mod tests {
     }
 
     #[test]
+    fn contrast_ratio_applies() {
+        let mut s = Settings::default();
+        assert_eq!(s.contrast_ratio(), 3.0); // normal
+        s.set("contrast", "off");
+        assert_eq!(s.contrast_ratio(), 1.0);
+        s.set("contrast", "high");
+        assert_eq!(s.contrast_ratio(), 4.5);
+        s.set("contrast", "normal");
+        assert_eq!(s.contrast_ratio(), 3.0);
+    }
+
+    #[test]
+    fn export_env_sets_warmup_and_ee_version() {
+        let _lock = CONFIG_ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("EMUERA_EE_VERSION");
+        std::env::remove_var("EMUERA_WARMUP");
+        let mut s = Settings::default();
+        // defaults: warmup=auto → not set (auto means default behavior), ee_version=EEv56 → set
+        s.export_env();
+        assert_eq!(std::env::var("EMUERA_EE_VERSION").ok(), Some("EEv56".into()));
+        assert!(std::env::var("EMUERA_WARMUP").is_err(), "auto warmup should not set the env var");
+
+        // export_env does not override an already-set variable: remove it first
+        std::env::remove_var("EMUERA_EE_VERSION");
+        s.set("ee_version", "EEv57");
+        s.export_env();
+        assert_eq!(std::env::var("EMUERA_EE_VERSION").ok(), Some("EEv57".into()));
+
+        std::env::remove_var("EMUERA_WARMUP");
+        s.set("warmup", "on");
+        s.export_env();
+        assert_eq!(std::env::var("EMUERA_WARMUP").ok(), Some("on".into()));
+
+        // clean up
+        std::env::remove_var("EMUERA_EE_VERSION");
+        std::env::remove_var("EMUERA_WARMUP");
+    }
+
+    #[test]
     fn new_games_stay_new_until_played() {
         let mut s = Settings::default();
         let g = Path::new("/nonexistent/eraNew");
@@ -510,5 +664,122 @@ mod tests {
         s.mark_new(g);
         s.remove_game(g);
         assert!(s.fresh.is_empty());
+    }
+
+    #[test]
+    fn every_item_has_a_group() {
+        for it in ITEMS {
+            assert!(!it.group.is_empty(), "{} has no group", it.key);
+        }
+    }
+
+    #[test]
+    fn items_applying_on_android_match_the_design() {
+        let applying: Vec<&str> = ITEMS.iter().filter(|it| it.applies_on_android).map(|it| it.key).collect();
+        let want = ["language", "images", "contrast", "wide", "yen", "letters", "memory", "wheel", "tab_complete", "scroll_end_on_key", "warmup", "ee_version"];
+        assert_eq!(applying.len(), want.len());
+        for k in &want {
+            assert!(applying.contains(k), "{} should apply on Android", k);
+        }
+    }
+
+    #[test]
+    fn items_not_applying_on_android_have_a_reason() {
+        for it in ITEMS {
+            if !it.applies_on_android {
+                assert!(it.android_limit.is_some(), "{} does not apply on Android but has no reason", it.key);
+            }
+        }
+    }
+
+    #[test]
+    fn save_is_atomic_and_set_one_keeps_both_changes() {
+        let _lock = CONFIG_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("emuera-setone-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("XDG_CONFIG_HOME", &tmp);
+        let _ = std::fs::remove_dir_all(&tmp.join("emuera-tty"));
+
+        // first change
+        let err = Settings::set_one("contrast", "high");
+        assert_eq!(err, "");
+        // second change keeps the first
+        let err = Settings::set_one("wide", "narrow");
+        assert_eq!(err, "");
+
+        let s = Settings::load();
+        assert_eq!(s.get("contrast"), "high");
+        assert_eq!(s.get("wide"), "narrow");
+
+        // no temp file left behind
+        let cfg = tmp.join("emuera-tty").join("config");
+        let tmo = tmp.join("emuera-tty").join("config.tmp");
+        assert!(cfg.is_file());
+        assert!(!tmo.is_file());
+
+        // unknown key is refused
+        let err = Settings::set_one("no_such_key", "x");
+        assert_ne!(err, "");
+        assert!(err.contains("unknown setting"));
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn leftover_config_tmp_is_ignored() {
+        let _lock = CONFIG_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("emuera-tmpleft-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("XDG_CONFIG_HOME", &tmp);
+        let cfg_dir = tmp.join("emuera-tty");
+        let _ = std::fs::create_dir_all(&cfg_dir);
+
+        // a real config with one setting
+        std::fs::write(cfg_dir.join("config"), "contrast=high\n").unwrap();
+        // a stale temp file from a crashed write
+        std::fs::write(cfg_dir.join("config.tmp"), "contrast=off\nwide=narrow\n").unwrap();
+
+        let s = Settings::load();
+        assert_eq!(s.get("contrast"), "high");
+        assert_eq!(s.get("wide"), "auto");
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn config_generation_changes_when_the_file_changes() {
+        let _lock = CONFIG_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("emuera-configgen-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("XDG_CONFIG_HOME", &tmp);
+        let _ = std::fs::remove_dir_all(&tmp.join("emuera-tty"));
+
+        // no config file: None
+        assert_eq!(crate::settings::config_generation(), None);
+
+        let cfg_dir = tmp.join("emuera-tty");
+        let _ = std::fs::create_dir_all(&cfg_dir);
+        let cfg = cfg_dir.join("config");
+        std::fs::write(&cfg, "contrast=high\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        // file exists: Some generation
+        let gen1 = crate::settings::config_generation();
+        assert!(gen1.is_some());
+
+        // unchanged: same generation
+        let gen2 = crate::settings::config_generation();
+        assert_eq!(gen2, gen1);
+
+        // changed: different generation
+        std::fs::write(&cfg, "contrast=off\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let gen3 = crate::settings::config_generation();
+        assert_ne!(gen3, gen1);
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

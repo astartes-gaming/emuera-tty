@@ -17,7 +17,7 @@ mod i18n;
 #[macro_export]
 macro_rules! em {
     ($id:literal, $ja:literal, $en:literal $(, $arg:expr)* $(,)?) => {
-        crate::emuera_lang::fill(&crate::emuera_lang::template($id, $ja, $en), &[$(($arg).to_string()),*])
+        $crate::emuera_lang::fill(&$crate::emuera_lang::template($id, $ja, $en), &[$(::std::string::ToString::to_string(&$arg)),*])
     };
 }
 

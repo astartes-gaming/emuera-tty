@@ -777,4 +777,18 @@ mod tests {
         assert!(String::from_utf8_lossy(&std::fs::read(d.join("emuera.config")).unwrap()).contains("PRINTCを並べる数:4"));
         let _ = std::fs::remove_dir_all(&d);
     }
+
+    /// A choice item carries its options so the per-game screen can offer them.
+    #[test]
+    fn a_choice_item_carries_its_options() {
+        let it = ITEMS.iter().find(|i| i.jp == "テキストエディタコマンドライン指定").unwrap();
+        match it.kind {
+            Kind::Choice(options) => {
+                assert!(!options.is_empty());
+                assert_eq!(options[0], ("SAKURA", "Sakura"));
+                assert_eq!(options.last(), Some(&("USER_SETTING", n!("Your own"))));
+            }
+            _ => panic!("テキストエディタコマンドライン指定 is not a choice item"),
+        }
+    }
 }

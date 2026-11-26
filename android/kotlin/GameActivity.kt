@@ -189,6 +189,8 @@ class GameActivity : Activity() {
             val memoryUpdater = object : Runnable {
                 override fun run(){
                    memoryView.text = memoryText()
+                   // the global "Show memory" setting gates the readout
+                   visibility = if (Native.showMemory()) View.VISIBLE else View.GONE
                    memoryHandler.postDelayed(this, 1000)
                 }
             }
@@ -306,6 +308,7 @@ class GameActivity : Activity() {
     private fun showMenu(game: File) {
         val rows = listOf<Pair<String, () -> Unit>>(
             "Game settings…" to { showGameSettings(game) { Native.reloadConfig() } },
+            "Settings…" to { startActivity(Intent(this@GameActivity, SettingsActivity::class.java)) },
             "Manage saves…" to { saves.show() },
             "Back to the title" to { losing("Back to the title screen?", "Back to the title") { Native.toTitle() } },
             "Restart the game" to { losing("Restart the game?", "Restart") { restart() } },

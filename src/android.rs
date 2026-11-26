@@ -11,7 +11,7 @@
 //! is split into what the script took, preparing the update, and waiting for the frame.
 
 use crate::ast::Align;
-use crate::console::{is_tip_area, Console, Line, Seg};
+use crate::console::{is_tip_area, readable_on, Console, Line, Rgb, Seg};
 use crate::frontend::{raw_from_input, Frontend, Hotkey, InputKind, InputReq, InputResult, RawInput};
 use crate::resources::{CbgSrc, Resources};
 use crate::vm::value::Value;
@@ -202,9 +202,17 @@ const RAW: u8 = 4;
 
 /// How many of Emuera's half-width cells a character takes, and how it can be drawn:
 /// the width rule of tty.rs' `char_cells`, a Shift-JIS byte per cell.
-fn char_class(ch: char) -> (i32, u8) {
+/// `yen`: draw `\` as `¥` (Backslash as ¥ setting). `wide`: ambiguous-width handling.
+/// `letters`: Greek/Cyrillic column width ("wide" = 2 columns, else 1).
+fn char_class(ch: char, yen: bool, wide: &str, letters: &str) -> (i32, u8) {
+    let ch = if yen && ch == '\\' { '¥' } else { ch };
     if ch.is_ascii() {
         return if ch.is_ascii_control() { (0, NARROW) } else { (1, NARROW) };
+    }
+    // Greek/Cyrillic letters (0x370–0x4FF): two columns each when "wide", one otherwise
+    if matches!(ch as u32, 0x370..=0x4FF) {
+        let cells = if letters == "wide" { 2 } else { 1 };
+        return (cells, if cells == 2 { WIDE } else { SINGLE });
     }
     let tw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as i32;
     if tw == 0 {
@@ -212,10 +220,16 @@ fn char_class(ch: char) -> (i32, u8) {
     }
     let mut buf = [0u8; 4];
     let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(ch.encode_utf8(&mut buf));
-    let cells = if unmappable { tw } else { bytes.len() as i32 };
-    // a real double-width glyph runs together; others are placed one at a time, since a
-    // proportional font wouldn't land them on the cell grid
-    (cells, if tw == 2 && cells == 2 { WIDE } else { SINGLE })
+    let mut cells = if unmappable { tw } else { bytes.len() as i32 };
+    // ambiguous width: Unicode says narrow, Emuera's MS Gothic font draws wide
+    if cells == 1 && tw == 1 && unicode_width::UnicodeWidthChar::width_cjk(ch).unwrap_or(0) == 2 {
+        cells = match wide {
+            "wide" | "osc66" => 2,
+            _ => 1,
+        };
+    }
+    // a real double-width glyph runs together; others are placed one at a time
+    (cells, if cells == 2 { WIDE } else { SINGLE })
 }
 
 fn put_i16(o: &mut Vec<u8>, v: i32) {
@@ -282,6 +296,11 @@ struct AndroidFe {
     next_image: i32,
     input_done: Instant,
     last_purge: Instant,
+    /// When the config file was last read, by modification time, so the frontend
+    /// re-reads settings only when the file changed.
+    config_gen: Option<u64>,
+    /// The settings in effect, re-read when the config file changes.
+    settings: crate::settings::Settings,
 }
 
 impl AndroidFe {
@@ -291,6 +310,21 @@ impl AndroidFe {
         if self.last_purge.elapsed() >= Duration::from_secs(3) {
             crate::sys::trim_memory();
             self.last_purge = Instant::now();
+        }
+    }
+
+    /// Re-read the engine's config file if it changed since we last read it, keeping
+    /// the settings the Android frontend can use. A stat first, a read only when the
+    /// file's modification time changed, so an unchanged file is never read again.
+    fn refresh_settings(&mut self) {
+        let gen = crate::settings::config_generation();
+        if gen == self.config_gen {
+            return;
+        }
+        self.config_gen = gen;
+        let Some(p) = crate::settings::config_path() else { return };
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            self.settings = crate::settings::Settings::from_text(&text);
         }
     }
 
@@ -357,6 +391,9 @@ impl AndroidFe {
     /// (capped) and scaled by the GPU when drawn: on slow cores CPU scaling cost far more
     /// than decoding in the benchmark.
     fn image_key(&mut self, res: &mut Resources, name: &str, w: f32, h: f32) -> Option<i32> {
+        if self.settings.get("images") == "none" {
+            return None;
+        }
         let frame = res.frame_name(name);
         let (nw, nh) = res.sprite_size(&frame).unwrap_or((w.max(1.0) as u32, h.max(1.0) as u32));
         let (tw, th) = capped(nw, nh);
@@ -373,6 +410,9 @@ impl AndroidFe {
     /// layer's picture may have been dropped from the UI to stay within its budget.
     // shortcut: a button sprite always shows its normal picture, as a touch screen has no hover; show its other one under the finger if a game's menu needs that feedback.
     fn cbg_layers(&mut self, res: &mut Resources) -> Vec<(i32, i32, i32, i32, i32, bool)> {
+        if self.settings.get("images") == "none" {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         for l in res.cbg.clone() {
             let (key, (w, h), (bx, by)) = match &l.src {
@@ -450,19 +490,35 @@ impl AndroidFe {
     fn layout(&mut self, line: &Line, con: &Console, res: &mut Resources, wrap: i32) -> Vec<Vec<Run>> {
         let cell_px = (con.font_size / 2.0).max(1.0);
         let wrap = wrap.max(20);
+        // settings that shape the cell model; re-read each layout so a changed setting
+        // takes effect at the next input without reloading the whole config
+        let yen = self.settings.get("yen") != "off";
+        let wide = self.settings.get("wide").to_string();
+        let letters = self.settings.get("letters").to_string();
+        let contrast = self.settings.get("contrast").to_string();
         let mut rows: Vec<Vec<Run>> = vec![vec![]];
         let mut col = 0i32;
         for (si, seg) in line.segs.iter().enumerate() {
             match seg {
                 Seg::Text { text, style, button, .. } => {
                     // a button that doesn't fit the rest of the row starts the next one whole
-                    if crate::console::breaks_before_whole(line, si, col, wrap, con.button_wrap, con.wrap_1739, |t| t.chars().map(|c| char_class(c).0).sum()) {
+                    if crate::console::breaks_before_whole(line, si, col, wrap, con.button_wrap, con.wrap_1739, |t| {
+                        t.chars().map(|c| char_class(c, yen, &wide, &letters).0).sum()
+                    }) {
                         rows.push(vec![]);
                         col = 0;
                     }
                     let btn = button.as_ref().filter(|v| !is_tip_area(v)).map(|v| v.to_string());
                     let flags = style.bold as u8 | (style.italic as u8) << 1 | (style.underline as u8) << 2 | (style.strike as u8) << 3;
-                    let (fg, bg) = (style.fg.to_i64() as i32, style.bg.map_or(-1, |c| c.to_i64() as i32));
+                    let mut fg = style.fg.to_i64() as i32;
+                    let bg = style.bg.map_or(-1, |c| c.to_i64() as i32);
+                    // readable colours: lift a colour too dark to read against the background
+                    if contrast != "off" {
+                        let min = if contrast == "high" { 4.5 } else { 3.0 };
+                        let shown = con.screen_bg;
+                        let meant = con.screen_bg;
+                        fg = readable_on(Rgb::from_i64(fg as i64), shown, meant, min).to_i64() as i32;
+                    }
                     let mut cur = String::new();
                     let (mut cur_kind, mut cur_col, mut cur_cells) = (NARROW, col, 0);
                     macro_rules! end_run {
@@ -495,7 +551,7 @@ impl AndroidFe {
                             cur_col = 0;
                             continue;
                         }
-                        let (n, kind) = char_class(ch);
+                        let (n, kind) = char_class(ch, yen, &wide, &letters);
                         if n == 0 {
                             // combining marks ride on the character before them
                             if !cur.is_empty() {
@@ -839,6 +895,9 @@ impl Frontend for AndroidFe {
             return self.input_replay(con, res, req);
         }
         self.held_tap = None;
+        // the player may have changed settings from the game list while we ran;
+        // re-read the config file when it changed, and apply at the next input
+        self.refresh_settings();
         let kind = match req.kind {
             InputKind::Int => 1,
             InputKind::Str => 2,
@@ -887,6 +946,8 @@ impl Frontend for AndroidFe {
             let req = InputReq { kind: InputKind::Str, one: false, timeout_ms, stop_skip: false };
             return raw_from_input(self.input(con, res, &req));
         }
+        // re-read the config file when it changed, and apply at the next input
+        self.refresh_settings();
         self.sync(con, res, RAW, false);
         self.maybe_purge();
         if let Some(click) = self.held_tap.take() {
@@ -1135,7 +1196,7 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_start<'a>(
         let chosen_percent = std::env::var("TEXT_PERCENT").ok().and_then(|v| v.parse().ok());
         let max_cols = std::env::var("MAX_TEXT_COLS").ok().and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
         let percent = text_percent(window, chosen_percent, max_cols);
-        let fe = AndroidFe {
+        let mut fe = AndroidFe {
             rx,
             replay,
             width: text_cols(window, percent),
@@ -1154,7 +1215,10 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_start<'a>(
             next_image: 1,
             input_done: Instant::now(),
             last_purge: Instant::now(),
+            config_gen: None,
+            settings: crate::settings::Settings::default(),
         };
+        fe.refresh_settings();
         *crate::frontend::EXTERNAL.lock().unwrap() = Some(Box::new(fe));
         let mut o = crate::default_opts();
         o.game = Some(PathBuf::from(game));
@@ -1245,12 +1309,9 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_recoverImpo
 /// The settings of emuera-tty's game settings page that do something here: not the clipboard's or the keyboard
 /// macros' (a phone has neither), or the font for text drawn into pictures (found with fc-match, which Android
 /// doesn't have).
-fn android_setting(it: &crate::emuconfig::Item) -> bool {
-    it.tab != "Clipboard" && !matches!(it.jp, "キーボードマクロを使用する" | "フォント名")
-}
-
 /// The game's settings for the app's settings dialog, a line each: key, label, tab, kind (bool, int:LOW:HIGH, color),
-/// the value in effect, and where it's from (emuera, game, player, or fixed: the game doesn't allow changing it).
+/// the value in effect, where it's from (emuera, game, player, or fixed: the game doesn't allow changing it),
+/// when it takes effect (now, restart, exe), the choices of a choice item (value:label,…), and the store (config, json).
 /// Called in either process, with or without a game running.
 #[no_mangle]
 pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_gameSettings<'a>(
@@ -1258,13 +1319,13 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_gameSetting
     _c: JClass<'a>,
     game: JString<'a>,
 ) -> jni::sys::jstring {
-    use crate::emuconfig::{normalize, Kind, Source, Values, ITEMS};
+    use crate::emuconfig::{normalize, Effect, Kind, Source, Store, Values, ITEMS};
     let Some(game) = get_string(&mut env, &game) else { return std::ptr::null_mut() };
     // (after a panic: no settings)
     let out = guarded(|| {
         let vals = Values::read(std::path::Path::new(&game));
         let mut out = String::new();
-        for it in ITEMS.iter().filter(|it| android_setting(it)) {
+        for it in ITEMS.iter() {
             let (v, src) = vals.get(it);
             // (a value Emuera can't read is its default there too)
             let v = normalize(it, &v).unwrap_or_else(|_| it.default.to_string());
@@ -1281,7 +1342,31 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_gameSetting
                 Source::Player => "player",
                 Source::Fixed => "fixed",
             };
-            out += &format!("{}\t{}\t{}\t{}\t{}\t{}\n", it.jp, it.label, it.tab, kind, v.replace(['\t', '\n'], " "), src);
+            let effect = match it.effect {
+                Effect::Now => "now",
+                Effect::Restart => "restart",
+                Effect::ExeOnly => "exe",
+            };
+            let choices = match it.kind {
+                Kind::Choice(options) => options.iter().map(|(v, l)| format!("{v}:{l}")).collect::<Vec<_>>().join(","),
+                _ => String::new(),
+            };
+            let store = match it.store {
+                Store::Config => "config",
+                Store::Json(_) => "json",
+            };
+            out += &format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                it.jp,
+                it.label.replace(['\t', '\n'], " "),
+                it.tab,
+                kind,
+                v.replace(['\t', '\n'], " "),
+                src,
+                effect,
+                choices.replace(['\t', '\n'], " "),
+                store
+            );
         }
         Ok(out)
     })
@@ -1305,16 +1390,107 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_setGameSett
     };
     let value = get_string(&mut env, &value);
     let r = guarded(|| {
-        let it = ITEMS.iter().find(|it| it.jp == key && android_setting(it)).ok_or_else(|| format!("no setting {key}"))?;
+        let it = ITEMS.iter().find(|it| it.jp == key).ok_or_else(|| format!("no setting {key}"))?;
         let value = value.map(|v| normalize(it, &v)).transpose()?;
         Values::read(std::path::Path::new(&game)).set(it, value.as_deref())
     });
     result_string(&mut env, r)
 }
 
+/// The engine's global settings, one TSV line per item:
+/// key \t label \t value \t choices \t live \t applies_on_android \t group \t help.
+/// Tabs inside label/help are escaped to spaces so they cannot break a line.
+/// Called with or without a game running.
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_globalSettings<'a>(env: JNIEnv<'a>, _c: JClass<'a>) -> jni::sys::jstring {
+    use crate::settings::{Settings, ITEMS};
+    let out = guarded(|| {
+        let s = Settings::load();
+        let mut lines = Vec::new();
+        for it in ITEMS {
+            let value = s.get(it.key);
+            let choices = it.choices.join(",");
+            let line = format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                it.key,
+                it.label.replace('\t', " "),
+                value.replace('\t', " "),
+                choices,
+                it.live,
+                it.applies_on_android,
+                it.group,
+                it.help.replace('\t', " "),
+            );
+            lines.push(line);
+        }
+        Ok(lines.join("\n"))
+    })
+    .unwrap_or_else(|e| e);
+    env.new_string(out).map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
+/// Sets one global setting in the engine's config file and returns "" or what went wrong.
+/// A null value removes the key, back to its default. An unknown key is refused.
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_setGlobalSetting<'a>(
+    mut env: JNIEnv<'a>,
+    _c: JClass<'a>,
+    key: JString<'a>,
+    value: JString<'a>,
+) -> jni::sys::jstring {
+    let (Some(key),) = (get_string(&mut env, &key),) else {
+        return result_string(&mut env, Err("bad arguments".into()));
+    };
+    let value = get_string(&mut env, &value);
+    let r = guarded(|| match value {
+        Some(v) => {
+            let err = crate::settings::Settings::set_one(&key, &v);
+            if err.is_empty() {
+                Ok(())
+            } else {
+                Err(err)
+            }
+        }
+        None => {
+            if crate::settings::ITEMS.iter().find(|i| i.key == key).is_none() {
+                return Err(format!("unknown setting: {key}"));
+            }
+            let mut s = crate::settings::Settings::load();
+            s.remove(&key);
+            s.save();
+            Ok(())
+        }
+    });
+    result_string(&mut env, r)
+}
+
+/// Whether the global "Show memory" setting is on: gates the memory readout overlay in
+/// the running game. Reads the engine's config file (XDG_CONFIG_HOME is set in `start`).
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_showMemory<'a>(_env: JNIEnv<'a>, _c: JClass<'a>) -> jboolean {
+    let on = guarded(|| {
+        let s = crate::settings::Settings::load();
+        Ok(s.get("memory") == "on")
+    })
+    .unwrap_or(false);
+    on as jboolean
+}
+
 fn send(m: Msg) {
     if let Some(sh) = SHARED.get() {
         let _ = sh.tx.send(m);
+    }
+}
+
+/// Sets `HOME` and `XDG_CONFIG_HOME` so the engine's config file can be read and written
+/// from the app's main process (the game process sets them in `start`). Safe to call once
+/// at startup, before any threads run.
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_setConfigHome<'a>(mut env: JNIEnv<'a>, _c: JClass<'a>, path: JString<'a>) {
+    let Some(path) = get_string(&mut env, &path) else { return };
+    unsafe {
+        std::env::set_var("HOME", &path);
+        std::env::set_var("XDG_CONFIG_HOME", PathBuf::from(&path).join("cfg"));
     }
 }
 

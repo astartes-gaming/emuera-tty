@@ -13,6 +13,8 @@ object Native {
     }
 
     @JvmStatic external fun start(game: String, data: String, replay: String?, env: String, cols: Int)
+    /** Sets HOME and XDG_CONFIG_HOME so the engine config file can be read and written. */
+    @JvmStatic external fun setConfigHome(path: String)
     @JvmStatic external fun viewRows(rows: Int)
     @JvmStatic external fun textSize(percent: Int)
     @JvmStatic external fun maxTextCols(cols: Int)
@@ -47,6 +49,14 @@ object Native {
     @JvmStatic external fun gameSettings(game: String): String
     /** "" or what went wrong; a null value takes the player's out. */
     @JvmStatic external fun setGameSetting(game: String, key: String, value: String?): String
+
+    /** The engine's global settings: one TSV line per item (key, label, value, choices, live, appliesOnAndroid, group, help). */
+    @JvmStatic external fun globalSettings(): String
+    /** Sets one global setting; "" or what went wrong. A null value removes the key, back to its default. */
+    @JvmStatic external fun setGlobalSetting(key: String, value: String?): String
+
+    /** Whether the global "Show memory" setting is on (gates the memory readout overlay). */
+    @JvmStatic external fun showMemory(): Boolean
 
     /** Import, on a worker thread. Each returns "" or what went wrong. */
     @JvmStatic external fun importArchive(fd: Int, suffix: String, tmp: String): String

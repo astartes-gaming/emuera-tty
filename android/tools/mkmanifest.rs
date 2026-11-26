@@ -181,6 +181,16 @@ fn main() {
                         ],
                         vec![],
                     ),
+                    // the engine's settings: same screen whether opened from the list or a game
+                    el(
+                        "activity",
+                        vec![
+                            A("name", 0x01010003, s(&format!("{}.SettingsActivity", package))),
+                            // keeps settings through a rotation
+                            A("configChanges", 0x0101001f, V::Hex(CONFIG_CHANGES)),
+                        ],
+                        vec![],
+                    ),
                     // keeps a game alive in the background, so in the game's process.
                     // specialUse: the other types don't fit, and some are limited to a few hours
                     el(

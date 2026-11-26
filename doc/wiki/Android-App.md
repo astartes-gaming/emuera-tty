@@ -15,7 +15,8 @@ More or less the unofficial successor of **uEmuera**, which hasn't had any updat
 - Pictures: sprites, `G*` buffers, `CBG*` layers, `<div>` boxes (background only, no border or rounded corners yet).
 - Sound: SE and BGM through Android's `MediaPlayer`, paused when the game is hidden.
 - Text resize: **A-** / **A+** in the bottom bar changes the text size instantly; the choice is kept across restarts and game updates.
-- Game settings (`emuera.config`): the same keys Emuera uses, from the list or the game's menu (`GameSettings.kt`).
+- Game settings (`emuera.config`): the same keys Emuera uses, from the list (`⚙` beside a game) or the game's menu (`Game settings…`), through `GameSettings.kt`. Every item of Emuera's settings window is listed, tab by tab, with a widget per kind (toggle, number field, colour, text, drop-down), where the value came from, when it takes effect, and a reset per item.
+- The app's own settings (`SettingsActivity`): every item of emuera-tty's own settings, grouped by category (Language, Display, Input, Translation, Advanced), each with its choices and help text; items that do not apply on Android are shown but cannot be changed.
 - Save manager: copy/move slots, export/import files, back up all saves, restore a backup.
 - Running in the background: a foreground service keeps the game alive with a notification to come back.
 - Archive import: zip, tar, tar.gz (7z and rar not yet — unpack them first and import the folder).
@@ -23,19 +24,19 @@ More or less the unofficial successor of **uEmuera**, which hasn't had any updat
 - Tablet rotation: the text follows the minimum size on the new width; pictures among text can be cut off when upright.
 - Crash reports: the engine's log (`engine.log` and `engine.log.1`) is shown with a share button.
 
-### What's in the `expose-settings-android` change (planned, not yet implemented)
+### What the `expose-settings-android` change adds
 
 The OpenSpec change `expose-settings-android` adds the settings screens: emuera-tty's own settings (from `src/settings.rs`) for the app as a whole, and Emuera's settings window (the game's `emuera.config`) for each game. It does **not** change the Rust settings system or add new settings — it only exposes what's already there.
 
-**Planned additions (from the change's tasks):**
+**Done:**
 
-- **`SettingsActivity`** — the app's own settings, in the categories the engine gives them (Language, Display, Input, Translation, Advanced), read from Rust through a batch JNI getter (`globalSettings()` returning TSV). Every setting is listed; the ones Android has no use for (the terminal's colour depth, the console mouse, ANSI/retro output) are shown and marked with the reason.
-- **The engine applies them on Android** — today only the language is read on the phone; the readable colours, the yen, the Greek/Cyrillic and ambiguous widths, the memory in the bottom row, the scroll-to-end and the picture switch reach the running game at its next input.
-- **The per-game screen** — every item of Emuera's settings window, tab by tab, with a widget per kind (toggle, number field, colour, text, drop-down), where the value came from, when it takes effect (now, at the next start, or only Emuera.exe uses it), and a reset per item. The screen now lists the items the phone had left out.
+- **`SettingsActivity`** — the app's own settings, in the categories the engine gives them (Language, Display, Input, Translation, Advanced), read from Rust through a batch JNI getter (`globalSettings()` returning TSV). Every setting is listed; the ones Android has no use for (the terminal's colour depth, the console mouse, ANSI/retro output) are shown and marked, and cannot be changed.
+- **The engine applies them on Android** — the language, the readable colours, the yen, the Greek/Cyrillic and ambiguous widths, the memory in the bottom row, the scroll-to-end and the picture switch reach the running game at its next input.
+- **The per-game screen** — every item of Emuera's settings window, tab by tab, with a widget per kind (toggle, number field, colour, text, drop-down), where the value came from, when it takes effect (now, at the next start, or only Emuera.exe uses it), and a reset per item. Values go into the game's `emuera.config`, which Emuera.exe reads too.
 - **Translation settings** — the translator, the languages and what to translate are kept in the config file and marked as not applied yet: the translator is not wired into the Android app (a separate change).
 - **The config file** — the same one the engine reads (`<files>/cfg/emuera-tty/config`), so the phone and the desktop program agree; it is written atomically, one key at a time, because the game list and the running game are separate processes.
-- **JNI bridge extensions** — `globalSettings()`, `setGlobalSetting()`, and a richer `gameSettings()` (the effect, the choices and the store of each item).
-- **Game menu integration** — "Settings" entry in the gear menu and in the game list's menu, both opening the same activity, with the game continuing in the background.
+- **JNI bridge extensions** — `globalSettings()`, `setGlobalSetting()`, `gameSettings()` (now with the effect, the choices and the store of each item), `setGameSetting()` (a null value removes the key back to its default), and `showMemory()` (gates the memory readout overlay).
+- **Game menu integration** — "Game settings" entry in the gear menu and in the game list's menu, both opening the same per-game screen, with the game continuing in the background.
 
 **How the categories map (the categories come from Rust, not from the app):**
 
@@ -68,14 +69,13 @@ The OpenSpec change `expose-settings-android` adds the settings screens: emuera-
 - Wiring the translator into the app: the translation settings are kept and marked as not applied yet.
 - Translating the app's own text: the "language" setting changes the engine's messages, the app's buttons stay as they are.
 - The environment variables reference screen (its own capability, `android/env-vars`).
-- Implement new translation engines (uses existing ones in `mt.rs`).
-- Change the Rust settings system or config file format.
-- Add settings not already in `src/settings.rs` `ITEMS`.
-- Implement a new config storage backend.
+- Implementing new translation engines (uses existing ones in `mt.rs`).
+- Changing the Rust settings system or config file format.
+- Adding settings not already in `src/settings.rs` `ITEMS`.
+- Implementing a new config storage backend.
 - Jetpack Compose rewrite (current codebase uses Views).
 - Individual JNI getter/setter per setting (a batch TSV getter avoids 60+ JNI functions).
 - Duplicating translation engine discovery logic in Kotlin (stays in Rust).
-- Game-specific `emuera.config` settings in the global settings UI (they stay in `GameSettings.kt`, accessible from both the list and the new main settings screen).
 
 ### Install
 
@@ -94,7 +94,7 @@ Open **Emuera-Android** on the phone and import a game:
 
 Importing a game that's already there replaces its files and keeps its saves: `sav/`, save files in the game's folder, and `dat/chara_*.dat`. A save that came with the new copy is kept beside yours with `.from-archive` added to its name.
 
-In the list, **⚙** beside a game opens its settings and **✕** deletes it. The settings are those of Emuera's settings window that do something here (autosaves, save slots, history, infinite loop warnings, PRINTC, text colours, compressed saves), kept in the game's `emuera.config`, which Emuera.exe reads too.
+In the list, **⚙** beside a game opens its settings — every item of Emuera's settings window, tab by tab, with a widget per kind (toggle, number field, colour, text, drop-down), where the value came from, when it takes effect, and a reset per item — and **✕** deletes it. The settings are kept in the game's `emuera.config`, which Emuera.exe reads too.
 
 In a game:
 
@@ -111,7 +111,7 @@ In a game:
 - **Manage saves:** copy/move a save to another slot, export to a file, delete it; back up all saves, restore a backup, import a save file. A save deleted, overwritten, or replaced is kept in the backups first, in the app's `data/emuera-tty/backups/<game>/`.
 - **Back to the title** and **Restart the game**, after asking. A restart starts the game in a new process.
 - **Reload ERB files:** reads the scripts again, keeping the game where it is (for scripts changed in the file manager).
-- *(Planned)* **Settings:** opens the new global `SettingsActivity` (from the `expose-settings-android` change).
+- *(Planned)* **Settings:** opens the global `SettingsActivity` (emuera-tty's own settings, from the `expose-settings-android` change).
 
 At a menu that reads the mouse itself (`INPUTMOUSEKEY`):
 
@@ -171,12 +171,12 @@ Without `KEYSTORE` the APK is signed with a debug key that `build.sh` makes in `
 | `kotlin/GameActivity.kt`, `GameView.kt` | A running game, in its own process: a custom view that draws rows of cells on a canvas |
 | `kotlin/GameSettings.kt` | A game's settings (its `emuera.config`), from the list or the game's menu, through the engine's own model of them |
 | `kotlin/Saves.kt` | The game's menu's save manager, through emuera-tty's own (`savemgr.rs`) |
+| `kotlin/SettingsActivity.kt` | The app's own settings (emuera-tty's `ITEMS`), grouped by category, through `globalSettings()` / `setGlobalSetting()` |
 | `kotlin/GameService.kt` | The foreground service that keeps a game alive while another app is in front |
 | `kotlin/GameAudio.kt` | The game's sound and music, with Android's `MediaPlayer` |
 | `kotlin/GamesProvider.kt`, `Paths.kt` | The games in the system's file manager, and the rule that keeps its paths inside them |
 | `kotlin/Crash.kt` | Reporting a game that stopped: what the engine logged, with a way to share it |
 | `tools/mkmanifest.rs` | Writes the binary manifest, in place of `aapt2` |
-| *(planned)* `kotlin/SettingsActivity.kt` | The app's own settings (emuera-tty's `ITEMS`), in the categories the engine gives them |
 | *(planned)* `kotlin/TranslationSettingsActivity.kt` | Translation engine and parameters (kept, not applied yet) |
 | *(planned)* `src/jni.rs` | Rust JNI bridge extensions for settings/translation/env-vars |
 
@@ -186,7 +186,7 @@ Replay mode plays a recorded session with no player. It computes the same output
 
 ### Configuration
 
-The engine's settings that do something on Android are those whose tab is not "Clipboard" and whose key is not "キーボードマクロを使用する" (use keyboard macros) or "フォント名" (font name for text drawn into pictures — found with `fc-match`, which Android doesn't have). See `android_setting` in `android.rs`.
+The engine's settings that do something on Android are those whose tab is not "Clipboard" and whose key is not "キーボードマクロを使用する" (use keyboard macros) or "フォント名" (font name for text drawn into pictures — found with `fc-match`, which Android doesn't have). Every item of Emuera's settings window is listed on the per-game screen; items the game fixes are shown but cannot be changed.
 
 "ボタンの途中で行を折りかえさない" (don't wrap lines in the middle of a button) works on Android: a button that doesn't fit the rest of a row moves to the next row whole, as in the terminal program (both share the rule in `console.rs`).
 

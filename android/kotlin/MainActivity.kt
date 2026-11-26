@@ -49,6 +49,9 @@ class MainActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         setTheme(android.R.style.Theme_Material_NoActionBar)
         super.onCreate(state)
+        // so the engine's config file can be read and written from this (main) process:
+        // the game process sets these in Native.start, but the list process needs them too.
+        Native.setConfigHome(filesDir.path)
         Native.recoverImports(games.path)
 
         val pad = (16 * resources.displayMetrics.density).toInt()
@@ -138,6 +141,22 @@ class MainActivity : Activity() {
         	movementMethod = LinkMovementMethod.getInstance()
         	setPadding(0, 0, 0, pad/2)
         })
+        list.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(Button(this@MainActivity).apply {
+                text = "Settings"
+                isAllCaps = false
+                setOnClickListener { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(this@MainActivity).apply {
+                text = "the engine's own settings, shared with the desktop program"
+                textSize = 12f
+                setTextColor(0xFF999999.toInt())
+                setPadding(8, 0, 0, 0)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
         if (names.isEmpty()) {
             list.addView(TextView(this).apply {
                 text = """
