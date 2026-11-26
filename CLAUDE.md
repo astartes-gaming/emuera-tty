@@ -193,8 +193,17 @@ with a very large stack.
   `tty::Tty` (full-screen TUI: layout, mouse, colour downgrade, Emuera's
   two-column width rules in `char_cells`; `tty/gamecfg.rs` is the copy of
   Emuera's settings window, `tty/saves.rs` the save manager), `retro.rs`
-  (terminfo-driven via `terminfo.rs`, for retro/serial terminals).
+  (terminfo-driven via `terminfo.rs`, for retro/serial terminals),
+  `android::Android` (`android.rs`: the Android frontend, the bridge between
+  the VM thread and the Kotlin UI, plus a replay mode for checking a run
+  byte for byte against the headless one).
   `sys.rs` is the platform layer (raw mode, size, input polling).
+- **The Android app (`android/`).** The same engine with a touch frontend
+  drawn by the app: `android/kotlin/*.kt` is the UI (the game list, the game
+  view, the settings, the save manager, the audio), `src/android.rs` is the
+  engine's side of the JNI bridge, `android/build.sh` builds the APK (no
+  Gradle, no Android Studio, no `aapt2`), and `android/README.md` has the
+  layout, the build and the on-phone behaviour.
 - **Pictures.** `html.rs` (HTML_PRINT, `<div>` boxes), `resources.rs`
   (resources/*.csv sprites; decoding and scaling, cached, on all cores),
   then the `gfx/` backends (kitty, iTerm, sixel, Linux framebuffer).
@@ -383,6 +392,63 @@ real Konsole without disturbing the desktop, run it on a hidden X server:
 dbus-run-session konsole --nofork --separate -e …`, drive it with
 `xdotool` and capture with `import -window root shot.png` (without
 those variables Konsole opens on the user's Wayland session).
+
+## Working on the Android app
+
+`android/` is the Android app: the same engine (`src/android.rs`, the Android
+frontend) with a Kotlin UI drawn by the app. `android/README.md` has the
+layout, the install and the on-phone behaviour.
+
+- **Build with `android/build.sh`, never with `cargo build`.** The Android
+  side compiles the engine as a shared library for `aarch64-linux-android`
+  and `armv7-linux-androideabi`, with the NDK's clang as the C compiler and
+  archiver, and needs `kotlinc`, a JDK and `apksigner`. `build.sh` does all
+  of that setup itself (targets, linkers, `RUSTFLAGS`, `CC_*` / `AR_*`, the
+  manifest, d8, zip, signing), so don't try to reproduce it by hand. Any
+  change to the Kotlin code (`android/kotlin/*.kt`) or the Android-side Rust
+  code (`src/android.rs` and what it needs) is compiled through it; the APK
+  lands in `android/build/emuera-tty-android.apk`.
+
+- **Run `build.sh` first, `fetch-toolchain.sh` second.** `build.sh` names
+  what is missing (`missing …: run ./fetch-toolchain.sh`). Only then run
+  `android/fetch-toolchain.sh`: it downloads about 820 MB (270 MB kept) from
+  `dl.google.com`, so don't fetch the toolchain speculatively.
+
+- **Use `build.sh --fast` while testing.** It skips link-time optimisation
+  and cuts the wait for the compiler; `--arm64-only` builds one ABI instead
+  of two. Don't measure performance with `--fast`.
+
+### System packages and binaries
+
+To build (`build.sh`):
+
+| Need | Debian/Ubuntu | Fedora | Arch | Why |
+|---|---|---|---|---|
+| rustup (with Rust) | `rustup` | `rustup` | `rustup` | `build.sh` runs `rustup target add --toolchain stable` and `rustup run stable rustc`, so rustup itself is needed, not just cargo |
+| A C compiler | `gcc` | `gcc` | `gcc` | links the host build scripts; the target C compiler is the NDK's clang, which `build.sh` sets |
+| Kotlin | `kotlin` | `kotlin` | `kotlin` | `kotlinc`, for the app |
+| A JDK | `openjdk-21-jdk-headless` | `java-21-openjdk-devel` | `jdk21-openjdk` | `java` runs d8 and the apksigner, `keytool` makes the debug key |
+| zip | `zip` | `zip` | `zip` | packaging the APK |
+| curl, unzip, sha256sum | `curl`, `unzip`, `coreutils` | `curl`, `unzip`, `coreutils` | `curl`, `unzip`, `coreutils` | only for `fetch-toolchain.sh` |
+
+`apksigner` itself comes from Google's build-tools in `.toolchain/`; it is a
+shell script, so it needs `java` on the PATH. `bash`, `find`, `awk`, `sed`
+and the coreutils (`od`, `stat`, `sort`, `tr`, `seq`) are needed too, and any
+Linux has them. With Nix, the README's one-liner has them all:
+`nix shell nixpkgs#rustup nixpkgs#gcc nixpkgs#kotlin nixpkgs#jdk21
+nixpkgs#apksigner nixpkgs#zip nixpkgs#unzip -c ./build.sh`.
+
+Optional, for the tests:
+
+- **On a connected phone:** `adb` (Debian/Ubuntu `adb`, Fedora
+  `android-tools`, Arch `android-tools`), a phone with USB debugging on, and
+  `zip` and `tar` for `test-import.sh` and `push-game.sh`.
+- **On the PC, no phone:** `tools/paths_test.kt` needs `kotlinc` and a JDK:
+  `kotlinc -nowarn kotlin/Paths.kt tools/paths_test.kt -include-runtime -d
+  /tmp/paths.jar && java -cp /tmp/paths.jar
+  io.github.astartes_gaming.emuera.Paths_testKt`.
+
+`android/CLAUDE.md` has the same points, scoped to that folder.
 
 ## Reference sources
 
