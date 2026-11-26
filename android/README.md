@@ -129,7 +129,6 @@ already taken gets `(1)` added rather than replacing the file, so to replace a s
 - Asking for audio focus: a game's sound plays alongside another app's music
 - Native settings and save screens
 - 7z and rar import: unpack them first and import the folder
-- Showing a game's real title in the list
 - Tooltips and hover pictures; `<div>` boxes draw their background only, with no border or rounded corners
 - Animated sprites, and the other picture a `CBG*` button sprite shows under the mouse: a touch screen has no hover
 - Scripts reading the input box (`GETTEXTBOX`, `SETTEXTBOX`), or any key but the mouse buttons with `GETKEY`

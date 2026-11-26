@@ -173,6 +173,9 @@ class MainActivity : Activity() {
         }
         for (name in names) {
             val gameDir = File(games, name)
+            // the game's real title, when it has one: shown as "Title (folder)"
+            val title = Native.gameTitle(gameDir.path).takeIf { it.isNotBlank() }
+            val label = if (title != null && title != name) "$title ($name)" else name
             list.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setBackground(gameRowOutline())
@@ -182,7 +185,7 @@ class MainActivity : Activity() {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     addView(Button(context).apply {
-                        text = name
+                        text = label
                         isAllCaps = false
                         // (an import may be replacing this game's folder)
                         isEnabled = !importing

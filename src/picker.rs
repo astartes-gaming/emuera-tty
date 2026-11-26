@@ -216,7 +216,8 @@ pub fn is_game_dir(dir: &Path) -> bool {
 }
 
 /// The タイトル line of a game's GAMEBASE.csv, if any.
-fn game_title(dir: &Path) -> Option<String> {
+/// Also used by the Android game list (`crate::android::game_title`).
+pub(crate) fn game_title(dir: &Path) -> Option<String> {
     let csv = find_dir_ci(dir, "CSV")?;
     let text = read_text(&find_file_ci(&csv, "GAMEBASE.CSV")?).ok()?;
     text.lines().find_map(|l| l.strip_prefix("タイトル,").map(|t| t.trim().to_string())).filter(|t| !t.is_empty())

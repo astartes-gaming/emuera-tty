@@ -45,6 +45,8 @@ object Native {
     @JvmStatic external fun saveBackups(): String
     @JvmStatic external fun saveRestore(from: String): String
 
+    /** The game's real title (the `タイトル` line of its `CSV/GAMEBASE.csv`), or empty when it has none. */
+    @JvmStatic external fun gameTitle(game: String): String
     /** The game's own settings (its emuera.config), in either process: see GameSettings.kt. */
     @JvmStatic external fun gameSettings(game: String): String
     /** "" or what went wrong; a null value takes the player's out. */

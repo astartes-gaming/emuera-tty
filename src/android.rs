@@ -1306,6 +1306,20 @@ pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_recoverImpo
     });
 }
 
+/// The game's real title: the `タイトル` line of its `CSV/GAMEBASE.csv`, if any.
+/// The list shows games as `Game name (game folder name)` with this, falling back
+/// to the folder name alone when a game has no title.
+#[no_mangle]
+pub extern "system" fn Java_io_github_astartes_1gaming_emuera_Native_gameTitle<'a>(
+    mut env: JNIEnv<'a>,
+    _c: JClass<'a>,
+    game: JString<'a>,
+) -> jni::sys::jstring {
+    let Some(game) = get_string(&mut env, &game) else { return std::ptr::null_mut() };
+    let out = crate::picker::game_title(std::path::Path::new(&game)).unwrap_or_default();
+    env.new_string(out).map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
 /// The settings of emuera-tty's game settings page that do something here: not the clipboard's or the keyboard
 /// macros' (a phone has neither), or the font for text drawn into pictures (found with fc-match, which Android
 /// doesn't have).
