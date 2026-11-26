@@ -174,19 +174,30 @@ class MainActivity : Activity() {
         for (name in names) {
             val gameDir = File(games, name)
             list.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(iconButton("⚙", "Settings for $name") { showGameSettings(gameDir) {} })
-                addView(iconButton("𝑓", "Font for $name") { pickFont(gameDir) })
-                addView(iconButton("𝑓✕", "Unset font for $name") { unsetFont(gameDir) })
-                addView(Button(context).apply {
-                    text = name
-                    isAllCaps = false
-                    // (an import may be replacing this game's folder)
-                    isEnabled = !importing
-                    setOnClickListener { startActivity(gameIntent().putExtra("game", name)) }
-                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-                addView(iconButton("✕", "Delete $name") { confirmDelete(name) })
+                orientation = LinearLayout.VERTICAL
+                setBackground(gameRowOutline())
+                setPadding(pad, pad, pad, pad)
+                // top row: the long game button, then the short delete button
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(Button(context).apply {
+                        text = name
+                        isAllCaps = false
+                        // (an import may be replacing this game's folder)
+                        isEnabled = !importing
+                        setOnClickListener { startActivity(gameIntent().putExtra("game", name)) }
+                    }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(iconButton("✕", "Delete $name") { confirmDelete(name) })
+                })
+                // everything else below
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(iconButton("⚙", "Settings for $name") { showGameSettings(gameDir) {} })
+                    addView(iconButton("𝑓", "Font for $name") { pickFont(gameDir) })
+                    addView(iconButton("𝑓✕", "Unset font for $name") { unsetFont(gameDir) })
+                })
             })
         }
         list.addView(TextView(this).apply {
@@ -211,6 +222,15 @@ class MainActivity : Activity() {
         minWidth = 0
         minimumWidth = (48 * resources.displayMetrics.density).toInt()
         setOnClickListener { click() }
+    }
+
+    /** A gray outline around each added game row, similar to the app's background. */
+    private fun gameRowOutline(): android.graphics.drawable.GradientDrawable {
+        val d = android.graphics.drawable.GradientDrawable()
+        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE)
+        d.setStroke(2, 0xFF777777.toInt())
+        d.setColor(0x00000000.toInt())
+        return d
     }
 
     private fun confirmDelete(name: String) {

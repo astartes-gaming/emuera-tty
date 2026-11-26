@@ -403,7 +403,10 @@ those variables Konsole opens on the user's Wayland session).
 frontend) with a Kotlin UI drawn by the app. `android/README.md` has the
 layout, the install and the on-phone behaviour.
 
-Details are listed in `android/CLAUDE.md`. Read over it when operating there.
+**`android/CLAUDE.md` is essential reading before touching anything in `android/`:**
+it covers the `./build.sh`-only build (never `cargo build`), the toolchain
+fetch, the `--fast`/`--arm64-only` flags, signing, and how to run the phone and
+PC tests. Do not operate in `android/` without reading it first.
 
 ### System packages and binaries
 
