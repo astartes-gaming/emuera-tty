@@ -1270,3 +1270,6 @@ msgstr "Autocompletar con Tab"
 
 msgid "at an input, Tab completes what is typed to a button's value (by its start or a word of the button's text) or an @ command; Tab again shows the next one"
 msgstr "al pedir una entrada, Tab completa lo escrito con el valor de un botón (por su comienzo o una palabra del texto del botón) o un comando @; otro Tab muestra el siguiente"
+
+msgid "any value: wait for the terminal to answer after each frame, so frame rates measure the terminal (tools/termbench.sh)"
+msgstr "cualquier valor: esperar la respuesta de la terminal tras cada fotograma, para que los fotogramas por segundo midan la terminal (tools/termbench.sh)"

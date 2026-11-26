@@ -1270,3 +1270,6 @@ msgstr "Tab 補完"
 
 msgid "at an input, Tab completes what is typed to a button's value (by its start or a word of the button's text) or an @ command; Tab again shows the next one"
 msgstr "入力欄で Tab を押すと、入力中の文字をボタンの値（値の先頭かボタンの文字の単語で探す）か @ コマンドに補完します。もう一度 Tab で次の候補"
+
+msgid "any value: wait for the terminal to answer after each frame, so frame rates measure the terminal (tools/termbench.sh)"
+msgstr "何か値を設定: 各フレームのあと端末の応答を待つ。フレームレートが端末の速さを示す（tools/termbench.sh）"

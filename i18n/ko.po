@@ -1270,3 +1270,6 @@ msgstr "Tab 자동 완성"
 
 msgid "at an input, Tab completes what is typed to a button's value (by its start or a word of the button's text) or an @ command; Tab again shows the next one"
 msgstr "입력할 때 Tab을 누르면 입력한 내용을 버튼의 값(값의 시작이나 버튼 글자의 단어로 찾음) 또는 @ 명령으로 완성합니다. Tab을 다시 누르면 다음 후보"
+
+msgid "any value: wait for the terminal to answer after each frame, so frame rates measure the terminal (tools/termbench.sh)"
+msgstr "아무 값: 프레임마다 터미널의 응답을 기다려, 프레임 속도가 터미널의 속도를 나타내게 함(tools/termbench.sh)"

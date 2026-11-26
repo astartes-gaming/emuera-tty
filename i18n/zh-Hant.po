@@ -1270,3 +1270,6 @@ msgstr "Tab 補全"
 
 msgid "at an input, Tab completes what is typed to a button's value (by its start or a word of the button's text) or an @ command; Tab again shows the next one"
 msgstr "在輸入處按 Tab，把已輸入的內容補全為按鈕的值（依值的開頭或按鈕文字中的詞尋找）或 @ 指令；再按 Tab 顯示下一個"
+
+msgid "any value: wait for the terminal to answer after each frame, so frame rates measure the terminal (tools/termbench.sh)"
+msgstr "任意值：每個畫格之後等待終端機回應，使畫格率反映終端機的速度（tools/termbench.sh）"

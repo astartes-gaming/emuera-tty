@@ -3005,7 +3005,7 @@ impl Tty {
         }
         let out = self.skip_unchanged_rows(out, (rows_from, rows_to), &row_bytes, &placements, cols, tip_rows);
         if std::env::var_os("EMUERA_DEBUG_FRAMES").is_some() {
-            eprintln!("frame {:x} len {} keys {:?}", fp, out.len(), placements.iter().map(|p| p.key.clone()).collect::<Vec<_>>());
+            eprintln!("frame {:x} len {} pics {} keys {:?}", fp, out.len(), pre.len(), placements.iter().map(|p| p.key.clone()).collect::<Vec<_>>());
         }
         self.last_frame = fp;
         self.force_frame = false;
@@ -3022,6 +3022,17 @@ impl Tty {
         write_all(&out);
         if !console {
             write_all(b"\x1b[?2026l");
+        }
+        // EMUERA_BENCH_SYNC: wait until the terminal has handled the frame
+        // (its answer to a device-attributes query comes after everything
+        // sent before it), so frames per second measure the terminal, not
+        // how fast emuera-tty can fill the pty (tools/termbench.sh)
+        if std::env::var_os("EMUERA_BENCH_SYNC").is_some() {
+            let t = Instant::now();
+            let r = self.query(b"\x1b[c", |p| p.windows(3).any(|w| w == b"\x1b[?") && p.ends_with(b"c"), 10_000);
+            if std::env::var_os("EMUERA_DEBUG_FRAMES").is_some() {
+                eprintln!("sync {:.1} ms{}", t.elapsed().as_secs_f64() * 1000.0, if r.is_empty() { " (no answer)" } else { "" });
+            }
         }
         crate::sys::drain_stdout();
         self.gfx.after_flush(&placements, self.cell);

@@ -1410,6 +1410,10 @@ msgid "wide, narrow, single or osc66: how box drawing and symbols get Emuera's t
 msgstr ""
 
 #: src/settings.rs
+msgid "any value: wait for the terminal to answer after each frame, so frame rates measure the terminal (tools/termbench.sh)"
+msgstr ""
+
+#: src/settings.rs
 msgid "comma-separated list of function:line breakpoints (debugger)"
 msgstr ""
 

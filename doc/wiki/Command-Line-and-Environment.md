@@ -95,6 +95,12 @@ over the saved setting.
   16 KB of it, up to 4,000.
 - `EMUERA_TIMING=1` prints how long each loading phase took and the memory
   in use after it.
+- `EMUERA_BENCH_SYNC=1` makes the full-screen interface wait, after each
+  frame it draws, until the terminal has answered a query sent behind it.
+  Frame rates then show how fast the terminal handles emuera-tty's output.
+  With `EMUERA_DEBUG_FRAMES=1` the wait for each frame goes to stderr. It
+  slows play, so it's for measuring only (`tools/termbench.sh`, see
+  [Terminals](Terminals#performance)).
 - `EMUERA_SEED=N` fixes the random
   number seed, so a run can be repeated exactly (tests, bug reports).
 - `EMUERA_CLOCK=MS` fixes the game's clock too (GETTIME, GETMILLISECOND,

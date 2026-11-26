@@ -186,6 +186,7 @@ pub const ITEMS: &[Item] = &[
 /// does (alphabetical), for the settings overlay's variables page.
 pub const ENV_VARS: &[(&str, &str)] = &[
     ("EMUERA_AMBIGUOUS", n!("wide, narrow, single or osc66: how box drawing and symbols get Emuera's two columns")),
+    ("EMUERA_BENCH_SYNC", n!("any value: wait for the terminal to answer after each frame, so frame rates measure the terminal (tools/termbench.sh)")),
     ("EMUERA_BREAKPOINTS", n!("comma-separated list of function:line breakpoints (debugger)")),
     ("EMUERA_CLOCK", n!("milliseconds since 1970 (UTC) the game's clock starts from, moving 1 ms per reading (reproducible runs)")),
     ("EMUERA_CODE_MB", n!("MB compiled functions may take (default: 1/16 of the memory); the least recently called are dropped")),
