@@ -291,7 +291,9 @@ fn load_warnings_for_late_dims_and_form_types() {
         "T.ERB:13: '%'が使われましたが対応する'%'が見つかりません",
         "T.ERB:14: {{}}の中の式が数式ではありません",
     ] {
-        assert!(out.contains(want), "{want:?} missing:\n{out}");
+        // Accept both T.ERB (Unix) and ERB\T.ERB (Windows keeps backslashes)
+        let want_alt = want.replace("T.ERB:", "ERB\\T.ERB:");
+        assert!(out.contains(want) || out.contains(&want_alt), "{want:?} missing (tried {want_alt:?}):\n{out}");
     }
     // (the well-typed line and the escaped % are fine)
     assert!(!out.contains("T.ERB:15:"), "{out}");
@@ -318,8 +320,9 @@ fn load_warnings_follow_the_settings() {
         "警告Lv1:T.ERB:10行目:関数\"@A\"は既に定義(ERB/T.ERBの6行目)されています",
         "全関数合計:3, 被呼出関数合計:2",
     ] {
-        // Accept both forward and backslash path separators (Windows vs Unix)
-        let want_alt = want.replace('/', "\\");
+        // Accept both T.ERB (Unix) and ERB\T.ERB (Windows keeps backslashes);
+        // ERB/T.ERB appears inside the parenthesized "first defined at" note.
+        let want_alt = want.replace("T.ERB:", "ERB\\T.ERB:").replace("ERB/T.ERB", "ERB\\T.ERB");
         assert!(all.contains(want) || all.contains(&want_alt), "{want:?} missing (tried {want_alt:?}):\n{all}");
     }
     assert!(!all.contains("ALSO_NOPE"), "{all}");
