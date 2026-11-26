@@ -5,6 +5,12 @@ Guidance for working in the Android app (`android/`): the same engine
 the layout, the build, the install and the on-phone behaviour; the root
 `CLAUDE.md` has the engine's rules.
 
+- **Run `./build.sh` first, `./fetch-toolchain.sh` second.** `build.sh` names
+  what is missing (`missing …: run ./fetch-toolchain.sh`). Only then run
+  `./fetch-toolchain.sh`: it downloads about 820 MB (270 MB kept) from
+  `dl.google.com`, so don't fetch the toolchain speculatively. Toolchains are
+  stored in `.toolchain`.
+
 - **Build with `./build.sh`, never with `cargo build`.** The Android side
   compiles the engine as a shared library for `aarch64-linux-android` and
   `armv7-linux-androideabi`, with the NDK's clang as the C compiler and
@@ -14,11 +20,6 @@ the layout, the build, the install and the on-phone behaviour; the root
   change to the Kotlin code (`kotlin/*.kt`) or the Android-side Rust code
   (`../src/android.rs` and what it needs) is compiled through it; the APK
   lands in `build/emuera-tty-android.apk`.
-
-- **Run `./build.sh` first, `./fetch-toolchain.sh` second.** `build.sh` names
-  what is missing (`missing …: run ./fetch-toolchain.sh`). Only then run
-  `./fetch-toolchain.sh`: it downloads about 820 MB (270 MB kept) from
-  `dl.google.com`, so don't fetch the toolchain speculatively.
 
 - **Use `./build.sh --fast` while testing.** It skips link-time optimisation
   and cuts the wait for the compiler; `--arm64-only` builds one ABI instead
@@ -58,3 +59,6 @@ Optional, for the tests:
   `kotlinc -nowarn kotlin/Paths.kt tools/paths_test.kt -include-runtime -d
   /tmp/paths.jar && java -cp /tmp/paths.jar
   io.github.astartes_gaming.emuera.Paths_testKt`.
+
+  General rule: **Don't run `adb` unattended.** Prompt/ask the user
+  should you want/attempt to.

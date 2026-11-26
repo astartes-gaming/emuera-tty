@@ -24,6 +24,14 @@ emuera-tty and Emuera.
   `grep` instead (`cargo test --release 2>&1 | grep -E "^test result|FAILED|panicked"`),
   and check that a command exists (`which`) before trusting its silence.
 
+## External Memory Files
+
+The other memory files to be read.
+
+@CODE_DETAILS.md
+@ENVIRONMENT.md
+@android/CLAUDE.md
+
 ## Dependencies
 
 Package names are Debian/Ubuntu's (Fedora's where they differ).

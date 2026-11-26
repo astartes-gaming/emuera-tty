@@ -11,16 +11,24 @@ not variables: `--translate-log`, `--translate-load` and
 | Variable | Values | What it does |
 |---|---|---|
 | `EMUERA_AMBIGUOUS` | `wide`, `narrow`, `single`, `osc66` | How box-drawing and symbol characters get Emuera's two columns (option: `--ambiguous`). The *Wide symbols* setting sets it unless it is already set. |
+| `EMUERA_BENCH_SYNC` | any value | Wait for the terminal to answer after each frame, so frame rates measure the terminal (`tools/termbench.sh`). |
+| `EMUERA_BREAKPOINTS` | comma-separated `function:line` list | Breakpoints for the VM debugger. |
 | `EMUERA_CODE_MB` | number | MB that compiled functions may take (default: 1/16 of the memory). The least recently called are dropped. |
 | `EMUERA_COLORS` | `truecolor`, `256`, `16` | The colour depth, when detection guesses wrong (option: `--colors`). The *Colours* setting sets it unless it is already set. |
+| `EMUERA_CLOCK` | number | Milliseconds since 1970 (UTC) the game's clock starts from, moving 1 ms per reading (reproducible runs). |
 | `EMUERA_COMMIT` | | Not read at run time: `build.rs` sets it to the git commit of the build, which goes in the save history log. |
 | `EMUERA_DEBUG_FRAMES` | any value | Print each frame drawn (size and picture keys) to stderr. |
+| `EMUERA_DISABLE_INFINITE_LOOP_DETECTION` | `1` | Completely disable infinite loop detection, ignoring the timeout (useful for games with intentional long-running functions). |
+| `EMUERA_EE_VERSION` | `EEv56`, `EEv56-anontw` or `EEv57` | Which Emuera-EE version to emulate for compatibility (default: `EEv56`). |
+| `EMUERA_GAME_DEBUG` | any value | Enable the game debugger at start (option: `--game-debug`). |
+| `EMUERA_GAMEPAD` | `off`, or `/dev/input/eventN` | `off`: don't read gamepads; a device path: read just that one as a pad. |
 | `EMUERA_GBUF_MB` | number | MB that graphics buffers may take unpacked (default: 1/8 of the memory). |
 | `EMUERA_GFX` | `kitty`, `iterm`, `sixel`, `fb`, `none` | Default for `--gfx`. |
 | `EMUERA_GPMCTL` | path | The gpm socket (default `/dev/gpmctl`), for testing the Linux-console mouse. |
 | `EMUERA_GPM_VC` | number | The virtual console the gpm mouse is read for (testing). |
 | `EMUERA_INJECT` | `STMT\|\|STMT` | Statements run just before the `EMUERA_INJECT_AT`-th input. |
 | `EMUERA_INJECT_AT` | number | The input number `EMUERA_INJECT` runs before. |
+| `EMUERA_INFINITE_LOOP_ALERT_TIME` | ms | How long before the infinite loop warning fires (`0` = disabled; default: `5000`). |
 | `EMUERA_LANG` | `ja`, `zh-Hans`, `zh-Hant`, `ko`, `en`; `x-cjk`, `x-arab`, `x-cyrl`, `x-deva`, `x-avst` | The interface language, over the *Language* setting and the system locale. The `x-` values rewrite every message in that script, made longer, to check the layout. |
 | `EMUERA_LIBRETRANSLATE` | `host:port` | The LibreTranslate server (default `127.0.0.1:5000`; option: `--libretranslate`). |
 | `EMUERA_LINT` | any value | With `--check`: list statements the parser may have split wrongly, and every `>=` / `<=` between strings (Emuera evaluates both as `<`). |
@@ -39,10 +47,13 @@ not variables: `--translate-log`, `--translate-load` and
 | `EMUERA_SEED` | number | The number the random generator starts from (reproducible runs). |
 | `EMUERA_SOUND` | `on`, `off` | Play the game's sounds (default: yes, except over SSH). Wins over the *Sound* setting. |
 | `EMUERA_SOUND_PLAYER` | `mpv`, `ffplay`, `mplayer`, `afplay`, `pw-play`, `paplay`, `aplay`, `powershell` | The sound player to use. |
+| `EMUERA_STACK_MB` | number | Stack of the script thread in MB (default: 512, or the most the system allows). |
 | `EMUERA_THREADS` | number | Cap on the threads used for loading and picture decoding. |
 | `EMUERA_TIMING` | `1` | Print how long each loading phase takes and the memory in use. |
-| `EMUERA_TRACE` | text | Log calls to functions whose name contains this, with their results, to stderr. |
+| `EMUERA_TRACE` | text | Log calls to functions whose name contains this, with timestamps, to stderr. |
 | `EMUERA_TRANSLATE_CMD` | command | A command that reads a line on stdin and prints its translation, used instead of the built-in translators. |
+| `EMUERA_TTY_TESTING` | `1` | Enable internal TTY testing hooks. |
+| `EMUERA_VM_DEBUG` | any value | Enable the VM debugger at start (option: `--vm-debug`). |
 | `EMUERA_TRANSLATE_FROM` | | Set by emuera-tty for `EMUERA_TRANSLATE_CMD`: the language of the text. |
 | `EMUERA_TRANSLATE_MODEL` | name | The Ollama or translateLocally model used for translating. |
 | `EMUERA_TRANSLATE_TO` | | Set by emuera-tty for `EMUERA_TRANSLATE_CMD`: the language to translate into. |
