@@ -902,11 +902,17 @@ pub fn parse_form(src: &str, defs: &HashMap<String, String>) -> PResult<Form> {
         }
         if c == '%' || c == '{' {
             let close = if c == '%' { '%' } else { '}' };
+            // unmatched: Emuera's error (LexicalAnalyzer.AnalyseFormattedString):
+            // every `%` / `{` starts an expression, a literal one is `\%`
             let Some(j) = scan_expr(&ch, i + 1, close) else {
-                // unmatched: treat literally
-                lit.push(c);
-                i += 1;
-                continue;
+                let (a, b) = if c == '%' { ("%", "%") } else { ("{", "}") };
+                return Err(em!(
+                    "Error.NotFoundCorresponding",
+                    "'{0}'が使われましたが対応する'{1}'が見つかりません",
+                    "Failed to find corresponding '{0}' sign for another '{1}'",
+                    a,
+                    b
+                ));
             };
             let inner: String = ch[i + 1..j].iter().collect();
             check_full_space(&inner)?;

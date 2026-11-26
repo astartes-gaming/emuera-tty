@@ -9,7 +9,7 @@ emuera-tty [GAME_DIR | GIT_URL] [options]
 | `--choose` | open the game picker even if a game is remembered |
 | `--clone URL` | clone a game's git repository in the launcher and select it (a URL as `GAME_DIR` does the same) |
 | `--gfx auto\|kitty\|iterm\|sixel\|fb\|none` | image backend (also `EMUERA_GFX`) |
-| `--check` | parse the game, list errors, exit |
+| `--check` | compile every function, list parse errors and Emuera's load warnings (see [Debugging](Debugging#emueras-load-warnings)), exit |
 | `--headless` | plain stdin/stdout mode (scripts, tests); `--echo` shows typed input. At an `INPUTMOUSEKEY`, a number clicks that button, and `@click`, `@rclick`, `@mclick` (left, right, middle), optionally followed by a button's value (`@rclick 5`), are mouse clicks |
 | `--mcp` | serve the game to AI agents as an MCP server on stdin/stdout (see [AI agents (MCP)](AI-Agents-MCP)) |
 | `--strict` | unimplemented commands are errors instead of warnings |

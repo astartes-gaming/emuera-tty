@@ -26,9 +26,11 @@ pub struct Warning {
 }
 
 /// Emuera's PrintWarning: `警告Lv1:file:12行目:message`.
+/// The file is named as Emuera does: inside `ERB\`, with backslashes.
 pub fn format(prog: &Program, w: &Warning) -> String {
     let file = prog.files.get(w.file as usize).map_or("?", |s| s.as_str());
-    em!("Error.Warning1", "警告Lv{0}:{1}:{2}行目:{3}", "Warning Lv{0}: {1}, line {2}: {3}", w.level, file, w.line, w.msg)
+    let file = file.strip_prefix("ERB/").unwrap_or(file).replace('/', "\\");
+    em!("Error.Warning1", "警告Lv{0}:{1}:{2}行目:{3}", "Warning Lv{0}:{1}: at line {2}:{3}", w.level, file, w.line, w.msg)
 }
 
 /// Is a warning of this level shown (表示する最低警告レベル)?

@@ -481,6 +481,8 @@ struct FuncBuilder {
     /// A parse error in a block opener's expression: reported, but the
     /// block is still opened so the rest of the function nests as in Emuera.
     soft_error: Option<String>,
+    /// load warnings found compiling the body (Emuera's, at load)
+    warnings: Vec<crate::loadcheck::Warning>,
 }
 
 impl FuncBuilder {
@@ -552,6 +554,8 @@ pub struct Parser {
     rename_map: Rc<HashMap<String, String>>,
     /// Global `#DIMS` names.
     global_str: HashSet<String>,
+    /// Global `#DIM` (integer) names, for the FORM type checks.
+    global_int: HashSet<String>,
     /// `--debug`: keep `;#;` lines and `[IF_DEBUG]` blocks.
     debug: bool,
     /// the game's Emuera settings (the System and Compatibility tabs
@@ -824,6 +828,12 @@ fn strip_comment(s: &str) -> &str {
 }
 
 /// Split "CMD rest" -> (CMD uppercase, rest after exactly one separator char).
+/// How many of a function's lines, from the first after its `@` line, are
+/// `#` lines: Emuera takes `#` lines only there.
+fn header_len(lines: &[(u32, String)]) -> usize {
+    lines.iter().take_while(|(_, l)| l.starts_with('#')).count()
+}
+
 fn split_cmd(line: &str) -> (String, &str) {
     let end =
         line.char_indices().find(|(_, c)| c.is_whitespace() || *c == '\u{3000}' || (!crate::expr::is_ident_char(*c))).map(|(i, _)| i).unwrap_or(line.len());
@@ -989,7 +999,7 @@ impl Parser {
         for (k, v) in rename {
             m.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        Parser { prog: Program::default(), rename_map: Rc::new(m), global_str: HashSet::default(), debug, lazy: None, cfg }
+        Parser { prog: Program::default(), rename_map: Rc::new(m), global_str: HashSet::default(), global_int: HashSet::default(), debug, lazy: None, cfg }
     }
 
     /// From now on (after the headers), leave function bodies to their
@@ -1177,6 +1187,7 @@ impl Parser {
             prog: Program { defines: self.prog.defines.clone(), ..Program::default() },
             rename_map: self.rename_map.clone(),
             global_str: self.global_str.clone(),
+            global_int: self.global_int.clone(),
             debug: self.debug,
             lazy: self.lazy.clone(),
             cfg: self.cfg.clone(),
@@ -1216,6 +1227,8 @@ impl Parser {
                     Ok(d) => {
                         if d.is_str {
                             self.global_str.insert(d.name.clone());
+                        } else {
+                            self.global_int.insert(d.name.clone());
                         }
                         self.prog.global_dims.push(d);
                     }
@@ -1403,8 +1416,21 @@ impl Parser {
 
     /// A function's `#` lines but its `#DIM`s: `#FUNCTION`, `#PRI`…, known
     /// at load (an event's order, whether it's a #FUNCTION).
+    /// `#` lines after the first statement are Emuera's level-1 warning and
+    /// are ignored (ErbLoader: a `#` line counts only right after the `@`
+    /// line or another `#` line), `#DIM`s included.
     fn attributes(&mut self, b: &mut FuncBuilder, path: &str, lines: &[(u32, String)]) {
-        for (no, line) in lines {
+        let head = header_len(lines);
+        for (k, (no, line)) in lines.iter().enumerate() {
+            if k >= head && line.starts_with('#') {
+                let msg = em!(
+                    "Error.InvalidSharp",
+                    "関数宣言の直後以外で#行が使われています",
+                    "# labels can be only used immediately after the function declaration"
+                );
+                self.prog.warnings.push(crate::loadcheck::Warning { level: 1, file: b.f.file, line: *no, msg });
+                continue;
+            }
             if line.starts_with('#') && !line[1..].get(..3).is_some_and(|d| d.eq_ignore_ascii_case("DIM")) {
                 if let Err(e) = self.directive(b, line) {
                     self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
@@ -1417,8 +1443,9 @@ impl Parser {
     /// `#` lines right after the `@` line), then the statements.
     fn statements(&mut self, b: &mut FuncBuilder, path: &str, lines: &[(u32, String)]) {
         let file_idx = b.f.file;
-        for (no, line) in lines {
-            if line.starts_with('#') && line[1..].get(..3).is_some_and(|d| d.eq_ignore_ascii_case("DIM")) {
+        let head = header_len(lines);
+        for (k, (no, line)) in lines.iter().enumerate() {
+            if k < head && line[1..].get(..3).is_some_and(|d| d.eq_ignore_ascii_case("DIM")) {
                 b.cur_line = (file_idx, *no);
                 if let Err(e) = self.directive(b, line) {
                     self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
@@ -1448,6 +1475,7 @@ impl Parser {
             let first = b.body.code.len();
             let r = self.statement(b, line);
             crate::translate::set_line_bytes(&mut b.body, first, line);
+            self.prog.warnings.append(&mut b.warnings);
             if let Some(e) = b.soft_error.take() {
                 self.prog.errors.push(format!("{}:{}: {} :: {}", path, no, e, line));
             }
@@ -1494,6 +1522,7 @@ impl Parser {
             name.contains("KOJO") || self.prog.files.get(file_idx as usize).is_some_and(|p| p.contains("口上") || p.to_ascii_lowercase().contains("kojo"));
         Ok(FuncBuilder {
             soft_error: None,
+            warnings: Vec::new(),
             body: Body::default(),
             f: Function {
                 name: name.into(),
@@ -1554,6 +1583,89 @@ impl Parser {
     /// form an event (all are kept).
     fn register(&mut self, f: Function) {
         self.prog.funcs.add(f, None);
+    }
+
+    /// Is the expression a string (`Some(true)`) or a number, when that is
+    /// sure while compiling: literals, the function's and the game's
+    /// declared variables, built-in variables, the game's `#FUNCTION(S)`
+    /// and operators over those. `None` when only running it would tell
+    /// (built-in functions, names that may be CSV names): no check then.
+    fn static_str(&self, b: &FuncBuilder, e: &Expr) -> Option<bool> {
+        let same = |x: Option<bool>, y: Option<bool>| if x.is_some() && x == y { x } else { None };
+        match e {
+            Expr::Int(_) | Expr::IncDec(..) | Expr::Unary(..) => Some(false),
+            Expr::Str(_) | Expr::Form(_) => Some(true),
+            Expr::Var(v) => {
+                let n: &str = &v.name;
+                if self.is_str_var(b, n) {
+                    return Some(true);
+                }
+                let int = b.body.dims.iter().any(|d| d.name == n && !d.is_str)
+                    || self.global_int.contains(n)
+                    || matches!(n.split_once('@').map_or(n, |x| x.0), "LOCAL" | "ARG")
+                    || crate::vm::vars::system_var(n).is_some_and(|d| !d.is_str);
+                int.then_some(false)
+            }
+            Expr::Call(c) => match self.prog.funcs.kind(&c.0) {
+                Some((true, s)) => Some(s),
+                _ => None,
+            },
+            Expr::Binary(BinOp::Add, x, y) => same(self.static_str(b, x), self.static_str(b, y)),
+            // ("ab" * 3 repeats the string)
+            Expr::Binary(BinOp::Mul, x, y) => match self.static_str(b, x) {
+                Some(true) => Some(true),
+                l => same(l, self.static_str(b, y)),
+            },
+            Expr::Binary(..) => Some(false),
+            Expr::Ternary(_, x, y) => same(self.static_str(b, x), self.static_str(b, y)),
+            Expr::Empty => None,
+        }
+    }
+
+    /// Emuera's FORM type checks (StrForm): what is inside `%…%` must be a
+    /// string and inside `{…}` a number. emuera-tty could print either;
+    /// Emuera rejects the line, so a game that relies on it breaks there.
+    fn check_form(&self, b: &FuncBuilder, f: &Form) -> Result<(), String> {
+        for p in &f.parts {
+            match p {
+                FormPart::Str(e, ..) if self.static_str(b, e) == Some(false) => {
+                    // (Emuera shows these two as they are, `{{}}` included)
+                    return Err(crate::emuera_lang::template(
+                        "Error.IsNotStringPer",
+                        "%%の中の式が文字列式ではありません",
+                        "Expression inside %% is not a string expression",
+                    )
+                    .to_string());
+                }
+                FormPart::Int(e, ..) if self.static_str(b, e) == Some(true) => {
+                    return Err(crate::emuera_lang::template(
+                        "Error.IsNotNumericBrace",
+                        "{{}}の中の式が数式ではありません",
+                        "Expression inside {{}} is not a numerical formula",
+                    )
+                    .to_string());
+                }
+                FormPart::Cond(c) => {
+                    self.check_form(b, &c.1)?;
+                    self.check_form(b, &c.2)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Is `name` a variable where this function is compiled: its own, the
+    /// game's, a built-in one, or another function's (`X@FUNC`)?
+    fn is_var_name(&self, b: &FuncBuilder, name: &str) -> bool {
+        name.contains('@')
+            || b.body.dims.iter().any(|d| d.name == name)
+            || b.str_locals.contains(name)
+            || self.global_str.contains(name)
+            || self.global_int.contains(name)
+            || matches!(name, "LOCAL" | "LOCALS" | "ARG" | "ARGS")
+            || crate::vm::vars::system_var(name).is_some()
+            || crate::vm::pseudo_var(name)
     }
 
     fn is_str_var(&self, b: &FuncBuilder, name: &str) -> bool {
@@ -1710,7 +1822,11 @@ impl Parser {
             if let Some((mid, fl)) = parse_print_name(&cmd) {
                 let content = match mid {
                     'R' => PrintContent::Raw(rest.to_string()),
-                    'F' => PrintContent::Form(upper_form(parse_form(rest, defs)?)),
+                    'F' => {
+                        let f = upper_form(parse_form(rest, defs)?);
+                        self.check_form(b, &f)?;
+                        PrintContent::Form(f)
+                    }
                     'G' => PrintContent::Exprs(vec![Expr::Call(Box::new(("__FORMS".into(), vec![upper_expr(parse_expr(arg_c, defs)?)], Default::default())))]),
                     'S' => PrintContent::Expr(upper_expr(parse_expr(arg_c, defs)?)),
                     'V' => PrintContent::Exprs(parse_expr_list(arg_c, defs)?.into_iter().map(upper_expr).collect()),
@@ -2150,6 +2266,12 @@ impl Parser {
             }
         };
         let rest = p.rest();
+        // a name that is no variable at all: Emuera's level-2 warning at
+        // load (running the line is an error here as there)
+        if !self.is_var_name(b, &v.name) {
+            let msg = em!("Error.CanNotInterpreted", "\"{0}\"は解釈できない識別子です", "{0} cannot be interpreted", v.name);
+            b.warnings.push(crate::loadcheck::Warning { level: 2, file: b.cur_line.0, line: b.cur_line.1, msg });
+        }
         let is_str = self.is_str_var(b, &v.name);
         // only plain `STR = ...` takes FORM text; `+=` takes a string expression
         if is_str && op == AsgOp::Set {

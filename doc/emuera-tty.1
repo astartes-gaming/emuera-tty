@@ -275,7 +275,10 @@ the call stack). Give it a copy of the game: it saves as usual, and
 .TP
 .B \-\-check
 Load the game, compile every function, report parse errors (also, as in
-Emuera, statements a \fB#FUNCTION\fR may not use) and exit.
+Emuera, statements a \fB#FUNCTION\fR may not use) and Emuera-EE's load
+warnings: a \fB#\fR line after a statement (ignored, as there), a
+\fB%number%\fR or \fB{string}\fR in a FORM, an unmatched \fB%\fR or
+\fB{\fR, an assignment to a name that is no variable; then exit.
 (Otherwise a function is compiled when it first runs, and its errors are
 reported then.)
 .TP

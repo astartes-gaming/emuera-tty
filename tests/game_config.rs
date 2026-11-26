@@ -275,6 +275,31 @@ fn check(tag: &str, config: &str, erb: &str) -> String {
     String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr)
 }
 
+/// What Emuera-EE reports at load and emuera-tty's lenient compiler let
+/// through: a `#` line after a statement (ignored, so its #DIMS is
+/// missing), `%number%`, `{string}`, an unmatched `%`; the lines are
+/// errors when run, as there.
+#[test]
+fn load_warnings_for_late_dims_and_form_types() {
+    let erb = "@SYSTEM_TITLE\nCALL LATE\nQUIT\n@LATE\n#DIM X\nX = 1\n#DIMS LOC_TEXT\nLOC_TEXT '= \"here\"\n\
+        @FORMS(N)\n#DIM N\n#DIMS S\nPRINTFORML %N%\nPRINTFORML 0% (100% damage)\nPRINTFORML {S}\nPRINTFORML %S% {N} \\% ok\n";
+    let out = check("lw-forms", "", erb);
+    for want in [
+        "警告Lv1:T.ERB:7行目:関数宣言の直後以外で#行が使われています",
+        "警告Lv2:T.ERB:8行目:\"LOC_TEXT\"は解釈できない識別子です",
+        "T.ERB:12: %%の中の式が文字列式ではありません",
+        "T.ERB:13: '%'が使われましたが対応する'%'が見つかりません",
+        "T.ERB:14: {{}}の中の式が数式ではありません",
+    ] {
+        assert!(out.contains(want), "{want:?} missing:\n{out}");
+    }
+    // (the well-typed line and the escaped % are fine)
+    assert!(!out.contains("T.ERB:15:"), "{out}");
+    // running the line whose #DIMS was ignored is an error
+    let run = play("lw-late-run", "", &[], "@SYSTEM_TITLE\nCALL LATE\nQUIT\n@LATE\n#DIM X\nX = 1\n#DIMS LOC_TEXT\nLOC_TEXT '= \"here\"\n");
+    assert!(run.contains("LOC_TEXT"), "{run}");
+}
+
 #[test]
 fn load_warnings_follow_the_settings() {
     let erb = "@SYSTEM_TITLE\nCALL A\nCALL NOPE\nTRYCALL ALSO_NOPE\nQUIT\n@A\nRETURN\n@LONELY\nRETURN\n@A\nRETURN\n";
@@ -288,9 +313,9 @@ fn load_warnings_follow_the_settings() {
         erb,
     );
     for want in [
-        "警告Lv2:ERB/T.ERB:3行目:指定された関数名\"@NOPE\"は存在しません",
-        "警告Lv1:ERB/T.ERB:8行目:関数\"@LONELY\"は定義されていますが一度も呼び出されません",
-        "警告Lv1:ERB/T.ERB:10行目:関数\"@A\"は既に定義(ERB/T.ERBの6行目)されています",
+        "警告Lv2:T.ERB:3行目:指定された関数名\"@NOPE\"は存在しません",
+        "警告Lv1:T.ERB:8行目:関数\"@LONELY\"は定義されていますが一度も呼び出されません",
+        "警告Lv1:T.ERB:10行目:関数\"@A\"は既に定義(ERB/T.ERBの6行目)されています",
         "全関数合計:3, 被呼出関数合計:2",
     ] {
         // Accept both forward and backslash path separators (Windows vs Unix)

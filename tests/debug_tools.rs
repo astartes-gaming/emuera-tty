@@ -78,7 +78,7 @@ fn load_warnings_are_printed_at_start() {
         .unwrap();
     let out = String::from_utf8_lossy(&o.stdout).into_owned();
     // Accept both forward and backslash path separators (Windows vs Unix)
-    let warn = "警告Lv1:ERB/T.ERB:6行目:関数\"@A\"は既に定義(ERB/T.ERBの4行目)されています\n@A\n";
+    let warn = "警告Lv1:T.ERB:6行目:関数\"@A\"は既に定義(ERB/T.ERBの4行目)されています\n@A\n";
     let warn_alt = "警告Lv1:ERB\\T.ERB:6行目:関数\"@A\"は既に定義(ERB\\T.ERBの4行目)されています\n@A\n";
     assert!(
         out.find(warn).is_some_and(|w| out.find("title").is_some_and(|t| w < t))
@@ -109,12 +109,12 @@ fn emuera_messages_follow_the_language_setting() {
     };
     let ja = with("日本語");
     // Accept both forward and backslash path separators (Windows vs Unix)
-    let warn_ja = "警告Lv1:ERB/T.ERB:6行目:関数\"@A\"は既に定義(ERB/T.ERBの4行目)されています\n@A\n";
-    let warn_ja_alt = "警告Lv1:ERB\\T.ERB:6行目:関数\"@A\"は既に定義(ERB\\T.ERBの4行目)されています\n@A\n";
+    let warn_ja = "警告Lv1:T.ERB:6行目:関数\"@A\"は既に定義(ERB/T.ERBの4行目)されています\n@A\n";
+    let warn_ja_alt = "警告Lv1:T.ERB:6行目:関数\"@A\"は既に定義(ERB\\T.ERBの4行目)されています\n@A\n";
     assert!(ja.contains(warn_ja) || ja.contains(warn_ja_alt), "Japanese warning missing:\n{ja}");
     let en = with("English");
-    let warn_en = "Warning Lv1: ERB/T.ERB, line 6: function \"@A\" is defined already (in ERB/T.ERB, line 4)";
-    let warn_en_alt = "Warning Lv1: ERB\\T.ERB, line 6: function \"@A\" is defined already (in ERB\\T.ERB, line 4)";
+    let warn_en = "Warning Lv1:T.ERB: at line 6:function \"@A\" is defined already (in ERB/T.ERB, line 4)";
+    let warn_en_alt = "Warning Lv1:T.ERB: at line 6:function \"@A\" is defined already (in ERB\\T.ERB, line 4)";
     assert!(en.contains(warn_en) || en.contains(warn_en_alt), "English warning missing:\n{en}");
     // the game's own file: its text for the IDs it has, numbered as it likes
     let xml = "<?xml version='1.0' encoding='utf-8'?>\n<lang>\n<name>English</name>\n\
@@ -122,8 +122,8 @@ fn emuera_messages_follow_the_language_setting() {
     std::fs::create_dir_all(dir.join("lang")).unwrap();
     std::fs::write(dir.join("lang/emuera.eng.xml"), xml).unwrap();
     let file = with("English");
-    let warn_file = "Warning Lv1: ERB/T.ERB, line 6: @A twice (first: ERB/T.ERB:4)";
-    let warn_file_alt = "Warning Lv1: ERB\\T.ERB, line 6: @A twice (first: ERB\\T.ERB:4)";
+    let warn_file = "Warning Lv1:T.ERB: at line 6:@A twice (first: ERB/T.ERB:4)";
+    let warn_file_alt = "Warning Lv1:T.ERB: at line 6:@A twice (first: ERB\\T.ERB:4)";
     assert!(file.contains(warn_file) || file.contains(warn_file_alt), "Game file warning missing:\n{file}");
     let _ = std::fs::remove_dir_all(&dir);
 }

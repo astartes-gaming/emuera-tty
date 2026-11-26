@@ -21,7 +21,9 @@
 ## Emuera's load warnings
 
 `emuera-tty GAME --check` compiles every function and reports what Emuera
-reports while loading, in its words (`警告Lv2:ERB/X.ERB:12行目:…`), as the
+reports while loading, in its words and format (`警告Lv2:X.ERB:12行目:…`,
+`Warning Lv2:X.ERB: at line 12:…`, the file named inside `ERB\` as
+Emuera does), as the
 game's settings ask (*Minimum warning level*, *Function is not found
 warning*, *Function not called warning*, *Duplicated functions warning*,
 *System function override warning*, *Check duplicate ERD identifier*,
@@ -29,7 +31,23 @@ warning*, *Function not called warning*, *Duplicated functions warning*,
 nothing calls, functions defined twice, built-in functions the game
 replaces. A game whose settings leave these at Emuera's defaults shows
 none; set them in the game's `emuera.config` (or F3 → game settings) to
-see them. When a game starts (in debug mode or not), the warnings known
+see them.
+
+Also reported, whatever the settings, are the line-level problems
+Emuera-EE rejects. emuera-tty used to accept these lines quietly; now
+each of them is a script error when it runs, as in Emuera:
+
+- **A `#` line after a statement:** level-1 warning *# labels can be only
+  used immediately after the function declaration*. Emuera ignores the
+  line, `#DIM` / `#DIMS` included, so a variable declared that way
+  doesn't exist. Assigning to it is the level-2 *X cannot be
+  interpreted*.
+- **`%number%` or `{string}` in a FORM** (`PRINTFORML %ARG%`): *Expression
+  inside %% is not a string expression*, or the `{{}}` one for numbers.
+  Emuera-tty checks this only where the type is certain when compiling:
+  literals, declared and built-in variables, the game's `#FUNCTION`s.
+- **A `%` or `{` without its partner** (`PRINTFORML 50% off`): every `%`
+  in a FORM starts an expression, so a literal one is written `\%`. When a game starts (in debug mode or not), the warnings known
 without compiling every function (functions defined twice, and with
 Emuera.NET's `CheckUTF8withBOM` in `setting.json`, script files without
 a UTF-8 BOM) are printed in the game's console before it starts, each in
