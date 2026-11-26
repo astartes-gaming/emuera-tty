@@ -174,7 +174,7 @@ class MainActivity : Activity() {
             text = """
             For the curious: Why not Termux?
 
-            While Termux is a supported build option, it comes with the most significant limitation of not having a implemented graphics protocol, which means that there was basically no image rendering support.
+            While Termux is a supported build option, it comes with the most significant limitation of not having a implemented graphics protocol, which means that there is basically no image rendering support.
             """.trimIndent()
             textSize = 12f
             setPadding(0, pad/2, 0, pad/2)

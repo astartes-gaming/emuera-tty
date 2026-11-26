@@ -32,7 +32,7 @@ import kotlin.ranges.step
 private const val TEXT_SIZE_FILE = "text-size"
 /** As percentages of the size the game's own window width gives. */
 private val TEXT_SIZES = intArrayOf(
-    75, 100, 125, 150, 175, 200, 250, 300
+    25, 50, 75, 100, 125, 150, 175, 200, 250, 300
 )
 
 /**
@@ -151,18 +151,6 @@ class GameActivity : Activity() {
                 text = "Skip"
                 setOnClickListener { Native.skip() }
             })
-            val memoryView = TextView(context).apply {
-                text = Native.formattedMemory()
-            }
-            addView(memoryView)
-            val memoryHandler = Handler(Looper.getMainLooper())
-            val memoryUpdater = object : Runnable {
-                override fun run(){
-                   memoryView.text = Native.formattedMemory()
-                   memoryHandler.postDelayed(this, 1000)
-                }
-            }
-            memoryHandler.post(memoryUpdater)
         }
         // the game's menu, over the console's top right corner
         val screen = FrameLayout(this).apply {
@@ -178,6 +166,28 @@ class GameActivity : Activity() {
                 setOnClickListener { showMenu(game) }
             }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END))
         }
+
+        val stats = FrameLayout(this).apply {
+            val memoryView = TextView(context).apply {
+                text = Native.formattedMemory()
+                textSize = 12f
+                minWidth = 0
+                setTextColor(Color.WHITE)
+                setBackgroundColor(0x80303030.toInt())
+            }
+            addView(memoryView)
+            val memoryHandler = Handler(Looper.getMainLooper())
+            val memoryUpdater = object : Runnable {
+                override fun run(){
+                   memoryView.text = Native.formattedMemory()
+                   memoryHandler.postDelayed(this, 1000)
+                }
+            }
+            memoryHandler.post(memoryUpdater)
+        }
+        // the memory readout, over the console's top left corner
+        screen.addView(stats, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START))
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
