@@ -124,6 +124,10 @@ For trustworthy native profiles use a release-equivalent build:
 
 ## Architecture
 
+`CODE_DETAILS.md` has brief but deeper details on many of the parts of the
+project — what each `.rs` file (and the Android app's `.kt` files) does and
+how they fit together; read it first to find where a feature lives.
+
 Startup (`main.rs`): read CSVs (`csvdata.rs`) → list ERH/ERB files in
 Emuera's order (`loader::emuera_files` / `erb_files`, honouring the game
 config's "search subfolders" / "sort by file name") → parse ERH headers
