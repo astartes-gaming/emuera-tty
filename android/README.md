@@ -16,7 +16,6 @@ frontend drawn by the app.
 | `kotlin/GameAudio.kt` | The game's sound and music, with Android's `MediaPlayer` |
 | `kotlin/GamesProvider.kt`, `Paths.kt` | The games in the system's file manager, and the rule that keeps its paths inside them |
 | `kotlin/Crash.kt` | Reporting a game that stopped: what the engine logged, with a way to share it |
-| `tools/mkmanifest.rs` | Writes the binary manifest, in place of `aapt2` |
 | `fetch-toolchain.sh` | Gets what the build needs from Google, checked against known sums |
 | `build.sh` | Builds the APK |
 | `push-game.sh` | Copies a game from a PC, faster than importing it on the phone while developing |
@@ -26,13 +25,13 @@ frontend drawn by the app.
 
 ## Build
 
-Runs on ARM Linux with no Gradle or Android Studio. `.toolchain/` needs these four things from Google,
+Runs on Linux with no Gradle or Android Studio. `.toolchain/` needs these four things from Google,
 under Google's Android SDK terms:
 
 - `sdk/android.jar`, from `platform-35_r02.zip`
 - `dl/r8-8.13.25.jar`, from Google's Maven repository (`com.android.tools:r8`)
 - `ndk/android-ndk-r30/`, the target libraries from `android-ndk-r30-linux.zip`
-- `sdk/build-tools/36.1.0`, for apk signing with the packaged `apksigner`
+- `sdk/build-tools/36.1.0`, for `aapt2` (the app icon and resources) and `apksigner` (signing)
 
 Only the NDK's target libraries and `apksigner` are used; no other x86-64 programs are run. Everything comes from
 `https://dl.google.com/android/`. `./fetch-toolchain.sh` downloads them (about 820 MB, mostly the NDK), checks their

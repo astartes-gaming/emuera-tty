@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fills .toolchain/ with what build.sh needs from Google, checked against these SHA-256 sums:
-# android.jar, the r8 jar, and only the NDK's target libraries (no x86-64 program is kept).
+# android.jar, the r8 jar, and only the NDK's target libraries (some x86-64 programs are kept).
 # Downloading means accepting Google's Android SDK terms. Needs curl, unzip and sha256sum.
 set -euo pipefail
 T=$(cd "$(dirname "$0")" && pwd)/.toolchain
