@@ -3,9 +3,13 @@ package io.github.astartes_gaming.emuera
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.AlertDialog
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -13,8 +17,12 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -27,11 +35,19 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
+import kotlin.random.Random
 import kotlin.text.lowercase
 
 private const val PICK_ARCHIVE = 1
 private const val PICK_FOLDER = 2
 private const val PICK_FONT = 3
+private const val PREFS_ICON = "emuera_tty_icons"
+private const val KEY_ICON = "alternate_icon"
+
+private val iconJokes = mutableListOf<Triple<String, String, Int>>().apply {
+    add(Triple("Default", "Egger", 20))
+    add(Triple("Akumaid", "Coldbane", 10))
+}
 
 /** The game list, and importing games through the system's file picker (no storage permission needed). */
 class MainActivity : Activity() {
@@ -53,6 +69,7 @@ class MainActivity : Activity() {
         // the game process sets these in Native.start, but the list process needs them too.
         Native.setConfigHome(filesDir.path)
         Native.recoverImports(games.path)
+        applyIcon()
 
         val pad = (16 * resources.displayMetrics.density).toInt()
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -157,6 +174,22 @@ class MainActivity : Activity() {
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
+        list.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(Button(this@MainActivity).apply {
+                text = "App icon"
+                isAllCaps = false
+                setOnClickListener { showIconPicker() }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(this@MainActivity).apply {
+                text = "choose a different launcher icon"
+                textSize = 12f
+                setTextColor(0xFF999999.toInt())
+                setPadding(8, 0, 0, 0)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
         if (names.isEmpty()) {
             list.addView(TextView(this).apply {
                 text = """
@@ -234,6 +267,105 @@ class MainActivity : Activity() {
         d.setStroke(2, 0xFF777777.toInt())
         d.setColor(0x00000000.toInt())
         return d
+    }
+
+    /** True with a 1-in-`n` chance. */
+    private fun oneIn(n: Int): Boolean {
+        require(n > 0) { "n must be positive" }
+        return Random.nextInt(n) == 0
+    }
+
+    /** Enable exactly one launcher-activity alias, so there's always one app icon, and persist the choice. */
+    private fun applyIcon() {
+        val pm = packageManager
+        val pref = getSharedPreferences(PREFS_ICON, MODE_PRIVATE)
+        val current = pref.getString(KEY_ICON, "default")
+        for (icon in appIcons) {
+            pm.setComponentEnabledSetting(
+                ComponentName(packageName, "io.github.astartes_gaming.emuera.Icon${icon.key.capitalize()}"),
+                if (icon.key == current) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP)
+        }
+    }
+
+    /** Let the user pick which launcher icon to show; applies at once and survives restarts.
+        Each row shows the icon image itself. Each option can carry joke replacements
+        (see iconJokes): with a 1-in-`chance` roll, its label swaps to the joke text for
+        half a second before reverting. */
+    private fun showIconPicker() {
+        val pref = getSharedPreferences(PREFS_ICON, MODE_PRIVATE)
+        val current = pref.getString(KEY_ICON, "default")
+        val selected = appIcons.indexOfFirst { it.key == current }.coerceAtLeast(0)
+
+        val displayLabels = appIcons.map { it.label }.toMutableList()
+        val joke = mutableListOf<Int>()
+        for (i in displayLabels.indices) {
+            for ((original, replacement, chance) in iconJokes) {
+                if (displayLabels[i] == original && oneIn(chance)) {
+                    displayLabels[i] = replacement
+                    joke += i
+                    break
+                }
+            }
+        }
+
+        val adapter = IconAdapter(appIcons, displayLabels)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("App icon")
+            .setSingleChoiceItems(adapter, selected) { _, picked ->
+                val chosen = appIcons[picked].key
+                pref.edit().putString(KEY_ICON, chosen).apply()
+                applyIcon()
+                status.text = "App icon: ${appIcons[picked].label}"
+            }
+            .setPositiveButton("OK", null)
+            .show()
+
+        // revert the joke labels after half a second, if the dialog is still open
+        if (joke.isNotEmpty()) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!dialog.isShowing) return@postDelayed
+                for (i in joke) displayLabels[i] = appIcons[i].label
+                adapter.notifyDataSetChanged()
+            }, 500)
+        }
+    }
+
+    /** One picker row: the icon image next to its label. */
+    private inner class IconAdapter(
+        private val icons: List<AppIcon>,
+        private val displayLabels: MutableList<String>,
+    ) : ArrayAdapter<AppIcon>(this@MainActivity, 0, 0, icons) {
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val row = if (convertView != null) convertView else buildRow(parent)
+            val (image, text) = row.tag as Pair<ImageView, TextView>
+            val icon = icons[position]
+            val resId = resources.getIdentifier(icon.iconName, "drawable", packageName)
+            image.setImageResource(if (resId == 0) 0 else resId)
+            text.text = displayLabels[position]
+            return row
+        }
+    }
+
+    /** Builds a reusable row view: an icon image followed by its label text. */
+    private fun buildRow(parent: ViewGroup): LinearLayout {
+        val density = resources.displayMetrics.density
+        val size = (48 * density).toInt()
+        val row = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(14, 10, 14, 10)
+        }
+        val image = ImageView(this@MainActivity).apply { id = View.generateViewId() }
+        row.addView(image, LinearLayout.LayoutParams(size, size))
+        val text = TextView(this@MainActivity).apply {
+            id = View.generateViewId()
+            textSize = 16f
+        }
+        row.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.tag = Pair(image, text)
+        return row
     }
 
     private fun confirmDelete(name: String) {
