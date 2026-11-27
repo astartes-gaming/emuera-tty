@@ -31,7 +31,7 @@ under Google's Android SDK terms:
 - `sdk/android.jar`, from `platform-35_r02.zip`
 - `dl/r8-8.13.25.jar`, from Google's Maven repository (`com.android.tools:r8`)
 - `ndk/android-ndk-r30/`, the target libraries from `android-ndk-r30-linux.zip`
-- `sdk/build-tools/36.1.0`, for `aapt2` (the app icon and resources) and `apksigner` (signing)
+- `sdk/build-tools/36.1.0`, for `aapt2` (the adaptive app icon and resources) and `apksigner` (signing)
 
 Only the NDK's target libraries and `apksigner` are used; no other x86-64 programs are run. Everything comes from
 `https://dl.google.com/android/`. `./fetch-toolchain.sh` downloads them (about 820 MB, mostly the NDK), checks their

@@ -86,7 +86,8 @@ cat > "$B/apk/AndroidManifest.xml" <<EOF
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <application
       android:label="Emuera-Android"
-      android:icon="@drawable/ic_launcher"
+      android:icon="@mipmap/ic_launcher"
+      android:roundIcon="@mipmap/ic_launcher_round"
       android:debuggable="true"
       android:hasCode="true"
       android:hardwareAccelerated="true"
@@ -148,14 +149,47 @@ java -cp "$R8" com.android.tools.r8.D8 --release --min-api "$MIN_SDK" --lib "$AN
   || { tail -30 "$B/d8.log" >&2; exit 1; }
 
 # --- the app icon and resources, compiled by aapt2 into the manifest's resource table
+# legacy mipmap icons (pre-API-26) plus an adaptive icon (API 26+) with a
+# transparent background, so launchers don't paint a white circle behind it
 echo "[ANDROID] building app (L4b, resources)"
 rm -rf "$B/res"; mkdir -p "$B/res/drawable"
-cp "$A/icon.png" "$B/res/drawable/ic_launcher.png"
-"$AAPT2" compile -o "$B/icon.zip" "$B/res/drawable/ic_launcher.png"
-unzip -p "$B/icon.zip" > "$B/icon.flat"
-"$AAPT2" link -o "$B/res.apk" --manifest "$B/apk/AndroidManifest.xml" -I "$ANDROID_JAR" "$B/icon.flat"
+for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do mkdir -p "$B/res/mipmap-$d"; done
+mkdir -p "$B/res/mipmap-anydpi-v26"
+# the foreground layer: the penguin on transparency (icon.png already has alpha)
+cp "$A/icon.png" "$B/res/drawable/ic_launcher_foreground.png"
+for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+  cp "$A/icon.png" "$B/res/mipmap-$d/ic_launcher.png"
+  cp "$A/icon.png" "$B/res/mipmap-$d/ic_launcher_round.png"
+done
+# adaptive icon background: fully transparent (no system-drawn white background)
+cat > "$B/res/drawable/ic_launcher_background.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+  <solid android:color="@android:color/transparent"/>
+</shape>
+EOF
+cat > "$B/res/mipmap-anydpi-v26/ic_launcher.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+  <background android:drawable="@drawable/ic_launcher_background"/>
+  <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>
+EOF
+cp "$B/res/mipmap-anydpi-v26/ic_launcher.xml" "$B/res/mipmap-anydpi-v26/ic_launcher_round.xml"
+# compile each resource file into a flat (PNGs emit a zip holding the flat),
+# then link them all together
+FLATS=""
+i=0
+for f in $(find "$B/res" -type f); do
+  i=$((i + 1))
+  "$AAPT2" compile -o "$B/res.zip.$i" "$f"
+  unzip -o -q -d "$B/res.flat.$i.d" "$B/res.zip.$i"
+  FLATS="$FLATS $(find "$B/res.flat.$i.d" -name '*.flat')"
+done
+# shellcheck disable=SC2086
+"$AAPT2" link -o "$B/res.apk" --manifest "$B/apk/AndroidManifest.xml" -I "$ANDROID_JAR" $FLATS
 (cd "$B/apk" && unzip -q -o "$B/res.apk")
-rm -rf "$B/res" "$B/icon.zip" "$B/icon.flat" "$B/res.apk"
+rm -rf "$B/res" "$B"/res.flat.* "$B/res.apk"
 
 # --- package: resources.arsc stays uncompressed (required on API 30+)
 UNSIGNED=$B/unsigned.apk
