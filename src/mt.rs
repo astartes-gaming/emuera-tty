@@ -26,6 +26,8 @@ use std::time::Duration;
 pub enum Engine {
     /// an Ollama model at localhost:11434
     Ollama { model: String },
+    /// LMStudio OpenAI-compatible API (default localhost:1234)
+    LmStudio { model: String, url: String },
     /// a LibreTranslate server (`url` up to the port)
     Libre { url: String },
     /// `translateLocally -m model`
@@ -54,8 +56,26 @@ impl Engine {
                 .or_else(|| which("trans").then_some(Engine::Trans))
                 .or_else(|| Engine::choose("deepl").ok())
                 .ok_or_else(|| {
-                    t!("no translator found: install Ollama, LibreTranslate, translateLocally, Argos Translate or translate-shell (or curl, for DeepL)")
+                    t!("no translator found: install Ollama, LMStudio, LibreTranslate, translateLocally, Argos Translate or translate-shell (or curl, for DeepL)")
                 }),
+            "lmstudio" => {
+                let model = std::env::var("EMUERA_TRANSLATE_MODEL").ok().filter(|m| !m.is_empty());
+                let lms_url = std::env::var("EMUERA_LMSTUDIO_URL").unwrap_or_else(|_| "127.0.0.1:1234".into());
+                let lms_url = lms_url.trim_start_matches("http://").trim_end_matches('/').to_string();
+                if http(&lms_url, "GET", "/v1/models", "", Duration::from_millis(500)).is_some() {
+                    let model = model.unwrap_or_else(|| {
+                        // Try to get first model from /v1/models
+                        if let Some(models) = http(&lms_url, "GET", "/v1/models", "", Duration::from_millis(500)) {
+                            json_field(&models, "id").unwrap_or_default()
+                        } else {
+                            String::new()
+                        }
+                    });
+                    Ok(Engine::LmStudio { model, url: lms_url })
+                } else {
+                    Err(t!("LMStudio not reachable at {url}: is it running?", url = lms_url))
+                }
+            }
             "translate-shell" if which("trans") => Ok(Engine::Trans),
             "translate-shell" => Err(t!("translate-shell (trans) isn't installed: get it from your package manager or translate-shell's site")),
             // the API key first; without one DeepL's free keyless endpoint
@@ -72,13 +92,13 @@ impl Engine {
             "argos" if which("argos-translate") || Argos::python().is_some() => Ok(Engine::Argos),
             "argos" => Err(t!("Argos Translate isn't installed: pipx install argostranslate, then argospm install translate-ja_en")),
             _ => Engine::find().ok_or_else(|| {
-                t!("no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL")
+                t!("no translator on this computer: install Ollama, LMStudio, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL")
             }),
         }
     }
 
     /// The local translator to use: `EMUERA_TRANSLATE_CMD` if set, else the
-    /// first of Ollama, LibreTranslate, translateLocally and argos-translate.
+    /// first of Ollama, LMStudio, LibreTranslate, translateLocally and argos-translate.
     pub fn find() -> Option<Engine> {
         if let Ok(c) = std::env::var("EMUERA_TRANSLATE_CMD") {
             if !c.trim().is_empty() {
@@ -86,10 +106,20 @@ impl Engine {
             }
         }
         let model = std::env::var("EMUERA_TRANSLATE_MODEL").ok().filter(|m| !m.is_empty());
+        // Ollama
         if let Some(tags) = http("127.0.0.1:11434", "GET", "/api/tags", "", Duration::from_millis(500)) {
             let name = model.clone().or_else(|| json_field(&tags, "name"));
             if let Some(model) = name {
                 return Some(Engine::Ollama { model });
+            }
+        }
+        // LMStudio (OpenAI-compatible API, default localhost:1234)
+        let lms_url = std::env::var("EMUERA_LMSTUDIO_URL").unwrap_or_else(|_| "127.0.0.1:1234".into());
+        let lms_url = lms_url.trim_start_matches("http://").trim_end_matches('/').to_string();
+        if let Some(models) = http(&lms_url, "GET", "/v1/models", "", Duration::from_millis(500)) {
+            let name = model.clone().or_else(|| json_field(&models, "id"));
+            if let Some(model) = name {
+                return Some(Engine::LmStudio { model, url: lms_url });
             }
         }
         let libre = std::env::var("EMUERA_LIBRETRANSLATE").unwrap_or_else(|_| "127.0.0.1:5000".into());
@@ -109,6 +139,7 @@ impl Engine {
     pub fn describe(&self) -> String {
         match self {
             Engine::Ollama { model } => format!("Ollama ({})", model),
+            Engine::LmStudio { model, url } => format!("LMStudio ({}) at {}", model, url),
             Engine::Libre { url } => format!("LibreTranslate ({})", url),
             Engine::Bergamot { model } if model.is_empty() => "translateLocally".into(),
             Engine::Bergamot { model } => format!("translateLocally ({})", model),
@@ -150,6 +181,24 @@ impl Engine {
                 let body = format!("{{\"model\":{},\"prompt\":{},\"stream\":false,\"options\":{{\"temperature\":0.2}}}}", json_str(model), json_str(&prompt));
                 let r = http("127.0.0.1:11434", "POST", "/api/generate", &body, Duration::from_secs(120)).ok_or_else(|| t!("Ollama didn't answer"))?;
                 json_field(&r, "response").ok_or_else(|| t!("Ollama gave no translation"))?
+            }
+            Engine::LmStudio { model, url } => {
+                let n = text.lines().count();
+                let what = if n > 1 { format!("these {} lines", n) } else { "this line".to_string() };
+                let keep = if n > 1 { format!(" Reply with exactly {} lines, one for each, in order.", n) } else { String::new() };
+                let prompt = format!(
+                    "Translate {} of {} text from a game into natural {}. Keep names, numbers and symbols as they are. Reply with the translation only, no notes.{}\n\n{}",
+                    what,
+                    language_name(from),
+                    language_name(to),
+                    keep,
+                    text
+                );
+                let body = format!("{{\"model\":{},\"messages\":[{{\"role\":\"user\",\"content\":{}}}]}}", json_str(model), json_str(&prompt));
+                let r = http(url, "POST", "/v1/chat/completions", &body, Duration::from_secs(120)).ok_or_else(|| t!("LMStudio didn't answer"))?;
+                // OpenAI format: {"choices":[{"message":{"content":"..."}}]}
+                let choice = json_field(&r, "choices").ok_or_else(|| t!("LMStudio gave no choices"))?;
+                json_field(&choice, "content").ok_or_else(|| t!("LMStudio gave no translation"))?
             }
             Engine::Libre { url } => {
                 let body = format!("{{\"q\":{},\"source\":{},\"target\":{},\"format\":\"text\"}}", json_str(text), json_str(from), json_str(to));

@@ -673,7 +673,12 @@ msgid "no game folder given (pass GAME_DIR, or run in a terminal to pick one)"
 msgstr ""
 
 #: src/mt.rs
-msgid "no translator found: install Ollama, LibreTranslate, translateLocally, Argos Translate or translate-shell (or curl, for DeepL)"
+msgid "no translator found: install Ollama, LMStudio, LibreTranslate, translateLocally, Argos Translate or translate-shell (or curl, for DeepL)"
+msgstr ""
+
+#: src/mt.rs
+#, no-c-format
+msgid "LMStudio not reachable at {url}: is it running?"
 msgstr ""
 
 #: src/mt.rs
@@ -689,7 +694,7 @@ msgid "Argos Translate isn't installed: pipx install argostranslate, then argosp
 msgstr ""
 
 #: src/mt.rs
-msgid "no translator on this computer: install Ollama, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL"
+msgid "no translator on this computer: install Ollama, LMStudio, LibreTranslate, translateLocally or argos-translate (or set EMUERA_TRANSLATE_CMD), or choose translate-shell / DeepL"
 msgstr ""
 
 #: src/mt.rs
@@ -715,6 +720,18 @@ msgstr ""
 
 #: src/mt.rs
 msgid "Ollama gave no translation"
+msgstr ""
+
+#: src/mt.rs
+msgid "LMStudio didn't answer"
+msgstr ""
+
+#: src/mt.rs
+msgid "LMStudio gave no choices"
+msgstr ""
+
+#: src/mt.rs
+msgid "LMStudio gave no translation"
 msgstr ""
 
 #: src/mt.rs
