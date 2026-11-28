@@ -249,6 +249,7 @@ jobs:
     runs-on: ubuntu-26.04
     env:
       KOTLIN_VERSION: "2.4.21"
+      VERSION_NAME: "b${{ github.run_number }}"
     steps:
       - uses: actions/checkout@v7
       - name: Install dependencies
